@@ -81,7 +81,7 @@ export function AccountsTable({
                   <TableHead className="w-[140px]">Linked GL</TableHead>
                   <TableHead className="w-[110px]">Status</TableHead>
                   <TableHead className="w-[150px] text-right">Book balance</TableHead>
-                  <TableHead className="w-[130px]">Last reconciled (PHT)</TableHead>
+                  <TableHead className="w-[130px] text-center">Last reconciled</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -146,7 +146,7 @@ export function AccountsTable({
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{formatCurrency(account.bookBalance)}</TableCell>
-                      <TableCell className="tabular-nums">
+                      <TableCell className="text-center tabular-nums">
                         {account.lastReconciledAt ? toPhtDateString(account.lastReconciledAt) : "Never"}
                       </TableCell>
                     </TableRow>
@@ -191,6 +191,13 @@ export function AccountsTable({
               </div>
               <p className="truncate text-xs text-muted-foreground">{account.accountNumber}</p>
               <p className="text-sm tabular-nums">{formatCurrency(account.bookBalance)}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {account.currency} · {account.ifrsCategory}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {account.glTitle ?? "No linked GL"} · last reconciled{" "}
+                {account.lastReconciledAt ? toPhtDateString(account.lastReconciledAt) : "never"}
+              </p>
             </li>
           ))}
         </ul>

@@ -7,6 +7,8 @@ import {
   describeCheckError,
 } from "@/modules/financial-management/treasury/bank-management-v2/check-clearing-management/services/checks.service";
 
+import { currentUserId } from "../../_lib/actor";
+
 export const dynamic = "force-dynamic";
 
 const dateField = z
@@ -17,12 +19,17 @@ const dateField = z
 const ActionSchema = z.object({
   action: z.enum(["RELEASE", "DEPOSIT", "CLEAR", "RETURN", "CANCEL", "REPLACE"]),
   returnReason: z.string().trim().max(120).optional(),
+  cancelReason: z.string().trim().max(120).optional(),
   note: z.string().trim().max(500).optional(),
+  releaseDate: dateField.optional(),
+  depositDate: dateField.optional(),
+  clearedDate: dateField.optional(),
   replacement: z
     .object({
       checkDate: dateField,
       amount: z.coerce.number().positive("Enter an amount greater than zero."),
       checkNo: z.string().trim().max(40).optional(),
+      draweeBank: z.string().trim().max(120).optional(),
     })
     .optional(),
 });
@@ -50,18 +57,24 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   try {
+    const actorId = await currentUserId();
     const data = await applyCheckAction(checkId, {
       action: parsed.data.action,
       returnReason: parsed.data.returnReason ?? null,
+      cancelReason: parsed.data.cancelReason ?? null,
       note: parsed.data.note ?? null,
+      releaseDate: parsed.data.releaseDate ?? null,
+      depositDate: parsed.data.depositDate ?? null,
+      clearedDate: parsed.data.clearedDate ?? null,
       replacement: parsed.data.replacement
         ? {
             checkDate: parsed.data.replacement.checkDate,
             amount: parsed.data.replacement.amount,
             checkNo: parsed.data.replacement.checkNo ?? null,
+            draweeBank: parsed.data.replacement.draweeBank ?? null,
           }
         : null,
-    });
+    }, actorId);
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const failure = describeCheckError(error, `[bank-management-v2] check action ${checkId} failed`);

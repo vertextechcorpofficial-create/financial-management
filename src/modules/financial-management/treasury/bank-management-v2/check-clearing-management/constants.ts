@@ -38,7 +38,7 @@ export const INTEREST_TAX_RATES = [
   { value: 0, label: "0% — exempt" },
 ] as const;
 
-/** FSD 1.4 — the fixed return-reason picklist. */
+/** Return-reason picklist (spec 4.6). Cancelling has its own list — the two are not interchangeable. */
 export const CHECK_RETURN_REASONS = [
   "Insufficient funds (NSF)",
   "Account closed",
@@ -46,9 +46,17 @@ export const CHECK_RETURN_REASONS = [
   "Stale-dated",
   "Stop payment",
   "Returned by payee",
+  "Other",
+] as const;
+
+/** Cancel-reason picklist (spec 4.7). "Stale (over 180 days)" is the one the Stale flag prompts for. */
+export const CHECK_CANCEL_REASONS = [
+  "Returned to customer",
   "Wrong amount or payee",
   "Lost or damaged",
-  "Spoiled",
+  "Stale (over 180 days)",
+  "Spoiled before release",
+  "Other",
 ] as const;
 
 export const CHECK_ACTIONS = [
@@ -61,6 +69,14 @@ export const CHECK_ACTIONS = [
 ] as const;
 
 export const STALE_CHECK_DAYS = 180;
+
+/** P44 / P156: the payable account an issued check credits; AP-CTL is the default. */
+export const PAYABLE_LABELS = {
+  AP_CONTROL: "AP-CTL · Accounts payable",
+  NTP_CONTROL: "NTP-CTL · Negotiable instrument control",
+} as const;
+
+export type PayableKey = keyof typeof PAYABLE_LABELS;
 export const UNCLEARED_DEPOSIT_DAYS = 3;
 
 /** Badge tone classes, per QA.md: outline variant plus tint. */

@@ -70,7 +70,8 @@ export function interestEntry(
 }
 
 /**
- * E05 — same-day transfer; E06 — transfer with a later value date.
+ * E05 — same-day transfer (legacy rows only: every new transfer parks in clearing); E06 — transfer
+ * held in transfer-in-transit until it is settled.
  *
  * `leg` OUT moves money out of the sending account (E06 parks it in transfer-in-transit),
  * `leg` IN settles into the receiving account on or after the value date.

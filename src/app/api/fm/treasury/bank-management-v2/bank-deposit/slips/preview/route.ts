@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { previewDepositSlip } from "@/modules/financial-management/treasury/bank-management-v2/bank-deposit/services/deposit.service";
-import { DirectusError } from "@/modules/financial-management/treasury/bank-management-v2/bank-deposit/services/directus";
+import { DirectusError, directusReason } from "@/modules/financial-management/treasury/bank-management-v2/bank-deposit/services/directus";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +33,11 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof DirectusError) {
       console.error("[bank-management-v2] deposit preview failed", error.status, error.body);
-      return NextResponse.json({ success: false, error: "The journal preview could not be resolved." }, { status: 502 });
+      const reason = directusReason(error.body);
+      return NextResponse.json(
+        { success: false, error: reason ? `The database rejected this read: ${reason}` : "The journal preview could not be resolved." },
+        { status: 502 },
+      );
     }
     console.error("[bank-management-v2] deposit preview failed", error);
     return NextResponse.json({ success: false, error: "The journal preview could not be resolved." }, { status: 500 });

@@ -37,7 +37,6 @@ const STATUS_TONE: Record<string, Tone> = {
   CLOSED: "neutral",
   RECONCILED: "success",
   DRAFT: "neutral",
-  CRITICAL: "danger",
   HIGH: "danger",
   MEDIUM: "warning",
 };

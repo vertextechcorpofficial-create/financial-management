@@ -164,6 +164,8 @@ export interface CheckEvent {
   eventCode: string | null;
   journalNo: string | null;
   note: string | null;
+  /** P101: the person who took the action; resolved server-side, never an id. */
+  actorName: string | null;
   occurredAt: string;
 }
 

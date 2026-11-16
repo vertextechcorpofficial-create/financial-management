@@ -5,9 +5,13 @@ import { listAccounts } from "@/modules/financial-management/treasury/bank-manag
 
 export const dynamic = "force-dynamic";
 
+const emptyToUndefined = (value: unknown) => (value === "" || value == null ? undefined : value);
+const optional = <T extends z.ZodTypeAny>(schema: T) => z.preprocess(emptyToUndefined, schema.optional());
+
 const querySchema = z.object({
-  status: z.enum(["ACTIVE", "DORMANT", "CLOSED"]).optional(),
-  currency: z.enum(["PHP", "USD"]).optional(),
+  // Five statuses, because the register shows INACTIVE and ESCHEATED rows too.
+  status: optional(z.enum(["ACTIVE", "DORMANT", "INACTIVE", "ESCHEATED", "CLOSED"])),
+  currency: optional(z.enum(["PHP", "USD"])),
   type: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().trim().max(40).optional()),
   ifrs: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().trim().max(40).optional()),
   q: z
@@ -16,7 +20,7 @@ const querySchema = z.object({
     .max(120, "Search text is too long")
     .optional()
     .transform((value) => value || undefined),
-  reconciliation: z.enum(["RECONCILED", "UNRECONCILED"]).optional(),
+  reconciliation: optional(z.enum(["RECONCILED", "UNRECONCILED"])),
 });
 
 export async function GET(request: Request) {

@@ -3,19 +3,33 @@
 import { Fragment } from "react";
 import type { ReactNode } from "react";
 
-import { MoreVertical } from "lucide-react";
-
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 import { phtDisplayStamp, toPhtDateString } from "../pht";
 import { TablePager } from "./TablePager";
-import { DORMANT_MONTHS, ESCHEAT_MONTHS, INACTIVE_MONTHS, classLabel, classTone, statusLabel, statusTone, toneClass } from "../constants";
+import {
+  DORMANT_MONTHS,
+  ESCHEAT_MONTHS,
+  INACTIVE_MONTHS,
+  classLabel,
+  classTone,
+  cleanText,
+  statusLabel,
+  statusTone,
+  toneClass,
+} from "../constants";
 import type { DormancyAccount } from "../types";
 
-const COLUMNS = 8;
+const COLUMNS = 6;
+
+/** The stage badge already says "Active"/"Dormant"; a second green badge adds noise, not information. */
+function statusDiffers(account: DormancyAccount): boolean {
+  if (account.status === "ACTIVE") return false;
+  if (account.status === "DORMANT") return account.classification !== "DORMANT";
+  return true;
+}
 
 type Props = {
   accounts: DormancyAccount[];
@@ -41,22 +55,6 @@ function ActivityCell({ account }: { account: DormancyAccount }) {
       <p className="truncate text-xs text-muted-foreground" title={account.lastActivitySource ?? undefined}>
         {account.lastActivitySource ?? "Counted from onboarding"}
       </p>
-    </div>
-  );
-}
-
-function RowActions({ account, props }: { account: DormancyAccount; props: Props }) {
-  return (
-    <div onClick={(event) => event.stopPropagation()}>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label={`Actions for ${account.accountNumber}`}
-        title="Account actions"
-        onClick={() => props.onOpen(account)}
-      >
-        <MoreVertical className="h-4 w-4" aria-hidden />
-      </Button>
     </div>
   );
 }
@@ -106,8 +104,6 @@ export function DormancyTable(props: Props) {
                   <TableHead className="w-[170px]">Last customer activity</TableHead>
                   <TableHead className="w-[110px] text-center">Months inactive</TableHead>
                   <TableHead className="w-[150px]" title={`Stage from months without customer-initiated movement: ${INACTIVE_MONTHS} inactive, ${DORMANT_MONTHS} dormant-eligible, ${ESCHEAT_MONTHS} escheat-eligible.`}>Dormancy stage</TableHead>
-                  <TableHead className="w-[170px]">Status</TableHead>
-                  <TableHead className="w-[110px]">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -130,11 +126,14 @@ export function DormancyTable(props: Props) {
                     </TableCell>
                     <TableCell className="max-w-[220px]">
                       <div className="min-w-0">
-                        <p className="truncate" title={account.bankName}>
-                          {account.bankName}
+                        <p className="truncate" title={cleanText(account.bankName) ?? undefined}>
+                          {cleanText(account.bankName) ?? "—"}
                         </p>
-                        <p className="truncate text-xs text-muted-foreground" title={account.branch ?? undefined}>
-                          {account.branch ?? "No branch"}
+                        <p
+                          className="truncate text-xs text-muted-foreground"
+                          title={cleanText(account.branch) ?? undefined}
+                        >
+                          {cleanText(account.branch) ?? "—"}
                         </p>
                       </div>
                     </TableCell>
@@ -144,20 +143,22 @@ export function DormancyTable(props: Props) {
                     </TableCell>
                     <TableCell className="tabular-nums text-center">{formatNumber(account.monthsInactive)}</TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`text-[11px] font-semibold ${toneClass(classTone(account.classification))}`}
-                      >
-                        {account.classification === "ACTIVE" ? "Not dormant" : classLabel(account.classification)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`text-[11px] font-semibold ${toneClass(statusTone(account.status))}`}
-                      >
-                        {statusLabel(account.status)}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge
+                          variant="outline"
+                          className={`text-[11px] font-semibold ${toneClass(classTone(account.classification))}`}
+                        >
+                          {account.classification === "ACTIVE" ? "Not dormant" : classLabel(account.classification)}
+                        </Badge>
+                        {statusDiffers(account) ? (
+                          <Badge
+                            variant="outline"
+                            className={`text-[11px] font-semibold ${toneClass(statusTone(account.status))}`}
+                          >
+                            {statusLabel(account.status)}
+                          </Badge>
+                        ) : null}
+                      </div>
                       {account.escheatedAt && (
                         <div className="mt-1 space-y-0.5 text-[11px] leading-tight text-muted-foreground">
                           <p
@@ -171,9 +172,6 @@ export function DormancyTable(props: Props) {
                           </p>
                         </div>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <RowActions account={account} props={props} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -196,8 +194,8 @@ export function DormancyTable(props: Props) {
                         <p className="truncate font-medium" title={account.accountNumber}>
                           {account.accountNumber}
                         </p>
-                        <p className="truncate text-xs text-muted-foreground" title={account.bankName}>
-                          {account.bankName}
+                        <p className="truncate text-xs text-muted-foreground" title={cleanText(account.bankName) ?? undefined}>
+                          {cleanText(account.bankName) ?? "—"}
                         </p>
                       </div>
                       <Badge
@@ -206,12 +204,14 @@ export function DormancyTable(props: Props) {
                       >
                         {account.classification === "ACTIVE" ? "Not dormant" : classLabel(account.classification)}
                       </Badge>
-                      <Badge
-                        variant="outline"
-                        className={`shrink-0 text-[11px] font-semibold ${toneClass(statusTone(account.status))}`}
-                      >
-                        {statusLabel(account.status)}
-                      </Badge>
+                      {statusDiffers(account) ? (
+                        <Badge
+                          variant="outline"
+                          className={`shrink-0 text-[11px] font-semibold ${toneClass(statusTone(account.status))}`}
+                        >
+                          {statusLabel(account.status)}
+                        </Badge>
+                      ) : null}
                     </div>
                     <dl className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                       <div>
@@ -232,7 +232,6 @@ export function DormancyTable(props: Props) {
                       )}
                     </dl>
                   </button>
-                  <RowActions account={account} props={props} />
                 </li>
               </Fragment>
             ))}

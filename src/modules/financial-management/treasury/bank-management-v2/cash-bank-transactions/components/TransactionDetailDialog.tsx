@@ -99,9 +99,9 @@ export function TransactionDetailDialog({
                 <Detail label="Transaction date (PHT)">{toPhtDateString(row.date)}</Detail>
                 <Detail label="Value date (PHT)">{toPhtDateString(row.valueDate)}</Detail>
                 <Detail label="Bank account">{row.accountLabel}</Detail>
-                <Detail label={isTransfer ? "Receiving account" : "Payee / customer"}>
-                  {row.counterpartLabel ?? "—"}
-                </Detail>
+                {row.counterpartLabel ? (
+                  <Detail label={isTransfer ? "Receiving account" : "Payee / customer"}>{row.counterpartLabel}</Detail>
+                ) : null}
                 <Detail label="Amount">
                   <span className="tabular-nums">{formatCurrency(row.amount)}</span>
                 </Detail>
@@ -126,8 +126,14 @@ export function TransactionDetailDialog({
                         ) : (
                           <span className="text-muted-foreground">Not posted</span>
                         )
+                      ) : row.jeNoLeg1 ? (
+                        <span className="flex flex-wrap items-baseline gap-1">
+                          Posted ·
+                          <JournalLink jeNo={row.jeNoLeg1} onOpen={setJournalNo} />
+                        </span>
                       ) : (
-                        <span>Posted</span>
+                        // Legacy rows recorded one entry id only; claiming a link we cannot resolve would be worse.
+                        <span className="text-muted-foreground">Posted · entry number not recorded</span>
                       )}
                     </Detail>
                     <Detail label="Leg 2 (settlement)">
@@ -135,11 +141,13 @@ export function TransactionDetailDialog({
                         <span className="text-muted-foreground">
                           Pending until <span className="tabular-nums">{toPhtDateString(row.valueDate)}</span>
                         </span>
-                      ) : row.jeNo ? (
+                      ) : row.jeNo && row.jeNo !== row.jeNoLeg1 ? (
                         <span className="flex flex-wrap items-baseline gap-1">
                           Posted ·
                           <JournalLink jeNo={row.jeNo} onOpen={setJournalNo} />
                         </span>
+                      ) : row.jeNo ? (
+                        <span className="text-muted-foreground">Posted in the same entry as leg 1</span>
                       ) : (
                         <span className="text-muted-foreground">Not posted</span>
                       )}

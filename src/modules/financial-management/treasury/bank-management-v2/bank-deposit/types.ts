@@ -84,17 +84,48 @@ export interface DepositSlip {
   depositDate: string;
   targetBankId: number;
   targetBankLabel: string;
+  /** Linked GL of the destination account; null only when the account has no linked GL. */
+  glCode: string | null;
+  glTitle: string | null;
+  /** True when E07 falls back to the shared CASH_IN_BANK mapping instead of the account's own GL. */
+  glFallback: boolean;
   referenceNo: string | null;
   validationFileId: string | null;
+  /** Derived from the item outcomes, so the header reads Prepared while any item is unresolved. */
   status: DepositStatus;
   totalCash: number;
   totalChecks: number;
   grandTotal: number;
+  /** Resolved to the preparer's name, then email, then null (P17). */
   preparedBy: string | null;
+  preparedByEmail: string | null;
   datePrepared: string;
   clearedAt: string | null;
   clearedBy: string | null;
   remarks: string | null;
+  itemCount: number;
+  /** Checks on this slip the bank returned; a badge of its own, never a slip status (P18). */
+  bouncedCount: number;
+  resolvedCount: number;
+}
+
+/** One row of the read-only slip contents table (P17). */
+export interface DepositSlipItem {
+  collectionDetailId: number;
+  assetType: "CASH" | "CHECK";
+  documentNumber: string;
+  checkNo: string | null;
+  customer: string | null;
+  customerCode: string | null;
+  collectionDate: string | null;
+  amount: number;
+  /** Clearing outcome of the check backing this item; cash resolves on the slip itself. */
+  checkStatus: CheckStatus | null;
+}
+
+export interface DepositSlipDetail {
+  slip: DepositSlip;
+  items: DepositSlipItem[];
 }
 
 /** A cash or check asset sitting in the vault, not yet deposited. */
@@ -123,12 +154,8 @@ export interface UndepositedAsset {
 
 export type CheckDirection = "ISSUED" | "RECEIVED";
 
-/** Which parent collections the queue offers: posted and dated only, or everything on hand. */
-export type UndepositedScope = "POSTED" | "ALL";
-
 /** Filters on the undeposited tab, mirroring the prototype's `dp` filter bar. */
 export interface UndepositedFilters {
-  scope: UndepositedScope;
   type: "ALL" | "CASH" | "CHECK";
   canDeposit: "ALL" | "READY" | "PDC";
   from: string;

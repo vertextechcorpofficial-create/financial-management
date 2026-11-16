@@ -68,7 +68,21 @@ export function MasterlistFilters({
 
   return (
     <div aria-label="Masterlist filters" className="border-b border-border/50 px-4 py-3">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.2fr)]">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,0.85fr)_minmax(0,0.9fr)]">
+        <div className="space-y-1.5">
+          <Label className="text-[11px] font-medium text-muted-foreground">Search</Label>
+          <div className="relative min-w-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              aria-label="Search accounts"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Account, holder or branch"
+              className="pl-9"
+            />
+          </div>
+        </div>
+
         <div className="space-y-1.5">
           <Label className="text-[11px] font-medium text-muted-foreground">Bank account</Label>
           <OptionCombobox
@@ -178,18 +192,8 @@ export function MasterlistFilters({
         </div>
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            aria-label="Search accounts"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Account no., holder or branch"
-            className="pl-9"
-          />
-        </div>
-        {dirty ? (
+      {dirty ? (
+        <div className="mt-3 flex justify-end">
           <Button
             type="button"
             variant="ghost"
@@ -202,8 +206,8 @@ export function MasterlistFilters({
             <X className="mr-1 h-3.5 w-3.5" />
             Clear filters
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

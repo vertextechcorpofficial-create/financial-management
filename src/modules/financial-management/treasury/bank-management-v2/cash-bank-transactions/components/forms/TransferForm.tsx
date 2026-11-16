@@ -32,7 +32,7 @@ interface TransferFormProps {
   onPosted: () => void;
 }
 
-/** E05 for today's value date, E06 (leg 1) for a later one, settled from the clearing panel. */
+/** Every transfer posts E06 leg 1 and waits in clearing until it is settled from the panel. */
 export function TransferForm({ formId, accounts, isSaving, onSubmit, onPosted }: TransferFormProps) {
   const [alert, setAlert] = useState<string | null>(null);
 
@@ -54,7 +54,6 @@ export function TransferForm({ formId, accounts, isSaving, onSubmit, onPosted }:
     () => accounts.filter((account) => String(account.bankId) !== sourceId),
     [accounts, sourceId],
   );
-  const settlesLater = valueDate > phtToday();
 
   const submit = form.handleSubmit(async (values) => {
     setAlert(null);
@@ -193,18 +192,17 @@ export function TransferForm({ formId, accounts, isSaving, onSubmit, onPosted }:
                   placeholder="Pick the value date"
                 />
               </FormControl>
-              <FormDescription>Today credits the destination at once. Later dates settle from clearing.</FormDescription>
               <FormMessage />
             </FormItem>
           )}
         />
 
-        {settlesLater ? (
-          <InlineAlert tone="info">
-            Value date {valueDate}. The money leaves the source account now through transfer-in-transit and is settled on
-            or after that date.
-          </InlineAlert>
-        ) : null}
+        {/* The alert below already explains the movement; a second sentence under the
+            field only restated it (T4). */}
+        <InlineAlert tone="info">
+          Value date {valueDate}. The money leaves the source account now through transfer-in-transit and is settled
+          from Transfers in clearing on or after that date.
+        </InlineAlert>
 
         <FormField
           control={form.control}

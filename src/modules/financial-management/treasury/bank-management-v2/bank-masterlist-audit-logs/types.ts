@@ -31,7 +31,7 @@ export interface BankAccountV2 {
   createdAt: string | null;
 }
 
-export type ArfSeverity = "CRITICAL" | "HIGH" | "MEDIUM";
+export type ArfSeverity = "HIGH" | "MEDIUM";
 
 export interface ArfFinding {
   key: string;

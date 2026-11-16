@@ -330,7 +330,7 @@ export async function preClosure(bankId: number): Promise<PreClosureResult> {
   const checks: PreClosureCheck[] = [
     {
       key: "balance",
-      label: "Book balance is 0.00",
+      label: "Book balance must be zero",
       passed: account.bookBalance === 0,
       detail:
         account.bookBalance === 0
@@ -339,29 +339,29 @@ export async function preClosure(bankId: number): Promise<PreClosureResult> {
     },
     {
       key: "checks",
-      label: "No check is Pending, Received or In Clearing",
+      label: "No check may be Pending, Received or In Clearing",
       passed: openChecks.rows.length === 0,
       detail:
         openChecks.rows.length === 0
           ? "Every check on this account has settled."
-          : `${openChecks.rows.length} check(s) still open: ${openChecks.rows
+          : `${openChecks.rows.length} ${openChecks.rows.length === 1 ? "check" : "checks"} still open: ${openChecks.rows
               .map((row) => asString(row.check_no) || `#${row.id}`)
               .join(", ")}. Clear them in Check & Clearing Management.`,
     },
     {
       key: "transfers",
-      label: "No transfer is in clearing (GL 232100)",
+      label: "No transfer may be waiting for settlement",
       passed: openTransfers.rows.length === 0,
       detail:
         openTransfers.rows.length === 0
           ? "No transfer is awaiting its settlement leg."
-          : `${openTransfers.rows.length} transfer(s) unsettled: ${openTransfers.rows
+          : `${openTransfers.rows.length} ${openTransfers.rows.length === 1 ? "transfer is" : "transfers are"} unsettled: ${openTransfers.rows
               .map((row) => asString(row.transfer_no) || `#${row.transfer_id}`)
               .join(", ")}. Settle them in Cash & Bank Transactions.`,
     },
     {
       key: "mandates",
-      label: "No active auto-debit mandate",
+      label: "No active auto-debit mandate may remain",
       passed: true,
       unverified: true,
       detail:

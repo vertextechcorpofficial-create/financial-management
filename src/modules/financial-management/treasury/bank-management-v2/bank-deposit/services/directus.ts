@@ -23,6 +23,21 @@ export class DirectusError extends Error {
   }
 }
 
+/**
+ * The first message Directus put in its error body, so a failed write can say what the database
+ * refused instead of a flat "could not be saved". Returns null when the body is not that shape.
+ */
+export function directusReason(body: string): string | null {
+  try {
+    const parsed = JSON.parse(body) as { errors?: { message?: string; extensions?: { code?: string } }[] };
+    const first = parsed.errors?.[0];
+    if (!first?.message) return null;
+    return first.extensions?.code ? `${first.message} (${first.extensions.code})` : first.message;
+  } catch {
+    return null;
+  }
+}
+
 export type DirectusList<T> = {
   data?: T[];
   meta?: { filter_count?: number | string };

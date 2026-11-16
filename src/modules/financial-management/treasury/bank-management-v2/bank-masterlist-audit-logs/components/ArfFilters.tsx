@@ -39,8 +39,19 @@ export function ArfFilters({ filters, subModules, onChange }: Props) {
   return (
     <div
       aria-label="ARF findings filters"
-      className="grid items-center gap-3 border-b border-border/50 px-4 py-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,2.2fr)_auto]"
+      className="grid items-center gap-3 border-b border-border/50 px-4 py-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_auto]"
     >
+      <div className="relative min-w-0">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          aria-label="Search findings"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Reference or finding"
+          className="pl-9"
+        />
+      </div>
+
       <Select
         value={filters.severity}
         onValueChange={(value) => onChange({ ...filters, severity: value })}
@@ -73,17 +84,6 @@ export function ArfFilters({ filters, subModules, onChange }: Props) {
           ))}
         </SelectContent>
       </Select>
-
-      <div className="relative min-w-0">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          aria-label="Search findings"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Reference or finding"
-          className="pl-9"
-        />
-      </div>
 
       {dirty ? (
         <Button

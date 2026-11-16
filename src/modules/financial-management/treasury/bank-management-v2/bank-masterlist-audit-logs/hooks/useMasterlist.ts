@@ -35,7 +35,9 @@ export function useMasterlist() {
   const [findingsPage, setFindingsPage] = useState(1);
   const [accountsPageSize, setAccountsPageSizeState] = usePageSize(ACCOUNTS_ROWS_KEY, PAGE_SIZE);
   const [findingsPageSize, setFindingsPageSizeState] = usePageSize(FINDINGS_ROWS_KEY, PAGE_SIZE);
-  const [auditPageSize, setAuditPageSizeState] = usePageSize(AUDIT_ROWS_KEY, PAGE_SIZE);
+  const [storedAuditPageSize, setAuditPageSizeState] = usePageSize(AUDIT_ROWS_KEY, PAGE_SIZE);
+  // The movement log is paged by the server, so "All" (stored as 0) has to fall back to a real size.
+  const auditPageSize = storedAuditPageSize > 0 ? storedAuditPageSize : PAGE_SIZE;
   const [notice, setNotice] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -189,7 +191,6 @@ export function useMasterlist() {
   const findingsPageCount = pageCountFor(filteredFindings.length, findingsPageSize);
 
   const counts = {
-    critical: findings.filter((finding) => finding.severity === "CRITICAL").length,
     high: findings.filter((finding) => finding.severity === "HIGH").length,
     medium: findings.filter((finding) => finding.severity === "MEDIUM").length,
   };

@@ -6,6 +6,8 @@ import {
   describeCheckError,
 } from "@/modules/financial-management/treasury/bank-management-v2/check-clearing-management/services/checks.service";
 
+import { currentUserId } from "../../_lib/actor";
+
 export const dynamic = "force-dynamic";
 
 const ClearBody = z.object({
@@ -31,7 +33,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const data = await clearChecks(parsed.data.entries);
+    const data = await clearChecks(parsed.data.entries, await currentUserId());
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const failure = describeCheckError(error, "[bank-management-v2] batch clear failed");

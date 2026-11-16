@@ -49,13 +49,14 @@ export async function createTransfer(
 
   const amount = roundMoney(body.amount);
   const fee = roundMoney(body.transferFee ?? 0);
-  const valueDateIsLater = body.valueDate > phtDate();
   const transferNo = nextTransferNo();
   const remarks = (body.remarks ?? "").trim();
 
-  const draft = transferEntry("OUT", from, to, amount, valueDateIsLater, {
-    // bank_journal_entries is unique on (source_ref, event_code), and both legs post the
-    // same E06 for a later value date: each leg needs its own source ref or leg 2 is refused.
+  const draft = transferEntry("OUT", from, to, amount, true, {
+    // Every transfer starts in clearing (QA-02), so leg 1 always parks the money in
+    // TRANSFER_IN_TRANSIT and leg 2 credits the destination. Both legs post the same E06, and
+    // bank_journal_entries is unique on (source_ref, event_code): each leg needs its own source
+    // ref or leg 2 is refused.
     sourceRef: `${transferNo}-L1`,
     postingDate: body.valueDate,
     description: remarks || `Fund transfer ${transferNo}`,
@@ -84,14 +85,13 @@ export async function createTransfer(
     destination_bank_id: to.bankId,
     amount,
     transfer_fee: fee,
-    status: valueDateIsLater ? "PENDING" : "COMPLETED",
+    status: "PENDING",
     prepared_by: userId,
     date_prepared: storedStamp(),
     remarks: remarks || null,
     journal_entry_id: entry.id,
   };
   if (transactionType !== null) payload.transaction_type = transactionType;
-  if (!valueDateIsLater) payload.settled_at = storedStamp();
 
   try {
     await createItem(TRANSFERS, payload);
@@ -122,7 +122,7 @@ export async function createTransfer(
   return {
     transferNo,
     jeNo: entry.jeNo,
-    status: valueDateIsLater ? "PENDING" : "COMPLETED",
+    status: "PENDING",
   };
 }
 
@@ -211,7 +211,7 @@ export async function repostTransferEntry(
         postingDate: phtDate(),
         description: remarks || `Fund transfer ${transferNo} settled`,
       })
-    : transferEntry("OUT", from, to, amount, valueDate > asString(row.transfer_date), {
+    : transferEntry("OUT", from, to, amount, true, {
         sourceRef: `${transferNo}-L1`,
         postingDate: valueDate,
         description: remarks || `Fund transfer ${transferNo}`,

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { Search, X } from "lucide-react";
@@ -65,7 +65,42 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
 
   return (
     <div aria-label="Check register filters" className="border-b border-border/50 px-4 py-3">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.3fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,0.85fr)_minmax(0,0.85fr)]">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(118px,1.4fr)_116px_132px_130px_122px_122px_116px_116px]">
+        <div className="space-y-1.5 sm:col-span-2 xl:col-span-1">
+          <Label htmlFor="check-search" className="text-[11px] font-medium text-muted-foreground">
+            Search
+          </Label>
+          <div className="flex items-center gap-1">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="check-search"
+                aria-label="Search checks"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search checks"
+                className="pl-9"
+              />
+            </div>
+            {dirty ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                aria-label="Clear filters"
+                title="Clear filters"
+                onClick={() => {
+                  setQuery("");
+                  onChange({ ...EMPTY });
+                }}
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
         <div className="space-y-1.5">
           <Label className="text-[11px] font-medium text-muted-foreground">Bank</Label>
           <OptionCombobox
@@ -98,7 +133,7 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
             value={filters.direction ?? "ALL"}
             onValueChange={(value) => onChange({ ...filters, direction: value })}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full min-w-0 whitespace-nowrap [&>span]:truncate">
               <SelectValue className="truncate" placeholder="All directions" />
             </SelectTrigger>
             <SelectContent className="max-h-60">
@@ -112,7 +147,7 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
         <div className="space-y-1.5">
           <Label className="text-[11px] font-medium text-muted-foreground">Status</Label>
           <Select value={filters.status ?? "ALL"} onValueChange={(value) => onChange({ ...filters, status: value })}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full min-w-0 whitespace-nowrap [&>span]:truncate">
               <SelectValue className="truncate" placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent className="max-h-60">
@@ -128,7 +163,7 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
         <div className="space-y-1.5">
           <Label className="text-[11px] font-medium text-muted-foreground">Flag</Label>
           <Select value={filters.flag ?? "ALL"} onValueChange={(value) => onChange({ ...filters, flag: value })}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full min-w-0 whitespace-nowrap [&>span]:truncate">
               <SelectValue className="truncate" placeholder="Any" />
             </SelectTrigger>
             <SelectContent className="max-h-60">
@@ -164,34 +199,6 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
             onChange={(value) => onChange({ ...filters, to: value || undefined })}
           />
         </div>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            id="check-search"
-            aria-label="Search checks"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Check no., payee, customer or reason"
-            className="pl-9"
-          />
-        </div>
-        {dirty ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setQuery("");
-              onChange({ ...EMPTY });
-            }}
-          >
-            <X className="mr-1 h-3.5 w-3.5" />
-            Clear filters
-          </Button>
-        ) : null}
       </div>
     </div>
   );

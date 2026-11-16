@@ -7,20 +7,21 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { cn, formatCurrency } from "@/lib/utils";
 
 import { toneClass } from "../constants";
-import { previewDepositSlip } from "../providers/depositApi";
-import type { ResolvedJournalEntry } from "../types";
+import { previewDepositSlip, type DepositPreview as DepositPreviewResponse } from "../providers/depositApi";
 
 interface Props {
   bankAccountId: number | null;
   cashTotal: number;
+  /** Checks on the same slip. They post nothing now, so the heading must not claim a cash entry. */
+  checkCount?: number;
 }
 
 /**
  * Live E07 preview. The server resolves the same lines the posting path will use, so this panel
  * reports unmapped GL keys instead of inventing accounts.
  */
-export function DepositPreview({ bankAccountId, cashTotal }: Props) {
-  const [entry, setEntry] = useState<ResolvedJournalEntry | null>(null);
+export function DepositPreview({ bankAccountId, cashTotal, checkCount = 0 }: Props) {
+  const [preview, setPreview] = useState<DepositPreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,7 +30,7 @@ export function DepositPreview({ bankAccountId, cashTotal }: Props) {
     previewDepositSlip({ bankAccountId, cashTotal })
       .then((result) => {
         if (cancelled) return;
-        setEntry(result);
+        setPreview(result);
         setError(null);
       })
       .catch((cause: unknown) => {
@@ -42,17 +43,27 @@ export function DepositPreview({ bankAccountId, cashTotal }: Props) {
   }, [bankAccountId, cashTotal]);
 
   // A stale entry from the previous account is never shown: the guard is on render, not in the effect.
-  const current = bankAccountId && cashTotal > 0 ? entry : null;
-  const unmapped = current?.missingMappingKeys ?? [];
+  const current = bankAccountId && cashTotal > 0 ? preview : null;
+  const entry = current?.entry ?? null;
+  const unmapped = entry?.missingMappingKeys ?? [];
   const balanced =
-    current !== null &&
+    entry !== null &&
     unmapped.length === 0 &&
-    Math.abs(current.totalDebit - current.totalCredit) < 0.005;
+    Math.abs(entry.totalDebit - entry.totalCredit) < 0.005;
+
+  const hasCash = cashTotal > 0;
+  const heading = hasCash
+    ? checkCount > 0
+      ? "E07 · Cash deposit + checks — preview"
+      : "E07 · Cash deposit — preview"
+    : checkCount > 0
+      ? "Checks only — nothing posts now"
+      : "Posting preview";
 
   return (
     <div className="rounded-xl border border-border/60">
       <div className="flex items-center justify-between gap-2 border-b border-border/50 bg-muted/30 px-3 py-2">
-        <p className="min-w-0 truncate text-xs font-semibold">E07 · Cash deposit — preview</p>
+        <p className="min-w-0 truncate text-xs font-semibold">{heading}</p>
         {current ? (
           <Badge
             variant="outline"
@@ -63,6 +74,13 @@ export function DepositPreview({ bankAccountId, cashTotal }: Props) {
         ) : null}
       </div>
 
+      {current?.account.glFallback ? (
+        <p className="border-b border-border/50 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-900 dark:text-amber-200">
+          {current.account.label} has no linked GL account — the deposit posts to the default cash-in-bank
+          account.
+        </p>
+      ) : null}
+
       {error ? (
         <p className="p-3 text-xs text-destructive">{error}</p>
       ) : !current ? (
@@ -70,10 +88,10 @@ export function DepositPreview({ bankAccountId, cashTotal }: Props) {
           {!bankAccountId
             ? "Choose the deposit account to see the posting."
             : cashTotal <= 0
-              ? "No cash on this slip, so no E07 entry is posted."
+              ? "No cash on this slip, so nothing posts now. Each check debits the bank GL when it clears."
               : null}
         </p>
-      ) : (
+      ) : current && entry ? (
         <Table>
           <TableHeader>
             <TableRow>
@@ -84,7 +102,7 @@ export function DepositPreview({ bankAccountId, cashTotal }: Props) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {current.lines.map((line) => (
+            {entry.lines.map((line) => (
               <TableRow key={line.lineNo}>
                 <TableCell className="font-mono text-xs">{line.glCode ?? "—"}</TableCell>
                 <TableCell className="max-w-[220px]">
@@ -108,15 +126,15 @@ export function DepositPreview({ bankAccountId, cashTotal }: Props) {
                 Total
               </TableCell>
               <TableCell className="text-right text-sm font-semibold tabular-nums">
-                {formatCurrency(current.totalDebit)}
+                {formatCurrency(entry.totalDebit)}
               </TableCell>
               <TableCell className="text-right text-sm font-semibold tabular-nums">
-                {formatCurrency(current.totalCredit)}
+                {formatCurrency(entry.totalCredit)}
               </TableCell>
             </TableRow>
           </TableFooter>
         </Table>
-      )}
+      ) : null}
 
       {unmapped.length > 0 ? (
         <p className="border-t border-border/50 px-3 py-2 text-[11px] text-muted-foreground">

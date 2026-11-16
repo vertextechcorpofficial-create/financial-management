@@ -116,14 +116,16 @@ export function OptionCombobox({
                   <Check
                     className={cn("mr-2 size-4 shrink-0", value === option.value ? "opacity-100" : "opacity-0")}
                   />
-                  <span className="min-w-0 flex-1 truncate" title={option.label}>
-                    {option.label}
-                  </span>
-                  {option.description ? (
-                    <span className="ml-2 shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {option.description}
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate" title={option.label}>
+                      {option.label}
                     </span>
-                  ) : null}
+                    {option.description ? (
+                      <span className="truncate text-xs tabular-nums text-muted-foreground" title={option.description}>
+                        {option.description}
+                      </span>
+                    ) : null}
+                  </div>
                 </CommandItem>
               ))}
               {customOffered ? (

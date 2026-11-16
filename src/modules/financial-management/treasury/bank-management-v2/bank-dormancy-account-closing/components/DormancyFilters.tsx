@@ -30,7 +30,17 @@ export function DormancyFilters({ filters, banks, onChange }: Props) {
       aria-label="Dormancy filters"
       className="border-b border-border/50 px-4 py-3"
     >
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(220px,1.8fr)]">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.8fr)_minmax(0,1.6fr)_minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input
+            value={filters.q}
+            onChange={(event) => onChange({ ...filters, q: event.target.value })}
+            placeholder="Account no., holder or branch"
+            className="pl-9"
+            aria-label="Search accounts"
+          />
+        </div>
         <OptionCombobox
           options={[{ value: "ALL", label: "All banks" }, ...banks]}
           value={filters.bankName ?? "ALL"}
@@ -48,7 +58,7 @@ export function DormancyFilters({ filters, banks, onChange }: Props) {
             <SelectValue className="truncate" placeholder="Dormancy stage" />
           </SelectTrigger>
           <SelectContent className="max-h-60">
-            <SelectItem value="ALL">All stages</SelectItem>
+            <SelectItem value="ALL">Every stage</SelectItem>
             {DORMANCY_CLASSES.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
@@ -64,7 +74,7 @@ export function DormancyFilters({ filters, banks, onChange }: Props) {
             <SelectValue className="truncate" placeholder="Status" />
           </SelectTrigger>
           <SelectContent className="max-h-60">
-            <SelectItem value="ALL">All statuses</SelectItem>
+            <SelectItem value="ALL">Every status</SelectItem>
             {ACCOUNT_STATUSES.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
@@ -72,16 +82,6 @@ export function DormancyFilters({ filters, banks, onChange }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input
-            value={filters.q}
-            onChange={(event) => onChange({ ...filters, q: event.target.value })}
-            placeholder="Account no., holder or branch"
-            className="pl-9"
-            aria-label="Search accounts"
-          />
-        </div>
       </div>
       {dirty && (
         <div className="mt-2 flex justify-end">

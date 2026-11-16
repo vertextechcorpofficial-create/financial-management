@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { EMPTY_FILTERS, PAGE_SIZE } from "../constants";
+import { persistPageSize, readPageSize } from "../components/TablePager";
 import {
   ApiError,
   cancelBankMemo,
@@ -15,6 +16,8 @@ import {
 } from "../providers/transactionsApi";
 import type { MemoBody, TransferBody } from "../schemas";
 import type { TransactionFilters, TransactionKind, TransactionRow, TransactionsPayload } from "../types";
+
+const TRANSACTIONS_ROWS_KEY = "fm.bank-transactions.rows";
 
 function messageOf(error: unknown): string {
   if (error instanceof ApiError) return error.message;
@@ -29,7 +32,11 @@ function messageOf(error: unknown): string {
  * row and the clearing panel, so patching one row in place would leave the other stale.
  */
 export function useTransactions() {
-  const [filters, setFilters] = useState<TransactionFilters>({ ...EMPTY_FILTERS });
+  const [filters, setFilters] = useState<TransactionFilters>(() => ({
+    ...EMPTY_FILTERS,
+    // "All" is not offered here (the list is server-paged), so a stored 0 falls back to the default.
+    pageSize: readPageSize(TRANSACTIONS_ROWS_KEY, PAGE_SIZE) || PAGE_SIZE,
+  }));
   const [payload, setPayload] = useState<TransactionsPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -56,6 +63,7 @@ export function useTransactions() {
   }, [filters, load]);
 
   const patchFilters = useCallback((patch: Partial<TransactionFilters>) => {
+    if (patch.pageSize !== undefined) persistPageSize(TRANSACTIONS_ROWS_KEY, patch.pageSize);
     setFilters((current) => {
       const page = patch.page ?? 1;
       return { ...current, ...patch, page };
@@ -177,8 +185,9 @@ export function useTransactions() {
 
   const pageCount = useMemo(() => {
     if (!payload) return 1;
-    return Math.max(1, Math.ceil(payload.total / PAGE_SIZE));
-  }, [payload]);
+    const size = payload.pageSize || filters.pageSize || PAGE_SIZE;
+    return Math.max(1, Math.ceil(payload.total / size));
+  }, [payload, filters.pageSize]);
 
   return {
     filters,

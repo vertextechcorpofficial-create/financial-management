@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import type { DepositSlip, SlipFilters, UndepositedAsset, UndepositedFilters } from "../types";
 import { phtToday, toPhtDateString } from "../pht";
 import { EMPTY_SLIP_FILTERS, EMPTY_UNDEPOSITED_FILTERS } from "../constants";
+import { isAssetDepositable } from "../eligibility";
 import { usePageSize } from "../components/TablePager";
 import {
   cancelSlip as cancelSlipRequest,
@@ -19,10 +20,7 @@ import {
 const QUEUE_ROWS_KEY = "fm.bank-deposit.queue.rows";
 const SLIPS_ROWS_KEY = "fm.bank-deposit.slips.rows";
 
-/** A row can only be deposited once its collection is posted, dated and not voided. */
-export function isDepositable(asset: UndepositedAsset): boolean {
-  return asset.isPosted && !asset.isCancelled && Boolean(asset.collectionDate);
-}
+export { isAssetDepositable };
 
 export type CreateSlipOutcome =
   | { ok: true; response: CreateSlipResponse }
@@ -85,10 +83,10 @@ export function useDeposit() {
     [persistSlipsPageSize],
   );
 
-  const { filteredAssets, withheldAssets } = useMemo(() => {
+  const filteredAssets = useMemo(() => {
     const today = phtToday();
     const query = filters.q.trim().toLowerCase();
-    const matchesFilters = (asset: UndepositedAsset) => {
+    return assets.filter((asset) => {
       if (filters.type !== "ALL" && asset.assetType !== filters.type) return false;
       const pdc = Boolean(asset.chequeDate && asset.chequeDate > today);
       if (filters.canDeposit === "READY" && pdc) return false;
@@ -105,13 +103,7 @@ export function useDeposit() {
         asset.collectionReference,
         asset.bankName,
       ].some((value) => value && value.toLowerCase().includes(query));
-    };
-    const matching = assets.filter(matchesFilters);
-    if (filters.scope === "ALL") return { filteredAssets: matching, withheldAssets: [] as UndepositedAsset[] };
-    return {
-      filteredAssets: matching.filter(isDepositable),
-      withheldAssets: matching.filter((asset) => !isDepositable(asset)),
-    };
+    });
   }, [assets, filters]);
 
   const setSlipFilters = useCallback((next: SlipFilters) => {
@@ -219,7 +211,6 @@ export function useDeposit() {
   return {
     assets,
     filteredAssets,
-    withheldAssets,
     filters,
     setFilters,
     setAssetsPageSize,

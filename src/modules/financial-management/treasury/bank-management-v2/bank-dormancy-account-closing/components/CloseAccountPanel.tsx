@@ -58,7 +58,7 @@ export function CloseAccountPanel({
   onLock,
 }: Props) {
   const [bankId, setBankId] = useState<string>("");
-  const [accruedInterest, setAccruedInterest] = useState("0");
+  const [accruedInterest, setAccruedInterest] = useState("0.00");
   const [cutOff, setCutOff] = useState(phtToday());
   const [reason, setReason] = useState<string>(CLOSURE_REASONS[0]);
 
@@ -90,7 +90,7 @@ export function CloseAccountPanel({
                 value: String(account.bankId),
                 label: `${account.bankName} · ${account.accountNumber}`,
                 searchText: `${account.accountNumber} ${account.accountName ?? ""} ${account.branch ?? ""}`,
-                description: account.accountName ?? undefined,
+                description: `${account.accountNumber} · ${account.accountName ?? "—"}`,
               }))}
               value={bankId}
               onChange={setBankId}
@@ -100,14 +100,21 @@ export function CloseAccountPanel({
               className="w-full"
             />
           </div>
-          <Button
-            variant="outline"
-            disabled={!bankId || isLoadingCheck}
-            onClick={() => onValidate(Number(bankId))}
-          >
-            {isLoadingCheck && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
-            {preClosure ? "Re-run closure check" : "Run closure check"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              className="w-auto"
+              disabled={!bankId || isLoadingCheck}
+              title={!bankId ? "Choose an account first" : undefined}
+              onClick={() => onValidate(Number(bankId))}
+            >
+              {isLoadingCheck && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
+              {preClosure ? "Re-run closure check" : "Run closure check"}
+            </Button>
+            {!bankId ? (
+              <p className="text-xs text-muted-foreground">Choose an account first.</p>
+            ) : null}
+          </div>
         </div>
 
         {selected && (
@@ -149,8 +156,7 @@ export function CloseAccountPanel({
               </ul>
               {!preClosure.canClose && (
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                  Closure is blocked. Clear every failed check above, then validate again. Transfer out the remaining
-                  funds in Cash &amp; Bank Transactions and settle checks in Check &amp; Clearing Management.
+                  Closure is blocked. Clear every failed check above, then validate again.
                 </p>
               )}
             </div>
@@ -169,6 +175,7 @@ export function CloseAccountPanel({
                     onChange={(event) => setAccruedInterest(event.target.value)}
                     disabled={!canClose}
                   />
+                  <p className="text-[11px] text-muted-foreground tabular-nums">{formatCurrency(interest)}</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="closure-cutoff">Closing cut-off</Label>
@@ -184,8 +191,9 @@ export function CloseAccountPanel({
               <div className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-xs">
                 <p className="font-medium">E18 — closure settlement</p>
                 <p className="text-muted-foreground">
-                  Dr interest expense {formatCurrency(interest)} · Cr 20% final tax {formatCurrency(tax)} · Cr net payout{" "}
-                  {formatCurrency(net)}
+                  Dr Interest expense {formatCurrency(interest)} · Cr Final tax payable {formatCurrency(tax)} · Cr Net
+                  payout to the customer {formatCurrency(net)}. Final withholding tax is {FINAL_WHT_RATE * 100}% of
+                  the interest.
                 </p>
               </div>
               <Button

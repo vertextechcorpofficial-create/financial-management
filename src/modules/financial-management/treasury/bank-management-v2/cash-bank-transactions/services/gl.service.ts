@@ -91,15 +91,22 @@ export async function resolveJournalEntry(draft: JournalEntryDraft): Promise<Res
     };
   });
 
+  // Spec P16: an entry always reads debit lines first, then credit lines, keeping the draft order
+  // inside each side. Sorting here covers the posted line_no and every preview that resolves.
+  const ordered = lines
+    .map((line, index) => ({ line, index }))
+    .sort((a, b) => Number(a.line.credit > 0) - Number(b.line.credit > 0) || a.index - b.index)
+    .map(({ line }, index) => ({ ...line, lineNo: index + 1 }));
+
   return {
     eventCode: draft.eventCode,
     sourceModule: draft.sourceModule,
     sourceRef: draft.sourceRef,
     postingDate: draft.postingDate,
     description: draft.description,
-    lines,
-    totalDebit: roundMoney(lines.reduce((sum, line) => sum + line.debit, 0)),
-    totalCredit: roundMoney(lines.reduce((sum, line) => sum + line.credit, 0)),
+    lines: ordered,
+    totalDebit: roundMoney(ordered.reduce((sum, line) => sum + line.debit, 0)),
+    totalCredit: roundMoney(ordered.reduce((sum, line) => sum + line.credit, 0)),
     missingMappingKeys: [...missing],
   };
 }
@@ -305,14 +312,17 @@ export async function fetchJournalEntry(jeNo: string): Promise<PostedJournalEntr
     totalDebit: roundMoney(Number(header.total_debit) || 0),
     totalCredit: roundMoney(Number(header.total_credit) || 0),
     missingMappingKeys: [],
-    lines: lines.map((line) => ({
-      lineNo: Number(line.line_no) || 0,
-      coaId: line.coa_id == null ? null : Number(line.coa_id),
-      glCode: line.gl_code == null ? null : String(line.gl_code),
-      accountTitle: line.account_title == null ? null : String(line.account_title),
-      debit: roundMoney(Number(line.debit) || 0),
-      credit: roundMoney(Number(line.credit) || 0),
-      memo: line.memo == null ? null : String(line.memo),
-    })),
+    // Spec P16 for entries written before the ordering rule existed: debit lines first.
+    lines: lines
+      .map((line) => ({
+        lineNo: Number(line.line_no) || 0,
+        coaId: line.coa_id == null ? null : Number(line.coa_id),
+        glCode: line.gl_code == null ? null : String(line.gl_code),
+        accountTitle: line.account_title == null ? null : String(line.account_title),
+        debit: roundMoney(Number(line.debit) || 0),
+        credit: roundMoney(Number(line.credit) || 0),
+        memo: line.memo == null ? null : String(line.memo),
+      }))
+      .sort((a, b) => Number(a.credit > 0) - Number(b.credit > 0) || a.lineNo - b.lineNo),
   };
 }

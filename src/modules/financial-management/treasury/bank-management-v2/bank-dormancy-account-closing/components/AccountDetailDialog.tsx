@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency } from "@/lib/utils";
-import { ESCHEAT_MONTHS, classLabel, classTone, statusLabel, statusTone, toneClass } from "../constants";
+import { ESCHEAT_MONTHS, classLabel, classTone, cleanText, statusLabel, statusTone, toneClass } from "../constants";
 import { phtDisplayStamp } from "../pht";
 import type { DormancyAccount } from "../types";
 
@@ -70,7 +70,7 @@ export function AccountDetailDialog({ account, onOpenChange, isSaving, onReclass
           <div className="flex max-h-[85vh] flex-col overflow-hidden">
             <DialogHeader className="border-b px-6 py-4">
               <DialogTitle className="line-clamp-1">
-                {account.bankName} {account.accountNumber}
+                {account.accountNumber} · {cleanText(account.bankName) ?? "—"}
               </DialogTitle>
               <DialogDescription className="line-clamp-2 max-w-md">
                 {account.accountName ?? "No account holder"} · {account.accountType ?? "No account type"}
@@ -92,7 +92,7 @@ export function AccountDetailDialog({ account, onOpenChange, isSaving, onReclass
                     {classLabel(account.classification)}
                   </Badge>
                 </Detail>
-                <Detail label="Branch">{account.branch ?? "—"}</Detail>
+                <Detail label="Branch">{cleanText(account.branch) ?? "—"}</Detail>
                 <Detail label="Currency">{account.currency}</Detail>
                 <Detail label="Book balance">
                   <span className="tabular-nums">{formatCurrency(account.bookBalance)}</span>
@@ -144,6 +144,19 @@ export function AccountDetailDialog({ account, onOpenChange, isSaving, onReclass
 
             <DialogFooter className="flex-col items-stretch gap-2 border-t bg-muted/20 px-6 py-4 sm:flex-col sm:justify-end">
               <div className="flex flex-wrap items-center justify-end gap-2">
+                <DialogClose asChild>
+                  <Button variant="outline">Close</Button>
+                </DialogClose>
+                {!frozen && account.status === "ACTIVE" && account.classification === "DORMANT_ELIGIBLE" && (
+                  <Button size="sm" variant="outline" disabled={isSaving} onClick={() => onReclassify(account)}>
+                    Reclassify to 201800
+                  </Button>
+                )}
+                {!frozen && (account.status === "ACTIVE" || account.status === "DORMANT") && (
+                  <Button size="sm" variant="outline" disabled={isSaving} onClick={() => onDeactivate(account)}>
+                    Deactivate account
+                  </Button>
+                )}
                 {!frozen && (
                   <Button
                     size="sm"
@@ -156,19 +169,6 @@ export function AccountDetailDialog({ account, onOpenChange, isSaving, onReclass
                     Escheat (Act 3936)
                   </Button>
                 )}
-                {!frozen && (account.status === "ACTIVE" || account.status === "DORMANT") && (
-                  <Button size="sm" variant="outline" disabled={isSaving} onClick={() => onDeactivate(account)}>
-                    Deactivate account
-                  </Button>
-                )}
-                {!frozen && account.status === "ACTIVE" && account.classification === "DORMANT_ELIGIBLE" && (
-                  <Button size="sm" variant="outline" disabled={isSaving} onClick={() => onReclassify(account)}>
-                    Reclassify to 201800
-                  </Button>
-                )}
-                <DialogClose asChild>
-                  <Button variant="outline">Close</Button>
-                </DialogClose>
               </div>
               {frozen ? (
                 <p className="text-right text-xs text-muted-foreground">

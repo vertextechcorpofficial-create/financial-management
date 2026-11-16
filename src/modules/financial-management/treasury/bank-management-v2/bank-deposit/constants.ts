@@ -11,11 +11,11 @@ import type { SlipFilters, UndepositedFilters } from "./types";
 export const PAGE_SIZE = 10;
 
 /**
- * The queue defaults to posted, dated collections: an unposted or undated row cannot be
- * proved to belong on a slip. The withheld count and the scope picker keep them reachable.
+ * The queue only offers rows that can actually go on a slip: posted, dated, not voided
+ * and not yet deposited. Nothing is hidden from the reader — the ineligible rows never
+ * belong in this list at all (spec P14).
  */
 export const EMPTY_UNDEPOSITED_FILTERS: UndepositedFilters = {
-  scope: "POSTED",
   type: "ALL",
   canDeposit: "ALL",
   from: "",
@@ -30,6 +30,17 @@ export const EMPTY_SLIP_FILTERS: SlipFilters = {
   to: "",
   q: "",
 };
+
+/**
+ * P18 — the slip filter offers these four and nothing else. A bounced check is an item
+ * badge on the slip, never a slip status of its own.
+ */
+export const SLIP_STATUS_FILTERS = [
+  { value: "ALL", label: "Any status" },
+  { value: "PREPARED", label: "Prepared" },
+  { value: "CLEARED", label: "Cleared" },
+  { value: "CANCELLED", label: "Cancelled" },
+] as const;
 
 /** Canonical account status vocabulary for the whole bank-management family. */
 export const BANK_STATUSES = ["ACTIVE", "DORMANT", "INACTIVE", "ESCHEATED", "CLOSED"] as const;

@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn, formatNumber } from "@/lib/utils";
 
 import { accentClass, toneClass } from "./constants";
-import { BatchClearDialog } from "./components/BatchClearDialog";
+import { BatchActionDialog, type BatchMode } from "./components/BatchActionDialog";
 import { CheckActionDialog } from "./components/CheckActionDialog";
 import { CheckFlow } from "./components/CheckFlow";
 import { CheckFilters } from "./components/CheckFilters";
@@ -38,6 +38,8 @@ export function CheckModule() {
     receive,
     act,
     bulkClear,
+    batchRelease,
+    batchDeposit,
     addSeries,
     loadSeries,
     loadDetail,
@@ -47,14 +49,14 @@ export function CheckModule() {
   const [activeCheck, setActiveCheck] = useState<BankCheck | null>(null);
   const [activeAction, setActiveAction] = useState<CheckAction | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [clearOpen, setClearOpen] = useState(false);
+  const [batchMode, setBatchMode] = useState<BatchMode | null>(null);
 
   function handleAction(check: BankCheck, action: CheckAction) {
     // Clearing always needs the statement date, so a single row uses the same dialog
     // the reference uses for both cases.
     if (action === "CLEAR") {
       setSelected(new Set([check.id]));
-      setClearOpen(true);
+      setBatchMode("CLEAR");
       return;
     }
     setActiveCheck(check);
@@ -79,7 +81,13 @@ export function CheckModule() {
     ...[...new Set(accounts.map((account) => account.bankName))].filter(Boolean).map((name) => ({ value: name, label: name })),
   ];
 
-  const selectedChecks = checks.filter((check) => selected.has(check.id));
+  // Only the selected rows the chosen batch action can actually run on reach the dialog.
+  const batchChecks = checks.filter((check) => {
+    if (!selected.has(check.id)) return false;
+    if (batchMode === "CLEAR") return check.status === "IN_CLEARING";
+    if (batchMode === "RELEASE") return check.status === "PENDING" && check.direction === "ISSUED";
+    return check.status === "RECEIVED" && !check.isPdc;
+  });
 
   const registerTotal =
     counts.PENDING + counts.RECEIVED + counts.IN_CLEARING + counts.CLEARED + counts.RETURNED + counts.CANCELLED;
@@ -190,23 +198,30 @@ export function CheckModule() {
         checks={checks}
         total={registerTotal}
         filtered={isFiltered}
-        inClearingCount={counts.IN_CLEARING}
         isLoading={isLoading}
         page={page}
         onPageChange={setPage}
         onAction={handleAction}
         selected={selected}
         onSelectionChange={setSelected}
-        onBulkClear={() => setClearOpen(true)}
+        onBatchAction={(mode) => setBatchMode(mode)}
       />
 
-      <BatchClearDialog
-        checks={selectedChecks}
-        open={clearOpen}
+      <BatchActionDialog
+        mode={batchMode ?? "CLEAR"}
+        checks={batchChecks}
+        open={batchMode !== null}
         isSaving={isSaving}
-        onOpenChange={setClearOpen}
+        onOpenChange={(open) => {
+          if (!open) setBatchMode(null);
+        }}
         onSubmit={async (entries) => {
-          const result = await bulkClear(entries);
+          const result =
+            batchMode === "RELEASE"
+              ? await batchRelease(entries)
+              : batchMode === "DEPOSIT"
+                ? await batchDeposit(entries)
+                : await bulkClear(entries.map((entry) => ({ checkId: entry.checkId, clearedDate: entry.date })));
           if (result) setSelected(new Set());
           return result;
         }}

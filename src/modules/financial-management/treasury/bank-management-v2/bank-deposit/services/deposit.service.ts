@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { DepositSlip, ResolvedJournalEntry, UndepositedAsset } from "../types";
+import type { CheckStatus, DepositSlip, DepositSlipDetail, DepositSlipItem, ResolvedJournalEntry, UndepositedAsset } from "../types";
 import { daysSince, phtDisplayStamp, phtStamp, phtToday } from "../pht";
 import { postJournalEntry, PostingBlockedError, resolveJournalEntry } from "./gl.service";
 import {
@@ -85,19 +85,67 @@ type SlipRow = {
   remarks: string | null;
 };
 
-export type DepositAccount = { bankId: number; label: string };
+export type DepositAccount = {
+  bankId: number;
+  label: string;
+  glCoaId: number | null;
+  glCode: string | null;
+  glTitle: string | null;
+  /** The account has no linked GL, so E07 falls back to the shared CASH_IN_BANK mapping. */
+  glFallback: boolean;
+};
 
-async function loadAccounts(): Promise<Map<number, string>> {
-  const { rows } = await listItems<{ bank_id: number; bank_name: string | null; account_number: string | null; account_name: string | null }>(
-    "bank_accounts",
-    { fields: ACCOUNT_FIELDS, limit: 500 },
-  );
-  return new Map(
-    rows.map((row) => [
-      Number(row.bank_id),
-      [row.bank_name, row.account_number].filter(Boolean).join(" · ") || `Account ${row.bank_id}`,
-    ]),
-  );
+type AccountRow = {
+  bank_id: number;
+  bank_name: string | null;
+  account_number: string | null;
+  account_name: string | null;
+  gl_coa_id: number | null;
+};
+type CoaRow = { coa_id: number; gl_code: string | null; account_title: string | null };
+
+function accountLabel(row: AccountRow): string {
+  return [row.bank_name, row.account_number].filter(Boolean).join(" · ") || `Account ${row.bank_id}`;
+}
+
+function toDepositAccount(row: AccountRow, coa: Map<number, CoaRow>): DepositAccount {
+  const glCoaId = row.gl_coa_id == null ? null : Number(row.gl_coa_id);
+  const linked = glCoaId == null ? null : coa.get(glCoaId) ?? null;
+  return {
+    bankId: Number(row.bank_id),
+    label: accountLabel(row),
+    glCoaId,
+    glCode: linked?.gl_code ?? null,
+    glTitle: linked?.account_title ?? null,
+    glFallback: glCoaId == null,
+  };
+}
+
+async function loadAccounts(): Promise<Map<number, DepositAccount>> {
+  const [{ rows: accounts }, { rows: coa }] = await Promise.all([
+    listItems<AccountRow>("bank_accounts", { fields: [...ACCOUNT_FIELDS, "gl_coa_id"], limit: 500 }),
+    listItems<CoaRow>("chart_of_accounts", { fields: ["coa_id", "gl_code", "account_title"], limit: 500 }),
+  ]);
+  const coaById = new Map(coa.map((row) => [Number(row.coa_id), row]));
+  return new Map(accounts.map((row) => [Number(row.bank_id), toDepositAccount(row, coaById)]));
+}
+
+/** One account with its linked GL, for the E07 preview and posting path. */
+export async function loadDepositAccount(bankId: number): Promise<DepositAccount | null> {
+  const { rows } = await listItems<AccountRow>("bank_accounts", {
+    fields: [...ACCOUNT_FIELDS, "gl_coa_id"],
+    filter: { bank_id: { _eq: bankId } },
+    limit: 1,
+  });
+  const row = rows[0];
+  if (!row) return null;
+  const glCoaId = row.gl_coa_id == null ? null : Number(row.gl_coa_id);
+  const coa = glCoaId == null ? [] : (await listItems<CoaRow>("chart_of_accounts", {
+    fields: ["coa_id", "gl_code", "account_title"],
+    filter: { coa_id: { _eq: glCoaId } },
+    limit: 1,
+  })).rows;
+  return toDepositAccount(row, new Map(coa.map((item) => [Number(item.coa_id), item])));
 }
 
 /**
@@ -119,6 +167,16 @@ function isTruthyFlag(value: unknown): boolean {
   if (typeof value === "boolean") return value;
   if (typeof value === "number") return value !== 0;
   if (typeof value === "string") return value === "1" || value.toLowerCase() === "true";
+  // MySQL tinyint(1) columns arrive as `{"type":"Buffer","data":[1]}` through this Directus
+  // instance; comparing that object to `true` silently turned every posted collection into
+  // "Not posted" (QA-06).
+  if (typeof value === "object") {
+    const buffered = value as { type?: unknown; data?: unknown };
+    if (buffered.type === "Buffer" && Array.isArray(buffered.data)) {
+      return buffered.data.some((byte) => Number(byte) !== 0);
+    }
+    if (Array.isArray(value)) return value.some((item) => Number(item) !== 0);
+  }
   return false;
 }
 
@@ -188,8 +246,8 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
     collection_date: string | null;
     collection_receipt_no: string | null;
     docNo: string | null;
-    isPosted: boolean | null;
-    isCancelled: boolean | null;
+    isPosted: unknown;
+    isCancelled: unknown;
   }>("collection", { fields: COLLECTION_FIELDS, filter: { id: { _in: collectionIds } }, limit: 800 });
   const byId = new Map(collections.map((row) => [Number(row.id), row]));
   const [bankNames, customerNames] = await Promise.all([
@@ -197,45 +255,171 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
     loadCustomerNames(pending.map((row) => asString(row.customer_code))),
   ]);
 
-  return pending.map((row) => {
-    const parent = row.collection_id == null ? undefined : byId.get(Number(row.collection_id));
-    const collectionDate = parent?.collection_date ?? null;
-    const isCash = Number(row.payment_method) === CASH;
-    const code = asString(row.customer_code) || null;
-    const name = code ? customerNames.get(code) : undefined;
-    return {
-      collectionDetailId: Number(row.id),
-      collectionId: Number(row.collection_id ?? 0),
-      documentNumber: parent?.collection_receipt_no || parent?.docNo || `#${row.collection_id ?? row.id}`,
-      collectionReference: parent?.docNo ?? null,
-      assetType: isCash ? "CASH" : "CHECK",
-      customer: name ?? code,
-      customerCode: code,
-      bankName: bankNames.get(asString(row.bank)) ?? asString(row.bank) ?? null,
-      checkNo: row.check_no,
-      chequeDate: row.chequeDate,
-      collectionDate,
-      amount: roundMoney(asNumber(row.amount)),
-      ageDays: daysSince(collectionDate),
-      alreadyDeposited: false,
-      isPosted: parent?.isPosted === true,
-      isCancelled: parent?.isCancelled === true,
-    };
-  });
+  return pending
+    .map((row) => {
+      const parent = row.collection_id == null ? undefined : byId.get(Number(row.collection_id));
+      const collectionDate = parent?.collection_date ?? null;
+      const isCash = Number(row.payment_method) === CASH;
+      const code = asString(row.customer_code) || null;
+      const name = code ? customerNames.get(code) : undefined;
+      return {
+        collectionDetailId: Number(row.id),
+        collectionId: Number(row.collection_id ?? 0),
+        documentNumber: parent?.collection_receipt_no || parent?.docNo || `#${row.collection_id ?? row.id}`,
+        collectionReference: parent?.docNo ?? null,
+        assetType: isCash ? "CASH" : "CHECK",
+        customer: name ?? code,
+        customerCode: code,
+        bankName: bankNames.get(asString(row.bank)) ?? asString(row.bank) ?? null,
+        checkNo: row.check_no,
+        chequeDate: row.chequeDate,
+        collectionDate,
+        amount: roundMoney(asNumber(row.amount)),
+        ageDays: daysSince(collectionDate),
+        alreadyDeposited: false,
+        isPosted: isTruthyFlag(parent?.isPosted),
+        isCancelled: isTruthyFlag(parent?.isCancelled),
+      } satisfies UndepositedAsset;
+    })
+    // Only rows that can go on a slip belong here (P14): posted, dated, not voided. The
+    // queue is not a hiding place for ineligible rows, so there is nothing left to toggle.
+    .filter((asset) => asset.isPosted && !asset.isCancelled && asset.collectionDate !== null);
 }
 
+export type DepositPreview = { entry: ResolvedJournalEntry; account: DepositAccount };
+
 /**
- * E07 preview for the create dialog. Nothing is written: the same resolver the posting path uses
- * runs on the cash total, so the panel cannot drift from what posting will actually do.
+ * E07 preview for both dialogs. Nothing is written: the same resolver and the same account
+ * GL the posting path will use run here, so the panel cannot drift from what posting does.
  */
-export async function previewDepositSlip(input: { bankAccountId: number; cashTotal: number }): Promise<ResolvedJournalEntry> {
-  return resolveJournalEntry(
-    depositCashEntry({ bankId: input.bankAccountId, glCoaId: null }, roundMoney(input.cashTotal), {
+export async function previewDepositSlip(input: { bankAccountId: number; cashTotal: number }): Promise<DepositPreview> {
+  const account = await loadDepositAccount(input.bankAccountId);
+  if (!account) throw new NotFoundError(`Bank account ${input.bankAccountId} does not exist.`);
+  const entry = await resolveJournalEntry(
+    depositCashEntry({ bankId: account.bankId, glCoaId: account.glCoaId }, roundMoney(input.cashTotal), {
       sourceRef: "PREVIEW",
       postingDate: phtToday(),
       description: "Cash deposit",
     }),
   );
+  return { entry, account };
+}
+
+type UserRow = {
+  user_id: number;
+  user_fname: string | null;
+  user_mname: string | null;
+  user_lname: string | null;
+  user_email: string | null;
+};
+
+/** `prepared_by` stores a `user.user_id`; the modal has to print a person, not `24` (P17). */
+async function loadPreparers(ids: number[]): Promise<Map<number, { name: string | null; email: string | null }>> {
+  const unique = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))];
+  if (!unique.length) return new Map();
+  try {
+    const { rows } = await listItems<UserRow>("user", {
+      fields: ["user_id", "user_fname", "user_mname", "user_lname", "user_email"],
+      filter: { user_id: { _in: unique } },
+      limit: 500,
+    });
+    return new Map(
+      rows.map((row) => {
+        const name = [row.user_fname, row.user_mname, row.user_lname]
+          .map((part) => asString(part).trim())
+          .filter(Boolean)
+          .join(" ");
+        return [Number(row.user_id), { name: name || null, email: asString(row.user_email) || null }];
+      }),
+    );
+  } catch (error) {
+    // The user table belongs to another module; a missing read must not blank the slip list.
+    if (error instanceof DirectusError) return new Map();
+    throw error;
+  }
+}
+
+type SlipItemRow = {
+  id: number;
+  bank_deposit_id: number;
+  collection_detail_id: number | null;
+};
+type ItemDetailRow = {
+  id: number;
+  collection_id: number | null;
+  payment_method: number | null;
+  check_no: string | null;
+  amount: number | string | null;
+  customer_code: string | null;
+};
+
+/** Itemised contents for the slip list and its read-only modal (P17). */
+async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlipItem[]>> {
+  const result = new Map<number, DepositSlipItem[]>();
+  if (!slipIds.length) return result;
+  const { rows: links } = await listItems<SlipItemRow>("bank_deposit_details", {
+    fields: ["id", "bank_deposit_id", "collection_detail_id"],
+    filter: { bank_deposit_id: { _in: slipIds } },
+    limit: 2000,
+  });
+  if (!links.length) return result;
+
+  const detailIds = [...new Set(links.map((link) => Number(link.collection_detail_id)).filter(Boolean))];
+  const [{ rows: details }, { rows: checks }] = await Promise.all([
+    listItems<ItemDetailRow>("collection_details", {
+      fields: ["id", "collection_id", "payment_method", "check_no", "amount", "customer_code"],
+      filter: { id: { _in: detailIds } },
+      limit: 2000,
+    }),
+    listItems<{ collection_detail_id: number | null; status: string }>("bank_checks", {
+      fields: ["collection_detail_id", "status"],
+      filter: { collection_detail_id: { _in: detailIds }, direction: { _eq: "RECEIVED" } },
+      limit: 2000,
+    }).catch((error: unknown) => {
+      if (error instanceof DirectusError) return { rows: [] as { collection_detail_id: number | null; status: string }[] };
+      throw error;
+    }),
+  ]);
+  const detailById = new Map(details.map((row) => [Number(row.id), row]));
+  const collectionIds = [...new Set(details.map((row) => Number(row.collection_id)).filter(Boolean))];
+  const { rows: collections } = collectionIds.length
+    ? await listItems<{ id: number; docNo: string | null; collection_receipt_no: string | null; collection_date: string | null }>(
+        "collection",
+        { fields: ["id", "docNo", "collection_receipt_no", "collection_date"], filter: { id: { _in: collectionIds } }, limit: 800 },
+      )
+    : { rows: [] };
+  const collectionById = new Map(collections.map((row) => [Number(row.id), row]));
+  const customerNames = await loadCustomerNames(details.map((row) => asString(row.customer_code)));
+  const checkByDetail = new Map(checks.map((row) => [Number(row.collection_detail_id), row.status as CheckStatus]));
+
+  for (const link of links) {
+    const detail = detailById.get(Number(link.collection_detail_id));
+    if (!detail) continue;
+    const parent = detail.collection_id == null ? undefined : collectionById.get(Number(detail.collection_id));
+    const code = asString(detail.customer_code) || null;
+    const item: DepositSlipItem = {
+      collectionDetailId: Number(detail.id),
+      assetType: Number(detail.payment_method) === CASH ? "CASH" : "CHECK",
+      documentNumber: parent?.collection_receipt_no || parent?.docNo || `detail #${detail.id}`,
+      checkNo: detail.check_no,
+      customer: (code ? customerNames.get(code) : undefined) ?? code,
+      customerCode: code,
+      collectionDate: parent?.collection_date ?? null,
+      amount: roundMoney(asNumber(detail.amount)),
+      checkStatus: checkByDetail.get(Number(detail.id)) ?? null,
+    };
+    const slipId = Number(link.bank_deposit_id);
+    const bucket = result.get(slipId) ?? [];
+    bucket.push(item);
+    result.set(slipId, bucket);
+  }
+  return result;
+}
+
+/** A cash item resolves when the slip is saved; a check when the bank clears or returns it. */
+function itemResolved(item: DepositSlipItem): boolean {
+  if (item.assetType === "CASH") return true;
+  return item.checkStatus === "CLEARED" || item.checkStatus === "RETURNED" || item.checkStatus === "CANCELLED";
 }
 
 export async function listDepositSlips(): Promise<DepositSlip[]> {
@@ -243,25 +427,57 @@ export async function listDepositSlips(): Promise<DepositSlip[]> {
     listItems<SlipRow>("bank_deposit", { fields: SLIP_FIELDS, sort: "-deposit_date", limit: 400 }),
     loadAccounts(),
   ]);
+  const [itemsBySlip, preparers] = await Promise.all([
+    loadSlipItems(rows.map((row) => Number(row.id))),
+    loadPreparers(rows.map((row) => Number(row.prepared_by ?? 0))),
+  ]);
 
-  return rows.map((row) => ({
-    id: Number(row.id),
-    depositNo: row.deposit_no,
-    depositDate: row.deposit_date,
-    targetBankId: Number(row.target_bank_id ?? 0),
-    targetBankLabel: accounts.get(Number(row.target_bank_id)) ?? "—",
-    referenceNo: row.deposit_reference_no,
-    validationFileId: null,
-    status: row.status as DepositSlip["status"],
-    totalCash: roundMoney(asNumber(row.total_cash)),
-    totalChecks: roundMoney(asNumber(row.total_checks)),
-    grandTotal: roundMoney(asNumber(row.total_cash) + asNumber(row.total_checks)),
-    preparedBy: row.prepared_by,
-    datePrepared: row.date_prepared,
-    clearedAt: row.cleared_at ? phtDisplayStamp(row.cleared_at) : null,
-    clearedBy: row.cleared_by,
-    remarks: row.remarks,
-  }));
+  return rows.map((row) => {
+    const id = Number(row.id);
+    const items = itemsBySlip.get(id) ?? [];
+    const bouncedCount = items.filter((item) => item.checkStatus === "RETURNED").length;
+    const resolvedCount = items.filter(itemResolved).length;
+    const stored = row.status as DepositSlip["status"];
+    // P3/P6: the header never carries a bounce. It is Prepared until every item has resolved,
+    // then Cleared; the bounce count rides alongside as its own badge.
+    const status: DepositSlip["status"] =
+      stored === "CANCELLED" ? "CANCELLED" : items.length > 0 && resolvedCount === items.length ? "CLEARED" : "PREPARED";
+    const account = accounts.get(Number(row.target_bank_id));
+    const preparer = preparers.get(Number(row.prepared_by ?? 0));
+    return {
+      id,
+      depositNo: row.deposit_no,
+      depositDate: row.deposit_date,
+      targetBankId: Number(row.target_bank_id ?? 0),
+      targetBankLabel: account?.label ?? "—",
+      glCode: account?.glCode ?? null,
+      glTitle: account?.glTitle ?? null,
+      glFallback: account?.glFallback ?? true,
+      referenceNo: row.deposit_reference_no,
+      validationFileId: null,
+      status,
+      totalCash: roundMoney(asNumber(row.total_cash)),
+      totalChecks: roundMoney(asNumber(row.total_checks)),
+      grandTotal: roundMoney(asNumber(row.total_cash) + asNumber(row.total_checks)),
+      preparedBy: preparer?.name ?? preparer?.email ?? null,
+      preparedByEmail: preparer?.email ?? null,
+      datePrepared: row.date_prepared,
+      clearedAt: row.cleared_at ? phtDisplayStamp(row.cleared_at) : null,
+      clearedBy: row.cleared_by,
+      remarks: row.remarks,
+      itemCount: items.length,
+      bouncedCount,
+      resolvedCount,
+    };
+  });
+}
+
+/** One slip with its itemised contents, for the read-only modal (P17). */
+export async function getDepositSlipDetail(slipId: number): Promise<DepositSlipDetail> {
+  const [slip] = (await listDepositSlips()).filter((row) => row.id === slipId);
+  if (!slip) throw new NotFoundError("Deposit slip not found.");
+  const items = (await loadSlipItems([slipId])).get(slipId) ?? [];
+  return { slip, items };
 }
 
 export type CreateSlipInput = {
@@ -271,6 +487,8 @@ export type CreateSlipInput = {
   remarks: string | null;
   cashIds: number[];
   checkIds: number[];
+  /** `bank_deposit.prepared_by` is NOT NULL, so the route must resolve the signed-in user first. */
+  preparedBy: number | null;
 };
 
 export type CreateSlipResult = {
@@ -312,6 +530,9 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
   if (!input.cashIds.length && !input.checkIds.length) {
     throw new ValidationError("Select at least one cash collection or check to deposit.");
   }
+  if (input.preparedBy === null) {
+    throw new ValidationError("Your session does not carry a user id; sign in again before preparing a slip.");
+  }
   if (input.depositDate > phtToday()) {
     throw new ValidationError("Deposit date cannot be in the future.");
   }
@@ -332,6 +553,8 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
       `Bank account ${input.bankAccountId} is ${targetStatus.toLowerCase()}; a deposit slip can only be prepared against an active account.`,
     );
   }
+  // E07 debits the account's Linked GL from onboarding, never a dummy mapping (P15).
+  const account = await loadDepositAccount(input.bankAccountId);
 
   const assets = await listUndepositedAssets();
   const byId = new Map(assets.map((asset) => [asset.collectionDetailId, asset]));
@@ -406,6 +629,7 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
       total_checks: checkTotal,
       status: "PREPARED",
       date_prepared: phtStamp(),
+      prepared_by: input.preparedBy,
       deposit_reference_no: input.slipNo,
       remarks: input.remarks,
     });
@@ -466,7 +690,7 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
     try {
       await postJournalEntry(
         depositCashEntry(
-          { bankId: input.bankAccountId, glCoaId: null },
+          { bankId: input.bankAccountId, glCoaId: account?.glCoaId ?? null },
           cashTotal,
           {
             sourceRef: depositNo,
@@ -494,7 +718,12 @@ export async function cancelDepositSlip(slipId: number, reason: string): Promise
   const slip = rows[0];
   if (!slip) throw new NotFoundError("Deposit slip not found.");
   if (slip.status === "CANCELLED") throw new ValidationError("This slip is already cancelled.");
-  if (slip.status === "CLEARED") throw new ValidationError("A cleared slip cannot be cancelled.");
+  // The spec contradicts itself here: rule P7 allows a cancel only while "zero items have cleared",
+  // but the workflow's cancel row describes reversing the cash E07 — which only exists on a slip
+  // whose cash already cleared. The workflow row wins, because it is the one that names a posting:
+  // cancel stays open while the header is Prepared and no check has left the bank's hands, and the
+  // cash side is reversed with E08 below. Dropping the derived-CLEARED refusal is what makes that
+  // possible; the check guard underneath still blocks a slip whose checks have cleared or returned.
 
   const { rows: links } = await listItems<{ id: number; collection_detail_id: number | null }>("bank_deposit_details", {
     fields: ["id", "collection_detail_id"],
@@ -525,11 +754,20 @@ export async function cancelDepositSlip(slipId: number, reason: string): Promise
     }
   }
 
+  // A slip from the legacy table can carry checks with no register row, so the guard above has
+  // nothing to inspect. Refuse rather than reverse cash the bank may already have credited.
+  if (asNumber(slip.total_checks) > 0 && checkIds.length === 0) {
+    throw new ValidationError(
+      "The checks on this slip are not linked to the check register, so the slip cannot be cancelled here.",
+    );
+  }
+
   const cashTotal = roundMoney(asNumber(slip.total_cash));
   if (cashTotal > 0) {
+    const account = await loadDepositAccount(Number(slip.target_bank_id ?? 0));
     await postJournalEntry(
       depositCancelEntry(
-        { bankId: Number(slip.target_bank_id ?? 0), glCoaId: null },
+        { bankId: Number(slip.target_bank_id ?? 0), glCoaId: account?.glCoaId ?? null },
         cashTotal,
         {
           sourceRef: slip.deposit_no,

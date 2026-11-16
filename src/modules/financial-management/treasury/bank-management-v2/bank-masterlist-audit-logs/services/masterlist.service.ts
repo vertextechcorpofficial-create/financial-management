@@ -4,6 +4,7 @@ import type { ArfFinding, ArfSeverity, AuditLogRow, BankAccountStatus, BankAccou
 import { STALE_CHECK_DAYS, UNCLEARED_DEPOSIT_DAYS } from "../constants";
 import { daysSince, isUtcStamp, toPhtDateString, toPhtStampString } from "../pht";
 import { DirectusError, asNumber, asString, listItems, roundMoney } from "./directus";
+import { formatCurrency } from "@/lib/utils";
 
 /**
  * Master List & Audit Logs reads.
@@ -33,8 +34,6 @@ const CASH = 1;
 const DEFAULT_CURRENCY: Currency = "PHP";
 const DEFAULT_IFRS_CATEGORY = "Amortized Cost";
 const UNDEPOSITED_CASH_DAYS = 1;
-
-const MONEY = new Intl.NumberFormat("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type AccountRow = {
   bank_id: number | string | null;
@@ -66,10 +65,6 @@ function asFlag(value: unknown): boolean {
     if (Array.isArray(data)) return data.some((byte) => Number(byte) !== 0);
   }
   return false;
-}
-
-function money(value: number): string {
-  return MONEY.format(value);
 }
 
 const STATUS_VALUES: BankAccountStatus[] = ["ACTIVE", "DORMANT", "INACTIVE", "ESCHEATED", "CLOSED"];
@@ -224,9 +219,9 @@ export async function listAccounts(filter: AccountsFilter = {}): Promise<Account
 
 export type ArfResult = { findings: ArfFinding[]; notice?: string };
 
-const SEVERITY_ORDER: Record<ArfSeverity, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2 };
+const SEVERITY_ORDER: Record<ArfSeverity, number> = { HIGH: 0, MEDIUM: 1 };
 
-/** CRITICAL, HIGH, MEDIUM, then newest first. */
+/** HIGH, MEDIUM, then newest first. */
 function sortFindings(findings: ArfFinding[]): ArfFinding[] {
   return [...findings].sort((left, right) => {
     const bySeverity = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
@@ -273,12 +268,12 @@ async function undepositedCashFindings(labels: Map<number, string>): Promise<Arf
       severity: "HIGH",
       subModule: "Deposit",
       title: "Undeposited cash over 1 day",
-      detail: `Cash of PHP ${money(asNumber(row.amount))} from ${document || `collection ${asNumber(row.collection_id)}`} has sat in the vault for ${ageDays} day${ageDays === 1 ? "" : "s"}.`,
+      detail: `Cash of ${formatCurrency(asNumber(row.amount))} from ${document || `collection ${asNumber(row.collection_id)}`} has sat in the vault for ${ageDays} day${ageDays === 1 ? "" : "s"}.`,
       reference: document || null,
       occurredAt: toPhtDateString(parent.collection_date) || null,
       account: labels.get(asNumber(row.bank)) ?? null,
       amount: asNumber(row.amount),
-      rule: `Cash collection unbanked ${UNDEPOSITED_CASH_DAYS} day after collection: payment_method = CASH, not cleared, and no bank_deposit_details link.`,
+      rule: `Cash collected more than ${UNDEPOSITED_CASH_DAYS} day ago that is still not banked and not cleared.`,
       source: `collection_details #${asNumber(row.id)}`,
     });
   }
@@ -317,7 +312,7 @@ async function unclearedDepositFindings(labels: Map<number, string>): Promise<Ar
       occurredAt: toPhtDateString(parent.deposit_date) || null,
       account: labels.get(asNumber(parent.target_bank_id)) ?? null,
       amount: asNumber(parent.total_cash) + asNumber(parent.total_checks),
-      rule: `Deposit slip still IN_TRANSIT ${UNCLEARED_DEPOSIT_DAYS} days after its deposit date (bank_deposit_details.deposit_status = IN_TRANSIT).`,
+      rule: `A deposited check is still in transit more than ${UNCLEARED_DEPOSIT_DAYS} days after its deposit date.`,
       source: `bank_deposit_details #${asNumber(row.id)}`,
     });
   }
@@ -372,7 +367,7 @@ async function checkFindings(labels: Map<number, string>): Promise<{ findings: A
         occurredAt: toPhtDateString(row.check_date) || null,
         account: labels.get(asNumber(row.bank_account_id)) ?? null,
         amount: asNumber(row.amount),
-        rule: `Check is ${status} and no replacement check is linked (replaced_by_id is empty).`,
+        rule: `Check is ${status.toLowerCase()} and no replacement check is linked.`,
         source: `bank_checks #${asNumber(row.id)}`,
       });
     }
@@ -390,7 +385,7 @@ async function checkFindings(labels: Map<number, string>): Promise<{ findings: A
           occurredAt: toPhtDateString(row.check_date) || null,
           account: labels.get(asNumber(row.bank_account_id)) ?? null,
           amount: asNumber(row.amount),
-          rule: `Check still ${status} after ${STALE_CHECK_DAYS} days; a check is stale after ${STALE_CHECK_DAYS} days.`,
+          rule: `Check has stayed ${status.toLowerCase()} for more than ${STALE_CHECK_DAYS} days, which makes it stale.`,
           source: `bank_checks #${asNumber(row.id)}`,
         });
       }

@@ -98,6 +98,7 @@ export async function listTransactions(filters: TransactionFilters): Promise<Tra
   const pageSize = filters.pageSize && filters.pageSize > 0 ? filters.pageSize : PAGE_SIZE;
   const slice = merged.slice((page - 1) * pageSize, page * pageSize);
   await resolveJeNumbers([...slice, ...clearing]);
+  await resolveLegOneNumbers([...slice, ...clearing]);
   await markPostable(slice);
 
   return {
@@ -275,6 +276,7 @@ function mapMemo(raw: RawRow, labels: Map<number, string>): MappedRow {
       direction: kind === "DEBIT" ? "OUT" : "IN",
       status: asString(raw.status).toUpperCase() || "POSTED",
       jeNo: null,
+    jeNoLeg1: null,
       description: asString(raw.description) || null,
       canPost: false,
       missingEntryKeys: [],
@@ -318,6 +320,7 @@ function mapTransfer(raw: RawRow, labels: Map<number, string>): MappedRow {
       direction: "OUT",
       status: asString(raw.status).toUpperCase() || "PREPARED",
       jeNo: null,
+    jeNoLeg1: null,
       description: asString(raw.remarks) || null,
       canPost: false,
       missingEntryKeys: [],
@@ -345,6 +348,46 @@ async function markPostable(rows: MappedRow[]): Promise<void> {
   for (const entry of candidates) {
     entry.row.canPost = true;
     entry.row.missingEntryKeys = entry.requiredKeys.filter((key) => unmapped.has(key));
+  }
+}
+
+/**
+ * A settled transfer's `journal_entry_id` points at leg 2, so leg 1's number has to be
+ * looked up by its own source ref. Without it the dialog could only say "Posted" and
+ * leave the reader unable to verify the sending entry (T2).
+ */
+async function resolveLegOneNumbers(rows: MappedRow[]): Promise<void> {
+  const settled = rows.filter(
+    (entry) => entry.row.kind === "TRANSFER" && entry.row.status !== "PENDING" && entry.row.jeNo !== null,
+  );
+  if (!settled.length) return;
+
+  const refs = settled.map((entry) => entry.row.refNo);
+  try {
+    const { rows: entries } = await listItems<{ je_no: string; source_ref: string }>("bank_journal_entries", {
+      fields: ["je_no", "source_ref"],
+      filter: {
+        // E05 is the legacy same-day path: it posted one entry for the whole transfer, so it is
+        // leg 1 as far as the dialog is concerned.
+        _and: [
+          { event_code: { _in: ["E05", "E06"] } },
+          { source_ref: { _in: [...refs.map((ref) => `${ref}-L1`), ...refs] } },
+        ],
+      },
+      limit: refs.length * 2,
+    });
+    const byRef = new Map<string, string>();
+    for (const entry of entries) {
+      const sourceRef = asString(entry.source_ref);
+      // Legacy transfers used the bare number; `-L1` wins when both exist.
+      const base = sourceRef.endsWith("-L1") ? sourceRef.slice(0, -3) : sourceRef;
+      if (!byRef.has(base) || sourceRef.endsWith("-L1")) byRef.set(base, asString(entry.je_no));
+    }
+    for (const entry of settled) entry.row.jeNoLeg1 = byRef.get(entry.row.refNo) ?? null;
+  } catch (error) {
+    // Only the leg-1 link is lost; the page still renders.
+    if (!(error instanceof DirectusError)) throw error;
+    console.warn(`[cash-bank-transactions] leg-1 entry numbers unavailable: ${error.status}`);
   }
 }
 

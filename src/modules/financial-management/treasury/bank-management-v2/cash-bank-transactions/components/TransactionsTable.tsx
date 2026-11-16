@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { ReactNode } from "react";
 import { MoreVertical, ReceiptText } from "lucide-react";
@@ -76,6 +76,7 @@ function RowActions({
   onCancelMemo,
   onSettle,
   onPost,
+  onView,
 }: {
   row: TransactionRow;
   isSaving: boolean;
@@ -83,6 +84,7 @@ function RowActions({
   onCancelMemo: (row: TransactionRow) => void;
   onSettle: (row: TransactionRow) => void;
   onPost: (row: TransactionRow) => void;
+  onView: (row: TransactionRow) => void;
 }) {
   const isPendingTransfer = row.kind === "TRANSFER" && row.status === "PENDING";
   const canCancelMemo = row.kind !== "TRANSFER" && row.status === "POSTED";
@@ -90,10 +92,8 @@ function RowActions({
   const blocked = mappingMissing.length > 0;
   const postBlocked = row.missingEntryKeys.length > 0;
 
-  if (!isPendingTransfer && !canCancelMemo && !row.canPost) {
-    return <span className="text-sm text-muted-foreground">—</span>;
-  }
-
+  // Every row carries the menu: a settled transfer and a posted memo have no action besides
+  // reading it, and an empty cell there reads as a broken column.
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -109,6 +109,7 @@ function RowActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[180px]">
+        <DropdownMenuItem onSelect={() => onView(row)}>View transaction</DropdownMenuItem>
         {row.canPost ? (
           <DropdownMenuItem
             disabled={postBlocked}
@@ -218,17 +219,17 @@ export function TransactionsTable({
       ) : (
         <>
           <div className="hidden overflow-x-auto min-[1300px]:block">
-            <Table>
+            <Table className="table-fixed">
               <TableHeader className="bg-muted/30">
                 <TableRow>
-                  <TableHead className="w-[120px]">Date (PHT)</TableHead>
-                  <TableHead className="min-w-[280px]">Account</TableHead>
-                  <TableHead className="w-[130px]">Reference</TableHead>
-                  <TableHead className="min-w-[200px]">Payee / description</TableHead>
-                  <TableHead className="w-[150px]">Type</TableHead>
-                  <TableHead className="w-[120px] text-right">Addition</TableHead>
-                  <TableHead className="w-[120px] text-right">Deduction</TableHead>
-                  <TableHead className="w-[60px]">
+                  <TableHead className="w-[96px]">Date (PHT)</TableHead>
+                  <TableHead className="w-[26%]">Account</TableHead>
+                  <TableHead className="w-[120px]">Reference</TableHead>
+                  <TableHead className="w-[22%]">Payee / description</TableHead>
+                  <TableHead className="w-[110px]">Type</TableHead>
+                  <TableHead className="w-[92px] text-right">Addition</TableHead>
+                  <TableHead className="w-[96px] text-right">Deduction</TableHead>
+                  <TableHead className="w-[44px]">
                     <span className="sr-only">Actions</span>
                   </TableHead>
                 </TableRow>
@@ -267,7 +268,7 @@ export function TransactionsTable({
                         {row.refNo}
                       </span>
                       <span className="block max-w-[120px] truncate text-xs text-muted-foreground" title={row.jeNo ?? "No journal entry"}>
-                        {row.jeNo ?? "No JE"}
+                        {row.jeNo ?? "—"}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -302,6 +303,7 @@ export function TransactionsTable({
                         onCancelMemo={onCancelMemo}
                         onSettle={onSettle}
                         onPost={onPost}
+                        onView={onOpenRow}
                       />
                     </TableCell>
                   </TableRow>
@@ -340,7 +342,12 @@ export function TransactionsTable({
                   <dt className="text-muted-foreground">Date</dt>
                   <dd className="text-right tabular-nums">{row.date}</dd>
                   <dt className="text-muted-foreground">Account</dt>
-                  <dd className="truncate text-right" title={row.accountLabel}>
+                  {/* Wraps rather than truncates: at 375 the account number is the only
+                      identifier a touch user can read, and a title is unreachable there (T5). */}
+                  <dd
+                    className="break-words text-right"
+                    title={row.counterpartLabel ? `${row.accountLabel} → ${row.counterpartLabel}` : row.accountLabel}
+                  >
                     {row.accountLabel}
                     {row.counterpartLabel ? (
                       <span className="text-muted-foreground"> → {row.counterpartLabel}</span>
@@ -377,6 +384,7 @@ export function TransactionsTable({
                     onCancelMemo={onCancelMemo}
                     onSettle={onSettle}
                     onPost={onPost}
+                    onView={onOpenRow}
                   />
                 </div>
               </li>
@@ -390,6 +398,7 @@ export function TransactionsTable({
         pageCount={pageCount}
         total={total}
         pageSize={pageSize}
+        allowAll={false}
         onPageChange={onPageChange}
         onPageSizeChange={onPageSizeChange}
         isLoading={isLoading}

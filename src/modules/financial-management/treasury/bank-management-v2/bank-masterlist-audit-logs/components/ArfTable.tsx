@@ -78,7 +78,7 @@ export function ArfTable({
                 <TableHead className="w-[180px]">ARF sub-module</TableHead>
                 <TableHead className="min-w-[240px]">Finding</TableHead>
                 <TableHead className="min-w-[320px]">Detail</TableHead>
-                <TableHead className="w-[190px] text-right">Action</TableHead>
+                <TableHead className="w-[190px] text-center">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -127,7 +127,7 @@ export function ArfTable({
                         </p>
                       ) : null}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-center">
                       <Button
                         type="button"
                         size="sm"

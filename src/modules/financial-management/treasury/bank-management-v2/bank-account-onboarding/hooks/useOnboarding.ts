@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { EMPTY_FILTERS, ONBOARDING_PAGE_SIZE } from "../constants";
+import { usePageSize } from "../components/TablePager";
 import {
   fetchOnboarding,
   postOpeningBalance as postOpeningBalanceRequest,
@@ -32,7 +33,7 @@ export function useOnboarding() {
   const [listing, setListing] = useState<OnboardingListing | null>(null);
   const [filters, setFilters] = useState<OnboardingFilterState>({ ...EMPTY_FILTERS });
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSizeState] = useState(ONBOARDING_PAGE_SIZE);
+  const [pageSize, setPageSizeState] = usePageSize("fm.bank-onboarding.rows", ONBOARDING_PAGE_SIZE);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,10 +66,13 @@ export function useOnboarding() {
     return () => clearTimeout(timer);
   }, [refetch]);
 
-  const setPageSize = useCallback((size: number) => {
-    setPageSizeState(size);
-    setPage(1);
-  }, []);
+  const setPageSize = useCallback(
+    (size: number) => {
+      setPageSizeState(size);
+      setPage(1);
+    },
+    [setPageSizeState],
+  );
 
   const updateFilter = useCallback(<K extends keyof OnboardingFilterState>(key: K, value: OnboardingFilterState[K]) => {    setFilters((current) => ({ ...current, [key]: value }));
     setPage(1);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { listDepositSlips, listUndepositedAssets, ValidationError } from "@/modules/financial-management/treasury/bank-management-v2/bank-deposit/services/deposit.service";
-import { DirectusError, listItems } from "@/modules/financial-management/treasury/bank-management-v2/bank-deposit/services/directus";
+import { DirectusError, directusReason, listItems } from "@/modules/financial-management/treasury/bank-management-v2/bank-deposit/services/directus";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +34,11 @@ export async function GET() {
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     }
     if (error instanceof DirectusError) {
-      return NextResponse.json({ success: false, error: "Could not read depositable collections." }, { status: 502 });
+      const reason = directusReason(error.body);
+      return NextResponse.json(
+        { success: false, error: reason ? `The database rejected this read: ${reason}` : "Could not read depositable collections." },
+        { status: 502 },
+      );
     }
     return NextResponse.json({ success: false, error: "Could not load depositable collections." }, { status: 500 });
   }
