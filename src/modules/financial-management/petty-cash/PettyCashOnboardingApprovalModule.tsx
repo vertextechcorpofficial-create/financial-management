@@ -82,6 +82,7 @@ function FundApprovalReview({ id, actorName, canDecide, onClose, onChanged }: { 
   const reviewErrorTitle = decision === "reject" ? "Could not reject fund request" : decision === "approve" ? "Could not approve fund request" : "Could not complete fund decision";
   const fundingError = onboardingFieldError(command.error, "fundingAccountId") || onboardingFieldError(command.error, "fundingAccount");
   const remarksError = onboardingFieldError(command.error, "remarks") || onboardingFieldError(command.error, "reason");
+  const departmentError = onboardingFieldError(command.error, "departmentId");
   const cashError = onboardingFieldError(command.error, "cashConfirmed");
   function reload() { setConfirmed(false); setDecision(null); command.clearError(); read.refresh(); selectedPreview.refresh(); }
   async function decide(action: "approve" | "reject") {
@@ -92,6 +93,7 @@ function FundApprovalReview({ id, actorName, canDecide, onClose, onChanged }: { 
   }
   return <Dialog open onOpenChange={open => { if (!open && !locked) onClose(); }}><DialogContent showCloseButton={!locked} className="max-h-[88vh] overflow-y-auto sm:max-w-[900px]" onEscapeKeyDown={event => { if (locked) event.preventDefault(); }} onInteractOutside={event => { if (locked) event.preventDefault(); }}><DialogHeader><DialogTitle>{fund ? `${fund.docNo} · New fund request` : "New fund request"}</DialogTitle><DialogDescription>Review the request and entry before approving and funding.</DialogDescription></DialogHeader>
     {read.loading && <ReviewSkeleton />}<ErrorBox error={read.error || null} retry={reload} title="Could not load fund request" /><ErrorBox error={selectedPreview.error || null} retry={reload} title="Could not refresh the funding entry" /><ErrorBox error={command.error} title={reviewErrorTitle} showFields={false} action={conflict ? { label: "Reload review", onClick: reload } : undefined} />
+    {departmentError && <OnboardingFeedback tone="error" title="Department already has a fund"><p>{departmentError}</p></OnboardingFeedback>}
     {data && fund && <><div><FundStatusBadge status={fund.status === "REJECTED" ? "Rejected" : pending ? "Pending" : "Approved"} /></div><div className="grid gap-4 rounded-lg bg-muted/40 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
       {[["Fund name", fund.name], ["Department", fund.department?.name || "Not set"], ["Custodian", fund.custodian?.name || "Not set"], ["Requested by", `${fund.requestedBy?.name || "Not set"} · ${fund.createdAt.slice(0, 10)}`]].map(([label, value]) => <div key={label}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-medium">{value}</p></div>)}
     </div><dl className="divide-y text-sm">{[["Imprest amount", money(fund.imprestAmount)], ["Maximum per voucher", money(fund.perVoucherLimit)], ["Approval required above", money(fund.approvalThreshold)], ["Fund account (GL)", fund.fundAccount ? `${fund.fundAccount.code} · ${fund.fundAccount.name}` : "Not set"], ["Custodian already holds", data.custodianActiveFunds?.length ? data.custodianActiveFunds.map(held => held.docNo).join(", ") : "No other active fund"]].map(([label, value]) => <div key={label} className="grid gap-1 py-3 sm:grid-cols-2"><dt className="text-muted-foreground">{label}</dt><dd className="font-medium">{value}</dd></div>)}</dl>
@@ -111,7 +113,7 @@ function FundApprovalReview({ id, actorName, canDecide, onClose, onChanged }: { 
     </>}
     {command.uncertain && <OnboardingFeedback tone="warning" title="Decision outcome is unconfirmed"><p>Retry the same decision to check its status and safely complete it.</p></OnboardingFeedback>}
     <div className="flex flex-wrap gap-2 pt-2">{command.uncertain ? <Button disabled={command.busy} onClick={async () => { const result = await command.retry(); if (result) onChanged(result); }}>{command.busy ? "Checking decision..." : "Retry decision"}</Button> : pending && canDecide && <>
-      <Button disabled={locked || !data?.canDecide || !funding || !preview?.ready || !confirmed} onClick={() => void decide("approve")}>{command.busy ? "Submitting decision..." : "Approve and fund"}</Button>
+      <Button disabled={locked || !data?.canDecide || !funding || !preview?.ready || !confirmed || Boolean(departmentError)} onClick={() => void decide("approve")}>{command.busy ? "Submitting decision..." : "Approve and fund"}</Button>
       <Button variant="destructive" disabled={locked || !data?.canDecide || !remarks.trim()} onClick={() => void decide("reject")}>Reject</Button>
     </>}<Button variant="outline" disabled={locked} onClick={onClose}>Cancel</Button>{command.error && !locked && <Button variant="outline" onClick={reload}>Reload review</Button>}</div>
   </DialogContent></Dialog>;
