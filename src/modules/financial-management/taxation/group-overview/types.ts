@@ -46,11 +46,32 @@ export interface TaxRates {
 /** Two defensible readings of "cost of sales", both shown rather than one chosen. */
 export type CostBasis = "PRODUCT_COST" | "PURCHASES";
 
+/** One carryover lot the desk can still use, with the year it came from. */
+export interface CarryoverLot {
+  originYear: number;
+  amount: number;
+}
+
+/**
+ * What the arithmetic needs beyond the figures: the lots Part I-B carries in and the
+ * 1702Q payments already recorded. The document's formula subtracts both, so leaving
+ * them at zero silently overstates the tax.
+ */
+export interface CarryoverInput {
+  /** NOLCO still unused, oldest year first. */
+  nolco: CarryoverLot[];
+  /** Excess MCIT still unused, oldest year first. */
+  mcit: CarryoverLot[];
+  /** Amount actually paid on each 1702Q, Q1..Q4; null when nothing is recorded. */
+  actualPaid: (number | null)[];
+}
+
 export interface TaxScenario {
   basis: CostBasis;
   label: string;
   grossIncome: number[];
   deductions: number[];
+  nolcoUsed: number[];
   netTaxableIncome: number[];
   taxDue: number[];
   payable: number[];
@@ -256,7 +277,7 @@ export interface GroupAttentionItem {
   detail: string;
 }
 
-export interface CarryoverLot {
+export interface CarryoverLotRow {
   id: number;
   companyId: number;
   companyCode: string;
@@ -272,7 +293,7 @@ export interface CarryoverLot {
 export interface GroupOverviewData {
   rows: GroupCompanyRow[];
   totals: GroupTotals;
-  carryovers: CarryoverLot[];
+  carryovers: CarryoverLotRow[];
   /** Set when `tax_carryover_lot` could not be read; the table then shows a notice, not zeros. */
   carryoverNotice: string | null;
   attention: GroupAttentionItem[];

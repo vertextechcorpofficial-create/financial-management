@@ -1,7 +1,7 @@
 import "server-only";
 
 import { asNumber, asNumberOrNull, asString, listItems, roundMoney } from "./directus";
-import type { CarryoverLot, RegistryCompanySummary } from "../types";
+import type { CarryoverLotRow, RegistryCompanySummary } from "../types";
 
 /**
  * Carryover lots for one tax year, from the central `tax_carryover_lot` table.
@@ -26,7 +26,7 @@ const FIELDS = ["id", "company_id", "kind", "origin_year", "amount", "amount_use
 export async function loadCarryovers(
   companies: RegistryCompanySummary[],
   taxYear: number,
-): Promise<{ lots: CarryoverLot[]; notice: string | null }> {
+): Promise<{ lots: CarryoverLotRow[]; notice: string | null }> {
   const byId = new Map(companies.map((company) => [company.companyId, company]));
 
   try {
@@ -38,7 +38,7 @@ export async function loadCarryovers(
     });
 
     const lots = rows
-      .map((row): CarryoverLot | null => {
+      .map((row): CarryoverLotRow | null => {
         const id = asNumber(row.id);
         const companyId = asNumber(row.company_id);
         if (!id || !companyId) return null;
@@ -58,7 +58,7 @@ export async function loadCarryovers(
           expiresAfterYear: asNumberOrNull(row.expires_after_year),
         };
       })
-      .filter((lot): lot is CarryoverLot => lot !== null);
+      .filter((lot): lot is CarryoverLotRow => lot !== null);
 
     return { lots, notice: null };
   } catch (error) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Download, RefreshCw } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { VatTiles } from "./components/VatTiles";
 import { QuarterlyVatTable } from "./components/QuarterlyVatTable";
 import { MonthlyWithholdingTable } from "./components/MonthlyWithholdingTable";
 import { CertificatePanel } from "./components/CertificatePanel";
+import { downloadVatWorkbook } from "./utils/exportWorkbook";
 
 const FIRST_YEAR = TAX_YEARS[0];
 const LAST_YEAR = TAX_YEARS[TAX_YEARS.length - 1];
@@ -103,6 +104,26 @@ export function VatWithholdingModule() {
             <RefreshCw className={isLoading ? "size-4 animate-spin" : "size-4"} />
             Refresh
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              data &&
+              downloadVatWorkbook({
+                companyName: data.snapshot.company.name,
+                taxYear: data.snapshot.profile.taxYear,
+                figures: data.snapshot.figures,
+                vat: data.vat,
+                monthly: data.monthly,
+                register: data.certificates,
+              })
+            }
+            disabled={!data || unavailable || showSkeleton}
+            title={!data || unavailable ? "Nothing to export until the figures load" : "Download these tables as a workbook"}
+          >
+            <Download className="size-4" />
+            Export
+          </Button>
         </div>
       </div>
 
@@ -111,15 +132,6 @@ export function VatWithholdingModule() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-
-      {/* Notices belong to the payload on screen, so they stay hidden while the next one loads. */}
-      {!unavailable &&
-        !showSkeleton &&
-        data?.snapshot.notices.map((notice) => (
-          <Alert key={notice}>
-            <AlertDescription>{notice}</AlertDescription>
-          </Alert>
-        ))}
 
       {showSkeleton ? (
         <div className="space-y-4">
@@ -142,6 +154,10 @@ export function VatWithholdingModule() {
               ? `The ${data.snapshot.failedSources.join(" and ")} could not be read, so the VAT and withholding figures are unknown rather than zero.`
               : `${terminated(data.snapshot.company.unreachableReason ?? "The instance refused the connection.")} Its VAT and withholding figures are unavailable for ${year}, not zero — nothing is shown until the instance answers.`}
           </p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={refetch} disabled={isLoading}>
+            <RefreshCw className={isLoading ? "size-4 animate-spin" : "size-4"} />
+            Try again
+          </Button>
         </section>
       ) : data ? (
         <div className="flex flex-col gap-4">
@@ -158,6 +174,11 @@ export function VatWithholdingModule() {
               <TabsTrigger value="certificates" className="min-h-11 md:min-h-0">
                 2307 certificates ({data.certificates.rows.length})
               </TabsTrigger>
+              {data.snapshot.notices.length > 0 ? (
+                <TabsTrigger value="notices" className="min-h-11 md:min-h-0">
+                  Notices ({data.snapshot.notices.length})
+                </TabsTrigger>
+              ) : null}
             </TabsList>
 
             <TabsContent value="quarterly">
@@ -169,6 +190,18 @@ export function VatWithholdingModule() {
             <TabsContent value="certificates">
               <CertificatePanel register={data.certificates} />
             </TabsContent>
+            {data.snapshot.notices.length > 0 ? (
+              <TabsContent value="notices" className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  What could not be read while building these figures, in the order the sources were tried.
+                </p>
+                {data.snapshot.notices.map((notice) => (
+                  <Alert key={notice}>
+                    <AlertDescription>{notice}</AlertDescription>
+                  </Alert>
+                ))}
+              </TabsContent>
+            ) : null}
           </Tabs>
         </div>
       ) : (

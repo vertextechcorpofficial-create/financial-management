@@ -46,11 +46,84 @@ export interface TaxRates {
 /** Two defensible readings of "cost of sales", both shown rather than one chosen. */
 export type CostBasis = "PRODUCT_COST" | "PURCHASES";
 
+/** One carryover lot the desk can still use, with the year it came from. */
+export interface CarryoverLot {
+  originYear: number;
+  amount: number;
+}
+
+/**
+ * What the arithmetic needs beyond the figures: the lots Part I-B carries in and the
+ * 1702Q payments already recorded. The document's formula subtracts both, so leaving
+ * them at zero silently overstates the tax.
+ */
+export interface CarryoverInput {
+  /** NOLCO still unused, oldest year first. */
+  nolco: CarryoverLot[];
+  /** Excess MCIT still unused, oldest year first. */
+  mcit: CarryoverLot[];
+  /** Amount actually paid on each 1702Q, Q1..Q4; null when nothing is recorded. */
+  actualPaid: (number | null)[];
+}
+
+/**
+ * One carryover lot as Part I-B shows it (P70): what it was worth, how much is used,
+ * what is left and the last tax year it may still be applied to.
+ */
+/** The stored vocabulary, not the label: `tax_carryover_lot.kind` is an ENUM whose MCIT member
+ * is spelled `EXCESS_MCIT`, and the column rejects `MCIT` with a message about the amount field.
+ * The panel still shows it as MCIT. */
+export type CarryoverKind = "NOLCO" | "EXCESS_MCIT";
+
+export interface CarryoverLotDetail {
+  id: number;
+  kind: CarryoverKind;
+  originYear: number;
+  amount: number;
+  used: number;
+  left: number;
+  expiresAfterYear: number;
+  /** `originYear + expiresAfterYear`: the last year the lot may be applied. */
+  lastUsableYear: number;
+  status: "OPEN" | "EXPIRED" | "USED";
+}
+
+/**
+ * A lot whose opening this year does not match what last year closed with: the previous
+ * year's figures changed after this one was started (P71).
+ */
+export interface CarryoverStaleLot {
+  lotId: number;
+  kind: CarryoverKind;
+  originYear: number;
+  /** What this year currently records as the lot's amount. */
+  recorded: number;
+  /** What last year closed the lot at, i.e. what this year should open with. */
+  closing: number;
+}
+
+/** What Part I-B needs: this year's lots, what rolls into next year, and what expires. */
+export interface CarryoverPanel {
+  taxYear: number;
+  lots: CarryoverLotDetail[];
+  carriedForward: CarryoverLotDetail[];
+  /** Earliest `lastUsableYear` among the lots that roll forward. */
+  earliestExpiry: number | null;
+  /** Lots whose window ends with this tax year while money is still left on them. */
+  expiringUnused: CarryoverLotDetail[];
+  /** Openings that disagree with last year's closing balance. */
+  stale: CarryoverStaleLot[];
+  /** True when this company-year is locked, so openings cannot be rewritten. */
+  locked: boolean;
+  notice: string | null;
+}
+
 export interface TaxScenario {
   basis: CostBasis;
   label: string;
   grossIncome: number[];
   deductions: number[];
+  nolcoUsed: number[];
   netTaxableIncome: number[];
   taxDue: number[];
   payable: number[];
@@ -194,6 +267,8 @@ export interface EntitySnapshot {
   salesSource: "STT_VIEW" | "INVOICE_LINES" | "INVOICE_HEADERS";
   /** Account-type breakdown behind the deduction line; null when the view could not be read. */
   expenseBreakdown: ExpenseBreakdown | null;
+  /** Part I-B: the carryover lots, what rolls into next year and what expires unused (P70). */
+  carryovers: CarryoverPanel;
 }
 
 export interface IntercompanyMatch {

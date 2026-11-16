@@ -1,17 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Lock, LockOpen, Loader2 } from "lucide-react";
+import { Download, Lock, LockOpen, Loader2 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PERIOD_KEYS, PERIOD_LABELS } from "../constants";
+import { PERIOD_KEYS, PERIOD_LABELS, lockStateLabel } from "../constants";
 import type { PeriodKey, PeriodLockRow } from "../types";
 import { LockDialog } from "./LockDialog";
 import { UnlockDialog } from "./UnlockDialog";
+import { downloadLocks } from "../utils/exportWorkbook";
 
 const COLUMN_COUNT = 6;
 
@@ -63,9 +64,22 @@ export function LocksTab({ locks, isLoading, isSaving, onLock, onUnlock }: Locks
     >
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 px-4 py-3">
         <h2 className="text-sm font-semibold">Period locks</h2>
-        <Badge variant="outline" className="tabular-nums text-[11px]">
-          {lockedCount} of {PERIOD_KEYS.length} locked
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="tabular-nums text-[11px]">
+            {lockedCount} of {PERIOD_KEYS.length} locked
+          </Badge>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => downloadLocks(locks)}
+            disabled={locks.length === 0}
+            title={locks.length === 0 ? "No locks to export" : "Download these rows as a workbook"}
+          >
+            <Download className="mr-2 size-4" />
+            Export
+          </Button>
+        </div>
       </header>
 
 
@@ -109,23 +123,23 @@ export function LocksTab({ locks, isLoading, isSaving, onLock, onUnlock }: Locks
                     <TableCell>
                       {lock === null ? (
                         <Badge variant="outline" className="text-[11px] font-semibold">
-                          Never locked
+                          {lockStateLabel("NONE")}
                         </Badge>
                       ) : isLocked ? (
                         <Badge
                           variant="outline"
                           className="border-emerald-200 bg-emerald-50 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
                         >
-                          Locked
+                          {lockStateLabel("LOCKED")}
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-[11px] font-semibold">
-                          Open
+                          {lockStateLabel("OPEN")}
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="tabular-nums">
-                      {lock ? (lock.lockedByName ?? (lock.lockedBy ? `#${lock.lockedBy}` : "—")) : "—"}
+                    <TableCell className="tabular-nums" title={lock?.lockedBy ? `User #${lock.lockedBy}` : ""}>
+                      {lock ? (lock.lockedByName ?? "—") : "—"}
                     </TableCell>
                     <TableCell className="tabular-nums">{lock ? lock.lockedAt.replace("T", " ") : "—"}</TableCell>
                     <TableCell>
@@ -191,8 +205,8 @@ export function LocksTab({ locks, isLoading, isSaving, onLock, onUnlock }: Locks
                     <p className="font-medium">{PERIOD_LABELS[periodKey]}</p>
                     <p className="text-[11px] text-muted-foreground">
                       {lock
-                        ? `${lock.lockedByName ?? (lock.lockedBy ? `#${lock.lockedBy}` : "—")} · ${lock.lockedAt.replace("T", " ")}`
-                        : "Never locked"}
+                        ? `${lock.lockedByName ?? "—"} · ${lock.lockedAt.replace("T", " ")}`
+                        : lockStateLabel("NONE")}
                     </p>
                     {lock?.unlockedAt ? (
                       <p className="truncate text-[11px] text-muted-foreground" title={lock.unlockReason ?? ""}>
@@ -202,7 +216,7 @@ export function LocksTab({ locks, isLoading, isSaving, onLock, onUnlock }: Locks
                     ) : null}
                   </div>
                   <Badge variant="outline" className="shrink-0 text-[11px] font-semibold">
-                    {lock === null ? "Never locked" : isLocked ? "Locked" : "Open"}
+                    {lock === null ? lockStateLabel("NONE") : isLocked ? lockStateLabel("LOCKED") : lockStateLabel("OPEN")}
                   </Badge>
                 </div>
                 <Button

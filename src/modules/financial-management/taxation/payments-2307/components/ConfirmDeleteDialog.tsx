@@ -67,6 +67,13 @@ export function ConfirmDeleteDialog({
           </Alert>
         ) : null}
 
+        {isSaving ? (
+          <p role="status" className="text-xs text-muted-foreground">
+            Deleting, then re-reading the register and the ledger behind it. On a large sales ledger this
+            takes a few seconds; the dialog stays open until it finishes.
+          </p>
+        ) : null}
+
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
           <AlertDialogAction
@@ -78,7 +85,7 @@ export function ConfirmDeleteDialog({
             className="min-h-11 md:min-h-0"
           >
             {isSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-            Delete
+            {isSaving ? "Deleting…" : "Delete"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

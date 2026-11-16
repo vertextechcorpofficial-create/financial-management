@@ -12,7 +12,13 @@ import {
 } from "@/components/ui/dialog";
 import { cn, formatCurrency, formatDateTime, formatNumber } from "@/lib/utils";
 
-import { DIRECTION_LABELS, PERIOD_LABELS, WITHHOLDING_LABELS, certificateStatusLabel } from "../constants";
+import {
+  DIRECTION_LABELS,
+  PERIOD_LABELS,
+  WITHHOLDING_LABELS,
+  certificateStatusLabel,
+  effectiveRatePercent,
+} from "../constants";
 import type { CertificateRow } from "../types";
 import { StatusBadge } from "./StatusBadge";
 
@@ -49,10 +55,10 @@ interface Props {
 export function CertificateDetailDialog({ certificate, onOpenChange }: Props) {
   return (
     <Dialog open={certificate !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] rounded-2xl p-0 sm:max-w-[700px]">
+      <DialogContent showCloseButton={false} className="w-[95vw] rounded-2xl p-0 sm:max-w-[700px]">
         <div className="flex max-h-[85vh] flex-col overflow-hidden">
           <DialogHeader className="border-b border-border/50 px-6 py-4">
-            <DialogTitle className="pr-8 text-base">
+            <DialogTitle className="text-base">
               {certificate ? certificate.counterpartyName : "Certificate"}
             </DialogTitle>
             <DialogDescription className="flex flex-wrap items-center gap-2">
@@ -82,7 +88,12 @@ export function CertificateDetailDialog({ certificate, onOpenChange }: Props) {
                   {formatCurrency(certificate.incomeAmount)}
                 </Detail>
                 <Detail label="Rate" className="tabular-nums">
-                  {formatNumber(certificate.taxRate, "en-PH", 2)}%
+                  {formatNumber(
+                    effectiveRatePercent(certificate.incomeAmount, certificate.taxWithheld, certificate.taxRate),
+                    "en-PH",
+                    2,
+                  )}
+                  %
                 </Detail>
                 <Detail label="Withheld" className="tabular-nums font-semibold">
                   {formatCurrency(certificate.taxWithheld)}

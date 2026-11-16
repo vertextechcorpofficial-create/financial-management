@@ -5,6 +5,7 @@ import { loadFigures } from "./companyFigures";
 import { loadProfile } from "./profile.service";
 import { loadTaxRates } from "./taxRates.service";
 import { computeTax, computeVat } from "./taxEngine";
+import { loadCarryoverInput } from "./carryovers.service";
 import { buildObligations, calendarNotices, type CompanyCalendarInput } from "./calendar.service";
 import { asString, listItems } from "./directus";
 import { listRegistryCompaniesWithHealth } from "./registry";
@@ -84,34 +85,65 @@ async function buildCompanyInput(
   company: RegistryCompany,
   taxYear: number,
   springToken: string | null,
-): Promise<CompanyCalendarInput> {
+): Promise<{ input: CompanyCalendarInput; notice: string | null; failure: string | null }> {
   const profile = await loadProfile(company.companyId, taxYear);
+  const carryover = await loadCarryoverInput(company.companyId, taxYear);
 
   if (!company.reachable) {
     const empty = [0, 1, 2, 3].map(emptyQuarter);
     return {
-      company,
-      profile,
-      computation: computeTax(empty, profile),
-      vat: computeVat(empty, profile),
-      monthlyWithholding: new Array<number | null>(12).fill(null),
-      quarterlySales: [0, 0, 0, 0],
+      input: {
+        company,
+        profile,
+        computation: computeTax(empty, profile, undefined, carryover.input),
+        vat: computeVat(empty, profile),
+        monthlyWithholding: new Array<number | null>(12).fill(null),
+        quarterlySales: [0, 0, 0, 0],
+      },
+      notice: carryover.notice,
+      failure: company.unreachableReason ?? "no answer",
     };
   }
 
-  const [{ figures }, monthlyWithholding, rates] = await Promise.all([
+  const [{ figures, failed }, monthlyWithholding, rates] = await Promise.all([
     loadFigures(company, taxYear, [], { springToken }),
     loadMonthlyWithholding(company, taxYear),
     loadTaxRates(company, taxYear),
   ]);
 
+  // A company's Directus register can answer while its own sales ledger refuses. The sheet then
+  // has no sales at all, and every estimate built from it would read as a real ₱0.00, so the
+  // company is treated as unreadable instead of as one that sold nothing.
+  if (failed.length > 0) {
+    const empty = [0, 1, 2, 3].map(emptyQuarter);
+    const reason = `${failed.join(", ")} could not be read`;
+    return {
+      input: {
+        company,
+        profile,
+        computation: computeTax(empty, profile, undefined, carryover.input),
+        vat: computeVat(empty, profile),
+        monthlyWithholding: new Array<number | null>(12).fill(null),
+        quarterlySales: [0, 0, 0, 0],
+      },
+      // The header carries one aggregate line naming every refused company and its reason, so a
+      // per-company sentence here would say the same thing twice.
+      notice: carryover.notice,
+      failure: reason,
+    };
+  }
+
   return {
-    company,
-    profile,
-    computation: computeTax(figures, profile, rates),
-    vat: computeVat(figures, profile, rates),
-    monthlyWithholding,
-    quarterlySales: figures.map((quarter) => quarter.sales + quarter.icSales),
+    input: {
+      company,
+      profile,
+      computation: computeTax(figures, profile, rates, carryover.input),
+      vat: computeVat(figures, profile, rates),
+      monthlyWithholding,
+      quarterlySales: figures.map((quarter) => quarter.sales + quarter.icSales),
+    },
+    notice: carryover.notice,
+    failure: null,
   };
 }
 
@@ -177,43 +209,53 @@ async function buildCalendar(
   // latency, so they overlap. Order is rebuilt below, since the rows are sorted by date anyway.
   const built = await mapWithLimit(scoped, COMPANY_CONCURRENCY, async (company) => {
     try {
-      const input = await buildCompanyInput(company, taxYear, springToken);
+      const { input, notice, failure } = await buildCompanyInput(company, taxYear, springToken);
       const rows = buildObligations(input, taxYear, paidKeys, today);
-      // A company that did not answer has no amount; zero would read as a real figure.
-      if (!company.reachable) {
+      // A company whose registers did not answer has no amount; zero would read as a real figure.
+      if (failure !== null) {
         for (const row of rows) row.estimated = null;
       }
-      return { rows, notice: null as string | null };
+      return { companyId: company.companyId, code: company.code, rows, notice, failure };
     } catch (error) {
       return {
+        companyId: company.companyId,
+        code: company.code,
         rows: [] as CalendarObligation[],
         notice: `${company.code}: filings could not be prepared (${error instanceof Error ? error.message : "unknown error"}).`,
+        failure: "its registers could not be prepared",
       };
     }
   });
 
   const obligations: CalendarObligation[] = [];
+  const unreadable: Array<{ companyId: number; code: string; reason: string }> = [];
   for (const entry of built) {
     if (entry.notice) notices.push(entry.notice);
+    // One line per refused company, so the header names which ones the figures are missing
+    // rather than showing them as companies that sold nothing.
+    if (entry.failure !== null) {
+      unreadable.push({ companyId: entry.companyId, code: entry.code, reason: entry.failure });
+    }
     obligations.push(...entry.rows);
   }
 
   obligations.sort((left, right) => left.dueDate.localeCompare(right.dueDate));
 
-  const unreachable = companies.filter((company) => !company.reachable);
-  if (unreachable.length > 0) {
+  if (unreadable.length > 0) {
     notices.push(
-      `Not readable: ${unreachable.map((company) => `${company.code} (${company.unreachableReason ?? "no answer"})`).join(", ")}. Their filings carry no estimate until the endpoint answers, rather than a zero.`,
+      `Not readable: ${unreadable.map((entry) => `${entry.code} (${entry.reason})`).join(", ")}. Their filings carry no estimate until the source answers, rather than a zero.`,
     );
   }
 
+  const unreadableIds = new Set(unreadable.map((entry) => entry.companyId));
   return {
     obligations,
     companies: companies.map((company) => ({
       companyId: company.companyId,
       name: company.name,
       code: company.code,
-      reachable: company.reachable,
+      // A register that answers but whose ledger refuses is not readable either.
+      reachable: company.reachable && !unreadableIds.has(company.companyId),
     })),
     notices,
     today,

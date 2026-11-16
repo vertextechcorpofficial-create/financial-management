@@ -14,6 +14,7 @@ import { DeductionBreakdown } from "./components/DeductionBreakdown";
 import { OptionCombobox } from "./components/OptionCombobox";
 import { ProfileCard } from "./components/ProfileCard";
 import { WorksheetTable } from "./components/WorksheetTable";
+import { CarryoverLotsPanel } from "./components/CarryoverLotsPanel";
 import { useWorksheet } from "./hooks/useWorksheet";
 import { REGIME_LABELS, TAX_YEARS } from "./constants";
 import type { EntityProfile } from "./types";
@@ -54,6 +55,11 @@ export function EntityWorksheetModule() {
     snapshot != null &&
     (snapshot.company.companyId !== worksheet.companyId || snapshot.profile.taxYear !== worksheet.year);
 
+  // W5: when the fresh read refused, show the last figures that did read, not an empty page.
+  const refused = snapshot != null && !snapshot.figuresAvailable && !stale;
+  const fallback = refused ? worksheet.lastGood : null;
+  const view = fallback ? fallback.snapshot : snapshot;
+
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -72,7 +78,12 @@ export function EntityWorksheetModule() {
               onChange={(value) => value && worksheet.selectCompany(Number(value))}
               placeholder="Choose a company"
               searchPlaceholder="Search companies…"
-              emptyLabel="No company matches."
+              emptyLabel={
+                // An empty list is usually a failed mount read, not an empty search: the company
+                // register is the first thing the page fetches, and a source that times out
+                // leaves the picker with nothing while the alert below explains why.
+                isLoading ? "Loading companies…" : error ? "Companies could not be read." : "No company matches."
+              }
               aria-label="Company"
             />
           </div>
@@ -121,15 +132,31 @@ export function EntityWorksheetModule() {
         </Alert>
       ) : null}
 
-      {!error && current && current.reachable && snapshot && !stale && !snapshot.figuresAvailable ? (
+      {refused ? (
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>
-            No figures for {current.name} in {worksheet.year}
+            {fallback
+              ? `Showing the figures read at ${new Date(fallback.at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}`
+              : `No figures for ${current?.name ?? "this company"} in ${worksheet.year}`}
           </AlertTitle>
-          <AlertDescription>
-            The {snapshot.failedSources.join(" and ")} could not be read, so the worksheet is unknown rather than
-            zero. Nothing is shown until the source answers.
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span>
+              The {snapshot?.failedSources.join(" and ")} could not be read just now, so the worksheet is unknown rather
+              than zero.
+              {fallback ? " The last readable figures stay on screen until the source answers." : " Nothing is shown until the source answers."}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void worksheet.refetch()}
+              disabled={isLoading}
+              className="shrink-0"
+            >
+              <RefreshCw className={isLoading ? "mr-2 h-3.5 w-3.5 animate-spin" : "mr-2 h-3.5 w-3.5"} />
+              Retry
+            </Button>
           </AlertDescription>
         </Alert>
       ) : null}
@@ -143,6 +170,10 @@ export function EntityWorksheetModule() {
 
       {isLoading && !snapshot ? (
         <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Reading the company&apos;s registers. A first read walks its sales, purchases, expenses and disbursements, so
+            it can take a minute; a rebuild within ten minutes comes from the cache.
+          </p>
           <Skeleton className="h-20 w-full rounded-2xl" />
           <Skeleton className="h-96 w-full rounded-2xl" />
         </div>
@@ -154,10 +185,8 @@ export function EntityWorksheetModule() {
         </p>
       ) : null}
 
-      {snapshot && !stale && !error && snapshot.company.reachable && snapshot.figuresAvailable ? (
+      {view && !stale && !error && view.company.reachable && view.figuresAvailable ? (
         <>
-          
-
           <Tabs defaultValue="worksheet" className="space-y-4">
             <div className="-mx-1 flex items-center gap-3 overflow-x-auto px-1">
               <TabsList>
@@ -165,42 +194,55 @@ export function EntityWorksheetModule() {
                   Worksheet
                 </TabsTrigger>
                 <TabsTrigger value="profile" className="min-h-11 md:min-h-0">
-                  Company profile ({statedFields(snapshot.profile)} fields set)
+                  Company profile ({statedFields(view.profile)} fields set)
                 </TabsTrigger>
-                {snapshot.notices.length > 0 ? (
+                {view.notices.length > 0 ? (
                   <TabsTrigger value="notices" className="min-h-11 md:min-h-0">
-                    Notices ({snapshot.notices.length})
+                    Notices ({view.notices.length})
                   </TabsTrigger>
                 ) : null}
               </TabsList>
               <Badge variant="outline" className="shrink-0 text-[11px] font-medium">
-                {REGIME_LABELS[snapshot.profile.regime]}
+                {REGIME_LABELS[view.profile.regime]}
               </Badge>
             </div>
 
             <TabsContent value="worksheet" className="space-y-4">
-              <WorksheetTable lines={snapshot.lines} total={snapshot.lines.length} />
-              <BasisComparison scenarios={snapshot.computation.scenarios} year={snapshot.profile.taxYear} />
-              <DeductionBreakdown breakdown={snapshot.expenseBreakdown} year={snapshot.profile.taxYear} />
+              <WorksheetTable
+                lines={view.lines}
+                total={view.lines.length}
+                basisLabel={view.computation.scenarios[0]?.label ?? "product standard cost"}
+              />
+              <CarryoverLotsPanel
+                panel={view.carryovers}
+                companyId={view.company.companyId}
+                taxYear={view.profile.taxYear}
+                isSaving={isSaving}
+                onRecord={worksheet.saveCarryoverLot}
+                onUpdateUsed={worksheet.saveCarryoverUsed}
+                onUpdateOpenings={worksheet.updateOpenings}
+              />
+              <BasisComparison scenarios={view.computation.scenarios} year={view.profile.taxYear} />
+              <DeductionBreakdown breakdown={view.expenseBreakdown} year={view.profile.taxYear} />
             </TabsContent>
 
             <TabsContent value="profile">
               <ProfileCard
-                key={`${snapshot.company.companyId}-${snapshot.profile.taxYear}-${worksheet.profileRev}`}
-                profile={snapshot.profile}
+                key={`${view.company.companyId}-${view.profile.taxYear}-${worksheet.profileRev}`}
+                profile={view.profile}
                 isSaving={isSaving}
                 onSave={worksheet.saveProfile}
               />
             </TabsContent>
 
-            {snapshot.notices.length > 0 ? (
+            {view.notices.length > 0 ? (
               <TabsContent value="notices">
                 <Alert className="rounded-2xl border-border/50 bg-card shadow-sm">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertTitle>What this worksheet cannot see</AlertTitle>
                   <AlertDescription>
                     <ul className="list-disc space-y-1 pl-4">
-                      {snapshot.notices.map((notice) => (
+                      {view.notices.map((notice) => (
                         <li key={notice} className="break-words">
                           {notice}
                         </li>

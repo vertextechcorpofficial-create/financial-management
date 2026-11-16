@@ -1,3 +1,4 @@
+import { periodsForForm } from "./constants";
 import { z } from "zod";
 
 import { PAYMENT_FORMS, PAYMENT_PERIOD_KEYS, PERIOD_KEYS } from "./constants";
@@ -61,15 +62,28 @@ export const certificateBodySchema = z.object({
   remarks: z.string().trim().max(300).nullable().optional(),
 });
 
-export const paymentBodySchema = z.object({
-  ...scopeShape,
-  periodKey: paymentPeriodKeySchema,
-  formCode: PAYMENT_FORM_ENUM,
-  paidOn: z.string().regex(DATE_PATTERN),
-  amount: money,
-  referenceNo: z.string().trim().max(80).nullable().optional(),
-  remarks: z.string().trim().max(300).nullable().optional(),
-});
+export const paymentBodySchema = z
+  .object({
+    ...scopeShape,
+    periodKey: paymentPeriodKeySchema,
+    formCode: PAYMENT_FORM_ENUM,
+    paidOn: z.string().regex(DATE_PATTERN),
+    amount: money,
+    referenceNo: z.string().trim().max(80).nullable().optional(),
+    remarks: z.string().trim().max(300).nullable().optional(),
+  })
+  .superRefine((values, ctx) => {
+    // A stored payment must sit under a pair the form is actually filed for. This lived only in
+    // the browser schema once, which let a direct POST store 0619-E/M03, 1702Q/Q4, 1702/Q1 and
+    // 2307/ANNUAL — money filed against a period the form is never filed for.
+    if (!periodsForForm(values.formCode).includes(values.periodKey)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["periodKey"],
+        message: `${values.formCode} is not filed for ${values.periodKey}`,
+      });
+    }
+  });
 
 export const prefillBodySchema = z.object({ ...scopeShape });
 
@@ -129,6 +143,16 @@ export const paymentFormSchema = z.object({
   amount: amountText.refine((value) => Number(value) > 0, "Enter a positive amount"),
   referenceNo: z.string().trim().max(80),
   remarks: z.string().trim().max(300),
+}).superRefine((values, ctx) => {
+  // A stored payment must sit under a pair the form is actually filed for. Repointing it silently
+  // would record money against a period nobody chose, so this rejects instead.
+  if (!periodsForForm(values.formCode).includes(values.periodKey)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["periodKey"],
+      message: `${values.formCode} is not filed for ${values.periodKey}`,
+    });
+  }
 });
 
 export type PaymentFormValues = z.infer<typeof paymentFormSchema>;
