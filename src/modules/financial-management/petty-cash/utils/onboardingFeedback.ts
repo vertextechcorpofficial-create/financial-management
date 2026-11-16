@@ -46,6 +46,7 @@ const FIELD_LABELS: Record<string, string> = {
     date: "Voucher date",
     particulars: "Particulars",
     lines: "Receipt lines",
+    voucherGross: "Voucher gross",
     documentType: "Document type",
     receiptNo: "Receipt number",
     expenseCoaId: "Expense account",

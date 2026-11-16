@@ -11,8 +11,10 @@ import { NavUser } from "@/components/shared/app-sidebar/nav-user";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { PETTY_CASH_ROOT, PETTY_CASH_WORKSPACES, isPettyCashWorkspace, type PettyCashContext, type PettyCashWorkspaceKey } from "../types";
 import { loadPettyCashContext, PettyCashApiError } from "../providers/foundation.api";
+import { loginUrl } from "../utils/sessionExpiry";
 import PettyCashOnboardingModule from "../PettyCashOnboardingModule";
 import PettyCashDisbursementModule from "../PettyCashDisbursementModule";
+import PettyCashDisbursementApprovalModule from "../PettyCashDisbursementApprovalModule";
 import PettyCashFundsModule from "../PettyCashFundsModule";
 import PettyCashOnboardingApprovalModule from "../PettyCashOnboardingApprovalModule";
 import PettyCashReplenishmentApprovalModule from "../PettyCashReplenishmentApprovalModule";
@@ -40,7 +42,7 @@ function PettyCashPageAccess({ children, headerUser }: { children: ReactNode; he
     loadPettyCashContext(controller.signal).then(data => { if (!controller.signal.aborted) setContext(data); })
       .catch(cause => {
         if (controller.signal.aborted) return;
-        if (cause instanceof PettyCashApiError && cause.status === 401) { router.replace("/login"); return; }
+        if (cause instanceof PettyCashApiError && cause.status === 401) { router.replace(loginUrl()); return; }
         setError(cause instanceof PettyCashApiError ? cause : new PettyCashApiError("Petty Cash is temporarily unavailable. Please retry.", 503));
       }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
@@ -75,6 +77,7 @@ export function PettyCashWorkspace({ workspace }: { workspace?: PettyCashWorkspa
   if (!context.workspaces.some(item => item.key === workspace)) return <div role="alert" className="rounded-xl border p-6"><h1 className="text-xl font-semibold">Access denied</h1><p className="mt-2">You do not have access to this Petty Cash workspace.</p></div>;
   const capabilities = context.workspaces.find(item => item.key === workspace)?.capabilities;
   if (workspace === "reports" && capabilities?.includes("READ_REPORTS")) return <PettyCashReportsModule />;
+  if (workspace === "disbursement-approval" && capabilities?.includes("READ_VOUCHER_APPROVALS")) return <PettyCashDisbursementApprovalModule actorName={context.actorName} />;
   if (workspace === "cash-count" && capabilities?.includes("READ_CASH_COUNTS")) return <PettyCashCashCountModule actorId={context.actorId} actorName={context.actorName} />;
   if (workspace === "replenishment-approval" && capabilities?.includes("READ_REPLENISHMENT_APPROVALS")) return <PettyCashReplenishmentApprovalModule actorName={context.actorName} />;
   if (workspace === "replenishment" && capabilities?.includes("READ_REPLENISHMENT")) return <PettyCashReplenishmentModule />;

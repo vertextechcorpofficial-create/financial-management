@@ -5,7 +5,7 @@ const id = "[1-9]\\d{0,17}";
 export async function forwardMaster(request: NextRequest, workspace: "master-list" | "cash-count" | "onboarding-approval", parts: string[]) {
   const path = parts.join("/"), method = request.method, query = request.nextUrl.searchParams.toString(), tail = query ? `?${query}` : "";
   const validGet = workspace === "master-list" ? /^(summary|register|people|print|print-list)$/.test(path) || new RegExp(`^funds(?:/${id}(?:/(record|print))?)?$`).test(path) || new RegExp(`^counts/${id}/print$`).test(path)
-    : workspace === "cash-count" ? /^(funds|denominations|people|counts)$/.test(path) || new RegExp(`^counts/${id}(?:/print)?$`).test(path)
+    : workspace === "cash-count" ? /^(funds|denominations|people|approvers|counts)$/.test(path) || new RegExp(`^counts/${id}(?:/print)?$`).test(path)
       : path === "requests" || new RegExp(`^changes/${id}$`).test(path);
   const validPost = workspace === "master-list" ? new RegExp(`^funds/${id}/changes$`).test(path) : workspace === "cash-count" ? ["preview", "counts"].includes(path) : new RegExp(`^changes/${id}/(approve|reject)$`).test(path);
   if (!(method === "GET" ? validGet : method === "POST" && validPost)) return NextResponse.json({ code: "NOT_FOUND", message: "Unknown Petty Cash resource." }, { status: 404, headers: { "Cache-Control": "no-store" } });

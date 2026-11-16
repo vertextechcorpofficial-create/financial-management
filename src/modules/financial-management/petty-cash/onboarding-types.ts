@@ -5,7 +5,7 @@ export type Readiness = { ready: boolean; blockers: Blocker[] };
 export type MasterLinks = Record<string, { path: string | null; allowed: boolean }>;
 export const ACCOUNT_ROLES = {
   FUNDING_CASH: "Funding cash / bank", PETTY_CASH_FUND: "Petty Cash Fund", INPUT_VAT: "Input VAT",
-  EWT_PAYABLE: "EWT Payable", CASH_OVER_SHORT: "Cash Over / Short", EXPENSE: "Allowed expense accounts",
+  EWT_PAYABLE: "EWT Payable", CASH_OVER_SHORT: "Cash Over / Short", DUE_FROM_CUSTODIAN: "Due from Custodian (shortage)", DUE_TO_CUSTODIAN: "Due to Custodian (overage)", EXPENSE: "Allowed expense accounts",
 } as const;
 export type AccountRole = keyof typeof ACCOUNT_ROLES;
 export type Settings = {

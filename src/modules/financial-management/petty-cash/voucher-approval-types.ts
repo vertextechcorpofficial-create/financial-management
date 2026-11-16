@@ -1,0 +1,4 @@
+import type { VoucherOperations } from "./voucher-types";
+export type VoucherApprovalFund = { id: number; docNo: string; name: string };
+export type VoucherApprovalRow = { voucherId: number; docNo: string; fundId: number; fundDocNo: string; fundName: string; revision: number; correction: boolean; date: string; payee: string; particulars: string; preparedBy: string; submittedAt: string; gross: string; paidNetCash: string; cashDelta: string; decisionId: number | null; decision: "PENDING" | "APPROVED" | "REJECTED"; decidedBy: string; decidedAt: string; reason: string };
+export type VoucherDecision = { eventId: number; decision: "APPROVED" | "REJECTED"; decidedBy: string; decidedAt: string; reason: string; cashMovement: string; before: VoucherOperations; stateAfter: string; paidAfter: string; cashAfter: string };

@@ -6,6 +6,7 @@ import { useVoucherRead } from "./hooks/useVouchers";
 import { ErrorBox, Paging } from "./components/OnboardingCommon";
 import { FormSkeleton, ResponsiveListSkeleton, StatsSkeleton } from "./components/PettyCashSkeletons";
 import { VoucherEditor } from "./components/VoucherEditor";
+import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
 import { FundSelect } from "./components/FundSelect";
 import { VoucherReview, voucherMoney, voucherStatus } from "./components/VoucherReview";
 import PettyCashVoucherDraftsModule from "./PettyCashVoucherDraftsModule";
@@ -32,34 +33,35 @@ export default function PettyCashDisbursementModule({ canEdit, operational = fal
   return operational ? <Disbursement actorName={actorName} /> : <PettyCashVoucherDraftsModule canEdit={canEdit} />;
 }
 
-function Register({ data, approval, filtered = false, onOpen }: { data: Page<VoucherOperations>; approval: boolean; filtered?: boolean; onOpen: (item: VoucherOperations) => void }) {
-  const headers = approval ? ["Voucher", "Fund", "Payee / particulars", "Prepared by", "Date", "Gross", "Cash paid", "Status", ""] : ["Voucher", "Date", "Payee / particulars", "Receipts", "Gross", "Cash paid", "Status", ""];
-  return <div><div className="hidden overflow-x-auto md:block"><table aria-label={approval ? "Vouchers awaiting approval" : "Fund vouchers"} className="w-full text-left text-sm [&_th]:whitespace-nowrap [&_th]:p-3 [&_th]:font-medium [&_td]:p-3"><thead className="border-y bg-muted/30"><tr>{headers.map((label, index) => <th key={index}>{label}</th>)}</tr></thead><tbody>{data.items.map(item => {
-    const target = approval ? item.proposed || item.effective : item.effective;
+function Register({ data, filtered = false, onOpen }: { data: Page<VoucherOperations>; filtered?: boolean; onOpen: (item: VoucherOperations) => void }) {
+  const headers = ["Voucher", "Date", "Payee / particulars", "Receipts", "Gross", "Cash paid", "Status", ""];
+  return <div><div className="hidden overflow-x-auto md:block"><table aria-label="Fund vouchers" className="w-full text-left text-sm [&_th]:whitespace-nowrap [&_th]:p-3 [&_th]:font-medium [&_td]:p-3"><thead className="border-y bg-muted/30"><tr>{headers.map((label, index) => <th key={index}>{label}</th>)}</tr></thead><tbody>{data.items.map(item => {
+    const target = item.effective;
     return <tr key={item.voucher.id} tabIndex={0} className="cursor-pointer border-b align-top hover:bg-muted/20" onClick={() => onOpen(item)} onKeyDown={event => { if (event.target === event.currentTarget && event.key === "Enter") onOpen(item); }}>
-      <td className="whitespace-nowrap font-semibold">{item.voucher.docNo}</td><td className="whitespace-nowrap">{approval ? item.fundDocNo : target.saved.date}</td><td>{target.saved.payee.name}<small className="block text-muted-foreground">{target.saved.particulars}</small></td>
-      <td>{approval ? target.preparedBy : <>{target.saved.lines.map(line => line.receiptNo).join(", ")}{target.attachments.length > 0 ? " · Attached" : ""}</>}</td>{approval && <td className="whitespace-nowrap">{target.saved.date}</td>}
+      <td className="whitespace-nowrap font-semibold">{item.voucher.docNo}</td><td className="whitespace-nowrap">{target.saved.date}</td><td>{target.saved.payee.name}<small className="block text-muted-foreground">{target.saved.particulars}</small></td>
+      <td>{target.saved.lines.map(line => line.receiptNo).join(", ")}{target.attachments.length > 0 ? " \u00b7 Attached" : ""}</td>
       <td className="whitespace-nowrap">{voucherMoney(target.saved.totals.gross)}</td><td className="whitespace-nowrap">{voucherMoney(item.paidNetCash)}</td><td><StatusBadge state={item.voucher.state} />{item.proposed && <small className="block text-amber-700 dark:text-amber-300">{item.proposed.state === "DRAFT" ? "Correction draft" : "Needs re-approval"}</small>}{item.revisions.length > 1 && <small className="block text-muted-foreground">Revised {item.revisions.length - 1}×</small>}</td>
-      <td><Button size="sm" variant="outline" aria-label={`${approval ? "Review" : "View"} ${item.voucher.docNo}`} onClick={event => { event.stopPropagation(); onOpen(item); }}>{approval ? "Review" : "View"}</Button></td>
+      <td><Button size="sm" variant="outline" aria-label={`View ${item.voucher.docNo}`} onClick={event => { event.stopPropagation(); onOpen(item); }}>View</Button></td>
     </tr>;
   })}</tbody></table></div>
     <div className="space-y-2 p-3 md:hidden">{data.items.map(item => {
-      const target = approval ? item.proposed || item.effective : item.effective;
+      const target = item.effective;
       return <div key={item.voucher.id} role="button" tabIndex={0} className="w-full rounded-lg border bg-background p-3 text-left" onClick={() => onOpen(item)} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onOpen(item); } }}>
         <div className="flex items-start justify-between gap-2"><span className="font-mono font-semibold">{item.voucher.docNo}</span><StatusBadge state={item.voucher.state} /></div>
         <p className="mt-1 font-medium">{target.saved.payee.name}</p><p className="text-xs text-muted-foreground">{target.saved.particulars}</p>
-        <div className="mt-2 grid grid-cols-2 gap-1 text-xs"><span>Date: {target.saved.date}</span><span className="text-right">Gross: {voucherMoney(target.saved.totals.gross)}</span><span>Cash paid: {voucherMoney(item.paidNetCash)}</span><span className="text-right">{approval ? `Fund: ${item.fundDocNo}` : `${target.saved.lines.length} line(s)`}</span></div>
+        <div className="mt-2 grid grid-cols-2 gap-1 text-xs"><span>Date: {target.saved.date}</span><span className="text-right">Gross: {voucherMoney(target.saved.totals.gross)}</span><span>Cash paid: {voucherMoney(item.paidNetCash)}</span><span className="text-right">{`${target.saved.lines.length} line(s)`}</span></div>
         {item.proposed && <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">{item.proposed.state === "DRAFT" ? "Correction draft" : "Needs re-approval"}</p>}
       </div>;
     })}</div>
-    {data.items.length === 0 && <p className="p-5 text-sm text-muted-foreground">{filtered ? "No vouchers match these filters." : approval ? "No vouchers are waiting for approval." : "No vouchers yet. Select “+ New voucher” to pay an expense from this fund."}</p>}
+    {data.items.length === 0 && <p className="p-5 text-sm text-muted-foreground">{filtered ? "No vouchers match these filters." : "No vouchers yet. Select “+ New voucher” to pay an expense from this fund."}</p>}
   </div>;
 }
 function Disbursement({ actorName }: { actorName: string }) {
   const funds = useVoucherRead<VoucherFund[]>("funds");
-  const [fundId, setFundId] = useState<number | null>(null), [page, setPage] = useState(1), [approvalPage, setApprovalPage] = useState(1);
-  const [modal, setModal] = useState<{ id: number; review: boolean } | null>(null), [editor, setEditor] = useState<"new" | VoucherOperations | null>(null);
+  const [fundId, setFundId] = useState<number | null>(null), [page, setPage] = useState(1);
+  const [modal, setModal] = useState<{ id: number } | null>(null), [editor, setEditor] = useState<"new" | VoucherOperations | null>(null);
   const [search, setSearch] = useState(""), [status, setStatus] = useState("ALL"), [dateFrom, setDateFrom] = useState(""), [dateTo, setDateTo] = useState("");
+  usePettyCashRefresh(funds.refresh, funds.loading || funds.refreshing);
   const selected = funds.data?.find(fund => fund.id === fundId) || funds.data?.[0] || null;
   const editorFund = editor && editor !== "new" ? funds.data?.find(fund => fund.id === editor.voucher.fundId) : selected;
   const invalidRange = Boolean(dateFrom && dateTo && dateFrom > dateTo);
@@ -69,10 +71,9 @@ function Disbursement({ actorName }: { actorName: string }) {
   if (dateFrom) registerParams.set("dateFrom", dateFrom);
   if (dateTo) registerParams.set("dateTo", dateTo);
   const register = useVoucherRead<Page<VoucherOperations>>(selected && !invalidRange ? `register?${registerParams}` : null, 250);
-  const approvals = useVoucherRead<Page<VoucherOperations>>(`approvals?page=${approvalPage}&pageSize=25`);
-  function refresh() { funds.refresh(); register.refresh(); approvals.refresh(); }
-  function changed() { setEditor(null); setModal(null); setPage(1); setApprovalPage(1); refresh(); }
-  function open(item: VoucherOperations) { if (item.voucher.state === "DRAFT") setEditor(item); else setModal({ id: item.voucher.id, review: false }); }
+  function refresh() { funds.refresh(); register.refresh(); }
+  function changed() { setEditor(null); setModal(null); setPage(1); refresh(); }
+  function open(item: VoucherOperations) { if (item.voucher.state === "DRAFT") setEditor(item); else setModal({ id: item.voucher.id }); }
   function changeFilter(action: () => void) { action(); setPage(1); }
   function clearFilters() { setSearch(""); setStatus("ALL"); setDateFrom(""); setDateTo(""); setPage(1); }
   return <section className="space-y-5"><div><h1 className="text-2xl font-semibold tracking-tight">Disbursement</h1><p className="mt-2 text-sm text-muted-foreground">Pay small expenses from the fund, one voucher per payee with one line per receipt. Vouchers above the approval threshold wait for approval before cash goes out. No journal posts until replenishment.</p></div>
@@ -82,14 +83,12 @@ function Disbursement({ actorName }: { actorName: string }) {
       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground"><span className="rounded-full border px-3 py-1">Per-voucher limit <strong className="text-foreground">{voucherMoney(selected.perVoucherLimit)}</strong></span><span className="rounded-full border px-3 py-1">Approval above <strong className="text-foreground">{voucherMoney(selected.approvalThreshold)}</strong></span><span className="rounded-full border px-3 py-1">Fund used = open vouchers ÷ imprest</span></div>
       {Number(selected.usage) >= Number(selected.usageWarning || 60) && <p role="status" className={`rounded-lg border p-3 text-sm ${Number(selected.usage) >= Number(selected.usageCritical || 85) ? "border-destructive/40 text-destructive" : "border-amber-500/40"}`}>This fund is {Number(selected.usage).toFixed(0)}% used. Request replenishment before cash runs low.</p>}
     </div>}
-    {approvals.loading && !approvals.data && <ResponsiveListSkeleton label="Loading approval queue" rows={4} columns={9} />}<ErrorBox error={approvals.error} retry={approvals.refresh} title="Could not load the approval queue" />
-    <section className="overflow-hidden rounded-xl border bg-card"><h2 className="p-5 text-lg font-semibold">Waiting for approval, all funds{approvals.data ? ` (${approvals.data.total})` : ""}</h2>{approvals.data && approvals.data.total > 0 ? <><Register data={approvals.data} approval onOpen={item => setModal({ id: item.voucher.id, review: true })} />{approvals.data.total > 25 && <div className="p-3"><Paging page={approvalPage} pageSize={25} total={approvals.data.total} onChange={setApprovalPage} /></div>}</> : approvals.data ? <p className="px-5 pb-5 text-sm text-muted-foreground">No vouchers are waiting for approval.</p> : null}</section>
     {!funds.loading && funds.data?.length === 0 && <p className="rounded-lg border p-5 text-sm">No Active funds available. Fund requests must be approved and funded before preparing vouchers.</p>}
     {selected && <section className="overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center justify-between gap-3 p-5"><h2 className="text-lg font-semibold">Vouchers for {selected.docNo}{register.data ? ` (${register.data.total})` : ""}</h2><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" asChild><a href={`${VOUCHER_API}/funds/${selected.id}/print`} target="_blank" rel="noreferrer">Print voucher list</a></Button><Button disabled={!selected.canPrepare} title={selected.canPrepare ? undefined : "Only the current fund custodian can prepare vouchers."} onClick={() => setEditor("new")}>+ New voucher</Button></div></div>
       <div className="flex flex-col gap-3 border-y bg-muted/10 p-3"><div className="flex flex-wrap items-center gap-2"><Input aria-label="Search vouchers" placeholder="Search voucher, payee, receipt, or particulars..." value={search} onChange={event => changeFilter(() => setSearch(event.target.value))} className="h-9 w-full bg-background sm:max-w-sm" /><select aria-label="Voucher status filter" value={status} onChange={event => changeFilter(() => setStatus(event.target.value))} className="h-9 rounded-md border bg-background px-3 text-sm">{statusOptions.map(value => <option key={value} value={value}>{value === "ALL" ? "All statuses" : voucherStatus(value)}</option>)}</select><Input aria-label="Voucher date from" type="date" value={dateFrom} onChange={event => changeFilter(() => setDateFrom(event.target.value))} className="h-9 w-auto bg-background" /><Input aria-label="Voucher date to" type="date" value={dateTo} onChange={event => changeFilter(() => setDateTo(event.target.value))} className="h-9 w-auto bg-background" />{filtered && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}</div>{invalidRange && <p role="alert" className="text-sm text-destructive">From must be on or before To.</p>}</div>
-      <ErrorBox error={register.error} retry={register.refresh} title="Could not load vouchers" />{register.loading && !register.data && <div className="p-5 pt-0"><ResponsiveListSkeleton label="Loading vouchers" rows={5} columns={8} /></div>}{register.data && <><Register data={register.data} approval={false} filtered={filtered} onOpen={open} />{register.data.total > 25 && <div className="p-3"><Paging page={page} pageSize={25} total={register.data.total} onChange={setPage} /></div>}</>}
+      <ErrorBox error={register.error} retry={register.refresh} title="Could not load vouchers" />{register.loading && !register.data && <div className="p-5 pt-0"><ResponsiveListSkeleton label="Loading vouchers" rows={5} columns={8} /></div>}{register.data && <><Register data={register.data} filtered={filtered} onOpen={open} />{register.data.total > 25 && <div className="p-3"><Paging page={page} pageSize={25} total={register.data.total} onChange={setPage} /></div>}</>}
     </section>}
-    {modal && <VoucherReview key={`${modal.id}:${modal.review}`} id={modal.id} review={modal.review} actorName={actorName} onClose={() => setModal(null)} onReview={() => setModal({ ...modal, review: true })} onEdit={record => { setModal(null); setEditor(record); }} onChanged={changed} />}
+    {modal && <VoucherReview key={modal.id} id={modal.id} review={false} actorName={actorName} onClose={() => setModal(null)} onEdit={record => { setModal(null); setEditor(record); }} onChanged={changed} />}
     {editor && editorFund && <VoucherEditor key={editor === "new" ? "new" : editor.voucher.id} fund={editorFund} voucherId={editor === "new" ? null : editor.voucher.id} operational canEdit={editorFund.canPrepare} onClose={() => setEditor(null)} onDataChanged={register.refresh} onFinalized={changed} />}
   </section>;
 }

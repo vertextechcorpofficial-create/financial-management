@@ -1,4 +1,4 @@
-export const REPORT_TABS = { vouchers: "Vouchers", funds: "Fund check", reps: "Replenishments", ewt: "EWT / BIR 2307", journal: "Journal entries", tb: "Trial balance", counts: "Cash counts", audit: "Audit trail" } as const;
+export const REPORT_TABS = { vouchers: "Vouchers", funds: "Fund check", reps: "Replenishments", ewt: "EWT / BIR 2307", journal: "Journal entries", tb: "Trial balance", counts: "Cash counts", liquidation: "Petty Cash Liquidation", "custodian-accountability": "Custodian Accountability", "gl-reconciliation": "GL Reconciliation", audit: "Audit trail" } as const;
 export type ReportKind = keyof typeof REPORT_TABS;
 export type ReportColumn = { key: string; label: string; kind: "text" | "money" | "status" };
 export type ReportRow = Record<string, string | number | null>;
