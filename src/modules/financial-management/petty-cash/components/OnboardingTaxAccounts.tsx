@@ -11,7 +11,7 @@ import { ErrorBox } from "./OnboardingCommon";
 import { FormSkeleton } from "./PettyCashSkeletons";
 import { onboardingFieldError } from "../utils/onboardingFeedback";
 
-type TaxRole = "INPUT_VAT" | "EWT_PAYABLE" | "CASH_OVER_SHORT";
+type TaxRole = "INPUT_VAT" | "EWT_PAYABLE" | "CASH_OVER_SHORT" | "DUE_FROM_CUSTODIAN" | "DUE_TO_CUSTODIAN";
 function savedAccount(settings: Settings, role: TaxRole): Choice | null {
   const id = settings.accounts[role]?.[0];
   return id == null ? null : settings.resolvedAccounts[role]?.find(account => account.id === id) || {
@@ -22,8 +22,8 @@ function savedAccount(settings: Settings, role: TaxRole): Choice | null {
 
 export function OnboardingTaxAccounts({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const read = useOnboardingRead<Settings>("settings"), [busy, setBusy] = useState(false);
-  return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}><DialogContent showCloseButton={false} className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>Configure posting accounts</DialogTitle><DialogDescription>Select the shared accounts used for Input VAT, EWT Payable and cash variances.</DialogDescription></DialogHeader>
-    {read.loading && <FormSkeleton label="Loading posting accounts" fields={3} />}<ErrorBox error={read.error} retry={read.refresh} title="Could not load posting account settings" />
+  return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}><DialogContent showCloseButton={false} className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>Configure posting accounts</DialogTitle><DialogDescription>Select the shared accounts used for Input VAT, EWT Payable, custodian balances and Cash Over/Short.</DialogDescription></DialogHeader>
+    {read.loading && <FormSkeleton label="Loading posting accounts" fields={5} />}<ErrorBox error={read.error} retry={read.refresh} title="Could not load posting account settings" />
     {read.data ? <TaxAccountEditor key={read.data.version} settings={read.data} onClose={onClose} onSaved={onSaved} reload={read.refresh} onBusyChange={setBusy} /> : <div><Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button></div>}
   </DialogContent></Dialog>;
 }
@@ -31,9 +31,10 @@ export function OnboardingTaxAccounts({ onClose, onSaved }: { onClose: () => voi
 function TaxAccountEditor({ settings, onClose, onSaved, reload, onBusyChange }: { settings: Settings; onClose: () => void; onSaved: () => void; reload: () => void; onBusyChange: (busy: boolean) => void }) {
   const [vat, setVat] = useState(() => savedAccount(settings, "INPUT_VAT")), [ewt, setEwt] = useState(() => savedAccount(settings, "EWT_PAYABLE"));
   const [overShort, setOverShort] = useState(() => savedAccount(settings, "CASH_OVER_SHORT"));
+  const [dueFrom, setDueFrom] = useState(() => savedAccount(settings, "DUE_FROM_CUSTODIAN")), [dueTo, setDueTo] = useState(() => savedAccount(settings, "DUE_TO_CUSTODIAN"));
   const command = useOnboardingCommand();
   const conflict = command.error instanceof OnboardingError && command.error.status === 409;
-  const unsuitable = Boolean(vat && !vat.eligible || ewt && !ewt.eligible || overShort && !overShort.eligible);
+  const unsuitable = Boolean(vat && !vat.eligible || ewt && !ewt.eligible || overShort && !overShort.eligible || dueFrom && !dueFrom.eligible || dueTo && !dueTo.eligible);
   async function save(event: FormEvent) {
     event.preventDefault(); if (command.busy || conflict || unsuitable) return;
     onBusyChange(true);
@@ -42,7 +43,7 @@ function TaxAccountEditor({ settings, onClose, onSaved, reload, onBusyChange }: 
         version: settings.version, companyId: settings.companyId, signatoryUserId: settings.signatoryUserId,
         signatoryTitle: settings.signatoryTitle, signatoryTin: settings.signatoryTin,
         usageWarning: settings.usageWarning, usageCritical: settings.usageCritical, staleDays: settings.staleDays,
-        accounts: { ...settings.accounts, INPUT_VAT: vat ? [vat.id] : [], EWT_PAYABLE: ewt ? [ewt.id] : [], CASH_OVER_SHORT: overShort ? [overShort.id] : [] },
+        accounts: { ...settings.accounts, INPUT_VAT: vat ? [vat.id] : [], EWT_PAYABLE: ewt ? [ewt.id] : [], CASH_OVER_SHORT: overShort ? [overShort.id] : [], DUE_FROM_CUSTODIAN: dueFrom ? [dueFrom.id] : [], DUE_TO_CUSTODIAN: dueTo ? [dueTo.id] : [] },
       });
       if (result) { toast.success("Posting accounts updated. New previews will use these mappings."); onSaved(); }
     } finally { onBusyChange(false); }
@@ -51,6 +52,8 @@ function TaxAccountEditor({ settings, onClose, onSaved, reload, onBusyChange }: 
     <OnboardingChoice label="Input VAT" id="tax-input-vat" resource="accounts" role="INPUT_VAT" selected={vat} onSelect={value => { setVat(value); command.clearError(); }} disabled={command.busy || conflict} error={onboardingFieldError(command.error, "accounts.INPUT_VAT")} />
     <OnboardingChoice label="EWT Payable" id="tax-ewt-payable" resource="accounts" role="EWT_PAYABLE" selected={ewt} onSelect={value => { setEwt(value); command.clearError(); }} disabled={command.busy || conflict} error={onboardingFieldError(command.error, "accounts.EWT_PAYABLE")} />
     <OnboardingChoice label="Cash Over/Short" id="posting-over-short" resource="accounts" role="CASH_OVER_SHORT" selected={overShort} onSelect={value => { setOverShort(value); command.clearError(); }} disabled={command.busy || conflict} error={onboardingFieldError(command.error, "accounts.CASH_OVER_SHORT")} />
+    <OnboardingChoice label="Due from Custodian (shortage)" id="posting-due-from" resource="accounts" role="DUE_FROM_CUSTODIAN" selected={dueFrom} onSelect={value => { setDueFrom(value); command.clearError(); }} eligibleOnly disabled={command.busy || conflict} error={onboardingFieldError(command.error, "accounts.DUE_FROM_CUSTODIAN")} />
+    <OnboardingChoice label="Due to Custodian (overage)" id="posting-due-to" resource="accounts" role="DUE_TO_CUSTODIAN" selected={dueTo} onSelect={value => { setDueTo(value); command.clearError(); }} eligibleOnly disabled={command.busy || conflict} error={onboardingFieldError(command.error, "accounts.DUE_TO_CUSTODIAN")} />
   </fieldset>
     <p className="text-sm text-muted-foreground">Unused accounts may be left blank. Transactions requiring a tax or variance account need a suitable selection before continuing.</p>
     <p className="text-sm text-muted-foreground">Changes apply to new replenishment, accrual and closure previews, including open paid vouchers. Submitted and posted journals keep their saved accounts.</p>

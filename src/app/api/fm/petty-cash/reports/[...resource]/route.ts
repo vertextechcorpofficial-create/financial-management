@@ -5,7 +5,7 @@ import { reportPdf, certificatePdf } from "../_print";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ resource: string[] }> };
-const reports = "(?:vouchers|funds|reps|ewt|journal|tb|counts|audit|gl-lines|voucher-lines|fund-master)", id = "[1-9]\\d{0,17}";
+const reports = "(?:vouchers|funds|reps|ewt|journal|tb|counts|audit|gl-lines|voucher-lines|fund-master|liquidation|custodian-accountability|gl-reconciliation)", id = "[1-9]\\d{0,17}";
 export async function GET(request: NextRequest, context: Context) {
   const path = (await context.params).resource.join("/"), query = request.nextUrl.searchParams.toString(), tail = query ? `?${query}` : "";
   const allowed = /^(metadata|overview|current-position|audit\/verify|lookups\/(funds|accounts|payees))$/.test(path) || new RegExp(`^(tables|print|print-data|export)/${reports}$`).test(path) || new RegExp(`^audit/${id}$`).test(path) || new RegExp(`^certificates/${id}(?:/print)?$`).test(path);

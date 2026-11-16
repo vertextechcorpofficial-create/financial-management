@@ -3,10 +3,12 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
 import { useFundRead, useFundDecision } from "./hooks/useFunds";
 import { MasterChoice, MasterError } from "./components/MasterCommon";
 import { Field, NativeSelect, OnboardingFeedback } from "./components/OnboardingCommon";
 import { AuditDetailSkeleton, ChartSkeleton, DetailsSkeleton, ResponsiveListSkeleton, StatsSkeleton } from "./components/PettyCashSkeletons";
+import { CashCountAuditDetails } from "./components/CashCountAuditDetails";
 import { ReportCsv } from "./components/ReportCsv";
 import { REPORT_TABS, type ReportKind, type ReportPoint, type ReportOverview, type ReportPosition, type ReportTable, type AuditVerification, type CertificateDocument } from "./report-types";
 import type { Choice } from "./onboarding-types";
@@ -22,6 +24,9 @@ const statusTone = (value: string) => {
   return "border-border bg-muted text-muted-foreground";
 };
 const scopeNotes: Record<ReportKind, string> = {
+  liquidation: "Fund and count dates apply. Balance columns are immutable count snapshots.",
+  "custodian-accountability": "Fund and count dates apply. Amounts show recognition, not custodian collections or repayments.",
+  "gl-reconciliation": "Current position; only the fund filter applies. Full-account GL values are not totaled across funds sharing a COA.",
   vouchers: "Fund, date, status, expense account and payee filters apply.",
   funds: "Only the fund filter applies to this report.",
   reps: "Fund and date filters apply to this report.",
@@ -46,11 +51,13 @@ export default function PettyCashReportsModule() {
   const [csv, setCsv] = useState<{ dataset: string; query: string; title: string } | null>(null), [auditId, setAuditId] = useState<number | null>(null), [document, setDocument] = useState<CertificateDocument | null>(null), [certificateRequest, setCertificateRequest] = useState<{ payeeId?: number; payeeName?: string } | null>(null);
   const command = useFundDecision<CertificateDocument>(), locked = command.busy || command.uncertain;
   const metadata = useFundRead<{ quarters: string[]; quarter: string }>("reports/metadata"), selectedQuarter = quarter || metadata.data?.quarter || "";
-  const reminder = ewtQuarterReminder(selectedQuarter), invalid = Boolean(from && to && from > to), dateScoped = kind !== "funds" && kind !== "ewt", scopeInvalid = invalid && dateScoped;
+  const reminder = ewtQuarterReminder(selectedQuarter), invalid = Boolean(from && to && from > to), dateScoped = kind !== "funds" && kind !== "gl-reconciliation" && kind !== "ewt", scopeInvalid = invalid && dateScoped;
   const dates = { from, to }, fundParam = { fundId: fund?.id }, historical = params({ ...fundParam, ...dates, status, accountId: account?.id, payeeId: payee?.id });
-  const tableQuery = kind === "vouchers" ? historical : kind === "audit" ? params(dates) : kind === "funds" ? params(fundParam) : kind === "ewt" ? params({ ...fundParam, quarter: selectedQuarter }) : params({ ...fundParam, ...dates });
+  const tableQuery = kind === "vouchers" ? historical : kind === "audit" ? params(dates) : (kind === "funds" || kind === "gl-reconciliation") ? params(fundParam) : kind === "ewt" ? params({ ...fundParam, quarter: selectedQuarter }) : params({ ...fundParam, ...dates });
   const overview = useFundRead<ReportOverview>(invalid ? null : `reports/overview?${historical}`, 250), position = useFundRead<ReportPosition>(`reports/current-position?${params(fundParam)}`);
   const report = useFundRead<ReportTable>(scopeInvalid ? null : `reports/tables/${kind}?${tableQuery}&page=${page}&pageSize=25`, 250), analysis = overview.data, filtersActive = Boolean(fund || account || payee || from || to || status);
+  usePettyCashRefresh(position.refresh, position.loading || position.refreshing);
+  usePettyCashRefresh(report.refresh, report.loading || report.refreshing);
   function changed(action: () => void) { action(); setPage(1); command.clearError(); }
   function clear() { setFund(null); setAccount(null); setPayee(null); setFrom(""); setTo(""); setStatus(""); setPage(1); command.clearError(); }
   function requestCertificate(payeeId?: number, payeeName?: string) { if (!selectedQuarter) return; command.clearError(); setCertificateRequest({ payeeId, payeeName }); }
@@ -104,5 +111,5 @@ function AuditChain() {
 }
 function AuditDetail({ id, onClose }: { id: number; onClose: () => void }) {
   const read = useFundRead<Record<string, unknown>>(`reports/audit/${id}`);
-  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-4xl"><DialogHeader><DialogTitle>Audit event {id}</DialogTitle><DialogDescription>Recorded actor, reason and saved changes. Audit records cannot be edited.</DialogDescription></DialogHeader><MasterError error={read.error} retry={read.refresh} title="Unable to load audit details" />{read.loading && <AuditDetailSkeleton />}{read.refreshing && <p role="status" className="text-sm text-muted-foreground">Updating audit details...</p>}{read.data && <><dl className="grid gap-3 text-sm sm:grid-cols-2">{Object.entries(auditLabels).map(([key, label]) => <div key={key}><dt className="text-muted-foreground">{label}</dt><dd className="break-words">{String(read.data?.[key] ?? "-")}</dd></div>)}</dl><pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/30 p-3 text-xs">{JSON.stringify(read.data.details ?? {}, null, 2)}</pre></>}<DialogFooter><Button variant="outline" onClick={onClose}>Close</Button><Button variant="outline" disabled={read.loading} onClick={read.refresh}>Reload details</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-4xl"><DialogHeader><DialogTitle>Audit event {id}</DialogTitle><DialogDescription>Recorded actor, reason and saved changes. Audit records cannot be edited.</DialogDescription></DialogHeader><MasterError error={read.error} retry={read.refresh} title="Unable to load audit details" />{read.loading && <AuditDetailSkeleton />}{read.refreshing && <p role="status" className="text-sm text-muted-foreground">Updating audit details...</p>}{read.data && <><dl className="grid gap-3 text-sm sm:grid-cols-2">{Object.entries(auditLabels).map(([key, label]) => <div key={key}><dt className="text-muted-foreground">{label}</dt><dd className="break-words">{String(read.data?.[key] ?? "-")}</dd></div>)}</dl><CashCountAuditDetails event={read.data} /></>}<DialogFooter><Button variant="outline" onClick={onClose}>Close</Button><Button variant="outline" disabled={read.loading} onClick={read.refresh}>Reload details</Button></DialogFooter></DialogContent></Dialog>;
 }

@@ -5,7 +5,8 @@ import type { ReplenishmentLine } from "../replenishment-types";
 const th = "px-3 py-2 text-left text-sm font-medium whitespace-nowrap";
 const td = "px-3 py-2 text-sm align-top";
 
-export function ReplenishmentJournal({ lines }: { lines: ReplenishmentLine[] }) {
+export function ReplenishmentJournal({ lines, varianceLines }: { lines: ReplenishmentLine[]; varianceLines?: ReplenishmentLine[] }) {
+  if (varianceLines?.length) return <div className="space-y-4"><section className="space-y-2"><h3 className="text-sm font-semibold">Cash count variance journal</h3><ReplenishmentJournal lines={varianceLines} /></section><section className="space-y-2"><h3 className="text-sm font-semibold">Replenishment / cash return journal</h3><ReplenishmentJournal lines={lines} /></section></div>;
   const dr = lines.reduce((sum, line) => sum + voucherCents(line.debit), 0n);
   const cr = lines.reduce((sum, line) => sum + voucherCents(line.credit), 0n);
   const amount = (cents: bigint) => `${cents / 100n}.${String(cents % 100n).padStart(2, "0")}`;
