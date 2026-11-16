@@ -1,12 +1,12 @@
 "use client";
 import { useState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useVoucherRead } from "./hooks/useVouchers";
 import { ErrorBox, Paging } from "./components/OnboardingCommon";
 import { FormSkeleton, ResponsiveListSkeleton, StatsSkeleton } from "./components/PettyCashSkeletons";
 import { VoucherEditor } from "./components/VoucherEditor";
+import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
 import { FundSelect } from "./components/FundSelect";
 import { VoucherReview, voucherMoney, voucherStatus } from "./components/VoucherReview";
 import PettyCashVoucherDraftsModule from "./PettyCashVoucherDraftsModule";
@@ -29,8 +29,8 @@ function StatusBadge({ state }: { state: string }) {
   return <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${statusTone[state] || "border-border bg-muted"}`}>{voucherStatus(state)}</span>;
 }
 
-export default function PettyCashDisbursementModule({ canEdit, operational = false, actorName = "", canApprove = false }: { canEdit: boolean; operational?: boolean; actorName?: string; canApprove?: boolean }) {
-  return operational ? <Disbursement actorName={actorName} canApprove={canApprove} /> : <PettyCashVoucherDraftsModule canEdit={canEdit} />;
+export default function PettyCashDisbursementModule({ canEdit, operational = false, actorName = "" }: { canEdit: boolean; operational?: boolean; actorName?: string }) {
+  return operational ? <Disbursement actorName={actorName} /> : <PettyCashVoucherDraftsModule canEdit={canEdit} />;
 }
 
 function Register({ data, filtered = false, onOpen }: { data: Page<VoucherOperations>; filtered?: boolean; onOpen: (item: VoucherOperations) => void }) {
@@ -56,11 +56,12 @@ function Register({ data, filtered = false, onOpen }: { data: Page<VoucherOperat
     {data.items.length === 0 && <p className="p-5 text-sm text-muted-foreground">{filtered ? "No vouchers match these filters." : "No vouchers yet. Select “+ New voucher” to pay an expense from this fund."}</p>}
   </div>;
 }
-function Disbursement({ actorName, canApprove }: { actorName: string; canApprove: boolean }) {
+function Disbursement({ actorName }: { actorName: string }) {
   const funds = useVoucherRead<VoucherFund[]>("funds");
   const [fundId, setFundId] = useState<number | null>(null), [page, setPage] = useState(1);
   const [modal, setModal] = useState<{ id: number } | null>(null), [editor, setEditor] = useState<"new" | VoucherOperations | null>(null);
   const [search, setSearch] = useState(""), [status, setStatus] = useState("ALL"), [dateFrom, setDateFrom] = useState(""), [dateTo, setDateTo] = useState("");
+  usePettyCashRefresh(funds.refresh, funds.loading || funds.refreshing);
   const selected = funds.data?.find(fund => fund.id === fundId) || funds.data?.[0] || null;
   const editorFund = editor && editor !== "new" ? funds.data?.find(fund => fund.id === editor.voucher.fundId) : selected;
   const invalidRange = Boolean(dateFrom && dateTo && dateFrom > dateTo);
@@ -82,7 +83,6 @@ function Disbursement({ actorName, canApprove }: { actorName: string; canApprove
       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground"><span className="rounded-full border px-3 py-1">Per-voucher limit <strong className="text-foreground">{voucherMoney(selected.perVoucherLimit)}</strong></span><span className="rounded-full border px-3 py-1">Approval above <strong className="text-foreground">{voucherMoney(selected.approvalThreshold)}</strong></span><span className="rounded-full border px-3 py-1">Fund used = open vouchers ÷ imprest</span></div>
       {Number(selected.usage) >= Number(selected.usageWarning || 60) && <p role="status" className={`rounded-lg border p-3 text-sm ${Number(selected.usage) >= Number(selected.usageCritical || 85) ? "border-destructive/40 text-destructive" : "border-amber-500/40"}`}>This fund is {Number(selected.usage).toFixed(0)}% used. Request replenishment before cash runs low.</p>}
     </div>}
-    {canApprove && <Button variant="outline" asChild><Link href="/fm/petty-cash/disbursement-approval">Open Disbursement Approval</Link></Button>}
     {!funds.loading && funds.data?.length === 0 && <p className="rounded-lg border p-5 text-sm">No Active funds available. Fund requests must be approved and funded before preparing vouchers.</p>}
     {selected && <section className="overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center justify-between gap-3 p-5"><h2 className="text-lg font-semibold">Vouchers for {selected.docNo}{register.data ? ` (${register.data.total})` : ""}</h2><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" asChild><a href={`${VOUCHER_API}/funds/${selected.id}/print`} target="_blank" rel="noreferrer">Print voucher list</a></Button><Button disabled={!selected.canPrepare} title={selected.canPrepare ? undefined : "Only the current fund custodian can prepare vouchers."} onClick={() => setEditor("new")}>+ New voucher</Button></div></div>
       <div className="flex flex-col gap-3 border-y bg-muted/10 p-3"><div className="flex flex-wrap items-center gap-2"><Input aria-label="Search vouchers" placeholder="Search voucher, payee, receipt, or particulars..." value={search} onChange={event => changeFilter(() => setSearch(event.target.value))} className="h-9 w-full bg-background sm:max-w-sm" /><select aria-label="Voucher status filter" value={status} onChange={event => changeFilter(() => setStatus(event.target.value))} className="h-9 rounded-md border bg-background px-3 text-sm">{statusOptions.map(value => <option key={value} value={value}>{value === "ALL" ? "All statuses" : voucherStatus(value)}</option>)}</select><Input aria-label="Voucher date from" type="date" value={dateFrom} onChange={event => changeFilter(() => setDateFrom(event.target.value))} className="h-9 w-auto bg-background" /><Input aria-label="Voucher date to" type="date" value={dateTo} onChange={event => changeFilter(() => setDateTo(event.target.value))} className="h-9 w-auto bg-background" />{filtered && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}</div>{invalidRange && <p role="alert" className="text-sm text-destructive">From must be on or before To.</p>}</div>

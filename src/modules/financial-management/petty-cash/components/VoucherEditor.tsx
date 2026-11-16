@@ -21,7 +21,7 @@ import { onboardingFieldError } from "../utils/onboardingFeedback";
 type EditorLine = VoucherLineInput & { account: Choice | null; vatChoice: Choice | null; ewtChoice: Choice | null };
 type QueuedFile = { requestId: string; key: string; file: File; version?: number; error?: string; uploaded?: boolean };
 type RejectedFile = { requestId: string; key: string; name: string; size: number; message: string };
-type Confirmation = { review: VoucherOperations; current: Voucher; needsApproval: boolean; requiresCash: boolean; cashAfter: string };
+type Confirmation = { review: VoucherOperations; current: Voucher; needsApproval: boolean; requiresCash: boolean; cashAfter: string; fundVersion: number };
 const newLine = (): EditorLine => ({ key: onboardingRequestId(), documentType: "INVOICE", receiptNo: "", expenseCoaId: null, gross: "", vatIncluded: false, vatRuleId: null, ewtRuleId: null, account: null, vatChoice: null, ewtChoice: null });
 const taxChoice = (rule: { id?: number; code?: string; rate?: string }): Choice | null => rule.id ? { id: rule.id, code: rule.code || "", name: `${rule.rate}%`, status: "VERIFIED", classification: "", eligible: true, reason: null, details: {} } : null;
 const fromLine = (line: VoucherLine): EditorLine => ({ ...line, account: line.account, vatChoice: taxChoice(line.taxSnapshot.vat), ewtChoice: taxChoice(line.taxSnapshot.ewt) });
@@ -42,13 +42,14 @@ function Totals({ value }: { value: VoucherAmounts }) {
 
 function VoucherConfirmation({ confirmation, fund, busy, cashConfirmed, onCashConfirmed, onConfirm, onClose, onRetry, uncertain, error }: { confirmation: Confirmation; fund: VoucherFund; busy: boolean; cashConfirmed: boolean; onCashConfirmed: (value: boolean) => void; onConfirm: () => void; onClose: () => void; onRetry: () => void; uncertain: boolean; error: Error | null }) {
   const review = confirmation.review, target = review.proposed || review.effective, delta = voucherCents(review.cashDelta);
-  const blocked = review.blockers.length > 0 || !review.actions.finalize;
+  const changed = confirmation.fundVersion !== fund.version, blocked = changed || review.blockers.length > 0 || !review.actions.finalize;
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}><DialogContent showCloseButton={!busy} className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onInteractOutside={event => { if (busy) event.preventDefault(); }}>
     <DialogHeader><DialogTitle>{confirmation.needsApproval ? "Submit voucher for approval" : confirmation.current.state === "UNREPLENISHED" ? "Confirm voucher changes" : "Confirm voucher payment"}</DialogTitle><DialogDescription>{confirmation.needsApproval ? "No cash moves until an approver decides this voucher." : "Review the payment details below. Cash moves only after you confirm."}</DialogDescription></DialogHeader>
     <div className="grid gap-3 rounded-lg bg-muted/30 p-4 text-sm sm:grid-cols-2">{[["Fund", `${fund.docNo} · ${fund.name}`], ["Payee", target.saved.payee.name], ["Voucher", confirmation.current.docNo], ["Voucher date", target.saved.date], ["Gross", money(target.saved.totals.gross)], ["Net cash", money(target.saved.totals.netCash)], ["Cash on hand", money(fund.expectedCash)], ["Cash after", confirmation.needsApproval ? "Unchanged until approval" : money(confirmation.cashAfter)]].map(([label, value]) => <div key={label}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-medium">{value}</p></div>)}</div>
     <Totals value={target.saved.totals} />
+    {changed && <OnboardingFeedback tone="warning" title="The fund balance changed">Go back and review the payment again against the updated cash balance.</OnboardingFeedback>}
     {confirmation.needsApproval && <OnboardingFeedback tone="info" title="Approval required"><p>This voucher is above the {money(fund.approvalThreshold)} approval threshold. It will be submitted for approval and cash will not be paid yet.</p></OnboardingFeedback>}
-    {blocked && <OnboardingFeedback tone="warning" title="Resolve these before continuing">{review.blockers.length ? review.blockers.map(blocker => <p key={blocker}>{blocker}</p>) : <p>Save a correction draft with the changes before confirming, or close this review if nothing changed.</p>}</OnboardingFeedback>}
+    {!changed && blocked && <OnboardingFeedback tone="warning" title="Resolve these before continuing">{review.blockers.length ? review.blockers.map(blocker => <p key={blocker}>{blocker}</p>) : <p>Save a correction draft with the changes before confirming, or close this review if nothing changed.</p>}</OnboardingFeedback>}
     {confirmation.requiresCash && <label className="flex items-start gap-2 rounded-lg border p-3 text-sm"><input type="checkbox" className="mt-1" checked={cashConfirmed} disabled={busy || blocked} onChange={event => onCashConfirmed(event.target.checked)} /><span>{delta < 0n ? `I confirm ${money(fromCents(-delta))} was returned to the cash box.` : `I confirm ${money(fromCents(delta))} was paid to the payee.`}</span></label>}
     <ErrorBox error={error} title={confirmation.needsApproval ? "Could not submit voucher for approval" : "Could not finalize voucher"} />
     {uncertain && <OnboardingFeedback tone="warning" title="Decision outcome is unconfirmed"><p>Retry the same decision to check its status safely.</p></OnboardingFeedback>}
@@ -72,7 +73,7 @@ function EditorForm({ initial, fund, canEdit, onClose, onBusy, operational, onFi
   useEffect(() => onBusy(busy), [busy, onBusy]);
   const input: VoucherInput = { version: record?.version || 0, voucherId: record?.id || null, fundId: fund.id, payeeProfileId: payee?.id || null, date, particulars, lines: lines.map(({ key, documentType, receiptNo, expenseCoaId, gross, vatIncluded, vatRuleId, ewtRuleId }) => ({ key, documentType, receiptNo, expenseCoaId, gross, vatIncluded, vatRuleId, ewtRuleId })) };
   const previewReady = Boolean(payee && date && particulars.trim() && lines.some(line => line.receiptNo.trim() && line.account && Number(line.gross) > 0));
-  const preview = useVoucherPreview(input, previewReady);
+  const preview = useVoucherPreview(input, previewReady, fund.version);
   const content = JSON.stringify([input.fundId, input.payeeProfileId, input.date, input.particulars, input.lines]);
   const savedContent = useRef(initial ? content : ""), saveLock = useRef(false);
   const willNeedApproval = Boolean(preview.data && voucherCents(preview.data.totals.gross) > voucherCents(fund.approvalThreshold));
@@ -124,7 +125,7 @@ function EditorForm({ initial, fund, canEdit, onClose, onBusy, operational, onFi
       const target = review.proposed || review.effective, needsApproval = voucherCents(target.saved.totals.gross) > voucherCents(fund.approvalThreshold);
       const requiresCash = !needsApproval && voucherCents(review.cashDelta) !== 0n;
       const cashAfter = fromCents(voucherCents(fund.expectedCash) - voucherCents(review.cashDelta));
-      setCashConfirmed(false); setConfirmation({ review, current, needsApproval, requiresCash, cashAfter });
+      setCashConfirmed(false); setConfirmation({ review, current, needsApproval, requiresCash, cashAfter, fundVersion: fund.version });
     } catch (cause) { setFileError(cause instanceof Error ? cause : new Error("Unable to prepare the payment confirmation.")); }
     finally { setSaving(false); }
   }
@@ -135,7 +136,7 @@ function EditorForm({ initial, fund, canEdit, onClose, onBusy, operational, onFi
     setConfirmation(null); if (onFinalized) onFinalized(result); else onClose();
   }
   async function confirmFinalize() {
-    if (!confirmation || decision.busy) return;
+    if (!confirmation || decision.busy || confirmation.fundVersion !== fund.version) return;
     const result = await decision.run(`disbursement/vouchers/${confirmation.current.id}/finalize`, { version: confirmation.current.version, previewToken: confirmation.review.reviewToken, cashConfirmed: confirmation.requiresCash ? cashConfirmed : false });
     if (result) finish(result);
   }

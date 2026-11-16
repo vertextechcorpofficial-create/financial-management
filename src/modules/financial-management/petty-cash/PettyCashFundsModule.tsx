@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
 import { useFundRead, useFundDecision } from "./hooks/useFunds";
 import { MasterChoice, MasterError, MasterTable, CountLabel } from "./components/MasterCommon";
 import { FundStatusBadge } from "./components/FundStatusBadge";
@@ -35,6 +36,8 @@ export default function PettyCashFundsModule({ canRequest = false }: { canReques
   const [search, setSearch] = useState(""), [filter, setFilter] = useState("ALL"), [page, setPage] = useState(1), [selected, setSelected] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search), query = new URLSearchParams({ search: deferredSearch.trim(), status: filter }), printQuery = new URLSearchParams({ search: search.trim(), status: filter });
   const register = useFundRead<Page<FundPosition>>(`master-list/register?${query}&page=${page}&pageSize=25`, 250), summary = useFundRead<MasterSummary>("master-list/summary"), sourceId = params.get("fundId"), id = selected ?? sourceId;
+  usePettyCashRefresh(register.refresh, register.loading || register.refreshing);
+  usePettyCashRefresh(summary.refresh, summary.loading || summary.refreshing);
   const hasFilters = Boolean(search.trim() || filter !== "ALL");
   function refresh() { register.refresh(); summary.refresh(); }
   function clearFilters() { setSearch(""); setFilter("ALL"); setPage(1); }

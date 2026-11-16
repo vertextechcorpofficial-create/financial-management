@@ -36,7 +36,7 @@ async function forward(request: NextRequest, { params }: Context) {
     for (const cookie of upstream.headers.getSetCookie()) response.headers.append("Set-Cookie", cookie);
     return response;
   }
-  const validGet = method === "GET" && (p.length === 1 && ["funds", "approvers", "requests"].includes(p[0]) || record && p.length === 2 || fund && (p.length === 3 && ["draft", "preview", "accruals"].includes(p[2]) || p.length === 4 && p[2] === "accruals" && p[3] === "preview"));
+  const validGet = method === "GET" && (p.length === 1 && ["funds", "requests"].includes(p[0]) || record && p.length === 2 || fund && (p.length === 3 && ["draft", "preview", "accruals"].includes(p[2]) || p.length === 4 && p[2] === "accruals" && p[3] === "preview"));
   const validWrite = fund && p.length === 3 && (method === "PUT" && p[2] === "draft" || method === "POST" && p[2] === "accruals") || record && p.length === 3 && method === "POST" && p[2] === "submit";
   if (!validGet && !validWrite) return fileError("Unknown replenishment resource or action.", 404);
   let body: string | undefined;

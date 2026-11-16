@@ -1,9 +1,9 @@
 import { jsPDF } from "jspdf";
 import { heading, table, finish, printMoney as money } from "../disbursement/_print";
 import type { FundPosition, MasterFundRecord, CashCount } from "@/modules/financial-management/petty-cash/master-types";
-import { COUNT_TYPES } from "@/modules/financial-management/petty-cash/master-types";
+import { COUNT_TYPES, cashCountStatus } from "@/modules/financial-management/petty-cash/master-types";
 export type MasterPrintList = { funds: FundPosition[]; company: Record<string, string>; asOf: string; preparedBy: string; status: string; search: string };
-const lastCount = (c: CashCount | null) => c ? `${c.snapshot.variance === "0.00" ? "Balanced" : money(c.snapshot.variance)} | ${c.recordedAt.slice(0, 10)}${c.resolution ? ` | cleared in ${c.resolution}` : ""}` : "Not counted";
+const lastCount = (c: CashCount | null) => c ? `${c.snapshot.variance === "0.00" ? "Balanced" : money(c.snapshot.variance)} | ${c.recordedAt.slice(0, 10)}${c.resolution ? ` | posted in ${c.resolution}` : ""}` : "Not counted";
 export function masterListPdf(data: MasterPrintList) {
   const doc = new jsPDF({ format: "a4", compress: true });
   let y = heading(doc, data.company, "Petty Cash Master List", `As of ${data.asOf.replace("T", " ").slice(0, 19)} | Status: ${data.status}${data.search ? ` | Search: ${data.search}` : ""}`);
@@ -21,6 +21,6 @@ export function cashCountPdf(data: { count: CashCount; company: Record<string, s
   const doc = new jsPDF({ format: "a4", compress: true }), c = data.count, p = c.snapshot;
   let y = heading(doc, data.company, "Cash Count Sheet", `${c.docNo} | ${COUNT_TYPES[p.type as keyof typeof COUNT_TYPES]} | ${p.fund.docNo} - ${p.fund.name} | ${c.recordedAt.replace("T", " ").slice(0, 19)}`);
   y = table(doc, y, { head: [["Type", "Denomination", "Quantity", "Amount"]], body: p.lines.filter(l => l.quantity > 0).map(l => [l.kind === "BILL" ? "Bill" : "Coin", money(l.amount), String(l.quantity), money(l.total)]), foot: [["", "", "Total cash counted", money(p.countedCash)]], columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } } });
-  y = table(doc, y, { body: [["Total cash counted", money(p.countedCash)], ["Open vouchers", money(p.openVouchers)], ["Imprest amount", money(p.fund.imprest)], ["Expected cash", money(p.fund.expectedCash)], ["Variance", money(p.variance)], ["Remarks", p.remarks || "-"], ["Resolution", c.resolution || "Observation only; no journal posted by this count"]] });
+  y = table(doc, y, { body: [["Total cash counted", money(p.countedCash)], ["Open vouchers", money(p.openVouchers)], ["Imprest amount", money(p.fund.imprest)], ["Expected cash", money(p.fund.expectedCash)], ["Variance", money(p.variance)], ["Remarks", p.remarks || "-"], ["Approval / posting", cashCountStatus(c)], ["Named approver", c.review?.approver || "-"], ["Decided by / at", c.review?.decidedBy ? `${c.review.decidedBy} | ${c.review.decidedAt.replace("T", " ")}` : "-"], ["Approved account", c.review?.account ? `${c.review.account.code} - ${c.review.account.name}` : "-"], ["Decision reason", c.review?.reason || "-"], ["Linked journal", c.resolution || "No GL posting yet"]], columnStyles: { 0: { cellWidth: 52, fontStyle: "bold" } } });
   return finish(doc, y, [`Counted by\n${p.counter}`, `Witness\n${p.witness}`, `Custodian\n${p.fund.custodian}`], c.docNo);
 }
