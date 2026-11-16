@@ -19,6 +19,7 @@ export async function readPettyCash(path: string, init?: RequestInit, tokenOverr
     ? payload.requestId : crypto.randomUUID();
   const trusted = typeof payload.code === "string" && SAFE_CODES.has(payload.code);
   if (upstream.ok && !body) status = 503;
+  if (upstream.status >= 500) console.warn(`[petty-cash] upstream ${upstream.status} for ${path} (request ${requestId})`);
   if (status >= 500) status = 503;
   const failed = status >= 400;
   const fieldErrors = trusted && payload.fieldErrors && typeof payload.fieldErrors === "object"
