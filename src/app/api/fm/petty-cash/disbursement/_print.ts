@@ -42,7 +42,85 @@ export function voucherPdf(data: VoucherOperations) {
 }
 export function voucherListPdf(data: VoucherPrintList) {
   const doc = new jsPDF({ format: "a4", compress: true });
-  let y = heading(doc, data.company, "Petty Cash Voucher List", `${data.fund.docNo} - ${data.fund.name} | As of ${data.asOf}`);
-  y = table(doc, y, { head: [["Voucher", "Date", "Payee", "Receipts", "Status", "Cash paid"]], body: data.vouchers.length ? data.vouchers.map(v => [v.voucher.docNo, v.effective.saved.date, v.effective.saved.payee.name, v.effective.saved.lines.map(line => line.receiptNo).join(", "), status(v.voucher.state), printMoney(v.paidNetCash)]) : [["No open vouchers", "", "", "", "", ""]], foot: [["", "", "", "", "Total open vouchers", printMoney(data.fund.openVouchers)], ["", "", "", "", "Cash on hand", printMoney(data.fund.expectedCash)], ["", "", "", "", "Imprest amount", printMoney(data.fund.imprestAmount)]], columnStyles: { 4: { cellWidth: 28 }, 5: { halign: "right", cellWidth: 32 } } });
-  return finish(doc, y, [`Prepared by\n${data.preparedBy || ""}`, "Reviewed by", "Approved by"], data.fund.docNo);
+  let y = listHeading(doc, data.company, data.fund, data.asOf);
+  y = listTable(doc, y, data.vouchers);
+  const totalsHeight = 9.5 * 3;
+  if (y + totalsHeight > 238) { doc.addPage(); y = listContinuationHeading(doc, data.company, data.fund, data.asOf); }
+  y = listTotals(doc, y, data.fund);
+  listSignatures(doc, y, data.preparedBy);
+  return listFinish(doc, data.fund.docNo);
+}
+function listContinuationHeading(doc: jsPDF, company: Record<string, string>, fund: VoucherFund, asOf: string) {
+  doc.setFont("helvetica", "bold").setFontSize(14).setTextColor(20).text(company.registeredName || "Petty Cash", 13, 22);
+  doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(60).text(`PETTY CASH VOUCHER LIST | ${fund.docNo} - ${fund.name} | As of ${asOf}`, 13, 29);
+  doc.setDrawColor(20).setLineWidth(0.4).line(13, 33, 197, 33);
+  return 42;
+}
+function listHeading(doc: jsPDF, company: Record<string, string>, fund: VoucherFund, asOf: string) {
+  let y = 18;
+  doc.setFont("helvetica", "bold").setFontSize(16).setTextColor(20).text(company.registeredName || "Petty Cash", 13, y);
+  y += 6;
+  const address = `${company.address || ""}${company.postalCode ? ` ${company.postalCode}` : ""}`.trim();
+  const detail = [address, company.tin ? `TIN ${company.tin}` : ""].filter(Boolean).join(" | ");
+  if (detail) { doc.setFont("helvetica", "normal").setFontSize(8.5).setTextColor(60).text(detail, 13, y); y += 4; }
+  doc.setDrawColor(20).setLineWidth(0.4).line(13, y + 2, 197, y + 2);
+  y += 12;
+  doc.setFont("helvetica", "bold").setFontSize(18).setTextColor(20).text("PETTY CASH VOUCHER LIST", 13, y);
+  y += 8;
+  doc.setFontSize(9.5).text(`${fund.docNo} - ${fund.name} | As of ${asOf}`, 13, y);
+  y += 10;
+  doc.setFontSize(10.5).text("VOUCHER DISBURSEMENT SCHEDULE", 13, y);
+  return y + 6;
+}
+function listTable(doc: jsPDF, y: number, vouchers: VoucherOperations[]) {
+  const body = vouchers.length ? vouchers.map(v => [v.voucher.docNo, v.effective.saved.date, v.effective.saved.payee.name, v.effective.saved.lines.map(line => line.receiptNo).join(",\n"), status(v.voucher.state).toUpperCase(), printMoney(v.paidNetCash)]) : [["No open vouchers", "", "", "", "", ""]];
+  autoTable(doc, {
+    startY: y,
+    margin: { left: 13, right: 13, top: 15, bottom: 20 },
+    theme: "plain",
+    showHead: "everyPage",
+    rowPageBreak: "avoid",
+    styles: { font: "helvetica", fontSize: 9, cellPadding: { top: 2.4, right: 2, bottom: 2.4, left: 2 }, overflow: "linebreak", textColor: 40, lineColor: [205, 205, 205], lineWidth: 0 },
+    headStyles: { fillColor: [242, 244, 247], textColor: 20, fontStyle: "bold", fontSize: 9 },
+    bodyStyles: { textColor: 40 },
+    columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 21 }, 2: { cellWidth: 35 }, 3: { cellWidth: 44 }, 4: { cellWidth: 31 }, 5: { halign: "right", cellWidth: 29 } },
+    didDrawCell: cell => {
+      if (cell.section === "head" || cell.section === "body") {
+        doc.setDrawColor(205).setLineWidth(0.1).line(cell.cell.x, cell.cell.y + cell.cell.height, cell.cell.x + cell.cell.width, cell.cell.y + cell.cell.height);
+      }
+    },
+    head: [["Voucher", "Date", "Payee", "Receipts", "Status", "Cash paid"]],
+    body,
+  });
+  return (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+}
+function listTotals(doc: jsPDF, y: number, fund: VoucherFund) {
+  const width = 90, x = 197 - width, rowHeight = 9.5, rows = [["Total open vouchers", printMoney(fund.openVouchers)], ["Cash on hand", printMoney(fund.expectedCash)], ["Imprest amount", printMoney(fund.imprestAmount)]];
+  const top = y;
+  doc.setDrawColor(190).setLineWidth(0.2).rect(x, top, width, rowHeight * rows.length);
+  rows.forEach(([label, value], index) => {
+    const baseline = top + rowHeight * (index + 1) - 3.2;
+    if (index > 0) doc.setDrawColor(215).line(x, top + rowHeight * index, x + width, top + rowHeight * index);
+    doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(50).text(label, x + 3, baseline);
+    doc.setFont("helvetica", "bold").setTextColor(20).text(value, x + width - 3, baseline, { align: "right" });
+  });
+  return top + rowHeight * rows.length + 16;
+}
+function listSignatures(doc: jsPDF, y: number, preparedBy: string) {
+  const top = Math.max(y, 244);
+  const width = 184, cell = width / 3, lineY = top + 10;
+  [["Prepared by", preparedBy], ["Reviewed by", ""], ["Approved by", ""]].forEach(([label, name], index) => {
+    const x = 13 + cell * index;
+    if (name) doc.setFont("helvetica", "bold").setFontSize(9.5).setTextColor(20).text(name, x, lineY - 3, { maxWidth: cell - 10 });
+    doc.setDrawColor(40).setLineWidth(0.4).line(x, lineY, x + cell - 8, lineY);
+    doc.setFont("helvetica", "normal").setFontSize(8.5).setTextColor(90).text(label, x, lineY + 5);
+  });
+}
+function listFinish(doc: jsPDF, reference: string) {
+  const total = doc.getNumberOfPages();
+  for (let page = 1; page <= total; page++) {
+    doc.setPage(page).setDrawColor(190).setLineWidth(0.2).rect(8, 8, 194, 281);
+    if (total > 1) { doc.setFont("helvetica", "normal").setFontSize(7).setTextColor(90).text(reference, 13, 288).text(`Page ${page} of ${total}`, 197, 288, { align: "right" }); }
+  }
+  return new Uint8Array(doc.output("arraybuffer"));
 }

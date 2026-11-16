@@ -64,7 +64,7 @@ export async function uploadVoucherFile(voucherId: string, form: FormData, owner
     return cookiesFrom(reserve, fileError("The draft is saved, but this file has not finished uploading. Retry it or remove the pending upload after reopening the draft.", 503));
   }
 }
-export async function readVoucherFile(voucherId: string, fileId: string, preview: boolean, owner: FileOwner | "replenishment-approval/requests" = "disbursement/vouchers") {
+export async function readVoucherFile(voucherId: string, fileId: string, preview: boolean, owner: FileOwner | "replenishment-approval/requests" | "disbursement-approval/requests" | "disbursement-approval/decisions" = "disbursement/vouchers") {
   const metadataResponse = await readPettyCash(`${owner}/${voucherId}/attachments/${fileId}`);
   if (!metadataResponse.ok) return metadataResponse;
   const file = await metadataResponse.json() as VoucherAttachment;
