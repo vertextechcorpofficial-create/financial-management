@@ -7,8 +7,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { Choice, Page } from "../onboarding-types";
 import { useOnboardingRead } from "../hooks/useOnboarding";
 
-export function OnboardingChoice({ label, resource, role = "EXPENSE", selected, disabled, onSelect, id, error, eligibleOnly = false, placeholder }: {
-    label: string; resource: string; role?: string; selected: Choice | null; disabled?: boolean; onSelect: (choice: Choice | null) => void; id?: string; error?: string; eligibleOnly?: boolean; placeholder?: string;
+export function OnboardingChoice({ label, resource, role = "EXPENSE", selected, disabled, onSelect, id, error, eligibleOnly = false, placeholder, fundRequest = false, excludeFundId }: {
+    label: string; resource: string; role?: string; selected: Choice | null; disabled?: boolean; onSelect: (choice: Choice | null) => void; id?: string; error?: string; eligibleOnly?: boolean; placeholder?: string; fundRequest?: boolean; excludeFundId?: number;
 }) {
   const generatedId = useId(); const buttonId = id || `${generatedId}-button`, errorId = error ? `${buttonId}-error` : undefined; const [open, setOpen] = useState(false);
   return <div className="min-w-0 space-y-2"><label id={`${generatedId}-label`} className="text-sm font-medium">{label}</label>
@@ -17,13 +17,14 @@ export function OnboardingChoice({ label, resource, role = "EXPENSE", selected, 
         <span className="truncate">{selected ? `${selected.code} · ${selected.name}` : placeholder || `Select ${label.toLowerCase()}`}</span><ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
       </Button></PopoverTrigger>
       <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] p-0">
-        {open && <Choices label={label} resource={resource} role={role} selected={selected} eligibleOnly={eligibleOnly} onSelect={value => { onSelect(value); setOpen(false); }} />}
+        {open && <Choices label={label} resource={resource} role={role} selected={selected} eligibleOnly={eligibleOnly} fundRequest={fundRequest} excludeFundId={excludeFundId} onSelect={value => { onSelect(value); setOpen(false); }} />}
       </PopoverContent>
     </Popover>{error && <p id={errorId} className="text-xs font-medium text-destructive">{error}</p>}{selected?.reason && <p className="text-xs text-amber-800 dark:text-amber-300">{selected.reason}</p>}</div>;
 }
-function Choices({ label, resource, role, selected, eligibleOnly, onSelect }: { label: string; resource: string; role: string; selected: Choice | null; eligibleOnly: boolean; onSelect: (choice: Choice | null) => void }) {
+function Choices({ label, resource, role, selected, eligibleOnly, fundRequest, excludeFundId, onSelect }: { label: string; resource: string; role: string; selected: Choice | null; eligibleOnly: boolean; fundRequest: boolean; excludeFundId?: number; onSelect: (choice: Choice | null) => void }) {
   const [search, setSearch] = useState(""); const [page, setPage] = useState(1);
   const params = new URLSearchParams({ search, page: String(page), pageSize: "25", role });
+  if (fundRequest) { params.set("fundRequest", "true"); if (excludeFundId != null) params.set("excludeFundId", String(excludeFundId)); }
   const { data, loading, error, refresh } = useOnboardingRead<Page<Choice>>(`lookups/${resource}?${params}`, 250);
   const items = data?.items.filter(choice => !eligibleOnly || choice.eligible);
   return <Command shouldFilter={false} className="h-auto max-h-[var(--radix-popover-content-available-height)] [&_[data-slot=command-input-wrapper]]:shrink-0"><CommandInput aria-label={`Search ${label}`} placeholder="Search by code or name..." value={search} onValueChange={value => { setSearch(value); setPage(1); }} />

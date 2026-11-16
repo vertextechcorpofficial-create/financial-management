@@ -111,7 +111,7 @@ function FundRequestDialog({ initial, requesterName, onClose, onSaved }: { initi
       </div>
       <div className="grid gap-3 md:grid-cols-3">
         <Field label="Fund name" id="fund-name" value={name} onChange={setName} maxLength={60} placeholder="e.g. Finance Office Fund" error={fieldError("name")} />
-        <OnboardingChoice label="Department" id="fund-department" resource="departments" selected={department} onSelect={value => { setDepartment(value); clearFeedback(); }} disabled={command.busy} error={fieldError("departmentId")} />
+        <OnboardingChoice label="Department" id="fund-department" resource="departments" selected={department} onSelect={value => { setDepartment(value); clearFeedback(); }} disabled={command.busy} error={fieldError("departmentId")} fundRequest excludeFundId={initial?.id} />
         <OnboardingChoice label="Custodian" id="fund-custodian" resource="personnel" selected={custodian} onSelect={value => { setCustodian(value); clearFeedback(); }} disabled={command.busy} error={fieldError("custodianId")} />
         <Field label="Imprest amount (₱)" id="fund-imprest" type="number" value={imprest} onChange={setImprest} required error={fieldError("imprestAmount")} />
         <Field label="Max per voucher, hard limit (₱)" id="fund-limit" type="number" value={limit} onChange={setLimit} required error={fieldError("perVoucherLimit")} />
