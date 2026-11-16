@@ -83,7 +83,7 @@ export function AccountDetailDialog({ account, onOpenChange }: Props) {
                 <Detail label="Onboarded (PHT)">
                   {account.createdAt ? toPhtDateString(account.createdAt) : "—"}
                 </Detail>
-                <Detail label="Last reconciled (PHT)">
+                <Detail label="Last reconciled">
                   {account.lastReconciledAt ? toPhtDateString(account.lastReconciledAt) : "Never reconciled"}
                 </Detail>
               </dl>

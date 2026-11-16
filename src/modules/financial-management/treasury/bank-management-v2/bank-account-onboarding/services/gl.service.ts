@@ -72,7 +72,7 @@ export async function saveGlMapping(
       updates.map((update) => ({
         mapping_key: update.mappingKey,
         coa_id: update.coaId,
-        updated_by_user_id: userId,
+        updated_by: userId,
         updated_at: nowPht,
       })),
     ),
@@ -83,7 +83,7 @@ export async function saveGlMapping(
     await createItem(MAPPING, {
       mapping_key: update.mappingKey,
       coa_id: update.coaId,
-      updated_by_user_id: userId,
+      updated_by: userId,
       updated_at: nowPht,
     });
   }

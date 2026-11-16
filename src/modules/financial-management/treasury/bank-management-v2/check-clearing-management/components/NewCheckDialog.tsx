@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -32,7 +33,7 @@ type Props = {
   onReceive: (payload: ReceiveCheckPayload) => Promise<unknown>;
 };
 
-const emptyIssue = { bankAccountId: "", checkDate: phtDate(), amount: "", payee: "", remarks: "" };
+const emptyIssue = { bankAccountId: "", checkDate: phtDate(), amount: "", payee: "", remarks: "", controlKey: "AP_CONTROL" };
 const emptyReceive = { bankAccountId: "", checkNo: "", checkDate: phtDate(), amount: "", draweeBank: "", payor: "", remarks: "" };
 
 /** FSD 1.4 — issue a check from the active checkbook, or record one received. */
@@ -79,6 +80,7 @@ export function NewCheckDialog({ open, onOpenChange, accounts, isSaving, onIssue
       amount: Number(issue.amount),
       payee: issue.payee.trim(),
       remarks: issue.remarks.trim() || null,
+      controlKey: issue.controlKey === "NTP_CONTROL" ? "NTP_CONTROL" : "AP_CONTROL",
     });
     if (saved) onOpenChange(false);
   }
@@ -189,16 +191,36 @@ export function NewCheckDialog({ open, onOpenChange, accounts, isSaving, onIssue
                   />
                   {touched && issueErrors.payee && <p className="text-xs text-destructive">{issueErrors.payee}</p>}
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="issue-remarks">Remarks</Label>
-                  <Textarea
-                    id="issue-remarks"
-                    rows={3}
-                    maxLength={500}
-                    className="min-h-[100px] resize-none"
-                    value={issue.remarks}
-                    onChange={(event) => setIssue({ ...issue, remarks: event.target.value })}
-                  />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="issue-payable">
+                      Payable account <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={issue.controlKey}
+                      onValueChange={(next) => setIssue({ ...issue, controlKey: next })}
+                    >
+                      <SelectTrigger id="issue-payable">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        <SelectItem value="AP_CONTROL">AP-CTL · Accounts payable</SelectItem>
+                        <SelectItem value="NTP_CONTROL">NTP-CTL · Negotiable instrument control</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Where the credit side of E09 lands.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="issue-remarks">Remarks</Label>
+                    <Textarea
+                      id="issue-remarks"
+                      rows={3}
+                      maxLength={500}
+                      className="min-h-[100px] resize-none"
+                      value={issue.remarks}
+                      onChange={(event) => setIssue({ ...issue, remarks: event.target.value })}
+                    />
+                  </div>
                 </div>
               </form>
             </TabsContent>

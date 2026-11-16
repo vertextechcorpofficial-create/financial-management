@@ -1,6 +1,7 @@
 import "server-only";
 
-import { CHECK_RETURN_REASONS, CHECK_STATUS_LABELS, STALE_CHECK_DAYS } from "../constants";
+import { CHECK_CANCEL_REASONS, CHECK_RETURN_REASONS, CHECK_STATUS_LABELS, STALE_CHECK_DAYS } from "../constants";
+import type { PayableKey } from "../constants";
 import { issuedCheckEntry, receivedCheckEntry } from "../events";
 import { daysSince, phtStamp, phtToday, toPhtDateString } from "../pht";
 import type {
@@ -17,12 +18,13 @@ import {
   asNumber,
   asString,
   createItem,
+  directusFetch,
   getItem,
   listItems,
   roundMoney,
   updateItem,
 } from "./directus";
-import { PostingBlockedError, postJournalEntry } from "./gl.service";
+import { PostingBlockedError, postJournalEntry, resolveJournalEntry } from "./gl.service";
 
 /**
  * Check & Clearing management: issuing, receiving and the clearing trail.
@@ -78,6 +80,7 @@ const EVENT_FIELDS = [
   "journal_entry_id",
   "note",
   "occurred_at",
+  "actor_id",
 ];
 
 const CHECKBOOK_FIELDS = [
@@ -90,10 +93,28 @@ const CHECKBOOK_FIELDS = [
   "created_at",
 ];
 
-const ACCOUNT_FIELDS = ["bank_id", "bank_name", "account_number"];
+const ACCOUNT_FIELDS = ["bank_id", "bank_name", "account_number", "gl_coa_id"];
 
-/** E09 debits the payee's control account: an issued check settles a payable. */
+/** Display labels exactly as the spec's rejection strings spell them. */
+const SPEC_STATUS_LABELS: Record<CheckStatus, string> = {
+  PENDING: "Pending",
+  RECEIVED: "Received",
+  IN_CLEARING: "In Clearing",
+  CLEARED: "Cleared",
+  RETURNED: "Returned",
+  CANCELLED: "Cancelled",
+};
+
+/** E09 debits the payee's control account: an issued check settles a payable (P44/P156). */
 const ISSUED_COUNTER_KEY = "AP_CONTROL";
+
+/** P44/P156/P181: an issued check's payable side is AP-CTL or NTP-CTL, chosen at issue. */
+const PAYABLE_KEYS: readonly PayableKey[] = ["AP_CONTROL", "NTP_CONTROL"];
+
+/** Rows issued before the choice existed carry no control_key; they all posted to AP-CTL. */
+function payableKeyFor(row: { control_key: string | null }): PayableKey {
+  return row.control_key === "NTP_CONTROL" ? "NTP_CONTROL" : ISSUED_COUNTER_KEY;
+}
 
 const CHECK_STATUSES = Object.keys(CHECK_STATUS_LABELS) as CheckStatus[];
 
@@ -133,7 +154,46 @@ type EventRow = {
   journal_entry_id: number | null;
   note: string | null;
   occurred_at: string | null;
+  actor_id: number | null;
 };
+
+type UserRow = {
+  user_id: number;
+  user_fname: string | null;
+  user_mname: string | null;
+  user_lname: string | null;
+  user_email: string | null;
+};
+
+/**
+ * P101 wants a person on every history line. `bank_check_events.actor_id` holds a
+ * `user.user_id`; the name has to be resolved here because the static token cannot read
+ * the columns from the browser (same shape as bank-deposit's `loadPreparers`).
+ */
+async function loadActors(ids: number[]): Promise<Map<number, string>> {
+  const unique = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))];
+  if (!unique.length) return new Map();
+  try {
+    const { rows } = await listItems<UserRow>("user", {
+      fields: ["user_id", "user_fname", "user_mname", "user_lname", "user_email"],
+      filter: { user_id: { _in: unique } },
+      limit: 200,
+    });
+    return new Map(
+      rows.map((row) => {
+        const name = [row.user_fname, row.user_mname, row.user_lname]
+          .map((part) => asString(part).trim())
+          .filter(Boolean)
+          .join(" ");
+        return [Number(row.user_id), name || asString(row.user_email) || "—"];
+      }),
+    );
+  } catch (error) {
+    // The user table belongs to another module; a missing read must not blank the trail.
+    if (error instanceof DirectusError) return new Map();
+    throw error;
+  }
+}
 
 type CheckbookRow = {
   id: number;
@@ -149,15 +209,27 @@ type AccountRow = {
   bank_id: number;
   bank_name: string | null;
   account_number: string | null;
+  gl_coa_id: number | null;
 };
+
+/**
+ * The bank leg of E10/E13/E15 resolves through the account's linked GL when it has one,
+ * so the bank balance moves on the real 102100 row rather than the CASH_IN_BANK fallback.
+ */
+async function accountRef(bankAccountId: number): Promise<{ bankId: number; glCoaId: number | null }> {
+  try {
+    const row = await getItem<AccountRow>(ACCOUNTS, bankAccountId, ACCOUNT_FIELDS);
+    return { bankId: bankAccountId, glCoaId: row?.gl_coa_id == null ? null : Number(row.gl_coa_id) };
+  } catch (error) {
+    if (error instanceof DirectusError) return { bankId: bankAccountId, glCoaId: null };
+    throw error;
+  }
+}
 
 export type CheckAction = "RELEASE" | "DEPOSIT" | "CLEAR" | "RETURN" | "CANCEL" | "REPLACE";
 
-export type PostingBlocked = { message: string; missingMappingKeys: string[] };
-
 export type CheckWriteResult = {
   check: BankCheck;
-  postingBlocked: PostingBlocked | null;
 };
 
 export type CheckRegisterFlag = "PDC" | "STALE" | "NOREPL" | "REPL";
@@ -190,6 +262,8 @@ export type IssueCheckInput = {
   amount: number;
   payee: string;
   remarks: string | null;
+  /** P44: AP-CTL or NTP-CTL. Absent on legacy callers, which get AP-CTL. */
+  controlKey?: string | null;
 };
 
 export type ReceiveCheckInput = {
@@ -202,14 +276,23 @@ export type ReceiveCheckInput = {
   remarks: string | null;
 };
 
-export type ReplacementInput = { checkDate: string; amount: number; checkNo?: string | null };
+export type ReplacementInput = {
+  checkDate: string;
+  amount: number;
+  checkNo?: string | null;
+  /** Received replacements only: the new check's drawee bank. Falls back to the old check's. */
+  draweeBank?: string | null;
+};
 
 export type CheckActionInput = {
   action: CheckAction;
   returnReason?: string | null;
+  cancelReason?: string | null;
   note?: string | null;
   replacement?: ReplacementInput | null;
-  /** Date the bank cleared the check. Defaults to today when omitted. */
+  /** Release date (4.3), deposit date (4.4) and clearing date (4.5). Default to today. */
+  releaseDate?: string | null;
+  depositDate?: string | null;
   clearedDate?: string | null;
 };
 
@@ -343,7 +426,11 @@ function toCheck(row: CheckRow, labels: Map<number, string>, checkNos: Map<numbe
     payor: row.payor,
     controlKey: row.control_key,
     status,
-    isPdc: asBoolean(row.is_pdc),
+    // Spec 2: both flags are computed, never read from storage. `is_pdc` is still written for
+    // older readers, but the register only trusts checkDate against today.
+    isPdc:
+      (status === "PENDING" || status === "RECEIVED" || status === "IN_CLEARING") &&
+      toPhtDateString(row.check_date) > phtToday(),
     returnReason: row.return_reason,
     releasedAt: row.released_at ? toPhtDateString(row.released_at) : null,
     depositedAt: row.deposited_at ? toPhtDateString(row.deposited_at) : null,
@@ -358,9 +445,11 @@ function toCheck(row: CheckRow, labels: Map<number, string>, checkNos: Map<numbe
     remarks: row.remarks,
     createdAt: toPhtDateString(row.created_at),
     ageDays,
-    // FSD 1.4: a check still outstanding past the bank's 180-day window is stale.
+    // Spec 2: stale is an issued check only — a received check has no 180-day clock.
     isStale:
-      ageDays > STALE_CHECK_DAYS && (status === "PENDING" || status === "RECEIVED" || status === "IN_CLEARING"),
+      checkDirection(row.direction) === "ISSUED" &&
+      (status === "PENDING" || status === "IN_CLEARING") &&
+      ageDays > STALE_CHECK_DAYS,
   };
 }
 
@@ -400,9 +489,12 @@ async function countByStatus(): Promise<Record<CheckStatus, number>> {
 function flagMatches(row: CheckRow, flag: CheckRegisterFlag): boolean {
   const status = checkStatus(row.status);
   const open = status === "PENDING" || status === "RECEIVED" || status === "IN_CLEARING";
+  const issued = checkDirection(row.direction) === "ISSUED";
 
-  if (flag === "PDC") return asBoolean(row.is_pdc);
-  if (flag === "STALE") return open && daysSince(row.check_date) > STALE_CHECK_DAYS;
+  if (flag === "PDC") return open && toPhtDateString(row.check_date) > phtToday();
+  if (flag === "STALE") {
+    return issued && (status === "PENDING" || status === "IN_CLEARING") && daysSince(row.check_date) > STALE_CHECK_DAYS;
+  }
   if (flag === "NOREPL") {
     return (status === "RETURNED" || status === "CANCELLED") && row.replaced_by_id == null;
   }
@@ -535,6 +627,8 @@ async function listEvents(checkId: number): Promise<CheckEvent[]> {
     }
   }
 
+  const actors = await loadActors(rows.map((row) => Number(row.actor_id ?? 0)));
+
   return rows.map((row) => ({
     id: Number(row.id),
     checkId: Number(row.check_id ?? 0),
@@ -544,6 +638,7 @@ async function listEvents(checkId: number): Promise<CheckEvent[]> {
     eventCode: row.event_code,
     journalNo: row.journal_entry_id == null ? null : jeNos.get(Number(row.journal_entry_id)) ?? null,
     note: row.note,
+    actorName: row.actor_id == null ? null : actors.get(Number(row.actor_id)) ?? null,
     occurredAt: toPhtDateString(row.occurred_at),
   }));
 }
@@ -584,20 +679,39 @@ export async function getCheckDetail(checkId: number): Promise<CheckDetail> {
   return { check: toCheck(row, labels), events };
 }
 
-type PostResult = { journalEntryId: number | null; postingBlocked: PostingBlocked | null };
+type PostResult = { journalEntryId: number };
 
-/** A blocked posting is a configuration state, not a failed write: the check is still recorded. */
+/**
+ * A check is only as good as its entry: when the mapping is incomplete this throws, and
+ * the caller writes nothing. Task 33 item 1 — a Cleared check with no entry is a lie.
+ */
 async function postCheckEntry(draft: JournalEntryDraft): Promise<PostResult> {
   try {
     const posted = await postJournalEntry(draft, null);
-    return { journalEntryId: posted.id, postingBlocked: null };
+    return { journalEntryId: posted.id };
   } catch (error) {
     if (error instanceof PostingBlockedError) {
-      return {
-        journalEntryId: null,
-        postingBlocked: { message: error.message, missingMappingKeys: error.missingMappingKeys },
-      };
+      const keys = error.missingMappingKeys;
+      throw new ConflictError(
+        keys.length > 0
+          ? `Ask accounting to map ${keys.join(", ")} before this check can be posted.`
+          : error.message,
+        "action",
+      );
     }
+    throw error;
+  }
+}
+
+/**
+ * Posts the entry for a check row that was just created. If the mapping refuses it the
+ * row is deleted again: a check without its entry must not survive (task 33 item 1).
+ */
+async function postCheckEntryOrDiscard(createdId: number, draft: JournalEntryDraft): Promise<PostResult> {
+  try {
+    return await postCheckEntry(draft);
+  } catch (error) {
+    await directusFetch(`/items/${CHECKS}/${createdId}`, { method: "DELETE" }).catch(() => undefined);
     throw error;
   }
 }
@@ -610,6 +724,7 @@ type AppendEventInput = {
   eventCode: string | null;
   journalEntryId: number | null;
   note: string | null;
+  actorId: number | null;
 };
 
 async function appendEvent(input: AppendEventInput): Promise<void> {
@@ -622,6 +737,7 @@ async function appendEvent(input: AppendEventInput): Promise<void> {
       event_code: input.eventCode,
       journal_entry_id: input.journalEntryId,
       note: input.note,
+      actor_id: input.actorId,
       occurred_at: phtStamp(),
     });
   } catch (error) {
@@ -633,6 +749,31 @@ async function appendEvent(input: AppendEventInput): Promise<void> {
 
 function draftBase(sourceRef: string, postingDate: string, description: string) {
   return { sourceRef, postingDate, description };
+}
+
+/**
+ * The CLEAR entry for a row (spec table 4, E10 issued / E13 received). Shared by the single
+ * action and the batch pre-pass so both resolve the same mapping keys.
+ */
+function clearDraft(
+  row: CheckRow,
+  account: { bankId: number; glCoaId: number | null },
+  checkNo: string,
+  amount: number,
+  clearedDate: string,
+): JournalEntryDraft {
+  const base = draftBase(checkNo, clearedDate, `Check ${checkNo} cleared`);
+  return checkDirection(row.direction) === "ISSUED"
+    ? issuedCheckEntry("E10", account, amount, payableKeyFor(row), base)
+    : receivedCheckEntry("E13", account, amount, base);
+}
+
+/** Spec 4: every action date is a real calendar date and never in the future. */
+function actionDate(value: string | null | undefined, field: string, what: string): string {
+  const date = asString(value) || phtToday();
+  if (!isCalendarDate(date)) throw new ValidationError(`Enter a valid ${what}.`, field);
+  if (date > phtToday()) throw new ValidationError(`The ${what} cannot be in the future.`, field);
+  return date;
 }
 
 /** Numeric value of a series number: "0001234" and "1234" compare equal. */
@@ -655,8 +796,9 @@ async function allocateCheckNo(accountId: number): Promise<string> {
   });
 
   if (!series.length) {
+    const labels = await accountLabels([accountId]);
     throw new ConflictError(
-      "This account has no active checkbook series. Add a checkbook series before issuing checks.",
+      `No checkbook series with unused leaves is registered for ${labels.get(accountId) ?? "this account"}.`,
     );
   }
 
@@ -681,14 +823,38 @@ async function allocateCheckNo(accountId: number): Promise<string> {
     return formatSeriesNo(candidate, width);
   }
 
+  const labels = await accountLabels([accountId]);
   throw new ConflictError(
-    "The active checkbook series for this account is exhausted. Add a new series before issuing more checks.",
+    `No checkbook series with unused leaves is registered for ${labels.get(accountId) ?? "this account"}.`,
   );
 }
 
-export async function issueCheck(input: IssueCheckInput): Promise<CheckWriteResult> {
+export async function issueCheck(input: IssueCheckInput, actorId: number | null): Promise<CheckWriteResult> {
   const amount = roundMoney(input.amount);
+  // P44: the payable account is part of the issue form, not a constant.
+  const controlKey: PayableKey =
+    input.controlKey == null || input.controlKey === "" ? ISSUED_COUNTER_KEY : (input.controlKey as PayableKey);
+  if (!PAYABLE_KEYS.includes(controlKey)) {
+    throw new ValidationError("Choose AP-CTL or NTP-CTL as the payable account.", "controlKey");
+  }
   const checkNo = await allocateCheckNo(input.bankAccountId);
+  const account = await accountRef(input.bankAccountId);
+  const postDated = input.checkDate > phtToday();
+
+  // P51/P109: check no. + bank account is the key for issued checks.
+  const label = (await accountLabels([input.bankAccountId])).get(input.bankAccountId) ?? "this account";
+  const { rows: duplicates } = await listItems<{ id: number }>(CHECKS, {
+    fields: ["id"],
+    filter: {
+      direction: { _eq: "ISSUED" },
+      check_no: { _eq: checkNo },
+      bank_account_id: { _eq: input.bankAccountId },
+    },
+    limit: 1,
+  });
+  if (duplicates.length) {
+    throw new ConflictError(`Check ${checkNo} from ${label} is already recorded.`, "checkNo");
+  }
 
   const created = await createItem<{ id: number }>(CHECKS, {
     bank_account_id: input.bankAccountId,
@@ -698,14 +864,16 @@ export async function issueCheck(input: IssueCheckInput): Promise<CheckWriteResu
     amount,
     payee: input.payee,
     status: "PENDING",
-    is_pdc: input.checkDate > phtToday() ? 1 : 0,
+    is_pdc: postDated ? 1 : 0,
+    control_key: controlKey,
     source_type: "MANUAL",
     remarks: input.remarks,
     created_at: phtStamp(),
   });
 
-  const posting = await postCheckEntry(
-    issuedCheckEntry("E09", { bankId: input.bankAccountId, glCoaId: null }, amount, ISSUED_COUNTER_KEY, draftBase(
+  const posting = await postCheckEntryOrDiscard(
+    Number(created.id),
+    issuedCheckEntry("E09", account, amount, controlKey, draftBase(
       checkNo,
       input.checkDate,
       `Check ${checkNo} issued to ${input.payee}`,
@@ -719,27 +887,40 @@ export async function issueCheck(input: IssueCheckInput): Promise<CheckWriteResu
     toStatus: "PENDING",
     eventCode: "E09",
     journalEntryId: posting.journalEntryId,
-    note: input.remarks,
+    note: `Check issued to ${input.payee}${postDated ? ` (post-dated ${input.checkDate})` : ""}`,
+    actorId,
   });
 
-  return { check: await reloadCheck(Number(created.id)), postingBlocked: posting.postingBlocked };
+  return { check: await reloadCheck(Number(created.id)) };
 }
 
-export async function receiveCheck(input: ReceiveCheckInput): Promise<CheckWriteResult> {
+export async function receiveCheck(
+  input: ReceiveCheckInput,
+  actorId: number | null,
+): Promise<CheckWriteResult> {
   const amount = roundMoney(input.amount);
-  const checkNo = asString(input.checkNo);
+  const checkNo = asString(input.checkNo).replace(/\D/g, "");
+  if (checkNo.length < 4) {
+    throw new ValidationError("The check number needs at least four digits.", "checkNo");
+  }
+  const draweeBank = asString(input.draweeBank) || null;
+  const account = await accountRef(input.bankAccountId);
+  const postDated = input.checkDate > phtToday();
 
+  // Spec 4.2: for received checks the number is unique per drawee bank, not per our account.
+  const duplicateFilter: Record<string, unknown> = {
+    direction: { _eq: "RECEIVED" },
+    check_no: { _eq: checkNo },
+  };
+  if (draweeBank) duplicateFilter.drawee_bank = { _eq: draweeBank };
   const { rows: duplicates } = await listItems<{ id: number }>(CHECKS, {
     fields: ["id"],
-    filter: {
-      bank_account_id: { _eq: input.bankAccountId },
-      direction: { _eq: "RECEIVED" },
-      check_no: { _eq: checkNo },
-    },
+    filter: duplicateFilter,
     limit: 1,
   });
   if (duplicates.length) {
-    throw new ConflictError("Check number already recorded for this account.", "checkNo");
+    const from = draweeBank ?? (await accountLabels([input.bankAccountId])).get(input.bankAccountId) ?? "that bank";
+    throw new ConflictError(`Check ${checkNo} from ${from} is already recorded.`, "checkNo");
   }
 
   const created = await createItem<{ id: number }>(CHECKS, {
@@ -748,17 +929,18 @@ export async function receiveCheck(input: ReceiveCheckInput): Promise<CheckWrite
     check_no: checkNo,
     check_date: input.checkDate,
     amount,
-    drawee_bank: input.draweeBank,
+    drawee_bank: draweeBank,
     payor: input.payor,
     status: "RECEIVED",
-    is_pdc: input.checkDate > phtToday() ? 1 : 0,
+    is_pdc: postDated ? 1 : 0,
     source_type: "MANUAL",
     remarks: input.remarks,
     created_at: phtStamp(),
   });
 
-  const posting = await postCheckEntry(
-    receivedCheckEntry("E12", { bankId: input.bankAccountId, glCoaId: null }, amount, draftBase(
+  const posting = await postCheckEntryOrDiscard(
+    Number(created.id),
+    receivedCheckEntry("E12", account, amount, draftBase(
       checkNo,
       input.checkDate,
       `Check ${checkNo} received${input.payor ? ` from ${input.payor}` : ""}`,
@@ -772,13 +954,18 @@ export async function receiveCheck(input: ReceiveCheckInput): Promise<CheckWrite
     toStatus: "RECEIVED",
     eventCode: "E12",
     journalEntryId: posting.journalEntryId,
-    note: input.remarks,
+    note: `Check received${input.payor ? ` from ${input.payor}` : ""}${postDated ? ` (post-dated ${input.checkDate})` : ""}`,
+    actorId,
   });
 
-  return { check: await reloadCheck(Number(created.id)), postingBlocked: posting.postingBlocked };
+  return { check: await reloadCheck(Number(created.id)) };
 }
 
-export async function applyCheckAction(checkId: number, input: CheckActionInput): Promise<CheckWriteResult> {
+export async function applyCheckAction(
+  checkId: number,
+  input: CheckActionInput,
+  actorId: number | null,
+): Promise<CheckWriteResult> {
   const row = await loadCheckRow(checkId);
   const status = checkStatus(row.status);
   const direction = checkDirection(row.direction);
@@ -786,43 +973,43 @@ export async function applyCheckAction(checkId: number, input: CheckActionInput)
   const checkNo = asString(row.check_no);
   const checkDate = toPhtDateString(row.check_date);
   const bankAccountId = Number(row.bank_account_id ?? 0);
-  const account = { bankId: bankAccountId, glCoaId: null };
+  const account = await accountRef(bankAccountId);
   const today = phtToday();
   const note = asString(input.note) || null;
+  const label = SPEC_STATUS_LABELS[status];
 
   if (input.action === "RELEASE") {
     if (direction !== "ISSUED" || status !== "PENDING") {
-      throw new ConflictError("Only a pending issued check can be released.", "action");
+      throw new ConflictError(`Check ${checkNo} is ${label}. Only issued checks Pending can be released.`, "action");
     }
-    if (checkDate > today) {
-      throw new ValidationError("A post-dated check cannot be released before its check date.", "checkDate");
-    }
+    // Spec 4.3: a PDC may be released — the payee just cannot encash it early.
+    const releaseDate = actionDate(input.releaseDate, "releaseDate", "release date");
 
-    await updateItem(CHECKS, checkId, { released_at: phtStamp() });
+    await updateItem(CHECKS, checkId, { status: "IN_CLEARING", released_at: `${releaseDate}T00:00:00` });
     await appendEvent({
       checkId,
       action: "RELEASE",
       fromStatus: status,
-      toStatus: status,
+      toStatus: "IN_CLEARING",
       eventCode: null,
       journalEntryId: null,
-      note,
+      note: `Released to payee on ${releaseDate}; awaiting encashment`,
+      actorId,
     });
-    return { check: await reloadCheck(checkId), postingBlocked: null };
+    return { check: await reloadCheck(checkId) };
   }
 
   if (input.action === "DEPOSIT") {
-    if (direction !== "RECEIVED") {
-      throw new ConflictError("Only a received check can be deposited.", "action");
+    if (direction !== "RECEIVED" || status !== "RECEIVED") {
+      throw new ConflictError(`Check ${checkNo} is ${label}. Only received checks Received can be deposited.`, "action");
     }
-    if (status !== "RECEIVED" && status !== "PENDING") {
-      throw new ConflictError("Only a check that has not been deposited can be deposited.", "action");
-    }
-    if (checkDate > today) {
-      throw new ValidationError("A post-dated check cannot be deposited before its check date.", "checkDate");
+    const depositDate = actionDate(input.depositDate, "depositDate", "deposit date");
+    // Spec 4.4 / table 3: the deposit date is what blocks a PDC.
+    if (depositDate < checkDate) {
+      throw new ValidationError(`The deposit date cannot be before ${checkDate}.`, "depositDate");
     }
 
-    await updateItem(CHECKS, checkId, { status: "IN_CLEARING", deposited_at: phtStamp() });
+    await updateItem(CHECKS, checkId, { status: "IN_CLEARING", deposited_at: `${depositDate}T00:00:00` });
     await appendEvent({
       checkId,
       action: "DEPOSIT",
@@ -830,39 +1017,31 @@ export async function applyCheckAction(checkId: number, input: CheckActionInput)
       toStatus: "IN_CLEARING",
       eventCode: null,
       journalEntryId: null,
-      note,
+      note: `Deposited on ${depositDate}; awaiting bank credit`,
+      actorId,
     });
-    return { check: await reloadCheck(checkId), postingBlocked: null };
+    return { check: await reloadCheck(checkId) };
   }
 
   if (input.action === "CLEAR") {
-    if (direction === "ISSUED" && status !== "PENDING") {
-      throw new ConflictError("Only a pending issued check can be marked cleared.", "action");
-    }
-    if (direction === "RECEIVED" && status !== "IN_CLEARING") {
-      throw new ConflictError("A received check must be deposited before it can be marked cleared.", "action");
+    // Spec table 2 rows 4 and 10: both directions clear only from In Clearing.
+    if (status !== "IN_CLEARING") {
+      throw new ConflictError(`Check ${checkNo} is ${label}. Only checks In Clearing can be cleared.`, "action");
     }
 
-    const clearedDate = asString(input.clearedDate) || today;
-    if (!isCalendarDate(clearedDate)) {
-      throw new ValidationError("Enter the date the bank cleared the check.", "clearedDate");
+    const clearedDate = actionDate(input.clearedDate, "clearedDate", "clearing date");
+    const sentDate = direction === "ISSUED" ? toPhtDateString(row.released_at) : toPhtDateString(row.deposited_at);
+    if (clearedDate < checkDate) {
+      throw new ValidationError(`The clearing date cannot be before the check date ${checkDate}.`, "clearedDate");
     }
-    if (clearedDate > today) {
-      throw new ValidationError("The clearing date cannot be in the future.", "clearedDate");
+    if (sentDate && clearedDate < sentDate) {
+      throw new ValidationError(
+        `The clearing date cannot be before the date the check was sent (${sentDate}).`,
+        "clearedDate",
+      );
     }
 
-    const posting =
-      direction === "ISSUED"
-        ? await postCheckEntry(
-            issuedCheckEntry("E10", account, amount, ISSUED_COUNTER_KEY, draftBase(
-              checkNo,
-              clearedDate,
-              `Check ${checkNo} cleared`,
-            )),
-          )
-        : await postCheckEntry(
-            receivedCheckEntry("E13", account, amount, draftBase(checkNo, clearedDate, `Check ${checkNo} cleared`)),
-          );
+    const posting = await postCheckEntry(clearDraft(row, account, checkNo, amount, clearedDate));
     const eventCode = direction === "ISSUED" ? "E10" : "E13";
 
     await updateItem(CHECKS, checkId, { status: "CLEARED", cleared_at: `${clearedDate}T00:00:00` });
@@ -874,8 +1053,9 @@ export async function applyCheckAction(checkId: number, input: CheckActionInput)
       eventCode,
       journalEntryId: posting.journalEntryId,
       note,
+      actorId,
     });
-    return { check: await reloadCheck(checkId), postingBlocked: posting.postingBlocked };
+    return { check: await reloadCheck(checkId) };
   }
 
   if (input.action === "RETURN") {
@@ -883,20 +1063,28 @@ export async function applyCheckAction(checkId: number, input: CheckActionInput)
     if (!reason || !(CHECK_RETURN_REASONS as readonly string[]).includes(reason)) {
       throw new ValidationError("Pick a return reason from the list.", "returnReason");
     }
-    if (status === "CLEARED" || status === "CANCELLED" || status === "RETURNED") {
-      throw new ConflictError(`A ${status.toLowerCase()} check cannot be returned.`, "action");
+    if (reason === "Other" && !note) {
+      throw new ValidationError("Describe the return reason in the note.", "note");
+    }
+    // Spec table 2 rows 5, 11, 12 and table 3.
+    if (direction === "ISSUED" && status !== "IN_CLEARING") {
+      throw new ConflictError(`Check ${checkNo} is ${label}; only issued checks In Clearing can be returned.`, "action");
+    }
+    if (direction === "RECEIVED" && status !== "IN_CLEARING" && status !== "CLEARED") {
+      throw new ConflictError(
+        `Check ${checkNo} is ${label}; only checks In Clearing or Cleared can be returned.`,
+        "action",
+      );
     }
 
+    const eventCode: "E11" | "E14" | "E15" =
+      direction === "ISSUED" ? "E11" : status === "CLEARED" ? "E15" : "E14";
     const description = `Check ${checkNo} returned — ${reason}`;
+    const base = draftBase(`${checkNo}-RET`, today, description);
     const posting =
-      direction === "ISSUED"
-        ? await postCheckEntry(
-            issuedCheckEntry("E11", account, amount, ISSUED_COUNTER_KEY, draftBase(checkNo, today, description)),
-          )
-        : await postCheckEntry(
-            receivedCheckEntry(status === "IN_CLEARING" ? "E15" : "E14", account, amount, draftBase(checkNo, today, description)),
-          );
-    const eventCode = direction === "ISSUED" ? "E11" : status === "IN_CLEARING" ? "E15" : "E14";
+      eventCode === "E11"
+        ? await postCheckEntry(issuedCheckEntry("E11", account, amount, payableKeyFor(row), base))
+        : await postCheckEntry(receivedCheckEntry(eventCode, account, amount, base));
 
     await updateItem(CHECKS, checkId, {
       status: "RETURNED",
@@ -910,40 +1098,61 @@ export async function applyCheckAction(checkId: number, input: CheckActionInput)
       toStatus: "RETURNED",
       eventCode,
       journalEntryId: posting.journalEntryId,
-      note: note ?? reason,
+      note: `Returned: ${reason}`,
+      actorId,
     });
-    return { check: await reloadCheck(checkId), postingBlocked: posting.postingBlocked };
+    return { check: await reloadCheck(checkId) };
   }
 
   if (input.action === "CANCEL") {
-    if (status !== "PENDING" && status !== "RECEIVED") {
-      throw new ConflictError("Only a pending or received check can be cancelled.", "action");
+    const reason = asString(input.cancelReason);
+    if (!reason || !(CHECK_CANCEL_REASONS as readonly string[]).includes(reason)) {
+      throw new ValidationError("Pick a cancel reason from the list.", "cancelReason");
+    }
+    if (reason === "Other" && !note) {
+      throw new ValidationError("Describe the cancel reason in the note.", "note");
+    }
+    // Spec 4.7: issued Pending or In Clearing, received Received only.
+    if (direction === "ISSUED") {
+      if (status === "CLEARED") {
+        throw new ConflictError(`Check ${checkNo} is Cleared and cannot be cancelled.`, "action");
+      }
+      if (status !== "PENDING" && status !== "IN_CLEARING") {
+        throw new ConflictError(`Check ${checkNo} is ${label} and cannot be cancelled.`, "action");
+      }
+    } else if (status !== "RECEIVED") {
+      if (status === "IN_CLEARING" || status === "CLEARED") {
+        throw new ConflictError(
+          `Check ${checkNo} is ${label}. Only checks not yet deposited can be cancelled; use Returned for a deposited check.`,
+          "action",
+        );
+      }
+      throw new ConflictError(`Check ${checkNo} is ${label} and cannot be cancelled.`, "action");
     }
 
-    const description = `Check ${checkNo} cancelled${note ? ` — ${note}` : ""}`;
+    const description = `Check ${checkNo} cancelled — ${reason}`;
+    const base = draftBase(`${checkNo}-CAN`, today, description);
     const posting =
       direction === "ISSUED"
-        ? await postCheckEntry(
-            issuedCheckEntry("E11", account, amount, ISSUED_COUNTER_KEY, draftBase(checkNo, today, description)),
-          )
-        : await postCheckEntry(receivedCheckEntry("E14", account, amount, draftBase(checkNo, today, description)));
-    const eventCode = direction === "ISSUED" ? "E11" : "E14";
+        ? await postCheckEntry(issuedCheckEntry("E11", account, amount, payableKeyFor(row), base))
+        : await postCheckEntry(receivedCheckEntry("E14", account, amount, base));
 
-    await updateItem(CHECKS, checkId, { status: "CANCELLED" });
+    await updateItem(CHECKS, checkId, { status: "CANCELLED", return_reason: reason });
     await appendEvent({
       checkId,
       action: "CANCEL",
       fromStatus: status,
       toStatus: "CANCELLED",
-      eventCode,
+      eventCode: direction === "ISSUED" ? "E11" : "E14",
       journalEntryId: posting.journalEntryId,
-      note,
+      note: `Cancelled: ${reason}`,
+      actorId,
     });
-    return { check: await reloadCheck(checkId), postingBlocked: posting.postingBlocked };
+    return { check: await reloadCheck(checkId) };
   }
 
   if (status !== "RETURNED" && status !== "CANCELLED") {
-    throw new ConflictError("Only a returned or cancelled check can be replaced.", "action");
+    throw new ConflictError("Only Returned or Cancelled checks can be replaced.", "action");
   }
   const replacement = input.replacement;
   if (!replacement) {
@@ -953,6 +1162,21 @@ export async function applyCheckAction(checkId: number, input: CheckActionInput)
   const replacementAmount = roundMoney(replacement.amount);
   if (!(replacementAmount > 0)) {
     throw new ValidationError("Enter an amount greater than zero.", "replacement.amount");
+  }
+
+  // Spec 4.8 / section 6: a check can be replaced once.
+  if (row.replaced_by_id != null) {
+    let replacedByNo = "";
+    try {
+      const next = await getItem<{ check_no: string | null }>(CHECKS, Number(row.replaced_by_id), ["check_no"]);
+      replacedByNo = asString(next?.check_no);
+    } catch (error) {
+      if (!(error instanceof DirectusError)) throw error;
+    }
+    throw new ConflictError(
+      `Check ${checkNo} was already replaced by ${replacedByNo || `check #${row.replaced_by_id}`}.`,
+      "action",
+    );
   }
 
   const providedNo = asString(replacement.checkNo);
@@ -968,7 +1192,8 @@ export async function applyCheckAction(checkId: number, input: CheckActionInput)
       limit: 1,
     });
     if (duplicates.length) {
-      throw new ConflictError("Check number already recorded for this account.", "replacement.checkNo");
+      const from = direction === "RECEIVED" && row.drawee_bank ? row.drawee_bank : (await accountLabels([bankAccountId])).get(bankAccountId) ?? "this account";
+      throw new ConflictError(`Check ${providedNo} from ${from} is already recorded.`, "replacement.checkNo");
     }
     replacementNo = providedNo;
   } else if (direction === "ISSUED") {
@@ -977,17 +1202,20 @@ export async function applyCheckAction(checkId: number, input: CheckActionInput)
     throw new ValidationError("Give the replacement check number.", "replacement.checkNo");
   }
 
+  const draweeBank = direction === "RECEIVED" ? asString(replacement.draweeBank) || row.drawee_bank : row.drawee_bank;
   const created = await createItem<{ id: number }>(CHECKS, {
     bank_account_id: bankAccountId,
     direction,
     check_no: replacementNo,
     check_date: replacement.checkDate,
     amount: replacementAmount,
-    drawee_bank: row.drawee_bank,
+    drawee_bank: draweeBank,
     payee: row.payee,
     payor: row.payor,
     status: direction === "ISSUED" ? "PENDING" : "RECEIVED",
     is_pdc: replacement.checkDate > today ? 1 : 0,
+    // Spec 4.8 / P82: a replacement keeps the old check's payable account.
+    control_key: direction === "ISSUED" ? payableKeyFor(row) : null,
     source_type: "REPLACEMENT",
     source_ref: checkNo,
     replaces_id: checkId,
@@ -995,7 +1223,29 @@ export async function applyCheckAction(checkId: number, input: CheckActionInput)
     created_at: phtStamp(),
   });
 
-  await updateItem(CHECKS, checkId, { replaced_by_id: Number(created.id) });
+  // Spec 4.8: the new check posts E09 or E12; the old check's reversal was already posted.
+  const newId = Number(created.id);
+  const posting =
+    direction === "ISSUED"
+      ? await postCheckEntryOrDiscard(
+          newId,
+          issuedCheckEntry("E09", account, replacementAmount, payableKeyFor(row), draftBase(
+            replacementNo,
+            replacement.checkDate,
+            `Replacement check ${replacementNo} issued for check ${checkNo}`,
+          )),
+        )
+      : await postCheckEntryOrDiscard(
+          newId,
+          receivedCheckEntry("E12", account, replacementAmount, draftBase(
+            replacementNo,
+            replacement.checkDate,
+            `Replacement check ${replacementNo} received for check ${checkNo}`,
+          )),
+        );
+
+  await updateItem(CHECKS, checkId, { replaced_by_id: newId });
+  const amountSuffix = replacementAmount === amount ? "" : ` (amount ${replacementAmount.toFixed(2)})`;
   await appendEvent({
     checkId,
     action: "REPLACE",
@@ -1003,37 +1253,79 @@ export async function applyCheckAction(checkId: number, input: CheckActionInput)
     toStatus: status,
     eventCode: null,
     journalEntryId: null,
-    note: note ?? `Replaced by check ${replacementNo}.`,
+    note: `Replaced by check ${replacementNo}${amountSuffix}`,
+    actorId,
+  });
+  await appendEvent({
+    checkId: newId,
+    action: direction === "ISSUED" ? "ISSUE" : "RECEIVE",
+    fromStatus: null,
+    toStatus: direction === "ISSUED" ? "PENDING" : "RECEIVED",
+    eventCode: direction === "ISSUED" ? "E09" : "E12",
+    journalEntryId: posting.journalEntryId,
+    note: `Replacement check ${direction === "ISSUED" ? "issued" : "received"} for check ${checkNo}`,
+    actorId,
   });
 
-  return { check: await reloadCheck(Number(created.id)), postingBlocked: null };
+  return { check: await reloadCheck(newId) };
 }
 
 export type ClearCheckEntry = { checkId: number; clearedDate: string };
 
 export type ClearChecksResult = {
   cleared: BankCheck[];
-  blocked: PostingBlocked[];
   failures: { checkId: number; message: string }[];
 };
 
 /**
  * Batch clearing: one bank statement line per check, so each carries its own date.
- * A rejected row does not abort the batch — it comes back in `failures` for the UI to show.
+ * Spec section 5: all-or-nothing. Every row is validated first — including the GL
+ * mapping its CLEAR entry resolves — and nothing is written when any row fails.
+ *
+ * This is not a database transaction: a Directus or network error part-way through the
+ * apply loop can still leave earlier rows committed. Only the causes we can check ahead
+ * of time are made atomic.
  */
-export async function clearChecks(entries: ClearCheckEntry[]): Promise<ClearChecksResult> {
+export async function clearChecks(
+  entries: ClearCheckEntry[],
+  actorId: number | null,
+): Promise<ClearChecksResult> {
   const cleared: BankCheck[] = [];
-  const blocked: PostingBlocked[] = [];
   const failures: { checkId: number; message: string }[] = [];
 
   for (const entry of entries) {
     try {
-      const result = await applyCheckAction(entry.checkId, {
-        action: "CLEAR",
-        clearedDate: entry.clearedDate,
-      });
-      cleared.push(result.check);
-      if (result.postingBlocked) blocked.push(result.postingBlocked);
+      const row = await loadCheckRow(entry.checkId);
+      if (row.status !== "IN_CLEARING") {
+        throw new ConflictError(
+          `Check ${asString(row.check_no)} is ${SPEC_STATUS_LABELS[row.status as CheckStatus]}. Only checks In Clearing can be cleared.`,
+          "action",
+        );
+      }
+      const checkDate = toPhtDateString(row.check_date);
+      const clearedDate = actionDate(entry.clearedDate, "clearedDate", "clearing date");
+      if (clearedDate < checkDate) {
+        throw new ValidationError(`The clearing date cannot be before the check date ${checkDate}.`, "clearedDate");
+      }
+      const sentDate =
+        row.direction === "ISSUED" ? toPhtDateString(row.released_at) : toPhtDateString(row.deposited_at);
+      if (sentDate && clearedDate < sentDate) {
+        throw new ValidationError(
+          `The clearing date cannot be before the date the check was sent (${sentDate}).`,
+          "clearedDate",
+        );
+      }
+
+      const account = await accountRef(Number(row.bank_account_id));
+      const { missingMappingKeys } = await resolveJournalEntry(
+        clearDraft(row, account, asString(row.check_no), asNumber(row.amount), clearedDate),
+      );
+      if (missingMappingKeys.length > 0) {
+        throw new ConflictError(
+          `Ask accounting to map ${missingMappingKeys.join(", ")} before this check can be cleared.`,
+          "action",
+        );
+      }
     } catch (error) {
       if (error instanceof ValidationError || error instanceof ConflictError) {
         failures.push({ checkId: entry.checkId, message: error.message });
@@ -1043,7 +1335,85 @@ export async function clearChecks(entries: ClearCheckEntry[]): Promise<ClearChec
     }
   }
 
-  return { cleared, blocked, failures };
+  if (failures.length > 0) return { cleared: [], failures };
+
+  for (const entry of entries) {
+    const result = await applyCheckAction(entry.checkId, { action: "CLEAR", clearedDate: entry.clearedDate }, actorId);
+    cleared.push(result.check);
+  }
+
+  return { cleared, failures };
+}
+
+export type BatchDateEntry = { checkId: number; date: string };
+
+export type BatchActionResult = {
+  checks: BankCheck[];
+  failures: { checkId: number; message: string }[];
+};
+
+/**
+ * Batch release and batch deposit (spec section 5). Neither posts a journal entry —
+ * E09/E12 were posted when the check was issued or received — so the all-or-nothing
+ * pre-pass only has to validate rows. Each applied row writes its own history line
+ * through applyCheckAction.
+ */
+export async function batchReleaseOrDeposit(
+  action: "RELEASE" | "DEPOSIT",
+  entries: BatchDateEntry[],
+  actorId: number | null,
+): Promise<BatchActionResult> {
+  const failures: { checkId: number; message: string }[] = [];
+  const dateField = action === "RELEASE" ? "releaseDate" : "depositDate";
+  const dateWhat = action === "RELEASE" ? "release date" : "deposit date";
+
+  for (const entry of entries) {
+    try {
+      const row = await loadCheckRow(entry.checkId);
+      const checkNo = asString(row.check_no);
+      const label = SPEC_STATUS_LABELS[checkStatus(row.status)];
+      const date = actionDate(entry.date, dateField, dateWhat);
+      if (action === "RELEASE") {
+        if (checkDirection(row.direction) !== "ISSUED" || row.status !== "PENDING") {
+          throw new ConflictError(
+            `Check ${checkNo} is ${label}; only issued Pending checks can be released.`,
+            "action",
+          );
+        }
+      } else {
+        if (checkDirection(row.direction) !== "RECEIVED" || row.status !== "RECEIVED") {
+          throw new ConflictError(
+            `Check ${checkNo} is ${label}; only received checks that are Received can be deposited.`,
+            "action",
+          );
+        }
+        const checkDate = toPhtDateString(row.check_date);
+        if (date < checkDate) {
+          throw new ValidationError(`The deposit date cannot be before ${checkDate}.`, "depositDate");
+        }
+      }
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof ConflictError) {
+        failures.push({ checkId: entry.checkId, message: error.message });
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (failures.length > 0) return { checks: [], failures };
+
+  const checks: BankCheck[] = [];
+  for (const entry of entries) {
+    const result = await applyCheckAction(
+      entry.checkId,
+      action === "RELEASE" ? { action: "RELEASE", releaseDate: entry.date } : { action: "DEPOSIT", depositDate: entry.date },
+      actorId,
+    );
+    checks.push(result.check);
+  }
+
+  return { checks, failures };
 }
 
 export async function listCheckbooks(accountId?: number): Promise<CheckbookListResult> {

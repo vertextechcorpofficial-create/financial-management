@@ -47,7 +47,10 @@ export function CancelMemoDialog({ memo, isSaving, onOpenChange, onConfirm }: Ca
 
   return (
     <Dialog open={Boolean(memo)} onOpenChange={(next) => (isSaving ? undefined : onOpenChange(next))}>
-      <DialogContent className="flex w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[500px]">
+      <DialogContent
+        showCloseButton={false}
+        className="flex w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[500px]"
+      >
         <DialogHeader className="border-b border-border/50 px-6 py-4">
           <DialogTitle>Cancel this memo?</DialogTitle>
           <DialogDescription>

@@ -26,31 +26,60 @@ import type { BankCheck } from "../types";
 
 export type CheckAction = "RELEASE" | "DEPOSIT" | "CLEAR" | "RETURN" | "CANCEL" | "REPLACE" | "VIEW";
 
-/** Which actions the FSD allows from the current status. Mirrors the server rules. */
+export type BatchMode = "RELEASE" | "DEPOSIT" | "CLEAR";
+
+const BATCH_BUTTONS: { mode: BatchMode; label: string; done: string }[] = [
+  { mode: "RELEASE", label: "Release", done: "released" },
+  { mode: "DEPOSIT", label: "Deposit", done: "deposited" },
+  { mode: "CLEAR", label: "Clear", done: "cleared" },
+];
+
+/**
+ * Spec table 2, the fifteen rows, collapsed per direction and status.
+ * The server enforces the same matrix; this only decides what the menu offers.
+ */
 export function allowedActions(check: BankCheck): { action: CheckAction; label: string; destructive?: boolean }[] {
   const actions: { action: CheckAction; label: string; destructive?: boolean }[] = [{ action: "VIEW", label: "View" }];
+  const { status, direction } = check;
 
-  if (check.status === "PENDING" && check.direction === "ISSUED") actions.push({ action: "RELEASE", label: "Release" });
-  if (check.status === "RECEIVED") actions.push({ action: "DEPOSIT", label: "Deposit" });
-  if ((check.status === "PENDING" && check.direction === "ISSUED") || check.status === "IN_CLEARING") {
-    actions.push({ action: "CLEAR", label: "Mark cleared" });
-  }
-  if (["PENDING", "RECEIVED", "IN_CLEARING"].includes(check.status)) {
-    actions.push({ action: "RETURN", label: "Record return" });
-  }
-  if (check.status === "PENDING" || check.status === "RECEIVED") {
+  if (status === "PENDING" && direction === "ISSUED") {
+    // Rows 2 and 3: a post-dated check may still be released.
+    actions.push({ action: "RELEASE", label: "Release" });
     actions.push({ action: "CANCEL", label: "Cancel check", destructive: true });
   }
-  if ((check.status === "RETURNED" || check.status === "CANCELLED") && !check.replacedById) {
+  if (status === "RECEIVED") {
+    // Row 8: a post-dated received check cannot be deposited yet.
+    if (!check.isPdc) actions.push({ action: "DEPOSIT", label: "Deposit" });
+    // Row 9.
+    actions.push({ action: "CANCEL", label: "Cancel check", destructive: true });
+  }
+  if (status === "IN_CLEARING") {
+    // Rows 4 and 10.
+    actions.push({ action: "CLEAR", label: "Mark cleared" });
+    // Rows 5, 6 and 11.
+    actions.push({ action: "RETURN", label: "Record return" });
+    if (direction === "ISSUED") actions.push({ action: "CANCEL", label: "Cancel check", destructive: true });
+  }
+  if (status === "CLEARED" && direction === "RECEIVED") {
+    // Row 12: only a received check that cleared can be returned from Cleared.
+    actions.push({ action: "RETURN", label: "Record return" });
+  }
+  if ((status === "RETURNED" || status === "CANCELLED") && !check.replacedById) {
     actions.push({ action: "REPLACE", label: "Replace check" });
   }
   return actions;
 }
 
-/** Clearing is the only action that runs in bulk today, so it is the only tickable one. */
-export function canClear(check: BankCheck): boolean {
-  return allowedActions(check).some((entry) => entry.action === "CLEAR");
+/** Spec section 5: a row is tickable only when a batch action can actually run on it. */
+export function batchActionFor(check: BankCheck): BatchMode | null {
+  if (check.status === "IN_CLEARING") return "CLEAR";
+  if (check.status === "PENDING" && check.direction === "ISSUED") return "RELEASE";
+  if (check.status === "RECEIVED" && !check.isPdc) return "DEPOSIT";
+  return null;
 }
+
+const NOT_BATCHABLE_TITLE =
+  "Only pending, received and in-clearing checks can be released, deposited or cleared together.";
 
 const ACTION_MENU_CLASS: Record<CheckAction, string> = {
   VIEW: "",
@@ -70,13 +99,11 @@ type Props = {
   onAction: (check: BankCheck, action: CheckAction) => void;
   selected: Set<number>;
   onSelectionChange: (next: Set<number>) => void;
-  onBulkClear: () => void;
+  onBatchAction: (mode: BatchMode) => void;
   /** Register-wide row count across every status; the header chip reports it. */
   total: number;
   /** True when any register filter is active, so the chip can read "N of M". */
   filtered: boolean;
-  /** Register-wide in-clearing count, the same number the IN CLEARING tile shows. */
-  inClearingCount: number;
   /** Filter band rendered inside the register card, like every other V2 table. */
   filters: ReactNode;
 };
@@ -90,10 +117,9 @@ export function ChecksTable({
   onAction,
   selected,
   onSelectionChange,
-  onBulkClear,
+  onBatchAction,
   total,
   filtered,
-  inClearingCount,
   filters,
 }: Props) {
 
@@ -104,11 +130,16 @@ export function ChecksTable({
   const safePage = Math.min(page, pageCount);
   const rows = checks.slice((safePage - 1) * pageSize, safePage * pageSize);
 
-  const inClearingRows = checks.filter((row) => row.status === "IN_CLEARING" && canClear(row));
-  const pageClearable = rows.filter(canClear);
-  const allOnPageSelected = pageClearable.length > 0 && pageClearable.every((row) => selected.has(row.id));
+  const eligibleRows = checks.filter((row) => batchActionFor(row) !== null);
+  const pageEligible = rows.filter((row) => batchActionFor(row) !== null);
+  const allOnPageSelected = pageEligible.length > 0 && pageEligible.every((row) => selected.has(row.id));
   const selectedRows = checks.filter((row) => selected.has(row.id));
   const selectedTotal = selectedRows.reduce((sum, row) => sum + row.amount, 0);
+  const selectedCounts: Record<BatchMode, number> = { RELEASE: 0, DEPOSIT: 0, CLEAR: 0 };
+  for (const row of selectedRows) {
+    const mode = batchActionFor(row);
+    if (mode) selectedCounts[mode] += 1;
+  }
 
   function toggle(id: number, next: boolean) {
     const draft = new Set(selected);
@@ -119,7 +150,7 @@ export function ChecksTable({
 
   function toggleAllOnPage(next: boolean) {
     const draft = new Set(selected);
-    for (const row of pageClearable) {
+    for (const row of pageEligible) {
       if (next) draft.add(row.id);
       else draft.delete(row.id);
     }
@@ -161,22 +192,22 @@ export function ChecksTable({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/30 px-4 py-2.5">
         {selectedRows.length === 0 ? (
           <>
-            <p className="text-sm text-muted-foreground">Tick checks to clear them together.</p>
+            <p className="text-sm text-muted-foreground">Tick checks to release, deposit or clear them together.</p>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              disabled={inClearingRows.length === 0}
+              disabled={eligibleRows.length === 0}
               title={
-                inClearingRows.length === 0
-                  ? "No in-clearing checks in the current view."
+                eligibleRows.length === 0
+                  ? "No check in the current view can be released, deposited or cleared."
                   : filtered
-                    ? "Selects the in-clearing checks in the current view."
+                    ? "Selects the checks in the current view that a batch action can run on."
                     : undefined
               }
-              onClick={() => onSelectionChange(new Set(inClearingRows.map((row) => row.id)))}
+              onClick={() => onSelectionChange(new Set(eligibleRows.map((row) => row.id)))}
             >
-              Select all in clearing ({formatNumber(inClearingCount)})
+              Select all eligible ({formatNumber(eligibleRows.length)})
             </Button>
           </>
         ) : (
@@ -185,10 +216,23 @@ export function ChecksTable({
               <span className="font-semibold">{selectedRows.length} selected</span>
               <span className="ml-2 text-muted-foreground tabular-nums">total {formatCurrency(selectedTotal)}</span>
             </p>
-            <div className="flex items-center gap-2">
-              <Button type="button" size="sm" onClick={onBulkClear}>
-                Clear {selectedRows.length}
-              </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {BATCH_BUTTONS.map(({ mode, label, done }) => {
+                const count = selectedCounts[mode];
+                return (
+                  <Button
+                    key={mode}
+                    type="button"
+                    size="sm"
+                    variant={mode === "CLEAR" ? "default" : "outline"}
+                    disabled={count === 0}
+                    title={count === 0 ? `No selected check can be ${done}.` : undefined}
+                    onClick={() => onBatchAction(mode)}
+                  >
+                    {label} ({count})
+                  </Button>
+                );
+              })}
               <Button type="button" variant="ghost" size="sm" onClick={() => onSelectionChange(new Set())}>
                 Deselect all
               </Button>
@@ -198,25 +242,25 @@ export function ChecksTable({
       </div>
 
       <div className="hidden overflow-x-auto xl:block">
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[40px]">
                 <Checkbox
-                  aria-label="Select every clearable check on this page"
+                  aria-label="Select every eligible check on this page"
                   checked={allOnPageSelected}
-                  disabled={pageClearable.length === 0}
+                  disabled={pageEligible.length === 0}
                   onCheckedChange={(value) => toggleAllOnPage(value === true)}
                 />
               </TableHead>
-              <TableHead className="w-[130px]">Check no.</TableHead>
-              <TableHead className="w-[100px]">Direction</TableHead>
-              <TableHead className="max-w-[170px]">Account</TableHead>
-              <TableHead className="max-w-[180px]">Payee / customer</TableHead>
-              <TableHead className="w-[130px] text-right">Amount</TableHead>
-              <TableHead className="w-[110px]">Check date</TableHead>
-              <TableHead className="w-[220px]">Status</TableHead>
-              <TableHead className="w-[60px]">Actions</TableHead>
+              <TableHead className="w-[122px]">Check no.</TableHead>
+              <TableHead className="w-[92px]">Direction</TableHead>
+              <TableHead className="w-[190px]">Account</TableHead>
+              <TableHead className="w-[210px]">Payee / customer</TableHead>
+              <TableHead className="w-[116px] text-right">Amount</TableHead>
+              <TableHead className="w-[104px]">Check date</TableHead>
+              <TableHead className="w-[156px]">Status</TableHead>
+              <TableHead className="w-[56px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -239,7 +283,8 @@ export function ChecksTable({
                     <Checkbox
                       aria-label={`Select check ${check.checkNo}`}
                       checked={selected.has(check.id)}
-                      disabled={!canClear(check)}
+                      disabled={batchActionFor(check) === null}
+                      title={batchActionFor(check) === null ? NOT_BATCHABLE_TITLE : undefined}
                       onCheckedChange={(value) => toggle(check.id, value === true)}
                     />
                   </TableCell>
@@ -254,29 +299,30 @@ export function ChecksTable({
                     ) : null}
                   </TableCell>
                   <TableCell className="text-sm">{check.direction === "ISSUED" ? "Issued" : "Received"}</TableCell>
-                  <TableCell className="max-w-[170px] text-sm">
+                  <TableCell className="max-w-[190px] text-sm">
                     <span className="block truncate" title={check.bankAccountLabel}>
                       {check.bankAccountLabel}
                     </span>
                   </TableCell>
-                  <TableCell className="max-w-[180px] text-sm">
+                  <TableCell className="max-w-[210px] text-sm">
                     <span className="block truncate" title={check.payee ?? check.payor ?? undefined}>
                       {check.payee ?? check.payor ?? "—"}
                     </span>
-                    {check.replacesNo ? (
-                      <span className="block truncate text-xs text-muted-foreground">Replaces {check.replacesNo}</span>
-                    ) : null}
-                    {check.replacedByNo ? (
-                      <span className="block truncate text-xs text-muted-foreground">
-                        Replaced by {check.replacedByNo}
-                      </span>
-                    ) : null}
                   </TableCell>
                   <TableCell className="text-right text-sm tabular-nums">{formatCurrency(check.amount)}</TableCell>
                   <TableCell className="whitespace-nowrap text-sm">{toPhtDateString(check.checkDate)}</TableCell>
                   <TableCell>
                     <span className="flex flex-wrap items-center gap-1">
                       <StatusBadge status={check.status} />
+                      {check.replacesNo || check.replacedByNo ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] font-semibold text-muted-foreground"
+                          title="Part of a replacement chain; open the check to see it."
+                        >
+                          Replacement
+                        </Badge>
+                      ) : null}
                       {check.isStale ? (
                         <Badge
                           variant="outline"
@@ -348,7 +394,8 @@ export function ChecksTable({
                 <Checkbox
                   aria-label={`Select check ${check.checkNo}`}
                   checked={selected.has(check.id)}
-                  disabled={!canClear(check)}
+                  disabled={batchActionFor(check) === null}
+                  title={batchActionFor(check) === null ? NOT_BATCHABLE_TITLE : undefined}
                   onCheckedChange={(value) => toggle(check.id, value === true)}
                 />
               </span>
@@ -397,6 +444,7 @@ export function ChecksTable({
         pageCount={pageCount}
         total={checks.length}
         pageSize={pageSize}
+        allowAll={false}
         onPageChange={onPageChange}
         onPageSizeChange={(size) => {
           setPageSize(size);

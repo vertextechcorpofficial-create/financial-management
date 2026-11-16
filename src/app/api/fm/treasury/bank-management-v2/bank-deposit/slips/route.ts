@@ -1,5 +1,8 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+
+import { COOKIE_NAME, decodeJwtPayload } from "@/lib/auth-utils";
 
 import {
   NotFoundError,
@@ -7,9 +10,18 @@ import {
   createDepositSlip,
   listDepositSlips,
 } from "@/modules/financial-management/treasury/bank-management-v2/bank-deposit/services/deposit.service";
-import { DirectusError } from "@/modules/financial-management/treasury/bank-management-v2/bank-deposit/services/directus";
+import { DirectusError, directusReason } from "@/modules/financial-management/treasury/bank-management-v2/bank-deposit/services/directus";
 
 export const dynamic = "force-dynamic";
+
+/** `bank_deposit.prepared_by` is NOT NULL; the actor comes from the access-token cookie. */
+async function currentUserId(): Promise<number | null> {
+  const store = await cookies();
+  const token = store.get(COOKIE_NAME)?.value;
+  const payload = token ? decodeJwtPayload(token) : null;
+  const id = Number(payload?.sub);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
 
 const CreateSlipSchema = z.object({
   bankAccountId: z.coerce.number().int().positive(),
@@ -46,7 +58,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await createDepositSlip(parsed.data);
+    const result = await createDepositSlip({ ...parsed.data, preparedBy: await currentUserId() });
     return NextResponse.json({ success: true, data: result }, { status: 201 });
   } catch (error) {
     if (error instanceof ValidationError) {
@@ -60,7 +72,11 @@ export async function POST(request: Request) {
     }
     if (error instanceof DirectusError) {
       console.error("[bank-management-v2] deposit slip write failed", error.status, error.body);
-      return NextResponse.json({ success: false, error: "The deposit slip could not be saved." }, { status: 502 });
+      const reason = directusReason(error.body);
+      return NextResponse.json(
+        { success: false, error: reason ? `The database rejected this write: ${reason}` : "The deposit slip could not be saved." },
+        { status: 502 },
+      );
     }
     console.error("[bank-management-v2] deposit slip create failed", error);
     return NextResponse.json({ success: false, error: "The deposit slip could not be saved." }, { status: 500 });

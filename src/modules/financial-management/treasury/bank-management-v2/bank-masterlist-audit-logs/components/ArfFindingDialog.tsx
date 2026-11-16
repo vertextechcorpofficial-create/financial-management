@@ -57,7 +57,7 @@ export function ArfFindingDialog({ finding, onOpenChange }: Props) {
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
               <dl className="grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
                 <Detail label="Account">
-                  {finding.account ?? <span className="text-muted-foreground">No bank account on this record</span>}
+                  {finding.account ?? <span className="text-muted-foreground">Not linked</span>}
                 </Detail>
                 <Detail label="Amount">
                   {finding.amount === null ? (
@@ -73,9 +73,6 @@ export function ArfFindingDialog({ finding, onOpenChange }: Props) {
                 <Detail label="Source record">
                   <span className="font-mono text-xs">{finding.source}</span>
                 </Detail>
-                <Detail label="Finding key">
-                  <span className="font-mono text-xs">{finding.key}</span>
-                </Detail>
               </dl>
 
               <div className="mt-5 border-t border-border/50 pt-4">
@@ -86,8 +83,8 @@ export function ArfFindingDialog({ finding, onOpenChange }: Props) {
               <div className="mt-4 rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
                 <p className="font-semibold text-foreground">Audit context</p>
                 <p className="mt-1">
-                  Recomputed from live records on every load; nothing is stored. Severity order is CRITICAL, HIGH, MEDIUM,
-                  then newest first. Resolving the underlying record makes the row disappear on the next refresh.
+                  Recomputed from live records on every load; nothing is stored. High sorts before Medium, then newest
+                  first. Resolving the underlying record makes the row disappear on the next refresh.
                 </p>
               </div>
             </div>

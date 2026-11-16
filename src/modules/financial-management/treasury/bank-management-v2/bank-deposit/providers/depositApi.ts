@@ -1,4 +1,4 @@
-import type { DepositSlip, ResolvedJournalEntry, UndepositedAsset } from "../types";
+import type { DepositSlip, DepositSlipDetail, ResolvedJournalEntry, UndepositedAsset } from "../types";
 
 export type DepositAccountOption = { bankId: number; label: string };
 
@@ -68,16 +68,28 @@ export async function cancelSlip(slipId: number, reason: string): Promise<Deposi
   );
 }
 
-/** E07 lines for the create dialog; the server resolves GL codes from `bank_gl_mapping`. */
+/** E07 lines for both dialogs; the server resolves the account's Linked GL (E07 never uses a dummy). */
 export async function previewDepositSlip(payload: {
   bankAccountId: number;
   cashTotal: number;
-}): Promise<ResolvedJournalEntry> {
-  return unwrap<ResolvedJournalEntry>(
+}): Promise<DepositPreview> {
+  return unwrap<DepositPreview>(
     await fetch("/api/fm/treasury/bank-management-v2/bank-deposit/slips/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
+  );
+}
+
+export type DepositPreview = {
+  entry: ResolvedJournalEntry;
+  account: { bankId: number; label: string; glCoaId: number | null; glCode: string | null; glTitle: string | null; glFallback: boolean };
+};
+
+/** Itemised contents for the read-only slip modal (P17). */
+export async function fetchDepositSlip(slipId: number): Promise<DepositSlipDetail> {
+  return unwrap<DepositSlipDetail>(
+    await fetch(`/api/fm/treasury/bank-management-v2/bank-deposit/slips/${slipId}`, { cache: "no-store" }),
   );
 }

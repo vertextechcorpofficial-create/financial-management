@@ -8,11 +8,13 @@ import {
   actOnCheck,
   clearChecks,
   createCheckbook,
+  depositChecks,
   fetchCheckDetail,
   fetchRegister,
   issueCheck,
   listCheckbooks,
   receiveCheck,
+  releaseChecks,
   type CheckActionPayload,
   type CheckCounts,
   type IssueCheckPayload,
@@ -132,12 +134,53 @@ export function useChecks(initialFilters: RegisterFilters = {}) {
         } else {
           toast.success(`${result.cleared.length} check(s) cleared`);
         }
-        if (result.blocked.length) {
-          toast.warning("Cleared, but the journal entry is blocked until the GL mapping is set.");
-        }
         return result;
       } catch (caught) {
         toast.error(caught instanceof Error ? caught.message : "The checks could not be cleared.");
+        return null;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [refetch],
+  );
+
+  const batchRelease = useCallback(
+    async (entries: { checkId: number; date: string }[]) => {
+      setIsSaving(true);
+      try {
+        const result = await releaseChecks(entries);
+        await refetch();
+        if (result.failures.length) {
+          toast.error(`${result.failures.length} check(s) could not be released: ${result.failures[0].message}`);
+        } else {
+          toast.success(`${result.checks.length} check(s) released`);
+        }
+        return result;
+      } catch (caught) {
+        toast.error(caught instanceof Error ? caught.message : "The checks could not be released.");
+        return null;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [refetch],
+  );
+
+  const batchDeposit = useCallback(
+    async (entries: { checkId: number; date: string }[]) => {
+      setIsSaving(true);
+      try {
+        const result = await depositChecks(entries);
+        await refetch();
+        if (result.failures.length) {
+          toast.error(`${result.failures.length} check(s) could not be deposited: ${result.failures[0].message}`);
+        } else {
+          toast.success(`${result.checks.length} check(s) deposited`);
+        }
+        return result;
+      } catch (caught) {
+        toast.error(caught instanceof Error ? caught.message : "The checks could not be deposited.");
         return null;
       } finally {
         setIsSaving(false);
@@ -190,6 +233,8 @@ export function useChecks(initialFilters: RegisterFilters = {}) {
     receive,
     act,
     bulkClear,
+    batchRelease,
+    batchDeposit,
     addSeries,
     loadSeries,
     loadDetail,

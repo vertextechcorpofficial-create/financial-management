@@ -7,6 +7,8 @@ import {
   issueCheck,
 } from "@/modules/financial-management/treasury/bank-management-v2/check-clearing-management/services/checks.service";
 
+import { currentUserId } from "../_lib/actor";
+
 export const dynamic = "force-dynamic";
 
 const IssueSchema = z.object({
@@ -18,6 +20,8 @@ const IssueSchema = z.object({
   amount: z.coerce.number().positive("Enter an amount greater than zero."),
   payee: z.string().trim().min(1, "Enter the payee.").max(200),
   remarks: z.string().trim().max(500).nullable().optional(),
+  // P44: AP-CTL or NTP-CTL; AP-CTL is the default the form shows.
+  controlKey: z.enum(["AP_CONTROL", "NTP_CONTROL"]).default("AP_CONTROL"),
 });
 
 export async function POST(request: Request) {
@@ -43,7 +47,8 @@ export async function POST(request: Request) {
       amount: parsed.data.amount,
       payee: parsed.data.payee,
       remarks: parsed.data.remarks ?? null,
-    });
+      controlKey: parsed.data.controlKey,
+    }, await currentUserId());
     return NextResponse.json({ success: true, data }, { status: 201 });
   } catch (error) {
     const failure = describeCheckError(error, "[bank-management-v2] check issue failed");

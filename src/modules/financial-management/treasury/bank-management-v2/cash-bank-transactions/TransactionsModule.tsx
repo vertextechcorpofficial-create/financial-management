@@ -58,6 +58,7 @@ export function TransactionsModule() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<TransactionRow | null>(null);
   const [openRow, setOpenRow] = useState<TransactionRow | null>(null);
+  const [tab, setTab] = useState("transactions");
 
   /**
    * Posts the row's missing entry and swaps the open row for a posted copy, so the dialog shows
@@ -102,7 +103,7 @@ export function TransactionsModule() {
         </InlineAlert>
       ) : null}
 
-      <Tabs defaultValue="transactions" className="space-y-4">
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="transactions" className="min-h-11 md:min-h-0">
             Bank transactions
@@ -152,6 +153,7 @@ export function TransactionsModule() {
             onSettle={(row) => void settle(row)}
             onSettleDue={(due) => void settleMany(due)}
             onOpenRow={setOpenRow}
+            onShowTransactions={() => setTab("transactions")}
           />
         </TabsContent>
       </Tabs>

@@ -60,7 +60,8 @@ export function OnboardingModule() {
             The accounts the group collects into, pays from and disburses out of.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Wraps instead of overflowing: at 375 the three actions do not fit one row (O1). */}
+        <div className="flex flex-wrap items-center gap-2">
           <PostingSetupDialog
             mapping={glMapping}
             chartAccounts={options.chartAccounts}

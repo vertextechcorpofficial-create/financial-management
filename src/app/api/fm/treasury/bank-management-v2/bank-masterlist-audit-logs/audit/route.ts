@@ -7,6 +7,15 @@ export const dynamic = "force-dynamic";
 
 const emptyToUndefined = (value: unknown) => (value === "" || value == null ? undefined : value);
 
+// The pager's "All" option posts pageSize=0, and a missing page posts nothing at all.
+// Both must fall back to the default instead of failing the whole request.
+const positiveInt = (value: unknown) => {
+  const text = emptyToUndefined(value);
+  if (text === undefined) return undefined;
+  const parsed = Number(text);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+};
+
 const querySchema = z.object({
   module: z.preprocess(emptyToUndefined, z.string().trim().max(60).optional()),
   user: z.preprocess(emptyToUndefined, z.string().trim().max(80).optional()),
@@ -14,8 +23,8 @@ const querySchema = z.object({
   q: z.preprocess(emptyToUndefined, z.string().trim().max(120).optional()),
   from: z.preprocess(emptyToUndefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").optional()),
   to: z.preprocess(emptyToUndefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").optional()),
-  page: z.preprocess((value) => Number(emptyToUndefined(value)), z.number().int().min(1).default(1)),
-  pageSize: z.preprocess((value) => Number(emptyToUndefined(value)), z.number().int().min(1).max(100).default(20)),
+  page: z.preprocess(positiveInt, z.number().int().min(1).default(1)),
+  pageSize: z.preprocess(positiveInt, z.number().int().min(1).max(100).default(20)),
 });
 
 export async function GET(request: Request) {

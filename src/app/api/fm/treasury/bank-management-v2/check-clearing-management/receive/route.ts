@@ -7,6 +7,8 @@ import {
   receiveCheck,
 } from "@/modules/financial-management/treasury/bank-management-v2/check-clearing-management/services/checks.service";
 
+import { currentUserId } from "../_lib/actor";
+
 export const dynamic = "force-dynamic";
 
 const ReceiveSchema = z.object({
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
       draweeBank: parsed.data.draweeBank ?? null,
       payor: parsed.data.payor ?? null,
       remarks: parsed.data.remarks ?? null,
-    });
+    }, await currentUserId());
     return NextResponse.json({ success: true, data }, { status: 201 });
   } catch (error) {
     const failure = describeCheckError(error, "[bank-management-v2] check receive failed");

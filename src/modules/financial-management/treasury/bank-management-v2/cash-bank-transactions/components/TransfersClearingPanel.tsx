@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, ListChecks } from "lucide-react";
@@ -22,6 +22,8 @@ interface TransfersClearingPanelProps {
   onSettle: (row: TransactionRow) => void;
   onSettleDue: (rows: TransactionRow[]) => void;
   onOpenRow: (row: TransactionRow) => void;
+  /** Where settled transfers live; the empty state needs an exit, not just a statement. */
+  onShowTransactions: () => void;
 }
 
 type SortKey = "from" | "to" | "amount" | "valueDate";
@@ -70,6 +72,7 @@ export function TransfersClearingPanel({
   onSettle,
   onSettleDue,
   onOpenRow,
+  onShowTransactions,
 }: TransfersClearingPanelProps) {
   const today = phtToday();
   const blocked = mappingMissing.length > 0;
@@ -214,7 +217,14 @@ export function TransfersClearingPanel({
           <div className="h-10 animate-pulse rounded bg-muted" />
         </div>
       ) : clearing.length === 0 ? (
-        <p className="px-4 py-10 text-center text-sm text-muted-foreground">No transfers are waiting to settle.</p>
+        <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+          <p className="text-sm text-muted-foreground">
+            No transfers are waiting to settle. Settled transfers stay in Bank transactions.
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={onShowTransactions}>
+            Open bank transactions
+          </Button>
+        </div>
       ) : visible.length === 0 ? (
         <p className="px-4 py-10 text-center text-sm text-muted-foreground">
           No transfer matches these account filters.

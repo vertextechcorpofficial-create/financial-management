@@ -37,7 +37,7 @@ export function downloadAccounts(accounts: BankAccountV2[]) {
       "Linked GL",
       "Status",
       "Book balance",
-      "Last reconciled (PHT)",
+      "Last reconciled",
     ],
     accounts.map((account) => [
       `BA-${account.bankId}`,

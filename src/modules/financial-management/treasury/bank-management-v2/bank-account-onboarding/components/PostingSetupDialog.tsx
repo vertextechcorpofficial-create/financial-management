@@ -141,7 +141,9 @@ export function PostingSetupDialog({
       <Dialog open={open} onOpenChange={(next) => (next ? undefined : close())}>
         <DialogContent
           showCloseButton={false}
-          className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[980px]"
+          // The picker view holds one select, so it takes a form width; only the key list needs
+          // the four-column layout that 980px buys.
+          className={`flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 ${editing ? "sm:max-w-[520px]" : "sm:max-w-[980px]"}`}
         >
           <DialogHeader className="border-b px-6 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -212,7 +214,13 @@ export function PostingSetupDialog({
                           return (
                             <li
                               key={row.mappingKey}
-                              title={`${mappingLabel(row.mappingKey)}: ${editable ? "not mapped, set the GL account" : "mapped, change the GL account"}`}
+                              title={`${mappingLabel(row.mappingKey)}: ${
+                                editable
+                                  ? state === "needs-decision"
+                                    ? "not mapped, no default account exists — accounting has to choose one"
+                                    : "not mapped, set the GL account"
+                                  : "mapped, change the GL account"
+                              }`}
                               className="group flex min-h-12 flex-wrap items-center justify-between gap-x-4 gap-y-1 px-6 py-1.5 transition-colors hover:bg-muted/40"
                             >
                               <div className="min-w-0 flex-1">
@@ -228,14 +236,12 @@ export function PostingSetupDialog({
                                 >
                                   {row.coaId !== null ? fullAccount : "—"}
                                 </span>
-                                {/* The column stays reserved on mapped rows so the badge cannot shift the account column. */}
+                                {/* One state, one wording (O5): every unmapped key is "Not mapped" and
+                                    the action is "Set GL". The accounting-decision nuance stays in the
+                                    row title; the six keys without a defensible default differ in why,
+                                    not in what the user has to do. */}
                                 <span className="w-[9.75rem] shrink-0">
-                                  {row.coaId !== null ? null : (
-                                    <StatusBadge
-                                      status={state === "needs-decision" ? "NEEDS_DECISION" : "NOT_MAPPED"}
-                                      label={state === "needs-decision" ? "Needs accounting decision" : "Not mapped"}
-                                    />
-                                  )}
+                                  {row.coaId !== null ? null : <StatusBadge status="NOT_MAPPED" label="Not mapped" />}
                                 </span>
                                 <Button
                                   type="button"

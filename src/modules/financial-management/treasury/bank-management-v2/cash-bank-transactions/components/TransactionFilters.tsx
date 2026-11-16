@@ -25,8 +25,8 @@ interface TransactionFiltersBarProps {
 }
 
 /**
- * Filter row of the Bank transactions register, per the reference: bank, account, type, status and
- * the two value dates on one line, with the free-text search and the reset below them.
+ * Filter row of the Bank transactions register: the free-text search leads (spec P13), then bank,
+ * account, type, status and the two value dates on one line.
  */
 export function TransactionFiltersBar({ filters, accounts, kinds, onChange, onReset }: TransactionFiltersBarProps) {
   const [query, setQuery] = useState(filters.q);
@@ -83,8 +83,43 @@ export function TransactionFiltersBar({ filters, accounts, kinds, onChange, onRe
   return (
     <div
       aria-label="Transaction filters"
-      className="grid gap-3 border-b border-border/50 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.75fr)_minmax(0,0.75fr)_minmax(180px,1.6fr)]"
+      className="grid gap-3 border-b border-border/50 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[minmax(180px,1.6fr)_minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,0.75fr)_minmax(0,0.75fr)]"
     >
+      <div className="space-y-1.5">
+        <Label htmlFor="transaction-search" className="text-xs text-muted-foreground">
+          Search
+        </Label>
+        <div className="flex items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <Input
+              id="transaction-search"
+              value={query}
+              onChange={(event) => handleQuery(event.target.value)}
+              placeholder="Reference, payee or bank"
+              className="h-9 pl-9"
+              autoComplete="off"
+            />
+          </div>
+          {isFiltered ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={handleReset}
+              className="h-9 w-9 shrink-0"
+              aria-label="Clear filters"
+              title="Clear filters"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
       <div className="space-y-1.5">
         <Label htmlFor="transaction-bank" className="text-xs text-muted-foreground">
           Bank
@@ -188,41 +223,6 @@ export function TransactionFiltersBar({ filters, accounts, kinds, onChange, onRe
           onChange={(value) => onChange({ to: value })}
           placeholder="Any date"
         />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="transaction-search" className="text-xs text-muted-foreground">
-          Search
-        </Label>
-        <div className="flex items-center gap-1">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <Input
-              id="transaction-search"
-              value={query}
-              onChange={(event) => handleQuery(event.target.value)}
-              placeholder="Reference, payee or bank"
-              className="h-9 pl-9"
-              autoComplete="off"
-            />
-          </div>
-          {isFiltered ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={handleReset}
-              className="h-9 w-9 shrink-0"
-              aria-label="Clear filters"
-              title="Clear filters"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          ) : null}
-        </div>
       </div>
     </div>
   );

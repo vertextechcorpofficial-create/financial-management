@@ -9,6 +9,7 @@ import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 
 import { phtDate, toPhtDateString } from "../pht";
 import { toneClass } from "../constants";
+import { assetBlockReason, isPostDated } from "../eligibility";
 import { pageCountFor, pageSlice, TablePager } from "./TablePager";
 import { UndepositedFiltersBar } from "./UndepositedFilters";
 import type { UndepositedAsset, UndepositedFilters } from "../types";
@@ -16,8 +17,6 @@ import type { UndepositedAsset, UndepositedFilters } from "../types";
 type Props = {
   assets: UndepositedAsset[];
   totalCount: number;
-  /** Rows the posted-only scope is hiding, so the page can say so instead of pretending they do not exist. */
-  withheldCount: number;
   filters: UndepositedFilters;
   selected: Set<number>;
   isLoading: boolean;
@@ -35,11 +34,18 @@ type Props = {
   selectedAmount: number;
 };
 
-function notDepositableReason(asset: UndepositedAsset): string | null {
-  if (asset.isCancelled) return "Voided";
-  if (!asset.isPosted) return "Not posted";
-  if (!asset.collectionDate) return "No collected date";
-  return null;
+/**
+ * Names each active filter so the empty state can say what hid the rows. A cashier who searches
+ * for one customer must never be told the queue itself is empty.
+ */
+function activeFilterLabels(filters: UndepositedFilters): string[] {
+  const labels: string[] = [];
+  if (filters.q.trim()) labels.push(`search “${filters.q.trim()}”`);
+  if (filters.type !== "ALL") labels.push(filters.type === "CASH" ? "cash only" : "checks only");
+  if (filters.canDeposit !== "ALL") labels.push(filters.canDeposit === "READY" ? "ready now" : "post-dated");
+  if (filters.from) labels.push(`collected from ${filters.from}`);
+  if (filters.to) labels.push(`collected to ${filters.to}`);
+  return labels;
 }
 
 /**
@@ -49,7 +55,6 @@ function notDepositableReason(asset: UndepositedAsset): string | null {
 export function UndepositedTable({
   assets,
   totalCount,
-  withheldCount,
   filters,
   selected,
   isLoading,
@@ -69,14 +74,16 @@ export function UndepositedTable({
   const safePage = Math.min(page, pageCount);
   const rows = pageSlice(assets, safePage, pageSize);
   const today = phtDate();
-  const isPdc = (asset: UndepositedAsset) =>
-    asset.assetType === "CHECK" && asset.chequeDate ? asset.chequeDate > today : false;
-  const isDisabled = (asset: UndepositedAsset) => isPdc(asset) || notDepositableReason(asset) !== null;
+  const isPdc = (asset: UndepositedAsset) => isPostDated(asset, today);
+  const blockReason = (asset: UndepositedAsset) => assetBlockReason(asset, today);
+  const isDisabled = (asset: UndepositedAsset) => blockReason(asset) !== null;
   const selectableIds = rows.filter((asset) => !isDisabled(asset)).map((asset) => asset.collectionDetailId);
   // "Ready" ignores paging: the button exists for the common case of depositing everything at once.
   const readyIds = assets.filter((asset) => !isDisabled(asset)).map((asset) => asset.collectionDetailId);
   const allSelected =
     selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const activeLabels = activeFilterLabels(filters);
+  const hasFilters = activeLabels.length > 0;
 
   return (
     <section
@@ -91,30 +98,13 @@ export function UndepositedTable({
           </p>
         </div>
         <Badge variant="outline" className="tabular-nums text-[11px]">
-          {formatNumber(totalCount)} collections
+          {hasFilters
+            ? `${formatNumber(assets.length)} of ${formatNumber(totalCount)} collections`
+            : `${formatNumber(totalCount)} collections`}
         </Badge>
       </header>
 
       <UndepositedFiltersBar filters={filters} onChange={onFiltersChange} />
-
-      {filters.scope === "POSTED" && withheldCount > 0 ? (
-        <div className="flex flex-wrap items-center gap-2 border-y border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs">
-          <p className="mr-auto text-amber-900 dark:text-amber-200">
-            <span className="tabular-nums font-semibold">{formatNumber(withheldCount)}</span>{" "}
-            {withheldCount === 1 ? "collection is" : "collections are"} withheld from this list: not posted, voided or
-            missing a collected date. They cannot go on a slip yet.
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7"
-            onClick={() => onFiltersChange({ ...filters, scope: "ALL" })}
-          >
-            Show them
-          </Button>
-        </div>
-      ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border/50 bg-muted/20 px-4 py-2">
         {selected.size > 0 ? (
@@ -147,9 +137,16 @@ export function UndepositedTable({
           ))}
         </div>
       ) : assets.length === 0 ? (
-        <p className="px-4 py-12 text-center text-sm text-muted-foreground">
-          {totalCount === 0 ? "Nothing is waiting to be deposited." : "No collections match these filters."}
-        </p>
+        hasFilters ? (
+          <div className="px-4 py-12 text-center">
+            <p className="text-sm text-muted-foreground">
+              No collections match these filters — {formatNumber(totalCount)} are waiting.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Active: {activeLabels.join(" · ")}. Clear them to see the whole queue.</p>
+          </div>
+        ) : (
+          <p className="px-4 py-12 text-center text-sm text-muted-foreground">Nothing is waiting to be deposited.</p>
+        )
       ) : (
         <>
           <div className="hidden overflow-x-auto xl:block">
@@ -167,13 +164,13 @@ export function UndepositedTable({
                   <TableHead className="w-[150px]">Type</TableHead>
                   <TableHead className="w-[170px]">OR / check no.</TableHead>
                   <TableHead className="min-w-[180px]">Customer</TableHead>
-                  <TableHead className="w-[140px] whitespace-nowrap text-right">Amount</TableHead>
+                  <TableHead className="w-[140px] whitespace-nowrap pr-6 text-right">Amount</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((asset) => {
                   const pdc = isPdc(asset);
-                  const blocked = notDepositableReason(asset);
+                  const blocked = blockReason(asset);
                   return (
                     <TableRow
                       key={asset.collectionDetailId}
@@ -192,7 +189,7 @@ export function UndepositedTable({
                       <TableCell onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
                         <Checkbox
                           aria-label={`Select ${asset.documentNumber}`}
-                          disabled={pdc || blocked !== null}
+                          disabled={blocked !== null}
                           checked={selected.has(asset.collectionDetailId)}
                           onCheckedChange={() => onToggle(asset.collectionDetailId)}
                         />
@@ -249,7 +246,7 @@ export function UndepositedTable({
                           <p className="text-[11px] text-amber-800 dark:text-amber-300">No customer on record</p>
                         ) : null}
                       </TableCell>
-                      <TableCell className="w-[140px] whitespace-nowrap text-right text-sm tabular-nums">
+                      <TableCell className="w-[140px] whitespace-nowrap pr-6 text-right text-sm tabular-nums">
                         {formatCurrency(asset.amount)}
                       </TableCell>
                     </TableRow>
@@ -262,7 +259,7 @@ export function UndepositedTable({
           <ul className="divide-y divide-border xl:hidden">
             {rows.map((asset) => {
               const pdc = isPdc(asset);
-              const blocked = notDepositableReason(asset);
+              const blocked = blockReason(asset);
               return (
                 <li
                   key={asset.collectionDetailId}
@@ -283,7 +280,7 @@ export function UndepositedTable({
                   >
                     <Checkbox
                       aria-label={`Select ${asset.documentNumber}`}
-                      disabled={pdc || blocked !== null}
+                      disabled={blocked !== null}
                       checked={selected.has(asset.collectionDetailId)}
                       onCheckedChange={() => onToggle(asset.collectionDetailId)}
                     />
@@ -302,8 +299,10 @@ export function UndepositedTable({
                       <p className="truncate font-mono text-[11px] text-muted-foreground">{asset.customerCode}</p>
                     ) : null}
                     <p className="mt-1 truncate text-xs text-muted-foreground">
-                      Collected {asset.collectionDate ? toPhtDateString(asset.collectionDate) : "—"} ·{" "}
-                      {asset.collectionReference ?? "Collections"}
+                      Collected {asset.collectionDate ? toPhtDateString(asset.collectionDate) : "—"}
+                      {asset.collectionReference && asset.collectionReference !== asset.documentNumber
+                        ? ` · ${asset.collectionReference}`
+                        : ""}
                     </p>
                     <p className="mt-1 text-xs">
                       {blocked ? (

@@ -46,8 +46,17 @@ function bankBranch(account: BankAccountV2): string {
 }
 
 function glLabel(account: BankAccountV2): string {
-  if (!account.glCode) return "Not linked";
+  if (!account.glCode) return "—";
   return account.glTitle ? `${account.glCode} · ${account.glTitle}` : account.glCode;
+}
+
+/** Fields a complete record carries; an empty one is named once per row, not once per cell. */
+function missingFields(account: BankAccountV2): string[] {
+  const missing: string[] = [];
+  if (!account.accountName) missing.push("account holder");
+  if (!account.accountType) missing.push("type");
+  if (!account.glCode) missing.push("linked GL");
+  return missing;
 }
 
 /** A row can still carry a pre-existing non-cash link; saving it again is refused until remapped. */
@@ -108,11 +117,11 @@ export function AccountsTable({
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="max-w-[220px]">Bank &amp; branch</TableHead>
+                <TableHead className="max-w-[280px]">Bank &amp; branch</TableHead>
                 <TableHead className="max-w-[150px]">Account no.</TableHead>
-                <TableHead className="max-w-[180px]">Account holder</TableHead>
-                <TableHead className="max-w-[110px]">Type</TableHead>
-                <TableHead className="max-w-[180px]">Linked GL</TableHead>
+                <TableHead className="max-w-[170px]">Account holder</TableHead>
+                <TableHead className="max-w-[90px]">Type</TableHead>
+                <TableHead className="max-w-[150px]">Linked GL</TableHead>
                 <TableHead className="max-w-[140px] text-right">Book balance</TableHead>
                 <TableHead className="max-w-[110px]">Onboarded on</TableHead>
                 <TableHead className="max-w-[100px]">Status</TableHead>
@@ -142,12 +151,23 @@ export function AccountsTable({
               ) : (
                 accounts.map((account) => (
                   <TableRow key={account.bankId}>
-                    <TableCell className="max-w-[220px]">
-                      <div className="max-w-[200px] truncate font-medium" title={bankBranch(account)}>
-                        {account.bankName}
+                    <TableCell className="max-w-[280px]">
+                      <div className="flex items-center gap-2">
+                        <span className="max-w-[240px] truncate font-medium" title={bankBranch(account)}>
+                          {account.bankName}
+                        </span>
+                        {missingFields(account).length > 0 ? (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 text-[10px] font-medium text-muted-foreground"
+                            title={`Not recorded: ${missingFields(account).join(", ")}.`}
+                          >
+                            Incomplete
+                          </Badge>
+                        ) : null}
                       </div>
                       {account.branch ? (
-                        <div className="max-w-[200px] truncate text-xs text-muted-foreground" title={account.branch}>
+                        <div className="max-w-[240px] truncate text-xs text-muted-foreground" title={account.branch}>
                           {account.branch}
                         </div>
                       ) : null}
@@ -158,15 +178,15 @@ export function AccountsTable({
                     >
                       {account.accountNumber || "—"}
                     </TableCell>
-                    <TableCell className="max-w-[180px] truncate" title={account.accountName ?? undefined}>
-                      {account.accountName ?? "Not recorded"}
+                    <TableCell className="max-w-[170px] truncate" title={account.accountName ?? undefined}>
+                      {account.accountName ?? "—"}
                     </TableCell>
-                    <TableCell className="max-w-[110px] truncate" title={account.accountType ?? undefined}>
+                    <TableCell className="max-w-[90px] truncate" title={account.accountType ?? undefined}>
                       {account.accountType
                         ? account.currency && account.currency !== "PHP"
                           ? `${account.accountType} · ${account.currency}`
                           : account.accountType
-                        : "Not recorded"}
+                        : "—"}
                     </TableCell>
                     <TableCell className="max-w-[180px]">
                       {account.glCode ? (
@@ -186,7 +206,7 @@ export function AccountsTable({
                           ) : null}
                         </>
                       ) : (
-                        <span className="text-muted-foreground">Not linked</span>
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell className="max-w-[140px] text-right tabular-nums whitespace-nowrap">
@@ -252,7 +272,7 @@ export function AccountsTable({
                 <div className="col-span-2 min-w-0">
                   <dt className="text-xs text-muted-foreground">Account no.</dt>
                   <dd className="truncate tabular-nums" title={account.accountNumber}>
-                    {account.accountNumber || "No account number"}
+                    {account.accountNumber || "—"}
                   </dd>
                 </div>
                 <div className="min-w-0">
@@ -328,6 +348,7 @@ export function AccountsTable({
         pageCount={pageCount}
         total={total}
         pageSize={pageSize}
+        allowAll={false}
         onPageChange={onPageChange}
         onPageSizeChange={onPageSizeChange}
         className="border-t border-border/50 px-4 py-3"

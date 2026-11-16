@@ -134,3 +134,12 @@ export const EMPTY_FILTERS = {
   status: "ALL" as const,
   q: "",
 };
+
+/**
+ * Free-text columns carry placeholder runs of dots ("…") instead of NULL, which render as a
+ * dotted rule across a table cell. Treat those, and whitespace, as absent.
+ */
+export function cleanText(value: string | null | undefined): string | null {
+  const text = (value ?? "").trim();
+  return text === "" || /^[.\u2026\s]+$/.test(text) ? null : text;
+}

@@ -41,7 +41,7 @@ export function AuditTable({ rows, page, pageCount, total, pageSize, onPage, onP
           </Badge>
         </header>
         {filters}
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto min-[1300px]:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -63,12 +63,15 @@ export function AuditTable({ rows, page, pageCount, total, pageSize, onPage, onP
 
               {rows.map((row) => {
                 const stored = row.legacyUtcAt ?? row.occurredAt;
+                // The header promises PHT, so a UTC import shows its real PHT reading and the
+                // stored value moves to the sub-line where its label cannot mislead.
+                const shown = row.legacyUtcAt ? shiftWallClock(row.legacyUtcAt, 8) : phtDisplayStamp(row.occurredAt);
                 return (
                   <TableRow key={row.id}>
                     <TableCell className="max-w-[220px]">
                       <span className="flex items-center gap-2">
                         <span className="truncate font-mono text-xs tabular-nums" title={stored}>
-                          {phtDisplayStamp(row.occurredAt)}
+                          {shown || "—"}
                         </span>
                         {row.legacyUtcAt ? (
                           <Badge
@@ -81,8 +84,8 @@ export function AuditTable({ rows, page, pageCount, total, pageSize, onPage, onP
                         ) : null}
                       </span>
                       {row.legacyUtcAt ? (
-                        <p className="truncate text-[11px] text-muted-foreground">
-                          PHT {shiftWallClock(row.legacyUtcAt, 8) || "—"}
+                        <p className="truncate text-[11px] text-muted-foreground" title={row.legacyUtcAt}>
+                          Stored as {row.legacyUtcAt}
                         </p>
                       ) : null}
                     </TableCell>
@@ -112,6 +115,42 @@ export function AuditTable({ rows, page, pageCount, total, pageSize, onPage, onP
           </Table>
         </div>
 
+        <ul className="divide-y divide-border min-[1300px]:hidden">
+          {rows.length === 0 && (
+            <li className="px-4 py-10 text-center text-sm text-muted-foreground">
+              {emptyLabel ?? "The movement log has no entry yet."}
+            </li>
+          )}
+          {rows.map((row) => {
+            const shown = row.legacyUtcAt ? shiftWallClock(row.legacyUtcAt, 8) : phtDisplayStamp(row.occurredAt);
+            return (
+              <li key={row.id} className="space-y-1 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-mono text-xs tabular-nums" title={row.legacyUtcAt ?? row.occurredAt}>
+                    {shown || "—"}
+                  </span>
+                  {row.legacyUtcAt ? (
+                    <Badge variant="outline" className="shrink-0 text-[11px]">
+                      UTC import
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="truncate text-sm font-medium" title={row.action}>
+                  {row.action}
+                </p>
+                {row.detail ? (
+                  <p className="truncate text-xs text-muted-foreground" title={row.detail}>
+                    {row.detail}
+                  </p>
+                ) : null}
+                <p className="truncate text-xs text-muted-foreground">
+                  {row.module} · {row.reference ?? "no reference"} · {row.actorName ?? "System"}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+
         <TablePager
           page={page}
           pageCount={pageCount}
@@ -119,6 +158,7 @@ export function AuditTable({ rows, page, pageCount, total, pageSize, onPage, onP
           pageSize={pageSize}
           onPageChange={onPage}
           onPageSizeChange={onPageSizeChange}
+          allowAll={false}
           className="border-t px-4 py-3"
         />
       </CardContent>

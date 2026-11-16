@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
 import { toPhtDateString } from "../pht";
+import { toneClass } from "../constants";
 import { StatusBadge } from "./StatusBadge";
 import { SlipFiltersBar } from "./SlipFilters";
 import { pageCountFor, pageSlice, TablePager } from "./TablePager";
@@ -125,6 +126,11 @@ export function SlipsTable({
                     </TableCell>
                     <TableCell>
                       <StatusBadge status={slip.status} />
+                      {slip.bouncedCount > 0 ? (
+                        <Badge variant="outline" className={`mt-1 block w-fit text-[11px] ${toneClass("danger")}`}>
+                          {formatNumber(slip.bouncedCount)} bounced
+                        </Badge>
+                      ) : null}
                     </TableCell>
                     <TableCell
                       onClick={(event) => event.stopPropagation()}
@@ -168,7 +174,14 @@ export function SlipsTable({
                       {slip.depositNo} · {slip.targetBankLabel}
                     </p>
                   </div>
-                  <StatusBadge status={slip.status} />
+                  <div className="flex flex-col items-end gap-1">
+                    <StatusBadge status={slip.status} />
+                    {slip.bouncedCount > 0 ? (
+                      <Badge variant="outline" className={`text-[11px] ${toneClass("danger")}`}>
+                        {formatNumber(slip.bouncedCount)} bounced
+                      </Badge>
+                    ) : null}
+                  </div>
                 </div>
                 <div
                   className="mt-2 flex items-center justify-between gap-2"

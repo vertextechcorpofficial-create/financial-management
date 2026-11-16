@@ -17,6 +17,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 
 import { phtDate, toPhtDateString } from "../pht";
 import { toneClass } from "../constants";
+import { assetBlockReason, isPostDated } from "../eligibility";
 import type { UndepositedAsset } from "../types";
 
 type Props = {
@@ -38,12 +39,15 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 /** A single undeposited collection or customer check, with the rule that decides when it can go on a slip. */
 export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: Props) {
   const today = phtDate();
-  const isPdc = Boolean(asset?.assetType === "CHECK" && asset.chequeDate && asset.chequeDate > today);
+  // Same predicate the table checkbox and "Select all ready" use (QA-07): this dialog must not
+  // accept a row the list refuses to tick.
+  const blockReason = asset ? assetBlockReason(asset, today) : null;
+  const isPdc = Boolean(asset && isPostDated(asset, today));
   const isAgedCash = Boolean(asset?.assetType === "CASH" && asset.ageDays >= 1);
 
   return (
     <Dialog open={asset !== null} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="w-[95vw] rounded-2xl p-0 sm:max-w-[640px]">
+      <DialogContent showCloseButton={false} className="w-[95vw] rounded-2xl p-0 sm:max-w-[720px]">
         {asset ? (
           <div className="flex max-h-[85vh] flex-col overflow-hidden">
             <DialogHeader className="border-b px-6 py-4">
@@ -80,9 +84,10 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
                 <Detail label="Collected (PHT)">
                   {asset.collectionDate ? toPhtDateString(asset.collectionDate) : "—"}
                 </Detail>
-                <Detail label="Age">{asset.ageDays} day(s) in the vault</Detail>
                 <Detail label="Customer">{asset.customer ?? "—"}</Detail>
-                <Detail label="Source">{asset.collectionReference ?? "Collections"}</Detail>
+                {asset.collectionReference && asset.collectionReference !== asset.documentNumber ? (
+                  <Detail label="Source">{asset.collectionReference}</Detail>
+                ) : null}
                 <Detail label="Check no.">{asset.checkNo ?? "—"}</Detail>
                 <Detail label="Check date">{asset.chequeDate ? toPhtDateString(asset.chequeDate) : "—"}</Detail>
                 <Detail label="Drawee bank">{asset.bankName ?? "—"}</Detail>
@@ -102,23 +107,28 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
                   Deposit it to clear the flag.
                 </p>
               ) : null}
+              {blockReason && !isPdc ? (
+                <p className="mt-4 border-t border-border/50 pt-3 text-xs text-muted-foreground">
+                  Not depositable right now: {blockReason.toLowerCase()}.
+                </p>
+              ) : null}
             </div>
 
             <DialogFooter className="border-t bg-muted/20 px-6 py-4">
-              <Button
-                type="button"
-                variant={selected ? "outline" : "default"}
-                disabled={isPdc}
-                title={isPdc ? "Not depositable before the check date" : undefined}
-                onClick={() => onToggle(asset.collectionDetailId)}
-              >
-                {selected ? "Remove from slip" : "Add to slip"}
-              </Button>
               <DialogClose asChild>
                 <Button type="button" variant="outline">
                   Close
                 </Button>
               </DialogClose>
+              <Button
+                type="button"
+                variant={selected ? "outline" : "default"}
+                disabled={blockReason !== null && !selected}
+                title={blockReason ?? undefined}
+                onClick={() => onToggle(asset.collectionDetailId)}
+              >
+                {selected ? "Remove from slip" : "Add to slip"}
+              </Button>
             </DialogFooter>
           </div>
         ) : null}

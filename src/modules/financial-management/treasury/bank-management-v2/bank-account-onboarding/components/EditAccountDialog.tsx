@@ -136,26 +136,24 @@ export function EditAccountDialog({
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-bank-name">Bank name</Label>
-                  <Input
-                    id="edit-bank-name"
-                    value={account?.bankName ?? ""}
-                    readOnly
-                    className="bg-muted"
+                  <Label>Bank name</Label>
+                  <div
+                    className="flex h-9 items-center rounded-md border border-input bg-muted px-3 text-sm select-all"
                     title={account?.bankName ?? undefined}
-                  />
+                  >
+                    <span className="truncate">{account?.bankName ?? "—"}</span>
+                  </div>
                   <p className="text-xs text-muted-foreground">Fixed after onboarding.</p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="edit-account-number">Account no. / IBAN</Label>
-                  <Input
-                    id="edit-account-number"
-                    value={account?.accountNumber ?? ""}
-                    readOnly
-                    className="bg-muted tabular-nums"
+                  <Label>Account no. / IBAN</Label>
+                  <div
+                    className="flex h-9 items-center rounded-md border border-input bg-muted px-3 text-sm tabular-nums select-all"
                     title={account?.accountNumber ?? undefined}
-                  />
+                  >
+                    <span className="truncate">{account?.accountNumber || "—"}</span>
+                  </div>
                   <p className="text-xs text-muted-foreground">Fixed after onboarding.</p>
                 </div>
 
@@ -223,7 +221,9 @@ export function EditAccountDialog({
                   name="reactivate"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Status</FormLabel>
+                      <FormLabel>
+                        Status <span className="text-destructive">*</span>
+                      </FormLabel>
                       <div className="flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2">
                         <span className="text-sm font-medium">{statusLabel(account?.status ?? "ACTIVE")}</span>
                         {account?.status === "INACTIVE" && (

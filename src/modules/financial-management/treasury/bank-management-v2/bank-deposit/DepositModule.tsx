@@ -22,7 +22,6 @@ export function DepositModule() {
   const {
     assets,
     filteredAssets,
-    withheldAssets,
     filters,
     setFilters,
     setAssetsPageSize,
@@ -161,8 +160,7 @@ export function DepositModule() {
         <TabsContent value="undeposited">
           <UndepositedTable
             assets={filteredAssets}
-            totalCount={filteredAssets.length}
-            withheldCount={withheldAssets.length}
+            totalCount={assets.length}
             filters={filters}
             selected={selected}
             selectedAmount={assets

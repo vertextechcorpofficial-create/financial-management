@@ -5,7 +5,7 @@ import { z } from "zod";
 import { COOKIE_NAME, decodeJwtPayload } from "@/lib/auth-utils";
 import { MAPPING_KEY_LABELS } from "@/modules/financial-management/treasury/bank-management-v2/cash-bank-transactions/constants";
 import { fieldErrorsFromZod } from "@/modules/financial-management/treasury/bank-management-v2/cash-bank-transactions/schemas";
-import { DirectusError } from "@/modules/financial-management/treasury/bank-management-v2/cash-bank-transactions/services/directus";
+import { DirectusError, directusReason } from "@/modules/financial-management/treasury/bank-management-v2/cash-bank-transactions/services/directus";
 import {
   NotFoundError,
   ValidationError,
@@ -65,8 +65,13 @@ export function handleRouteError(error: unknown, context: string, fallback: stri
   if (error instanceof NotFoundError) return fail(error.message, 404);
   if (error instanceof DirectusError) {
     console.error(`${LOG_PREFIX} ${context}: directus ${error.status}`, error.body);
+    // A rejected value (length, enum, uniqueness) used to be reported as "schema not applied",
+    // which sent the reader after a table that already existed.
+    const reason = directusReason(error.body);
     return fail(
-      "The bank transaction tables are not ready yet, so this was not saved. Ask an administrator to apply the Bank Management V2 schema.",
+      reason
+        ? `The database rejected this write: ${reason}`
+        : "The bank transaction tables are not ready yet, so this was not saved. Ask an administrator to apply the Bank Management V2 schema.",
       500,
     );
   }

@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/utils";
 
 import { phtDate, toPhtDateString } from "../pht";
+import { assetBlockReason } from "../eligibility";
 import { DepositPreview } from "./DepositPreview";
 import { DateField } from "./DateField";
 import { OptionCombobox } from "./OptionCombobox";
@@ -70,14 +71,12 @@ export function NewDepositDialog({ open, onOpenChange, accounts, assets, isSavin
   const accountOptions = accounts.map((account) => ({ value: String(account.bankId), label: account.label }));
 
   // What this dialog can already see is wrong, so the row is marked before the round trip.
+  // Same predicate as the queue checkbox and "Select all ready", judged at the slip date.
   const rowIssues = useMemo(() => {
     const issues = new Map<number, string>();
     for (const asset of assets) {
-      if (asset.isCancelled) issues.set(asset.collectionDetailId, "Voided collection");
-      else if (!asset.isPosted) issues.set(asset.collectionDetailId, "Collection is not posted");
-      else if (!asset.collectionDate) issues.set(asset.collectionDetailId, "No collected date");
-      else if (asset.assetType === "CHECK" && asset.chequeDate && asset.chequeDate > depositDate)
-        issues.set(asset.collectionDetailId, `Post-dated to ${asset.chequeDate}`);
+      const reason = assetBlockReason(asset, depositDate);
+      if (reason) issues.set(asset.collectionDetailId, reason);
     }
     return issues;
   }, [assets, depositDate]);
@@ -92,6 +91,12 @@ export function NewDepositDialog({ open, onOpenChange, accounts, assets, isSavin
   // A server field error only shows once the local check passes, so "required" wins over "duplicate".
   const fieldErrors = { ...errors, slipNo: errors.slipNo || (serverError?.fieldErrors.slipNo ?? "") };
   const hasErrors = Object.values(fieldErrors).some(Boolean) || rowIssues.size > 0;
+  // Save stays disabled until the required fields carry a value; the footer names what is missing.
+  const missingFields = [
+    errors.bankAccountId ? "a bank account" : "",
+    errors.depositDate ? "the deposit date" : "",
+    errors.slipNo ? "the slip / validation no." : "",
+  ].filter(Boolean);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -224,11 +229,13 @@ export function NewDepositDialog({ open, onOpenChange, accounts, assets, isSavin
                 <DepositPreview
                   bankAccountId={bankAccountId ? Number(bankAccountId) : null}
                   cashTotal={totals.cash}
+                  checkCount={checkCount}
                 />
                 {checkCount > 0 ? (
                   <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                    {checkCount} check{checkCount === 1 ? "" : "s"} totalling {formatCurrency(totals.checks)} move to
-                    In Clearing. No entry is posted for them now; the bank GL is debited when each check clears.
+                    {checkCount} check{checkCount === 1 ? "" : "s"} totalling {formatCurrency(totals.checks)}{" "}
+                    {checkCount === 1 ? "moves" : "move"} to In Clearing and debit{checkCount === 1 ? "s" : ""} the bank
+                    GL only when cleared.
                   </p>
                 ) : null}
               </div>
@@ -301,13 +308,20 @@ export function NewDepositDialog({ open, onOpenChange, accounts, assets, isSavin
               <p className="mr-auto self-center text-xs text-destructive">
                 Fix the {rowIssues.size} highlighted {rowIssues.size === 1 ? "row" : "rows"} first.
               </p>
+            ) : missingFields.length > 0 ? (
+              <p className="mr-auto self-center text-xs text-muted-foreground">
+                Choose {missingFields.join(" and ")} to save.
+              </p>
             ) : null}
             <DialogClose asChild>
               <Button type="button" variant="outline" disabled={isSaving}>
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={isSaving || assets.length === 0 || rowIssues.size > 0}>
+            <Button
+              type="submit"
+              disabled={isSaving || assets.length === 0 || rowIssues.size > 0 || missingFields.length > 0}
+            >
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save slip
             </Button>

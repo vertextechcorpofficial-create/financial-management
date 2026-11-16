@@ -9,11 +9,8 @@ export type CheckRegister = {
   notice?: string;
 };
 
-export type PostingBlocked = { message: string; missingMappingKeys: string[] };
-
 export type CheckMutationResult = {
   check: BankCheck;
-  postingBlocked: PostingBlocked | null;
 };
 
 async function unwrap<T>(response: Response): Promise<T> {
@@ -74,6 +71,8 @@ export type IssueCheckPayload = {
   amount: number;
   payee: string;
   remarks: string | null;
+  /** P44: AP-CTL or NTP-CTL. */
+  controlKey: "AP_CONTROL" | "NTP_CONTROL";
 };
 
 export type ReceiveCheckPayload = {
@@ -89,8 +88,12 @@ export type ReceiveCheckPayload = {
 export type CheckActionPayload = {
   action: "RELEASE" | "DEPOSIT" | "CLEAR" | "RETURN" | "CANCEL" | "REPLACE";
   returnReason?: string;
+  cancelReason?: string;
   note?: string;
-  replacement?: { checkDate: string; amount: number; checkNo?: string };
+  releaseDate?: string;
+  depositDate?: string;
+  clearedDate?: string;
+  replacement?: { checkDate: string; amount: number; checkNo?: string; draweeBank?: string };
 };
 
 function postJson<T>(url: string, payload: unknown): Promise<T> {
@@ -115,13 +118,35 @@ export function actOnCheck(checkId: number, payload: CheckActionPayload): Promis
 
 export type ClearChecksResult = {
   cleared: BankCheck[];
-  blocked: PostingBlocked[];
   failures: { checkId: number; message: string }[];
 };
 
 /** One row per check: the bank statement clears them on different days. */
 export function clearChecks(entries: { checkId: number; clearedDate: string }[]): Promise<ClearChecksResult> {
   return postJson("/api/fm/treasury/bank-management-v2/check-clearing-management/bulk/clear", { entries });
+}
+
+export type BatchActionResult = {
+  checks: BankCheck[];
+  failures: { checkId: number; message: string }[];
+};
+
+/** Batch release: one date per check, no journal entry (E09 was posted at issue). */
+export async function releaseChecks(entries: { checkId: number; date: string }[]): Promise<BatchActionResult> {
+  const result = await postJson<{ released: BankCheck[]; failures: { checkId: number; message: string }[] }>(
+    "/api/fm/treasury/bank-management-v2/check-clearing-management/bulk/release",
+    { entries },
+  );
+  return { checks: result.released, failures: result.failures };
+}
+
+/** Batch deposit: one date per check, no journal entry (E12 was posted at receive). */
+export async function depositChecks(entries: { checkId: number; date: string }[]): Promise<BatchActionResult> {
+  const result = await postJson<{ deposited: BankCheck[]; failures: { checkId: number; message: string }[] }>(
+    "/api/fm/treasury/bank-management-v2/check-clearing-management/bulk/deposit",
+    { entries },
+  );
+  return { checks: result.deposited, failures: result.failures };
 }
 
 export async function listCheckbooks(accountId?: number): Promise<{ series: CheckbookSeries[]; notice?: string }> {

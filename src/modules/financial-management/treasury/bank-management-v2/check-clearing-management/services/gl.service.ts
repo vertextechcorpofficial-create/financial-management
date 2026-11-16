@@ -66,13 +66,13 @@ export async function saveGlMapping(
   for (const update of updates) {
     const response = await directusFetch<{ data?: unknown[] }>(
       `/items/${MAPPING}${queryString({ filter: JSON.stringify({ mapping_key: { _eq: update.mappingKey } }) })}`,
-      { method: "PATCH", body: JSON.stringify({ coa_id: update.coaId, updated_by_user_id: userId, updated_at: nowPht }) },
+      { method: "PATCH", body: JSON.stringify({ coa_id: update.coaId, updated_by: userId, updated_at: nowPht }) },
     );
     if (!response.data?.length) {
       await createItem(MAPPING, {
         mapping_key: update.mappingKey,
         coa_id: update.coaId,
-        updated_by_user_id: userId,
+        updated_by: userId,
         updated_at: nowPht,
       });
     }

@@ -28,7 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { cn, formatCurrency } from "@/lib/utils";
 
-import { CHECK_RETURN_REASONS, statusLabel } from "../constants";
+import { CHECK_CANCEL_REASONS, CHECK_RETURN_REASONS, PAYABLE_LABELS, statusLabel } from "../constants";
 import { phtDate, toPhtDateString } from "../pht";
 import { DateField } from "./DateField";
 import { StatusBadge } from "./StatusBadge";
@@ -105,6 +105,11 @@ function EventList({ rows }: { rows: CheckEvent[] }) {
                 : entry.toStatus ?? ""}
             </p>
             {entry.note ? <p className="mt-1 break-words text-xs">{entry.note}</p> : null}
+            {entry.actorName ? (
+              <p className="mt-1 truncate text-xs text-muted-foreground" title={entry.actorName}>
+                by {entry.actorName}
+              </p>
+            ) : null}
           </div>
         </li>
       ))}
@@ -125,29 +130,43 @@ export function CheckActionDialog({
   onOpenCheck,
 }: Props) {
   const [returnReason, setReturnReason] = useState<string>("");
+  const [cancelReason, setCancelReason] = useState<string>("");
   const [note, setNote] = useState("");
+  const [releaseDate, setReleaseDate] = useState(phtDate());
+  const [depositDate, setDepositDate] = useState(phtDate());
+  const [clearedDate, setClearedDate] = useState(phtDate());
   const [replacementDate, setReplacementDate] = useState(phtDate());
   const [replacementAmount, setReplacementAmount] = useState("");
   const [replacementNo, setReplacementNo] = useState("");
+  const [replacementDrawee, setReplacementDrawee] = useState("");
   const [events, setEvents] = useState<{ checkId: number; rows: CheckEvent[] } | null>(null);
   const [original, setOriginal] = useState<{
     checkId: number;
     detail: { check: BankCheck; events: CheckEvent[] } | null;
   } | null>(null);
   const [replacement, setReplacement] = useState<{ checkId: number; check: BankCheck } | null>(null);
+  const [chain, setChain] = useState<{ checkId: number; links: BankCheck[] } | null>(null);
   const [touched, setTouched] = useState(false);
 
   function handleOpenChange(next: boolean) {
     if (!next) {
       setReturnReason("");
+      setCancelReason("");
       setNote("");
       setReplacementNo("");
+      setReplacementDrawee("");
+      setReleaseDate(phtDate());
+      setDepositDate(phtDate());
+      setClearedDate(phtDate());
       setTouched(false);
       setEvents(null);
       setOriginal(null);
       setReplacement(null);
+      setChain(null);
     } else if (action !== "VIEW") {
       setEvents(null);
+      // Spec 2: a stale check offers cancel with the stale reason already chosen.
+      setCancelReason(action === "CANCEL" && check?.isStale ? "Stale (over 180 days)" : "");
     }
     onOpenChange(next);
   }
@@ -174,6 +193,29 @@ export function CheckActionDialog({
         if (!cancelled && detail) setReplacement({ checkId: replacementId, check: detail.check });
       });
     }
+    // Spec section 6: the whole chain A -> B -> C, in order, whichever link is open.
+    void (async () => {
+      const links: BankCheck[] = [];
+      const seen = new Set<number>();
+      let cursor: BankCheck | null = check;
+      while (cursor?.replacesId && !seen.has(cursor.replacesId) && links.length < 8) {
+        seen.add(cursor.replacesId);
+        const detail = await loadDetail(cursor.replacesId);
+        if (!detail) break;
+        links.unshift(detail.check);
+        cursor = detail.check;
+      }
+      links.push(check);
+      cursor = check;
+      while (cursor?.replacedById && !seen.has(cursor.replacedById) && links.length < 12) {
+        seen.add(cursor.replacedById);
+        const detail = await loadDetail(cursor.replacedById);
+        if (!detail) break;
+        links.push(detail.check);
+        cursor = detail.check;
+      }
+      if (!cancelled && links.length > 1) setChain({ checkId: check.id, links });
+    })();
     return () => {
       cancelled = true;
     };
@@ -190,9 +232,22 @@ export function CheckActionDialog({
   const replacementCheck = replacement?.checkId === check.replacedById ? replacement.check : null;
   const prompt = action && action !== "VIEW" ? PROMPT[action] : null;
   const amountValue = replacementAmount || String(check.amount);
-  const reasonError = action === "RETURN" && !returnReason ? "Pick the reason the bank gave." : "";
+  // Spec 2: a stale check offers cancel with the stale reason already chosen.
+  const cancelValue = cancelReason || (action === "CANCEL" && check.isStale ? "Stale (over 180 days)" : "");
+  const reasonError =
+    action === "RETURN" && !returnReason
+      ? "Pick the reason the bank gave."
+      : action === "CANCEL" && !cancelValue
+        ? "Pick the reason the check is being cancelled."
+        : "";
   const amountError = action === "REPLACE" && !(Number(amountValue) > 0) ? "Enter an amount greater than zero." : "";
   const hasErrors = Boolean(reasonError || amountError);
+  // Spec 4.5: the clearing date is never before the check date or the date it was sent.
+  const sentDate = check.direction === "ISSUED" ? check.releasedAt : check.depositedAt;
+  const clearMinDate = [toPhtDateString(check.checkDate), sentDate ? toPhtDateString(sentDate) : ""]
+    .filter(Boolean)
+    .sort()
+    .pop() ?? "";
   const journalEvents = eventRows?.filter((entry) => entry.journalNo) ?? [];
   const availableActions = allowedActions(check).filter((entry) => entry.action !== "VIEW");
   const primaryAction = availableActions.find((entry) => PRIMARY_ACTIONS.includes(entry.action)) ?? availableActions[0];
@@ -207,11 +262,16 @@ export function CheckActionDialog({
 
     const payload: CheckActionPayload = { action, note: note.trim() || undefined };
     if (action === "RETURN") payload.returnReason = returnReason;
+    if (action === "CANCEL") payload.cancelReason = cancelValue;
+    if (action === "RELEASE") payload.releaseDate = releaseDate;
+    if (action === "DEPOSIT") payload.depositDate = depositDate;
+    if (action === "CLEAR") payload.clearedDate = clearedDate;
     if (action === "REPLACE") {
       payload.replacement = {
         checkDate: replacementDate,
         amount: Number(amountValue),
         checkNo: replacementNo.trim() || undefined,
+        draweeBank: replacementDrawee.trim() || undefined,
       };
     }
     const saved = await onSubmit(check, payload);
@@ -223,16 +283,21 @@ export function CheckActionDialog({
       <DialogContent showCloseButton={false} className={cn("w-[95vw] rounded-2xl p-0", isView ? "sm:max-w-[800px]" : "sm:max-w-[550px]")}>
         <div className="flex max-h-[85vh] flex-col overflow-hidden">
           <DialogHeader className="border-b px-6 py-4">
-            <DialogTitle className="line-clamp-1">{isView ? `Check ${check.checkNo}` : prompt?.title}</DialogTitle>
+            <DialogTitle className="line-clamp-1">
+              {isView ? `Check ${check.checkNo}` : `${prompt?.title} for ${check.checkNo}`}
+            </DialogTitle>
             <DialogDescription className="line-clamp-2 max-w-md">
               {isView
                 ? `${statusLabel(check.status)} · ${check.direction === "ISSUED" ? "issued by us" : "received from customer"}`
-                : prompt?.body}
+                : `${formatCurrency(check.amount)} · ${check.direction === "ISSUED" ? check.payee ?? "—" : check.payor ?? "—"}`}
             </DialogDescription>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
-            <dl className="grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
+            {/* An action dialog is about the reason, not the record: the check is named in the
+                title and the rest of the fields are already one click away in VIEW (C2). */}
+            {isView ? (
+              <dl className="grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
               <Detail label="Check no.">
                 {check.checkNo}
                 {check.draweeBank ? <span className="text-muted-foreground"> · {check.draweeBank}</span> : null}
@@ -250,6 +315,11 @@ export function CheckActionDialog({
                 {check.payee ?? check.payor ?? "—"}
               </Detail>
               <Detail label="Check date">{toPhtDateString(check.checkDate)}</Detail>
+              {check.direction === "ISSUED" ? (
+                <Detail label="Payable account">
+                  {check.controlKey === "NTP_CONTROL" ? PAYABLE_LABELS.NTP_CONTROL : PAYABLE_LABELS.AP_CONTROL}
+                </Detail>
+              ) : null}
               <Detail label={check.direction === "RECEIVED" ? "Destination account" : "Bank account"}>
                 {check.bankAccountLabel}
               </Detail>
@@ -267,13 +337,18 @@ export function CheckActionDialog({
               ) : null}
               <Detail label="Source">
                 {SOURCE_LABELS[check.sourceType] ?? check.sourceType}
-                {check.sourceRef ? <span className="text-muted-foreground"> · {check.sourceRef}</span> : null}
+                {/* A replacement's source ref is the original check number, already named by
+                    "Replaces" and by the history block; printing it three times is noise (C3). */}
+                {check.sourceRef && check.sourceType !== "REPLACEMENT" ? (
+                  <span className="text-muted-foreground"> · {check.sourceRef}</span>
+                ) : null}
               </Detail>
               {check.returnReason ? <Detail label="Reason">{check.returnReason}</Detail> : null}
-              {check.replacedById ? <Detail label="Replaced by">{replacementCheck?.checkNo ?? `Check #${check.replacedById}`}</Detail> : null}
-              {check.replacesId ? <Detail label="Replaces">{originalCheck?.checkNo ?? `Check #${check.replacesId}`}</Detail> : null}
+              {/* The predecessor is named once, in the history block below, which also carries
+                  its return reason, date and the link (C3). */}
               {check.remarks ? <Detail label="Remarks">{check.remarks}</Detail> : null}
             </dl>
+            ) : null}
 
             {!isView && action === "RETURN" && (
               <div className="space-y-2">
@@ -293,6 +368,62 @@ export function CheckActionDialog({
                   </SelectContent>
                 </Select>
                 {touched && reasonError && <p className="text-xs text-destructive">{reasonError}</p>}
+              </div>
+            )}
+
+            {!isView && action === "CANCEL" && (
+              <div className="space-y-2">
+                <Label htmlFor="cancel-reason">
+                  Cancel reason <span className="text-destructive">*</span>
+                </Label>
+                <Select value={cancelValue} onValueChange={setCancelReason}>
+                  <SelectTrigger id="cancel-reason" className="w-full">
+                    <SelectValue className="truncate" placeholder="Select reason" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-80">
+                    {CHECK_CANCEL_REASONS.map((reason) => (
+                      <SelectItem key={reason} value={reason}>
+                        {reason}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {touched && reasonError && <p className="text-xs text-destructive">{reasonError}</p>}
+              </div>
+            )}
+
+            {!isView && action === "RELEASE" && (
+              <div className="space-y-2">
+                <Label htmlFor="release-date">Release date</Label>
+                <DateField id="release-date" inDialog maxDate={phtDate()} value={releaseDate} onChange={setReleaseDate} />
+              </div>
+            )}
+
+            {!isView && action === "DEPOSIT" && (
+              <div className="space-y-2">
+                <Label htmlFor="deposit-date">Deposit date</Label>
+                <DateField
+                  id="deposit-date"
+                  inDialog
+                  minDate={toPhtDateString(check.checkDate)}
+                  maxDate={phtDate()}
+                  value={depositDate}
+                  onChange={setDepositDate}
+                />
+              </div>
+            )}
+
+            {!isView && action === "CLEAR" && (
+              <div className="space-y-2">
+                <Label htmlFor="cleared-date">Clearing date</Label>
+                <DateField
+                  id="cleared-date"
+                  inDialog
+                  minDate={clearMinDate}
+                  maxDate={phtDate()}
+                  value={clearedDate}
+                  onChange={setClearedDate}
+                />
               </div>
             )}
 
@@ -331,6 +462,18 @@ export function CheckActionDialog({
                     onChange={(value) => setReplacementDate(value)}
                   />
                 </div>
+                {check.direction === "RECEIVED" ? (
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="replacement-drawee">Drawee bank</Label>
+                    <Input
+                      id="replacement-drawee"
+                      value={replacementDrawee}
+                      maxLength={120}
+                      placeholder={check.draweeBank ?? "Bank that issued the replacement check"}
+                      onChange={(event) => setReplacementDrawee(event.target.value)}
+                    />
+                  </div>
+                ) : null}
               </div>
             )}
 
@@ -400,6 +543,31 @@ export function CheckActionDialog({
                     )}
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+
+            {isView && chain && chain.checkId === check.id ? (
+              <div className="border-t pt-4">
+                <p className="mb-2 text-sm font-semibold">Replacement chain</p>
+                <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  {chain.links.map((link, index) => (
+                    <li key={link.id} className="flex items-center gap-2">
+                      {index > 0 ? <span className="text-muted-foreground">→</span> : null}
+                      <button
+                        type="button"
+                        className={cn(
+                          "rounded px-1 py-0.5 font-mono text-xs hover:bg-muted",
+                          link.id === check.id && "font-semibold",
+                        )}
+                        title={`Open check ${link.checkNo}`}
+                        onClick={() => onOpenCheck(link.id)}
+                      >
+                        {link.checkNo}
+                      </button>
+                      <StatusBadge status={link.status} />
+                    </li>
+                  ))}
+                </ol>
               </div>
             ) : null}
 

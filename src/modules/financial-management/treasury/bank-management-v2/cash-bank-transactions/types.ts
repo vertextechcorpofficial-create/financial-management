@@ -30,6 +30,11 @@ export interface TransactionRow {
   direction: TransactionDirection;
   status: string;
   jeNo: string | null;
+  /**
+   * Transfer only: the sending leg's entry. `journal_entry_id` is overwritten by the
+   * settlement, so a completed transfer carries leg 2 in `jeNo` and leg 1 here.
+   */
+  jeNoLeg1: string | null;
   description: string | null;
   /** Saved, live and without a journal entry: the row's entry can still be posted. */
   canPost: boolean;

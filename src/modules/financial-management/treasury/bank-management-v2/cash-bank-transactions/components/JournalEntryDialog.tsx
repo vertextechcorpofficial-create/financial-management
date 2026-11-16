@@ -56,8 +56,12 @@ export function JournalEntryDialog({ jeNo, onOpenChange }: JournalEntryDialogPro
 
   const current = loaded && loaded.jeNo === jeNo ? loaded : null;
   const entry = current?.entry ?? null;
-  const totalDebit = entry?.lines.reduce((sum, line) => sum + line.debit, 0) ?? 0;
-  const totalCredit = entry?.lines.reduce((sum, line) => sum + line.credit, 0) ?? 0;
+  // Spec P16: debit lines first, then credits, whatever order the rows were written in.
+  const lines = entry
+    ? [...entry.lines].sort((a, b) => Number(a.credit > 0) - Number(b.credit > 0) || a.lineNo - b.lineNo)
+    : [];
+  const totalDebit = lines.reduce((sum, line) => sum + line.debit, 0);
+  const totalCredit = lines.reduce((sum, line) => sum + line.credit, 0);
 
   return (
     <Dialog open={jeNo !== null} onOpenChange={onOpenChange}>
@@ -126,7 +130,7 @@ export function JournalEntryDialog({ jeNo, onOpenChange }: JournalEntryDialogPro
                     <span className="text-right">Credit</span>
                   </div>
                   <ul className="divide-y">
-                    {entry.lines.map((line) => (
+                    {lines.map((line) => (
                       <li
                         key={line.lineNo}
                         className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-3 px-3 py-2 text-sm"
