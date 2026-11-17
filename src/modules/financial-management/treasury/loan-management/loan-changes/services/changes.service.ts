@@ -442,14 +442,24 @@ export async function loadContext(loanId: number): Promise<ChangeContext> {
   };
 }
 
+/**
+ * The highest number in use plus one. Counting rows instead reuses a number as soon as one row is
+ * deleted, and the unique key then rejects the write.
+ */
 async function nextNumber(collection: string, field: string, prefix: string): Promise<string> {
   const year = phtStamp().slice(0, 4);
-  const { total } = await listItems<{ id: number }>(collection, {
-    fields: ["id"],
+  const { rows } = await listItems<Record<string, unknown>>(collection, {
+    fields: [field],
     filter: { [field]: { _starts_with: `${prefix}-${year}-` } },
-    limit: 1,
+    limit: 500,
   });
-  return `${prefix}-${year}-${String(total + 1).padStart(4, "0")}`;
+  let highest = 0;
+  for (const row of rows) {
+    const value = String(row[field] ?? "");
+    const suffix = Number(value.slice(value.lastIndexOf("-") + 1));
+    if (Number.isFinite(suffix) && suffix > highest) highest = suffix;
+  }
+  return `${prefix}-${year}-${String(highest + 1).padStart(4, "0")}`;
 }
 
 /**

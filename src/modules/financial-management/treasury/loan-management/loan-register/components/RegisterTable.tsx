@@ -60,7 +60,7 @@ export function RegisterTable({
   return (
     <>
       <div className="hidden overflow-x-auto min-[1300px]:block">
-        <Table>
+        <Table className="[&_th:first-child]:pl-4 [&_td:first-child]:pl-4 [&_th:last-child]:pr-4 [&_td:last-child]:pr-4 [&_th]:py-2.5 [&_td]:py-3">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[120px]">Loan</TableHead>

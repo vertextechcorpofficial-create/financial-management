@@ -346,14 +346,20 @@ export async function loadSummary(): Promise<RegisterSummary> {
   };
 }
 
+/** The highest number in use plus one, so a deleted loan cannot hand its number to the next one. */
 async function nextLoanNo(year: number): Promise<string> {
   const prefix = `LP-${year}-`;
-  const { total } = await listItems<Record<string, unknown>>("loan", {
-    fields: ["id"],
+  const { rows } = await listItems<Record<string, unknown>>("loan", {
+    fields: ["loan_no"],
     filter: { loan_no: { _starts_with: prefix } },
-    limit: 1,
+    limit: 1000,
   });
-  return `${prefix}${String(total + 1).padStart(4, "0")}`;
+  let highest = 0;
+  for (const row of rows) {
+    const suffix = Number(String(row.loan_no ?? "").slice(prefix.length));
+    if (Number.isFinite(suffix) && suffix > highest) highest = suffix;
+  }
+  return `${prefix}${String(highest + 1).padStart(4, "0")}`;
 }
 
 export interface LoanComputation {

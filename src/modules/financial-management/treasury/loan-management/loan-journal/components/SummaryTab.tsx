@@ -88,7 +88,7 @@ export function SummaryTab({ filters, onChange, onClear, page, onPageChange }: P
         }}
         allowAll={false}
         isLoading={isLoading}
-        className="border-t border-border"
+        className="border-t border-border/50 px-4 py-3"
       />
     </Card>
   );

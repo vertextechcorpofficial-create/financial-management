@@ -73,8 +73,8 @@ export function ScheduleTab({ schedules }: { schedules: ReturnType<typeof useSch
     searchText: `${loan.loanNo} ${loan.lenderName} ${LOAN_STATUS_LABEL[loan.status]}`,
     description:
       loan.versions.length > 0
-        ? `${LOAN_STATUS_LABEL[loan.status]} · ${money(loan.outstandingPrincipal)} outstanding · version ${loan.scheduleVersion}`
-        : `${LOAN_STATUS_LABEL[loan.status]} · no schedule generated yet`,
+        ? `${LOAN_STATUS_LABEL[loan.status]} · v${loan.scheduleVersion} · ${money(loan.outstandingPrincipal)}`
+        : `${LOAN_STATUS_LABEL[loan.status]} · no schedule yet`,
   }));
 
   const tie = data.tie;
@@ -112,8 +112,11 @@ export function ScheduleTab({ schedules }: { schedules: ReturnType<typeof useSch
             onValueChange={(value) => updateFilters({ version: Number(value) })}
             disabled={versions.length === 0}
           >
-            <SelectTrigger className="h-9 w-full sm:w-[150px]" aria-label="Schedule version">
-              <SelectValue className="truncate" placeholder="Version" />
+            <SelectTrigger
+              className="h-9 w-full sm:w-[180px] [&>span]:min-w-0 [&>span]:truncate"
+              aria-label="Schedule version"
+            >
+              <SelectValue placeholder="Version" />
             </SelectTrigger>
             <SelectContent className="max-h-60">
               {versions.length === 0 ? (
@@ -217,7 +220,7 @@ export function ScheduleTab({ schedules }: { schedules: ReturnType<typeof useSch
         ) : (
           <>
             <div className="hidden overflow-x-auto min-[1300px]:block">
-              <Table>
+              <Table className="[&_th:first-child]:pl-4 [&_td:first-child]:pl-4 [&_th:last-child]:pr-4 [&_td:last-child]:pr-4 [&_th]:py-2.5 [&_td]:py-3">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[70px] text-right">Period</TableHead>
@@ -311,6 +314,7 @@ export function ScheduleTab({ schedules }: { schedules: ReturnType<typeof useSch
               onPageChange={setPage}
               onPageSizeChange={setPageSize}
               isLoading={isLoading}
+              className="border-t border-border/50 px-4 py-3"
             />
           </>
         )}

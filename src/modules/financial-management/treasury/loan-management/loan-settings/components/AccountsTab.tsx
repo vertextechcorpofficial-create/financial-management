@@ -104,7 +104,7 @@ export function AccountsTab({ accounts, chartAccounts, isSaving, onAdd, onEdit }
         </ul>
 
         <div className="hidden overflow-x-auto min-[1300px]:block">
-          <Table className="table-fixed">
+          <Table className="table-fixed [&_th:first-child]:pl-4 [&_td:first-child]:pl-4 [&_th:last-child]:pr-4 [&_td:last-child]:pr-4 [&_th]:py-2.5 [&_td]:py-3">
             <TableHeader>
               <TableRow>
                 <TableHead>Account</TableHead>
@@ -175,7 +175,7 @@ export function AccountsTab({ accounts, chartAccounts, isSaving, onAdd, onEdit }
             setPage(1);
           }}
           allowAll={false}
-          className="border-t border-border px-4 py-3"
+          className="border-t border-border/50 px-4 py-3"
         />
       </Card>
 

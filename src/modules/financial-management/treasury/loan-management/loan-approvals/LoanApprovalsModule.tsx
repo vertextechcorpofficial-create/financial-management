@@ -111,6 +111,7 @@ export function LoanApprovalsModule() {
             onPageSizeChange={setPageSize}
             allowAll={false}
             isLoading={approvals.isLoading}
+            className="border-t border-border/50 px-4 py-3"
           />
         </div>
       </Card>

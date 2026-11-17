@@ -310,14 +310,21 @@ export async function loadContext(loanId: number): Promise<PaymentContext> {
   };
 }
 
+/** The highest number in use plus one; counting rows reuses a number once a row is deleted. */
 async function nextNumber(collection: "loan_payment" | "loan_journal_entry", field: string, prefix: string): Promise<string> {
   const year = phtStamp().slice(0, 4);
-  const { total } = await listItems<{ id: number }>(collection, {
-    fields: ["id"],
+  const { rows } = await listItems<Record<string, unknown>>(collection, {
+    fields: [field],
     filter: { [field]: { _starts_with: `${prefix}-${year}-` } },
-    limit: 1,
+    limit: 1000,
   });
-  return `${prefix}-${year}-${String(total + 1).padStart(4, "0")}`;
+  let highest = 0;
+  for (const row of rows) {
+    const value = String(row[field] ?? "");
+    const suffix = Number(value.slice(value.lastIndexOf("-") + 1));
+    if (Number.isFinite(suffix) && suffix > highest) highest = suffix;
+  }
+  return `${prefix}-${year}-${String(highest + 1).padStart(4, "0")}`;
 }
 
 interface JournalLine {

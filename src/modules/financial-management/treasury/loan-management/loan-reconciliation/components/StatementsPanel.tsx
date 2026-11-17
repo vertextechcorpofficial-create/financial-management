@@ -109,7 +109,7 @@ export function StatementsPanel({ loans, today, statements }: Props) {
           }}
           allowAll={false}
           isLoading={statements.isLoading}
-          className="border-t border-border"
+          className="border-t border-border/50 px-4 py-3"
         />
       ) : null}
 

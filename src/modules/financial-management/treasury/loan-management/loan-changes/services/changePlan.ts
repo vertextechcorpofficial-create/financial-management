@@ -318,6 +318,13 @@ export function planChange(input: ChangePlanInput): ChangePreview {
 
   const penaltyRate = num(input.penaltyRate);
   const baseRows = settled.map(copiedRow);
+  // A kept row can still owe principal, because money posted against it may have paid interest
+  // only. That principal is already inside `outstanding`, so a rebuild must not start from the
+  // full outstanding amount or the same principal would be scheduled twice.
+  const keptRemaining = round2(
+    settled.reduce((sum, row) => sum + Math.max(0, round2(row.principal - row.paidPrincipal)), 0),
+  );
+  const rebuildBase = (total: number) => round2(Math.max(0, total - keptRemaining));
 
   switch (kind) {
     case "PREPAYMENT": {
@@ -359,7 +366,7 @@ export function planChange(input: ChangePlanInput): ChangePreview {
 
       const built = rebuild({
         loan,
-        principal: newPrincipal,
+        principal: rebuildBase(newPrincipal),
         annualRate: loan.currentRate,
         periods,
         firstPaymentDate,
@@ -412,7 +419,7 @@ export function planChange(input: ChangePlanInput): ChangePreview {
       const periods = Math.max(1, schedule.length - settled.length);
       const built = rebuild({
         loan,
-        principal: outstanding,
+        principal: rebuildBase(outstanding),
         annualRate: newRate,
         periods,
         firstPaymentDate,
@@ -451,7 +458,7 @@ export function planChange(input: ChangePlanInput): ChangePreview {
       const newPrincipal = round2(outstanding + plan.overdueInterest);
       const built = rebuild({
         loan,
-        principal: newPrincipal,
+        principal: rebuildBase(newPrincipal),
         annualRate: newRate,
         periods,
         firstPaymentDate,
@@ -488,7 +495,7 @@ export function planChange(input: ChangePlanInput): ChangePreview {
       // still applies when the change is a modification, the new rate when the loan is derecognised.
       const restated = rebuild({
         loan,
-        principal: newPrincipal,
+        principal: rebuildBase(newPrincipal),
         annualRate: newRate,
         periods,
         firstPaymentDate,

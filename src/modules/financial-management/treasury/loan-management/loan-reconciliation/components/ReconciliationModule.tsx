@@ -128,7 +128,7 @@ export function ReconciliationModule() {
                 }}
                 allowAll={false}
                 isLoading={reconciliation.isLoading}
-                className="border-t border-border"
+                className="border-t border-border/50 px-4 py-3"
               />
             ) : null}
           </Card>

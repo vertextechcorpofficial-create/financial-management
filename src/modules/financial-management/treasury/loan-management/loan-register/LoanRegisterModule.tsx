@@ -97,6 +97,7 @@ export function LoanRegisterModule() {
           onPageChange={register.setPage}
           onPageSizeChange={register.setPageSize}
           isLoading={register.isLoading}
+          className="border-t border-border/50 px-4 py-3"
         />
       </Card>
 
