@@ -47,6 +47,3 @@ next-env.d.ts
 .idea
 .aider*
 .aider*
-
-# QA captures kept out of the tree
-.dsh-artifacts/
