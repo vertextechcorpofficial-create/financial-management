@@ -19,7 +19,7 @@ export function FundingAccountChoice({ selected, disabled, onSelect, error }: { 
       </PopoverContent></Popover>{error && <p id={errorId} className="text-xs font-medium text-destructive">{error}</p>}
   </div>;
 }
-function retryableLookupError(error: Error | undefined): boolean {
+function retryableLookupError(error: Error | null | undefined): boolean {
   if (!error) return false;
   if (!(error instanceof OnboardingError)) return true;
   return error.status === 0 || error.status === 502 || error.status === 503;

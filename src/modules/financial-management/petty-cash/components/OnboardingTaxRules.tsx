@@ -9,14 +9,15 @@ import { ErrorBox, Field, NativeSelect, Paging } from "./OnboardingCommon";
 import { TableSkeleton } from "./PettyCashSkeletons";
 
 const documents = { INVOICE: "Invoice", OFFICIAL_RECEIPT: "Official receipt", ACKNOWLEDGEMENT: "Acknowledgement receipt", OTHER: "Other" };
+const RULE_HEADERS = ["Code", "Kind", "Payee classification", "Rate (%)", "Effective dates", "Verification", "Action"];
 export function OnboardingTaxRules() {
   const [search, setSearch] = useState(""); const [page, setPage] = useState(1); const [editor, setEditor] = useState<TaxRule | "new" | null>(null); const [saved, setSaved] = useState(false);
   const query = new URLSearchParams({ search, page: String(page), pageSize: "25" });
   const { data, loading, error, refresh } = useOnboardingRead<Page<TaxRule>>(`tax-rules?${query}`, 250);
   return <section className="space-y-4 rounded-xl border bg-card p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Verified tax rules</h2><p className="mt-1 text-sm text-muted-foreground">Maintain Accounting-reviewed VAT and ATC definitions. No rates from the prototype are preselected.</p></div><Button type="button" onClick={() => setEditor("new")}>Add tax rule</Button></div>
     {saved && <p role="status" className="text-sm text-green-800">Tax rule saved.</p>}<Input aria-label="Search tax rules" placeholder="Search code or source reference" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} />
-    <ErrorBox error={error} retry={refresh} />{loading && <TableSkeleton label="Loading tax rules" rows={5} columns={7} />}
-    {data && <><div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="bg-muted/40"><tr>{["Code", "Kind", "Payee classification", "Rate (%)", "Effective dates", "Verification", "Action"].map(label => <th className="p-3" key={label}>{label}</th>)}</tr></thead><tbody>
+    <ErrorBox error={error} retry={refresh} />{loading && <TableSkeleton label="Loading tax rules" rows={5} columns={RULE_HEADERS.length} />}
+    {data && <><div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="bg-muted/40"><tr>{RULE_HEADERS.map(label => <th className="p-3" key={label}>{label}</th>)}</tr></thead><tbody>
       {data.items.map(rule => <tr className="border-t" key={rule.id}><td className="p-3 font-medium">{rule.code}</td><td className="p-3">{rule.ruleKind}</td><td className="p-3">{rule.payeeKind}</td><td className="p-3">{rule.rate}</td><td className="p-3 whitespace-nowrap">{rule.effectiveFrom} – {rule.effectiveTo || "Open ended"}</td><td className="p-3">{rule.state}</td><td className="p-3"><Button type="button" variant="outline" size="sm" onClick={() => setEditor(rule)}>{rule.state === "DRAFT" ? "Edit rule" : "View rule"}</Button></td></tr>)}
       {!data.items.length && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">No tax rules configured.</td></tr>}
     </tbody></table></div><Paging page={page} total={data.total} pageSize={data.pageSize} onChange={setPage} /></>}
@@ -40,7 +41,7 @@ function TaxForm({ rule, onSaved, onAmend }: { rule: TaxRule | null; onSaved: ()
     <NativeSelect label="Tax kind" id="tax-kind" value={kind} onChange={value => { setKind(value as "VAT" | "EWT"); if (value === "EWT" && payeeKind === "BOTH") setPayeeKind("INDIVIDUAL"); }}><option value="VAT">VAT</option><option value="EWT">EWT / ATC</option></NativeSelect>
     <Field label="Rule / ATC code" id="tax-code" value={code} onChange={setCode} maxLength={32} required />
     <NativeSelect label="Payee classification" id="tax-payee-kind" value={payeeKind} onChange={value => setPayeeKind(value as TaxRule["payeeKind"])}><option value="INDIVIDUAL">Individual</option><option value="CORPORATION">Corporation</option>{kind === "VAT" && <option value="BOTH">Both</option>}</NativeSelect>
-    <Field label="Rate (%)" id="tax-rate" value={rate} onChange={setRate} type="number" required />
+    <Field label="Rate (%)" id="tax-rate" value={rate} onChange={setRate} required inputMode="decimal" autoComplete="off" />
     <Field label="Effective from" id="tax-from" value={from} onChange={setFrom} type="date" required /><Field label="Effective to (inclusive)" id="tax-to" value={to} onChange={setTo} type="date" />
     <div className="space-y-2 sm:col-span-2"><p className="text-sm font-medium">Eligible document types</p><div className="flex flex-wrap gap-4">{Object.entries(documents).map(([id, label]) => <label key={id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={docs.includes(id)} onChange={event => setDocs(previous => event.target.checked ? [...previous, id] : previous.filter(item => item !== id))} />{label}</label>)}</div></div>
     <Field label="Accounting-reviewed source reference" id="tax-source" value={source} onChange={setSource} maxLength={1000} /><Field label="Verification notes" id="tax-note" value={note} onChange={setNote} maxLength={1000} />

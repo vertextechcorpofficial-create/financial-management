@@ -16,14 +16,14 @@ const companyFieldIds: Record<string, string> = {
   companyId: "company-company", signatoryUserId: "company-signatory", signatoryTitle: "company-signatory-title", signatoryTin: "company-signatory-tin",
 };
 
-export function CompanySettingsDialog({ onClose }: { onClose: () => void }) {
+export function CompanySettingsDialog({ onClose, onSaved }: { onClose: () => void; onSaved?: () => void }) {
   const read = useOnboardingRead<Settings>("settings"), [editing, setEditing] = useState(false), [busy, setBusy] = useState(false);
   const data = read.data;
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}><DialogContent showCloseButton={false} className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>Company details</DialogTitle><DialogDescription>These details print on every Petty Cash document and appear as the payor on BIR Form 2307.</DialogDescription></DialogHeader>
     {read.loading && <DetailsSkeleton label="Loading company details" rows={6} />}<ErrorBox error={read.error} retry={read.refresh} title="Could not load company details" />
     {!data && <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={onClose}>Close</Button></div>}
     {data && (editing
-      ? <CompanyEditor settings={data} onCancel={() => setEditing(false)} reload={read.refresh} onSaved={() => { toast.success("Company details updated for new Petty Cash documents."); onClose(); }} onBusyChange={setBusy} />
+      ? <CompanyEditor settings={data} onCancel={() => setEditing(false)} reload={read.refresh} onSaved={() => { toast.success("Company details updated for new Petty Cash documents."); onSaved?.(); onClose(); }} onBusyChange={setBusy} />
       : <><dl className="text-sm">{[["Registered name", data.company?.name], ["TIN", data.company?.details.tin], ["Registered address", data.company?.details.address], ["ZIP code", data.company?.details.postalCode], ["Authorised signatory for 2307", [data.signatory?.name, data.signatoryTitle].filter(Boolean).join(", ")], ["Signatory TIN", data.signatoryTin]].map(([label, value]) => <div key={String(label)} className="grid gap-2 border-b px-2 py-3 sm:grid-cols-[1fr_2fr]"><dt className="text-xs uppercase text-muted-foreground">{String(label)}</dt><dd className="break-words">{value ? String(value) : "Not set"}</dd></div>)}</dl>
         <div className="flex flex-wrap gap-2"><Button onClick={() => setEditing(true)}>Edit company details</Button><Button type="button" variant="outline" disabled={busy} onClick={onClose}>Close</Button></div></>)}
   </DialogContent></Dialog>;
@@ -64,9 +64,9 @@ function CompanyEditor({ settings, onCancel, onSaved, reload, onBusyChange }: { 
     </div>
     {!settings.company && <OnboardingChoice label="Registered company" id="company-company" resource="companies" selected={company} onSelect={value => { setCompany(value); setName(value?.name || ""); setTin(String(value?.details.tin || "")); setAddress(String(value?.details.address || "")); setZip(String(value?.details.postalCode || "")); clearFeedback(); }} error={fieldError("companyId")} />}
     <Field label="Registered name" id="company-name" value={name} onChange={setName} maxLength={255} required error={fieldError("registeredName")} />
-    <div className="grid gap-3 sm:grid-cols-2"><Field label="TIN" id="company-tin" value={tin} onChange={setTin} maxLength={30} error={fieldError("tin")} /><Field label="ZIP code" id="company-zip" value={zip} onChange={setZip} maxLength={20} error={fieldError("postalCode")} /></div>
+    <div className="grid gap-3 sm:grid-cols-2"><Field label="TIN" id="company-tin" value={tin} onChange={setTin} maxLength={30} error={fieldError("tin")} inputMode="numeric" autoComplete="off" /><Field label="ZIP code" id="company-zip" value={zip} onChange={setZip} maxLength={20} error={fieldError("postalCode")} inputMode="numeric" autoComplete="postal-code" /></div>
     <Field label="Registered address" id="company-address" value={address} onChange={setAddress} maxLength={500} error={fieldError("address")} />
-    <div className="grid gap-3 sm:grid-cols-2"><OnboardingChoice label="Authorised signatory" id="company-signatory" resource="personnel" selected={signatory} onSelect={value => { setSignatory(value); clearFeedback(); }} disabled={command.busy} error={fieldError("signatoryUserId")} /><Field label="Signatory title" id="company-signatory-title" value={title} onChange={setTitle} maxLength={255} error={fieldError("signatoryTitle")} /><Field label="Signatory TIN" id="company-signatory-tin" value={signatoryTin} onChange={setSignatoryTin} maxLength={30} error={fieldError("signatoryTin")} /></div>
+    <div className="grid gap-3 sm:grid-cols-2"><OnboardingChoice label="Authorised signatory" id="company-signatory" resource="personnel" selected={signatory} onSelect={value => { setSignatory(value); clearFeedback(); }} disabled={command.busy} error={fieldError("signatoryUserId")} /><Field label="Signatory title" id="company-signatory-title" value={title} onChange={setTitle} maxLength={255} error={fieldError("signatoryTitle")} /><Field label="Signatory TIN" id="company-signatory-tin" value={signatoryTin} onChange={setSignatoryTin} maxLength={30} error={fieldError("signatoryTin")} inputMode="numeric" autoComplete="off" /></div>
     <div className="flex flex-wrap gap-2"><Button type="submit" disabled={command.busy || conflict}>{command.busy ? "Saving..." : "Save details"}</Button><Button type="button" variant="outline" disabled={command.busy} onClick={onCancel}>Cancel</Button></div>
   </fieldset></form>;
 }

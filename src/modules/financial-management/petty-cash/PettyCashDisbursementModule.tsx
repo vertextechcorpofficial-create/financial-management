@@ -8,6 +8,7 @@ import { FormSkeleton, ResponsiveListSkeleton, StatsSkeleton } from "./component
 import { VoucherEditor } from "./components/VoucherEditor";
 import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
 import { FundSelect } from "./components/FundSelect";
+import { UpdatedAgo } from "./components/UpdatedAgo";
 import { VoucherReview, voucherMoney, voucherStatus } from "./components/VoucherReview";
 import PettyCashVoucherDraftsModule from "./PettyCashVoucherDraftsModule";
 import { VOUCHER_API } from "./providers/vouchers.api";
@@ -16,6 +17,7 @@ import type { VoucherFund, VoucherOperations } from "./voucher-types";
 export { voucherMoney } from "./components/VoucherReview";
 
 const statusOptions = ["ALL", "DRAFT", "FOR_APPROVAL", "UNREPLENISHED", "SUBMITTED", "REPLENISHED", "REJECTED", "VOID"] as const;
+const VOUCHER_HEADERS = ["Voucher", "Date", "Payee / particulars", "Receipts", "Gross", "Cash paid", "Status", ""];
 const statusTone: Record<string, string> = {
   DRAFT: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
   FOR_APPROVAL: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
@@ -34,7 +36,7 @@ export default function PettyCashDisbursementModule({ canEdit, operational = fal
 }
 
 function Register({ data, filtered = false, onOpen }: { data: Page<VoucherOperations>; filtered?: boolean; onOpen: (item: VoucherOperations) => void }) {
-  const headers = ["Voucher", "Date", "Payee / particulars", "Receipts", "Gross", "Cash paid", "Status", ""];
+  const headers = VOUCHER_HEADERS;
   return <div><div className="hidden overflow-x-auto md:block"><table aria-label="Fund vouchers" className="w-full text-left text-sm [&_th]:whitespace-nowrap [&_th]:p-3 [&_th]:font-medium [&_td]:p-3"><thead className="border-y bg-muted/30"><tr>{headers.map((label, index) => <th key={index}>{label}</th>)}</tr></thead><tbody>{data.items.map(item => {
     const target = item.effective;
     return <tr key={item.voucher.id} tabIndex={0} className="cursor-pointer border-b align-top hover:bg-muted/20" onClick={() => onOpen(item)} onKeyDown={event => { if (event.target === event.currentTarget && event.key === "Enter") onOpen(item); }}>
@@ -61,7 +63,6 @@ function Disbursement({ actorName }: { actorName: string }) {
   const [fundId, setFundId] = useState<number | null>(null), [page, setPage] = useState(1);
   const [modal, setModal] = useState<{ id: number } | null>(null), [editor, setEditor] = useState<"new" | VoucherOperations | null>(null);
   const [search, setSearch] = useState(""), [status, setStatus] = useState("ALL"), [dateFrom, setDateFrom] = useState(""), [dateTo, setDateTo] = useState("");
-  usePettyCashRefresh(funds.refresh, funds.loading || funds.refreshing);
   const selected = funds.data?.find(fund => fund.id === fundId) || funds.data?.[0] || null;
   const editorFund = editor && editor !== "new" ? funds.data?.find(fund => fund.id === editor.voucher.fundId) : selected;
   const invalidRange = Boolean(dateFrom && dateTo && dateFrom > dateTo);
@@ -71,6 +72,7 @@ function Disbursement({ actorName }: { actorName: string }) {
   if (dateFrom) registerParams.set("dateFrom", dateFrom);
   if (dateTo) registerParams.set("dateTo", dateTo);
   const register = useVoucherRead<Page<VoucherOperations>>(selected && !invalidRange ? `register?${registerParams}` : null, 250);
+  usePettyCashRefresh(register.refresh, register.loading || register.refreshing);
   function refresh() { funds.refresh(); register.refresh(); }
   function changed() { setEditor(null); setModal(null); setPage(1); refresh(); }
   function open(item: VoucherOperations) { if (item.voucher.state === "DRAFT") setEditor(item); else setModal({ id: item.voucher.id }); }
@@ -84,9 +86,9 @@ function Disbursement({ actorName }: { actorName: string }) {
       {Number(selected.usage) >= Number(selected.usageWarning || 60) && <p role="status" className={`rounded-lg border p-3 text-sm ${Number(selected.usage) >= Number(selected.usageCritical || 85) ? "border-destructive/40 text-destructive" : "border-amber-500/40"}`}>This fund is {Number(selected.usage).toFixed(0)}% used. Request replenishment before cash runs low.</p>}
     </div>}
     {!funds.loading && funds.data?.length === 0 && <p className="rounded-lg border p-5 text-sm">No Active funds available. Fund requests must be approved and funded before preparing vouchers.</p>}
-    {selected && <section className="overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center justify-between gap-3 p-5"><h2 className="text-lg font-semibold">Vouchers for {selected.docNo}{register.data ? ` (${register.data.total})` : ""}</h2><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" asChild><a href={`${VOUCHER_API}/funds/${selected.id}/print`} target="_blank" rel="noreferrer">Print voucher list</a></Button><Button disabled={!selected.canPrepare} title={selected.canPrepare ? undefined : "Only the current fund custodian can prepare vouchers."} onClick={() => setEditor("new")}>+ New voucher</Button></div></div>
+    {selected && <section className="overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center justify-between gap-3 p-5"><h2 className="text-lg font-semibold">Vouchers for {selected.docNo}{register.data ? ` (${register.data.total})` : ""}</h2><div className="flex flex-wrap items-center gap-2"><UpdatedAgo at={register.updatedAt} onRefresh={register.refresh} /><Button variant="outline" size="sm" asChild><a href={`${VOUCHER_API}/funds/${selected.id}/print`} target="_blank" rel="noreferrer">Print voucher list</a></Button><Button disabled={!selected.canPrepare} title={selected.canPrepare ? undefined : "Only the current fund custodian can prepare vouchers."} onClick={() => setEditor("new")}>+ New voucher</Button></div></div>
       <div className="flex flex-col gap-3 border-y bg-muted/10 p-3"><div className="flex flex-wrap items-center gap-2"><Input aria-label="Search vouchers" placeholder="Search voucher, payee, receipt, or particulars..." value={search} onChange={event => changeFilter(() => setSearch(event.target.value))} className="h-9 w-full bg-background sm:max-w-sm" /><select aria-label="Voucher status filter" value={status} onChange={event => changeFilter(() => setStatus(event.target.value))} className="h-9 rounded-md border bg-background px-3 text-sm">{statusOptions.map(value => <option key={value} value={value}>{value === "ALL" ? "All statuses" : voucherStatus(value)}</option>)}</select><Input aria-label="Voucher date from" type="date" value={dateFrom} onChange={event => changeFilter(() => setDateFrom(event.target.value))} className="h-9 w-auto bg-background" /><Input aria-label="Voucher date to" type="date" value={dateTo} onChange={event => changeFilter(() => setDateTo(event.target.value))} className="h-9 w-auto bg-background" />{filtered && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}</div>{invalidRange && <p role="alert" className="text-sm text-destructive">From must be on or before To.</p>}</div>
-      <ErrorBox error={register.error} retry={register.refresh} title="Could not load vouchers" />{register.loading && !register.data && <div className="p-5 pt-0"><ResponsiveListSkeleton label="Loading vouchers" rows={5} columns={8} /></div>}{register.data && <><Register data={register.data} filtered={filtered} onOpen={open} />{register.data.total > 25 && <div className="p-3"><Paging page={page} pageSize={25} total={register.data.total} onChange={setPage} /></div>}</>}
+      <ErrorBox error={register.error} retry={register.refresh} title="Could not load vouchers" />{register.loading && !register.data && <div className="p-5 pt-0"><ResponsiveListSkeleton label="Loading vouchers" rows={5} columns={VOUCHER_HEADERS.length} /></div>}{register.data && <><Register data={register.data} filtered={filtered} onOpen={open} />{register.data.total > 25 && <div className="p-3"><Paging page={page} pageSize={25} total={register.data.total} onChange={setPage} /></div>}</>}
     </section>}
     {modal && <VoucherReview key={modal.id} id={modal.id} review={false} actorName={actorName} onClose={() => setModal(null)} onEdit={record => { setModal(null); setEditor(record); }} onChanged={changed} />}
     {editor && editorFund && <VoucherEditor key={editor === "new" ? "new" : editor.voucher.id} fund={editorFund} voucherId={editor === "new" ? null : editor.voucher.id} operational canEdit={editorFund.canPrepare} onClose={() => setEditor(null)} onDataChanged={register.refresh} onFinalized={changed} />}

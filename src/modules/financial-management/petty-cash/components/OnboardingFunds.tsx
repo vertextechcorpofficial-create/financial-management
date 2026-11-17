@@ -6,13 +6,16 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import type { Choice, Fund, FundReference, Page, Settings } from "../onboarding-types";
 import { useOnboardingCommand, useOnboardingRead } from "../hooks/useOnboarding";
+import { usePettyCashRefresh } from "../hooks/usePettyCashRefresh";
 import { OnboardingError } from "../providers/onboarding.api";
 import { OnboardingChoice } from "./OnboardingChoice";
 import { ErrorBox, Field, NativeSelect, OnboardingFeedback, Paging } from "./OnboardingCommon";
 import { FundStatusBadge } from "./FundStatusBadge";
 import { TableSkeleton } from "./PettyCashSkeletons";
+import { UpdatedAgo } from "./UpdatedAgo";
 import { onboardingFieldError, onboardingFieldErrors } from "../utils/onboardingFeedback";
 import { fundFilterParams } from "../utils/fundFilters";
+import { dateOnly } from "../utils/dateTime";
 
 const money = (value: number | null) => value == null ? "Not set" : new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(value);
 const choice = (value: FundReference | null): Choice | null => value ? { ...value, status: "REGISTERED", classification: "", eligible: true, reason: null, details: {} } : null;
@@ -33,7 +36,9 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
   useEffect(() => { const timer = window.setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 250); return () => window.clearTimeout(timer); }, [search]);
   const filtersActive = Boolean(search.trim() || department || custodian || statusFilter !== "ALL");
   const query = fundFilterParams({ page, search: debouncedSearch, departmentId: department?.id, custodianId: custodian?.id, status: statusFilter }).toString();
-  const { data, loading, error, refresh } = useOnboardingRead<Page<Fund>>(`funds?${query}`);
+  const { data, loading, refreshing, updatedAt, error, refresh } = useOnboardingRead<Page<Fund>>(`funds?${query}`);
+  usePettyCashRefresh(refresh, loading || refreshing);
+  const headers = ["Fund", "Department", "Custodian", "Imprest", "Per voucher", "Approval above", "Requested by", "Status", ...(canEdit || canDelete ? [""] : [])];
   function clearFilters() { setSearch(""); setDebouncedSearch(""); setDepartment(null); setCustodian(null); setStatusFilter("ALL"); setPage(1); }
   function changeDepartment(value: Choice | null) { setDepartment(value); setPage(1); }
   function changeCustodian(value: Choice | null) { setCustodian(value); setPage(1); }
@@ -47,7 +52,7 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
     setPage(1);
     refresh();
   }
-  return <div className="space-y-4 rounded-xl border bg-card p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Fund requests</h2>{canSubmit && <Button onClick={() => setEditor("new")}>+ New fund request</Button>}</div>
+  return <div className="space-y-4 rounded-xl border bg-card p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Fund requests</h2><div className="flex flex-wrap items-center gap-3"><UpdatedAgo at={updatedAt} onRefresh={refresh} />{canSubmit && <Button onClick={() => setEditor("new")}>+ New fund request</Button>}</div></div>
     <div role="search" aria-label="Fund request filters" className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3">
       <div className="min-w-56 flex-1 space-y-2"><label htmlFor="fund-search" className="text-sm font-medium">Search</label><Input id="fund-search" type="search" aria-label="Search funds" placeholder="Fund name, PCF #, or requester" value={search} onChange={event => setSearch(event.target.value)} /></div>
       <div className="w-full sm:w-52"><OnboardingChoice label="Department" resource="departments" selected={department} onSelect={changeDepartment} placeholder="All departments" /></div>
@@ -55,10 +60,10 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
       <div className="w-full sm:w-48"><NativeSelect label="Status" id="fund-status" value={statusFilter} onChange={changeStatus}><option value="ALL">All statuses</option><option value="PENDING">Pending approval</option><option value="ACTIVE">Active</option><option value="REJECTED">Rejected</option><option value="CLOSED">Closed</option></NativeSelect></div>
       {filtersActive && <Button type="button" variant="ghost" onClick={clearFilters}>Clear filters</Button>}
     </div>
-    <ErrorBox error={error} retry={refresh} title="Could not load fund requests" />{loading && <TableSkeleton label="Loading fund requests" rows={5} columns={9} />}
-    {data && <><div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="bg-muted/40"><tr>{["Fund", "Department", "Custodian", "Imprest", "Per voucher", "Approval above", "Requested by", "Status", ...(canEdit || canDelete ? [""] : [])].map((label, i) => <th key={i} className="p-3">{label}</th>)}</tr></thead><tbody>
+    <ErrorBox error={error} retry={refresh} title="Could not load fund requests" />{loading && <TableSkeleton label="Loading fund requests" rows={5} columns={headers.length} />}{refreshing && <p role="status" className="text-sm text-muted-foreground">Updating fund requests...</p>}
+    {data && <><div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="bg-muted/40"><tr>{headers.map((label, i) => <th key={i} className="p-3">{label}</th>)}</tr></thead><tbody>
       {data.items.map(item => <tr className="border-t" key={item.id}><td className="p-3"><span>{item.docNo}</span><strong className="block">{item.name || "Not set"}</strong></td><td className="p-3">{item.department?.name || "Not set"}</td><td className="p-3">{item.custodian?.name || "Not set"}</td>
-        <td className="whitespace-nowrap p-3">{money(item.imprestAmount)}</td><td className="whitespace-nowrap p-3">{money(item.perVoucherLimit)}</td><td className="whitespace-nowrap p-3">{money(item.approvalThreshold)}</td><td className="p-3">{item.requestedBy?.name || "Not set"}<small className="block text-muted-foreground">{item.createdAt?.slice(0, 10)}</small></td><td className="p-3"><FundStatusBadge status={item.status} /></td>
+        <td className="whitespace-nowrap p-3">{money(item.imprestAmount)}</td><td className="whitespace-nowrap p-3">{money(item.perVoucherLimit)}</td><td className="whitespace-nowrap p-3">{money(item.approvalThreshold)}</td><td className="p-3">{item.requestedBy?.name || "Not set"}<small className="block text-muted-foreground">{dateOnly(item.createdAt)}</small></td><td className="p-3"><FundStatusBadge status={item.status} /></td>
         {(canEdit || canDelete) && <td className="p-3">{item.status === "PENDING" && <div className="flex gap-2">{canEdit && <Button size="sm" variant="outline" aria-label={`Edit ${item.docNo}`} onClick={() => setEditor(item)}>Edit</Button>}{canDelete && <Button size="sm" variant="outline" aria-label={`Delete ${item.docNo}`} onClick={() => setDeleting(item)}>Delete</Button>}</div>}</td>}</tr>)}
       {!data.items.length && <tr><td colSpan={9} className="p-6 text-center text-muted-foreground">{filtersActive ? "No fund requests match these filters." : "No fund requests yet."}</td></tr>}
     </tbody></table></div>{data.total > data.pageSize && <Paging page={page} total={data.total} pageSize={data.pageSize} onChange={setPage} />}</>}
@@ -113,9 +118,9 @@ function FundRequestDialog({ initial, requesterName, onClose, onSaved }: { initi
         <Field label="Fund name" id="fund-name" value={name} onChange={setName} maxLength={60} placeholder="e.g. Finance Office Fund" error={fieldError("name")} />
         <OnboardingChoice label="Department" id="fund-department" resource="departments" selected={department} onSelect={value => { setDepartment(value); clearFeedback(); }} disabled={command.busy} error={fieldError("departmentId")} fundRequest excludeFundId={initial?.id} />
         <OnboardingChoice label="Custodian" id="fund-custodian" resource="personnel" selected={custodian} onSelect={value => { setCustodian(value); clearFeedback(); }} disabled={command.busy} error={fieldError("custodianId")} />
-        <Field label="Imprest amount (₱)" id="fund-imprest" type="number" value={imprest} onChange={setImprest} required error={fieldError("imprestAmount")} />
-        <Field label="Max per voucher, hard limit (₱)" id="fund-limit" type="number" value={limit} onChange={setLimit} required error={fieldError("perVoucherLimit")} />
-        <Field label="Approval required above (₱)" id="fund-threshold" type="number" value={threshold} onChange={setThreshold} required error={fieldError("approvalThreshold")} />
+        <Field label="Imprest amount (₱)" id="fund-imprest" value={imprest} onChange={setImprest} required error={fieldError("imprestAmount")} inputMode="decimal" autoComplete="off" />
+        <Field label="Max per voucher, hard limit (₱)" id="fund-limit" value={limit} onChange={setLimit} required error={fieldError("perVoucherLimit")} inputMode="decimal" autoComplete="off" />
+        <Field label="Approval required above (₱)" id="fund-threshold" value={threshold} onChange={setThreshold} required error={fieldError("approvalThreshold")} inputMode="decimal" autoComplete="off" />
         <OnboardingChoice label="Fund account (GL)" id="fund-account" resource="accounts" role="PETTY_CASH_FUND" selected={account} onSelect={value => { setSelectedAccount(value); clearFeedback(); }} disabled={policy.loading || command.busy} error={fieldError("fundAccountId")} eligibleOnly />
         <Field label="Requested by" id="fund-requester" value={initial?.requestedBy?.name || requesterName} onChange={() => {}} disabled />
       </div>
