@@ -13,6 +13,10 @@ import { FundStatusBadge } from "./components/FundStatusBadge";
 import { TableSkeleton } from "./components/PettyCashSkeletons";
 import { FundChangeReview } from "./components/FundChangeReview";
 import { approvalFilterParams, approvalFiltersActive, EMPTY_APPROVAL_FILTERS, type ApprovalFilterState } from "./utils/approvalFilters";
+import { dateTime, dateOnly } from "./utils/dateTime";
+
+const PENDING_HEADERS = ["Request", "Type", "Fund", "Detail", "Requested by", "Date", "Status", ""];
+const DECIDED_HEADERS = ["Request", "Type", "Fund", "Requested by", "Decided by", "Status", "Entry"];
 
 export default function PettyCashApprovalQueue({ actorName, canDecide, renderFund }: { actorName: string; canDecide: boolean; renderFund: (id: string, close: () => void, changed: (message?: string) => void) => ReactNode }) {
   const [selected, setSelected] = useState<ApprovalRow | null>(null), [pendingPage, setPendingPage] = useState(1), [decidedPage, setDecidedPage] = useState(1);
@@ -36,26 +40,37 @@ export default function PettyCashApprovalQueue({ actorName, canDecide, renderFun
       { name: "Decided requests", queue: "decided" as const, read: decided, page: decidedPage, setPage: setDecidedPage, isPending: false, filters: decidedFilters, update: updateDecided, clear: clearDecided },
     ]).map(({ name, queue, read, page, setPage, isPending, filters, update, clear }) => {
       const active = approvalFiltersActive(filters, queue);
+      const empty = isPending ? (active ? "No pending requests match these filters." : "Nothing waiting. New fund requests and Master List changes appear here.") : (active ? "No decided requests match these filters." : "None yet.");
       return <section key={name} className="space-y-3 rounded-xl border bg-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold">{isPending ? `Awaiting approval${read.data ? ` (${read.data.total})` : ""}` : `Decided${read.data ? ` (${read.data.total})` : ""}`}</h2>{isPending && <UpdatedAgo at={read.updatedAt} onRefresh={read.refresh} />}</div>
         <ApprovalFilterBar queue={queue} filters={filters} onChange={update} onClear={clear} />
         <MasterError error={read.error} retry={read.refresh} title={isPending ? "Could not load approval queue" : "Could not load decided requests"} />
-        {read.loading && <TableSkeleton label={isPending ? "Loading pending approval requests" : "Loading decided requests"} rows={5} columns={isPending ? 8 : 7} />}
+        {read.loading && <TableSkeleton label={isPending ? "Loading pending approval requests" : "Loading decided requests"} rows={5} columns={(isPending ? PENDING_HEADERS : DECIDED_HEADERS).length} />}
         {read.refreshing && <p role="status" className="text-sm text-muted-foreground">Updating requests...</p>}
         {read.data && <>
-          <MasterTable label={name} headers={isPending ? ["Request", "Type", "Fund", "Detail", "Requested by", "Date", "Status", ""] : ["Request", "Type", "Fund", "Requested by", "Decided by", "Status", "Entry"]}>
+          <div className="hidden md:block"><MasterTable label={name} headers={isPending ? PENDING_HEADERS : DECIDED_HEADERS}>
             {read.data.items.map(r => <tr key={`${r.kind}:${r.id}`} className="cursor-pointer align-top hover:bg-muted/30" tabIndex={0} onClick={() => setSelected(r)} onKeyDown={e => { if (e.target === e.currentTarget && e.key === "Enter") setSelected(r); }}>
               <td><button className="font-semibold" aria-label={`Review ${r.docNo}`} onClick={e => { e.stopPropagation(); setSelected(r); }}>{r.docNo}</button></td>
               <td>{r.type}</td>
               <td>{r.fund}</td>
               {isPending && <td>{r.detail}</td>}
               <td>{r.requestedBy}</td>
-              <td>{isPending ? r.requestedAt.slice(0, 10) : <>{r.decidedBy}<small className="block text-muted-foreground">{r.decidedAt.replace("T", " ").slice(0, 16)}</small></>}</td>
+              <td>{isPending ? dateOnly(r.requestedAt) : <>{r.decidedBy}<small className="block text-muted-foreground">{dateTime(r.decidedAt)}</small></>}</td>
               <td><FundStatusBadge status={r.state} />{r.state === "REJECTED" && <small className="block">{r.remarks}</small>}</td>
               <td>{isPending ? <Button size="sm" variant="outline" onClick={e => { e.stopPropagation(); setSelected(r); }}>Review</Button> : r.journal || "—"}</td>
             </tr>)}
-            {!read.data.items.length && <tr><td colSpan={isPending ? 8 : 7}>{isPending ? (active ? "No pending requests match these filters." : "Nothing waiting. New fund requests and Master List changes appear here.") : (active ? "No decided requests match these filters." : "None yet.")}</td></tr>}
-          </MasterTable>
+            {!read.data.items.length && <tr><td colSpan={isPending ? 8 : 7}>{empty}</td></tr>}
+          </MasterTable></div>
+          <div className="space-y-3 md:hidden">
+            {read.data.items.map(r => <article key={`${r.kind}:${r.id}`} tabIndex={0} className="space-y-2 rounded-lg border p-3 text-sm focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setSelected(r)} onKeyDown={event => { if (event.target === event.currentTarget && event.key === "Enter") setSelected(r); }}>
+              <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold">{r.docNo}</p><p className="text-muted-foreground">{r.type} · {r.fund}</p></div><FundStatusBadge status={r.state} /></div>
+              {isPending ? <p>{r.detail}</p> : r.remarks ? <p className="whitespace-pre-wrap text-muted-foreground">{r.remarks}</p> : null}
+              <p className="text-muted-foreground">{isPending ? `${r.requestedBy} · ${dateOnly(r.requestedAt)}` : `${r.decidedBy} · ${dateTime(r.decidedAt)}`}</p>
+              {!isPending && r.journal && <p>Entry {r.journal}</p>}
+              <div className="flex justify-end"><Button size="sm" variant="outline" aria-label={`${isPending ? "Review" : "View"} ${r.docNo}`} onClick={event => { event.stopPropagation(); setSelected(r); }}>{isPending ? "Review" : "View"}</Button></div>
+            </article>)}
+            {!read.data.items.length && <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{empty}</p>}
+          </div>
           {read.data.total > 25 && <div className="flex items-center justify-end gap-3"><Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page => page - 1)}>Previous</Button><span className="text-sm">Page {page}</span><Button variant="outline" size="sm" disabled={page * 25 >= read.data.total} onClick={() => setPage(page => page + 1)}>Next</Button></div>}
         </>}
       </section>;

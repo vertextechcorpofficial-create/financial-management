@@ -37,9 +37,9 @@ function AlertEditor({ settings, onClose, onSaved, reload, onBusyChange }: { set
   }
   const error = (field: string) => errors[field] || onboardingFieldError(command.error, field);
   return <form noValidate onSubmit={save} className="space-y-4"><fieldset disabled={command.busy || conflict} className="space-y-4">
-    <Field label="Usage warning (%)" id="alerts-warning" type="number" value={warning} onChange={v => changed(setWarning, v)} required error={error("usageWarning")} />
-    <Field label="Critical usage (%)" id="alerts-critical" type="number" value={critical} onChange={v => changed(setCritical, v)} required error={error("usageCritical")} />
-    <Field label="Stale voucher age (days)" id="alerts-stale-days" type="number" value={days} onChange={v => changed(setDays, v)} required error={error("staleDays")} />
+    <Field label="Usage warning (%)" id="alerts-warning" type="number" value={warning} onChange={v => changed(setWarning, v)} required error={error("usageWarning")} inputMode="numeric" autoComplete="off" />
+    <Field label="Critical usage (%)" id="alerts-critical" type="number" value={critical} onChange={v => changed(setCritical, v)} required error={error("usageCritical")} inputMode="numeric" autoComplete="off" />
+    <Field label="Stale voucher age (days)" id="alerts-stale-days" type="number" value={days} onChange={v => changed(setDays, v)} required error={error("staleDays")} inputMode="numeric" autoComplete="off" />
   </fieldset><p className="text-sm text-muted-foreground">Warning must be lower than critical usage. Vouchers older than the configured number of days are flagged. Changes apply when fund alerts next refresh.</p>
     {Object.keys(errors).length > 0 && <p role="alert" className="text-sm text-destructive">Check the highlighted alert settings.</p>}
     <ErrorBox error={command.error} title="Could not save alert settings" showFields={false} action={conflict ? { label: "Reload settings", onClick: reload } : undefined} />

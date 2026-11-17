@@ -6,9 +6,9 @@ import { OnboardingError } from "../providers/onboarding.api";
 import { onboardingErrorTitle, onboardingFieldErrors, type FeedbackField } from "../utils/onboardingFeedback";
 import type { Readiness } from "../onboarding-types";
 
-export function Field({ label, id, value, onChange, type = "text", disabled, required, maxLength, list, placeholder, error }: { label: string; id: string; value: string; onChange: (value: string) => void; type?: string; disabled?: boolean; required?: boolean; maxLength?: number; list?: string; placeholder?: string; error?: string }) {
+export function Field({ label, id, value, onChange, type = "text", disabled, required, maxLength, list, placeholder, error, inputMode, autoComplete }: { label: string; id: string; value: string; onChange: (value: string) => void; type?: string; disabled?: boolean; required?: boolean; maxLength?: number; list?: string; placeholder?: string; error?: string; inputMode?: "numeric" | "decimal"; autoComplete?: string }) {
     const errorId = error ? `${id}-error` : undefined;
-    return <div className="min-w-0 space-y-2"><label htmlFor={id} className="text-sm font-medium">{label}</label><Input id={id} type={type} value={value} onChange={event => onChange(event.target.value)} disabled={disabled} required={required} maxLength={maxLength} step={type === "number" ? "any" : undefined} list={list} placeholder={placeholder} aria-invalid={Boolean(error)} aria-describedby={errorId} />{error && <p id={errorId} className="text-xs font-medium text-destructive">{error}</p>}</div>;
+    return <div className="min-w-0 space-y-2"><label htmlFor={id} className="text-sm font-medium">{label}</label><Input id={id} type={type} value={value} onChange={event => onChange(event.target.value)} disabled={disabled} required={required} maxLength={maxLength} step={type === "number" ? "any" : undefined} list={list} placeholder={placeholder} inputMode={inputMode} autoComplete={autoComplete} aria-invalid={Boolean(error)} aria-describedby={errorId} />{error && <p id={errorId} className="text-xs font-medium text-destructive">{error}</p>}</div>;
 }
 
 export function NativeSelect({ label, id, value, onChange, children, disabled, error }: { label: string; id: string; value: string; onChange: (value: string) => void; children: ReactNode; disabled?: boolean; error?: string }) {

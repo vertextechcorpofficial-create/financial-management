@@ -11,6 +11,7 @@ import type { CashCount } from "../master-types";
 import { voucherMoney } from "../utils/voucherMoney";
 import { OnboardingFeedback } from "./OnboardingCommon";
 import { onboardingErrorTitle, onboardingFieldErrors } from "../utils/onboardingFeedback";
+import { dateOnly } from "../utils/dateTime";
 
 export function MasterError({ error, retry, title, showFields = true, action }: { error?: Error | null; retry?: () => void; title?: string; showFields?: boolean; action?: { label: string; onClick: () => void } }) {
   if (!error) return null;
@@ -21,7 +22,7 @@ export function MasterTable({ label, headers, children }: { label: string; heade
   return <div className="overflow-x-auto rounded-lg border"><table aria-label={label} className="w-full text-left text-sm [&_th]:whitespace-nowrap [&_th]:p-3 [&_th]:font-medium [&_td]:p-3 [&_tr]:border-b [&_tbody_tr:last-child]:border-0"><thead className="bg-muted/30"><tr>{headers.map((header, i) => <th key={i}>{header}</th>)}</tr></thead><tbody>{children}</tbody></table></div>;
 }
 export function CountLabel({ count }: { count: CashCount | null }) {
-  return count ? <span className={count.snapshot.variance !== "0.00" && !count.resolution ? "text-destructive" : "text-muted-foreground"}>{count.snapshot.variance === "0.00" ? "Balanced" : `${voucherMoney(count.snapshot.variance)} ${count.snapshot.variance.startsWith("-") ? "short" : "over"}`} - {count.recordedAt.slice(0, 10)}{count.resolution ? ` - posted in ${count.resolution}` : ""}</span> : <span className="text-muted-foreground">Not counted</span>;
+  return count ? <span className={count.snapshot.variance !== "0.00" && !count.resolution ? "text-destructive" : "text-muted-foreground"}>{count.snapshot.variance === "0.00" ? "Balanced" : `${voucherMoney(count.snapshot.variance)} ${count.snapshot.variance.startsWith("-") ? "short" : "over"}`} - {dateOnly(count.recordedAt)}{count.resolution ? ` - posted in ${count.resolution}` : ""}</span> : <span className="text-muted-foreground">Not counted</span>;
 }
 export function MasterChoice({ label, path, selected, onSelect, disabled, exclude = [], error }: { label: string; path: string; selected: Choice | null; onSelect: (value: Choice | null) => void; disabled?: boolean; exclude?: number[]; error?: string }) {
   const [open, setOpen] = useState(false), id = useId(), errorId = error ? `${id}-error` : undefined;
