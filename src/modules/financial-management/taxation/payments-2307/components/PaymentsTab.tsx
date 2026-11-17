@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Download, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { DateField } from "./DateField";
 import { PaymentDetailDialog } from "./PaymentDetailDialog";
 import { PaymentDialog } from "./PaymentDialog";
 import { TablePager } from "./TablePager";
+import { downloadPayments } from "../utils/exportWorkbook";
 
 const COLUMN_COUNT = 7;
 
@@ -116,6 +117,18 @@ export function PaymentsTab({
           <Badge variant="outline" className="tabular-nums text-[11px]">
             {formatCurrency(rows.reduce((sum, payment) => sum + payment.amount, 0))} paid
           </Badge>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => downloadPayments(rows)}
+            disabled={payments.length === 0}
+            title={payments.length === 0 ? "No payments to export" : "Download these rows as a workbook"}
+            className="min-h-11 md:min-h-0"
+          >
+            <Download className="mr-2 size-4" />
+            Export
+          </Button>
           <Button
             type="button"
             size="sm"
@@ -291,8 +304,8 @@ export function PaymentsTab({
                       {payment.referenceNo ?? "—"}
                     </span>
                   </TableCell>
-                  <TableCell className="tabular-nums" title={payment.createdBy ? `User ${payment.createdBy}` : ""}>
-                    {payment.createdByName ?? (payment.createdBy ? `#${payment.createdBy}` : "—")}
+                  <TableCell className="tabular-nums" title={payment.createdBy ? `User #${payment.createdBy}` : ""}>
+                    {payment.createdByName ?? "—"}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">

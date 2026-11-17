@@ -81,12 +81,16 @@ export function useTaxCalendar(year: number) {
 
   const counts = useMemo(() => {
     const all = payload?.obligations ?? [];
+    const unpaid = all.filter((row) => row.status !== "PAID");
+    // A negative estimate is an overpayment to carry over, not money going out, so the two
+    // are totalled apart; netting them made an all-credit year read as negative cash out.
     return {
       total: all.length,
       overdue: all.filter((row) => row.status === "OVERDUE").length,
       due: all.filter((row) => row.status === "DUE").length,
       paid: all.filter((row) => row.status === "PAID").length,
-      estimated: all.reduce((sum, row) => sum + (row.status === "PAID" ? 0 : (row.estimated ?? 0)), 0),
+      estimated: unpaid.reduce((sum, row) => sum + Math.max(0, row.estimated ?? 0), 0),
+      credits: unpaid.reduce((sum, row) => sum + Math.min(0, row.estimated ?? 0), 0),
     };
   }, [payload]);
 

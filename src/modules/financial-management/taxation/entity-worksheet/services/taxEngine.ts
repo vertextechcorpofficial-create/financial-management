@@ -1,6 +1,7 @@
 import "server-only";
 
 import type {
+  CarryoverInput,
   CostBasis,
   EntityProfile,
   QuarterFigures,
@@ -71,6 +72,7 @@ function scenarioFor(
   rates: TaxRates,
   basis: CostBasis,
   creditsPerQuarter: number[],
+  carryovers: CarryoverInput,
 ): TaxScenario {
   const cost = costOfSales(figures, basis);
   const grossIncome = figures.map((quarter, index) =>
@@ -82,7 +84,15 @@ function scenarioFor(
     return round(profile.regime === "REGULAR" ? quarter.expenses : registeredOnly(profile, quarter.expenses));
   });
 
-  const nolcoUsed = figures.map(() => 0);
+  // NOLCO is a carryover deduction: oldest year first, never under OSD, and never below zero.
+  let nolcoLeft = profile.deductionMethod === "OSD" ? 0 : round(sum(carryovers.nolco.map((lot) => lot.amount)));
+  const nolcoUsed = figures.map((_, index) => {
+    const before = round(grossIncome[index] - deductions[index]);
+    const applied = nolcoLeft > 0 ? round(Math.min(nolcoLeft, Math.max(0, before))) : 0;
+    nolcoLeft = round(nolcoLeft - applied);
+    return applied;
+  });
+
   const netTaxableIncome = figures.map((_, index) =>
     round(Math.max(0, grossIncome[index] - deductions[index] - nolcoUsed[index])),
   );
@@ -117,11 +127,16 @@ function scenarioFor(
     const regular = round(profile.regime === "SCIT" ? cumulativeGross * rates.scit : cumulativeIncome * rate);
     const mcit = mcitApplies ? round(cumulativeGross * rates.mcit) : 0;
     const due = Math.max(regular, mcit);
-    const quarterPayable = Math.max(0, round(due - cumulativeCredits - paidEarlier));
+    // Excess MCIT from earlier years is usable only when regular tax exceeds MCIT, and only
+    // up to that difference; beyond it the credit stays unused.
+    const mcitCredit = regular > mcit ? round(Math.min(round(sum(carryovers.mcit.map((lot) => lot.amount))), regular - mcit)) : 0;
+    const recorded = carryovers.actualPaid[index];
+    const quarterPayable = Math.max(0, round(due - cumulativeCredits - mcitCredit - paidEarlier));
 
     taxDue.push(due);
     payable.push(quarterPayable);
-    paidEarlier = round(paidEarlier + quarterPayable);
+    // A recorded 1702Q payment replaces the computed one for every later quarter.
+    paidEarlier = round(paidEarlier + (recorded ?? quarterPayable));
   });
 
   const annualGross = round(sum(grossIncome));
@@ -130,12 +145,17 @@ function scenarioFor(
   const annualMcit = mcitApplies ? round(annualGross * rates.mcit) : 0;
   const annualDue = Math.max(annualRegular, annualMcit);
   const annualCredits = round(sum(creditsPerQuarter) + profile.priorYearExcessCredit);
+  const annualMcitCredit =
+    annualRegular > annualMcit
+      ? round(Math.min(round(sum(carryovers.mcit.map((lot) => lot.amount))), annualRegular - annualMcit))
+      : 0;
 
   return {
     basis,
     label: basis === "PRODUCT_COST" ? "Product standard cost" : "Purchase orders",
     grossIncome,
     deductions,
+    nolcoUsed,
     netTaxableIncome,
     taxDue,
     payable,
@@ -146,7 +166,7 @@ function scenarioFor(
       regular: annualRegular,
       mcit: annualMcit,
       taxDue: annualDue,
-      netPosition: round(annualDue - annualCredits),
+      netPosition: round(annualDue - annualCredits - annualMcitCredit),
     },
     mcitApplied: annualMcit > annualRegular,
     smallCorporation,
@@ -154,19 +174,51 @@ function scenarioFor(
   };
 }
 
+export const NO_CARRYOVERS: CarryoverInput = { nolco: [], mcit: [], actualPaid: [null, null, null, null] };
+
 export function computeTax(
   figures: QuarterFigures[],
   profile: EntityProfile,
   rates: TaxRates = FALLBACK_RATES,
+  carryovers: CarryoverInput = NO_CARRYOVERS,
 ): TaxComputation {
   const notices: string[] = [];
   const creditsPerQuarter = figures.map((quarter) => quarter.cwt);
 
   const scenarios = [
-    scenarioFor(figures, profile, rates, "PRODUCT_COST", creditsPerQuarter),
-    scenarioFor(figures, profile, rates, "PURCHASES", creditsPerQuarter),
+    scenarioFor(figures, profile, rates, "PRODUCT_COST", creditsPerQuarter, carryovers),
+    scenarioFor(figures, profile, rates, "PURCHASES", creditsPerQuarter, carryovers),
   ];
-  const primary = scenarios[0];
+
+  // When the itemized sales view cannot be read, the product-cost basis silently costs
+  // nothing and gross income jumps by the whole cost of sales. Fall back to the
+  // purchase-order basis instead of printing a tax due built on a zero cost.
+  const productCost = round(sum(figures.map((quarter) => quarter.cogsProductCost)));
+  const purchaseCost = round(sum(figures.map((quarter) => quarter.purchases)));
+  const basisMissing = productCost === 0 && purchaseCost > 0;
+  // The first scenario is the headline everywhere the payload is read, so it is the one the
+  // tax due was built from.
+  const ordered = basisMissing ? [scenarios[1], scenarios[0]] : scenarios;
+  const primary = ordered[0];
+  if (basisMissing) {
+    notices.push(
+      `Product standard cost came back as zero, so the headline basis is purchase orders (₱${purchaseCost.toLocaleString("en-PH", { minimumFractionDigits: 2 })} of cost of sales). ` +
+        "Tax due on a zero-cost reading would have been higher by the difference shown in the two scenarios.",
+    );
+  }
+
+  const nolcoApplied = round(sum(primary.nolcoUsed));
+  if (nolcoApplied > 0) {
+    notices.push(
+      `NOLCO of ₱${nolcoApplied.toLocaleString("en-PH", { minimumFractionDigits: 2 })} applied from ${carryovers.nolco.length} lot(s), oldest year first.`,
+    );
+  }
+  const recordedQuarters = carryovers.actualPaid.filter((value) => value !== null).length;
+  if (recordedQuarters > 0) {
+    notices.push(
+      `${recordedQuarters} quarter(s) subtract the recorded 1702Q payment instead of the computed amount.`,
+    );
+  }
 
   if (profile.regime === "SCIT") {
     notices.push("SCIT applies 5% to gross income; deductions are shown for completeness only.");
@@ -192,7 +244,7 @@ export function computeTax(
     osdAmount: figures.map((quarter, index) =>
       profile.deductionMethod === "OSD" ? round(primary.grossIncome[index] * rates.osd) : 0,
     ),
-    nolcoUsed: figures.map(() => 0),
+    nolcoUsed: primary.nolcoUsed,
     netTaxableIncome: primary.netTaxableIncome,
     taxDue: primary.taxDue,
     taxCredits: figures.map((_, index) => round(profile.priorYearExcessCredit + sum(creditsPerQuarter.slice(0, index + 1)))),
@@ -210,7 +262,7 @@ export function computeTax(
     smallCorporation: primary.smallCorporation,
     mcitApplied: primary.mcitApplied,
     notices,
-    scenarios,
+    scenarios: ordered,
     rates,
   };
 }

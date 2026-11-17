@@ -1,4 +1,4 @@
-import type { DeductionMethod, TaxRegime } from "./types";
+import type { DeductionMethod, GroupCompanyRow, TaxRegime } from "./types";
 
 export const TAX_YEARS = [2023, 2024, 2025, 2026, 2027] as const;
 
@@ -152,6 +152,29 @@ export function statusLabel(status: string): string {
     .split(/[_\s]+/)
     .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
     .join(" ");
+}
+
+/**
+ * The status filter speaks the spec's vocabulary (TABLE 6), not our row codes.
+ *
+ * `Settled` is a position of zero, not a status the document names, so it is not offered here;
+ * a settled company is still one click away under `All statuses`.
+ */
+export const GROUP_FILTER_STATUSES = [
+  { value: "PAYABLE", label: "Payable", matches: "DUE" },
+  { value: "OVERPAID", label: "Overpaid", matches: "OVERPAID" },
+  { value: "NEEDS_ATTENTION", label: "Needs attention", matches: "UNREADABLE" },
+  { value: "UNREADABLE", label: "Unreadable", matches: "UNREADABLE" },
+  { value: "NOT_ENTERED", label: "Not entered", matches: "NOT_ENTERED" },
+] as const;
+
+export type GroupFilterStatus = (typeof GROUP_FILTER_STATUSES)[number]["value"];
+
+/** `Needs attention` is the panel's own set: a refused instance or a company with no profile. */
+export function matchesFilterStatus(row: GroupCompanyRow, value: string): boolean {
+  if (value === "NEEDS_ATTENTION") return row.status === "UNREADABLE" || row.profileMissing;
+  if (value === "PAYABLE") return row.status === "DUE";
+  return row.status === value;
 }
 
 export const TAX_TONES: Record<string, Tone> = {

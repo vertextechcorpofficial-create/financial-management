@@ -28,7 +28,7 @@ function Field({ label, value, muted }: { label: string; value: string; muted?: 
 /**
  * How one quarter's VAT payable was built.
  *
- * Zero-rated sales are not captured by this system, so they read "Not recorded" here
+ * Zero-rated sales are not captured by this system, so the line reads ₱0.00 with that reason
  * instead of a 0.00 that would look like a filed figure.
  */
 export function QuarterDetailDialog({
@@ -61,7 +61,7 @@ export function QuarterDetailDialog({
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
             <dl className="grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
               <Field label="Net sales" value={money(figures?.sales)} />
-              <Field label="Zero-rated sales" value="Not recorded" muted />
+              <Field label="Zero-rated sales" value="₱0.00 (not recorded in this system)" muted />
               <Field label="Group sales" value={money(figures?.icSales)} />
               <Field label="VAT purchases" value={money(figures?.purchasesVat)} />
               <Field label="Output VAT" value={money(vat.outputVat[index])} />

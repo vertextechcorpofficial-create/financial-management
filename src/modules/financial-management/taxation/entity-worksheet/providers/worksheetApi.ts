@@ -1,6 +1,6 @@
 "use client";
 
-import type { EntityProfile, EntitySnapshot, RegistryCompany } from "../types";
+import type { CarryoverKind, CarryoverLotDetail, EntityProfile, EntitySnapshot, RegistryCompany } from "../types";
 
 const BASE = "/api/fm/taxation/entity-worksheet";
 
@@ -40,8 +40,7 @@ export async function fetchWorksheet(companyId: number, year: number, fresh = fa
   return unwrap(payload);
 }
 
-export async function saveProfile(profile: EntityProfile): Promise<EntityProfile> {
-  const response = await fetch(BASE, {
+export async function saveProfile(profile: EntityProfile): Promise<EntityProfile> {  const response = await fetch(BASE, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(profile),
@@ -64,5 +63,62 @@ export async function saveProfile(profile: EntityProfile): Promise<EntityProfile
     );
   }
 
+  return unwrap(payload);
+}
+
+export interface CarryoverLotPayload {
+  companyId: number;
+  taxYear: number;
+  kind: CarryoverKind;
+  originYear: number;
+  amount: number;
+  amountUsed: number;
+  expiresAfterYear: number | null;
+}
+
+async function send<T>(method: "POST" | "PATCH", body: unknown): Promise<T> {
+  const response = await fetch(`${BASE}/carryovers`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = (await response.json().catch(() => null)) as Envelope<T> | null;
+  if (!payload) {
+    throw new WorksheetApiError(`The carryover lot could not be saved (HTTP ${response.status}).`);
+  }
+  return unwrap(payload);
+}
+
+export async function recordCarryoverLot(input: CarryoverLotPayload): Promise<CarryoverLotDetail> {
+  return send<CarryoverLotDetail>("POST", input);
+}
+
+export async function updateCarryoverUsed(input: {
+  companyId: number;
+  taxYear: number;
+  id: number;
+  amountUsed: number;
+}): Promise<CarryoverLotDetail> {
+  return send<CarryoverLotDetail>("PATCH", input);
+}
+export interface OpeningUpdateResult {
+  updated: number;
+  skipped: number;
+  reason: string | null;
+}
+
+export async function updateOpeningCarryovers(input: {
+  companyId: number;
+  taxYear: number;
+}): Promise<OpeningUpdateResult> {
+  const response = await fetch(`${BASE}/carryovers/opening`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const payload = (await response.json().catch(() => null)) as Envelope<OpeningUpdateResult> | null;
+  if (!payload) {
+    throw new WorksheetApiError(`The carryover openings could not be updated (HTTP ${response.status}).`);
+  }
   return unwrap(payload);
 }

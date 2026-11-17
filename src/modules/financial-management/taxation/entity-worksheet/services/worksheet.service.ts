@@ -4,6 +4,7 @@ import { getRegistryCompany, listRegistryCompaniesWithHealth } from "./registry"
 import { loadExpenseBreakdown, loadFigures } from "./companyFigures";
 import { loadProfile } from "./profile.service";
 import { loadTaxRates } from "./taxRates.service";
+import { loadCarryoverInput } from "./carryovers.service";
 import { buildLines, computeTax, computeVat } from "./taxEngine";
 import type { EntitySnapshot, QuarterFigures, RegistryCompany } from "../types";
 
@@ -72,7 +73,15 @@ const SNAPSHOT_TTL_MS = 30 * 60_000;
 function authKey(springToken: string | null | undefined): string {
   return springToken ? springToken.slice(-8) : "anon";
 }
-const snapshotCache = new Map<string, { at: number; data: EntitySnapshot }>();
+/**
+ * App Router gives every route handler and every page its own module instance, so a route that
+ * calls clearSnapshotCache() would otherwise clear a copy the page never reads. The map hangs off
+ * globalThis so a saved carryover lot reaches the worksheet that renders it.
+ */
+const sharedStore = globalThis as unknown as {
+  __fmTaxationSnapshotCache?: Map<string, { at: number; data: EntitySnapshot }>;
+};
+const snapshotCache = (sharedStore.__fmTaxationSnapshotCache ??= new Map());
 
 export async function loadEntitySnapshot(
   companyId: number,
@@ -115,13 +124,14 @@ async function buildEntitySnapshot(
   const peers = companies.filter((peer) => peer.companyId !== companyId);
   const profile = await loadProfile(companyId, taxYear);
   const rates = await loadTaxRates(company, taxYear);
+  const carryovers = await loadCarryoverInput(companyId, taxYear);
 
   if (!company.reachable) {
     const notices = [
       `${company.code} is unreachable (${company.unreachableReason ?? "no answer"}). Figures are not shown rather than guessed.`,
     ];
     const empty = emptyFigures();
-    const computation = computeTax(empty, profile, rates);
+    const computation = computeTax(empty, profile, rates, carryovers.input);
     return {
       company,
       profile,
@@ -130,11 +140,12 @@ async function buildEntitySnapshot(
       vat: computeVat(empty, profile, rates),
       lines: buildLines(empty, computation, profile),
       matches: [],
-      notices: [...notices, ...computation.notices],
+      notices: [...notices, ...(carryovers.notice ? [carryovers.notice] : []), ...computation.notices],
       figuresAvailable: false,
       failedSources: ["the company instance"],
       salesSource: "INVOICE_HEADERS",
       expenseBreakdown: null,
+      carryovers: carryovers.panel,
     };
   }
 
@@ -143,7 +154,7 @@ async function buildEntitySnapshot(
     vatRate: rates.vat,
     springToken,
   });
-  const computation = computeTax(figures, profile, rates);
+  const computation = computeTax(figures, profile, rates, carryovers.input);
   const vat = computeVat(figures, profile, rates);
 
   return {
@@ -154,12 +165,13 @@ async function buildEntitySnapshot(
     vat,
     lines: buildLines(figures, computation, profile),
     matches,
-    notices: [...notices, ...computation.notices],
+    notices: [...notices, ...(carryovers.notice ? [carryovers.notice] : []), ...computation.notices],
     // Gross income is the headline; without the sales register the whole sheet is unknown.
     figuresAvailable: !failed.includes("sales"),
     failedSources: failed.map((source) => (source === "sales" ? "sales invoices" : "purchase orders")),
     salesSource,
     expenseBreakdown,
+    carryovers: carryovers.panel,
   };
 }
 

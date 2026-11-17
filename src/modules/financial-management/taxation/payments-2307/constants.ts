@@ -117,6 +117,32 @@ export const BIR_FORMS = [
  */
 export const PAYMENT_FORMS = [...BIR_FORMS, "2307", "SEC", "RPT", "LGU"] as const;
 
+/**
+ * Periods a form can be filed for, per the taxation doc: 1601-C monthly (P98); 0619-E only in
+ * months 1 and 2 of a quarter, because the quarter-end month files the 1601-EQ instead (P98, P105);
+ * 1601-EQ / 2550Q / 2551Q quarterly (P104, P105); 1702Q Q1-Q3 only since Q4 is settled by the annual
+ * (P106); 1702 annual only (P112); 2307 certificates quarterly, never annual (P78).
+ */
+const MONTHLY_FORMS = ["1601-C"];
+const FIRST_TWO_MONTHS_ONLY = ["0619-E"];
+const QUARTERLY_FORMS = ["1601-EQ", "2550Q", "2551Q", "2307"];
+const THREE_QUARTER_FORMS = ["1702Q"];
+const ANNUAL_FORMS = ["1702"];
+/** Months whose expanded-withholding filing is the 1601-EQ, so 0619-E never covers them. */
+const QUARTER_END_MONTHS = new Set<MonthKey>(["M03", "M06", "M09", "M12"]);
+
+export function periodsForForm(formCode: string): PaymentPeriodKey[] {
+  if (MONTHLY_FORMS.includes(formCode)) return MONTH_KEYS;
+  if (FIRST_TWO_MONTHS_ONLY.includes(formCode)) {
+    return MONTH_KEYS.filter((key) => !QUARTER_END_MONTHS.has(key));
+  }
+  if (QUARTERLY_FORMS.includes(formCode)) return PERIOD_KEYS.filter((key) => key !== "ANNUAL");
+  if (THREE_QUARTER_FORMS.includes(formCode)) return ["Q1", "Q2", "Q3"];
+  if (ANNUAL_FORMS.includes(formCode)) return ["ANNUAL"];
+  return PAYMENT_PERIOD_KEYS;
+}
+
+
 /** First and last day of a quarter, as `YYYY-MM-DD`. */
 export function quarterRange(year: number, index: number): { from: string; to: string } {
   const startMonth = index * 3;
@@ -187,9 +213,40 @@ export function statusLabel(status: string): string {
     .join(" ");
 }
 
+/** Doc Table 6 vocabulary: a 2307 period is matched, short, over, not received or not due yet. */
+const CERTIFICATE_STATUS_LABELS: Record<string, string> = {
+  MATCHED: "Matched",
+  SHORT: "Short",
+  OVER: "Over",
+  NOT_ENTERED: "Not received",
+  UPCOMING: "Not due yet",
+  UNKNOWN: "Not compared",
+};
+
 /** Compact labels for the certificate status chip. */
 export function certificateStatusLabel(status: string): string {
-  return status === "UNKNOWN" ? "Not compared" : statusLabel(status);
+  return CERTIFICATE_STATUS_LABELS[status.toUpperCase()] ?? statusLabel(status);
+}
+
+/** Lock state vocabulary: a period is locked, unlocked again, or not locked yet. */
+export function lockStateLabel(state: string): string {
+  switch (state.toUpperCase()) {
+    case "LOCKED":
+      return "Locked";
+    case "OPEN":
+      return "Unlocked";
+    default:
+      return "Not locked";
+  }
+}
+
+/**
+ * Some rows store the rate as a fraction (0.05) and others as a percent (2), so the stored number
+ * cannot be printed as-is. Income and withheld always agree, so the percent is read from them.
+ */
+export function effectiveRatePercent(incomeAmount: number, taxWithheld: number, storedRate: number): number {
+  if (incomeAmount > 0) return (taxWithheld / incomeAmount) * 100;
+  return storedRate;
 }
 
 /** Page size for the client-side tables, matching the treasury module. */

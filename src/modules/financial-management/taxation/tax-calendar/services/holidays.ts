@@ -12,10 +12,21 @@ const FIXED_HOLIDAYS: Array<[number, number, string]> = [
   [5, 1, "Labor Day"],
   [6, 12, "Independence Day"],
   [8, 21, "Ninoy Aquino Day"],
+  [11, 1, "All Saints' Day"],
   [11, 30, "Bonifacio Day"],
   [12, 25, "Christmas Day"],
   [12, 30, "Rizal Day"],
 ];
+
+/**
+ * National Heroes Day is the last Monday of August every year, so it is computed rather
+ * than proclaimed; without it 2027 moved a 30 August deadline onto the holiday itself.
+ */
+function lastMondayOfAugust(year: number): string {
+  const lastDay = new Date(Date.UTC(year, 7, 31));
+  const offset = (lastDay.getUTCDay() + 6) % 7;
+  return toIso(new Date(Date.UTC(year, 7, 31 - offset)));
+}
 
 /** Proclaimed dates, by year. Any year not listed falls back to fixed dates only. */
 const PROCLAIMED: Record<number, Array<[string, string]>> = {
@@ -24,20 +35,18 @@ const PROCLAIMED: Record<number, Array<[string, string]>> = {
     ["2025-04-18", "Good Friday"],
     ["2025-03-31", "Eid'l Fitr"],
     ["2025-06-06", "Eid'l Adha"],
-    ["2025-08-25", "National Heroes Day"],
   ],
   2026: [
     ["2026-04-02", "Maundy Thursday"],
     ["2026-04-03", "Good Friday"],
     ["2026-03-20", "Eid'l Fitr"],
     ["2026-05-27", "Eid'l Adha"],
-    ["2026-08-31", "National Heroes Day"],
     ["2026-02-25", "EDSA People Power"],
   ],
 };
 
 export const HOLIDAY_CAVEAT =
-  "Movable holidays (Holy Week, Eid'l Fitr, Eid'l Adha) use the proclaimed dates for 2025 and 2026 only; later years fall back to fixed-date holidays.";
+  "Fixed-date holidays and National Heroes Day (last Monday of August) are known for every year. Holy Week, Eid'l Fitr, Eid'l Adha and EDSA People Power use the proclaimed dates for 2025 and 2026 only; later years fall back to the dated holidays.";
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
@@ -57,6 +66,7 @@ export function holidaysFor(year: number): Map<string, string> {
   for (const [month, day, name] of FIXED_HOLIDAYS) {
     map.set(`${year}-${pad(month)}-${pad(day)}`, name);
   }
+  map.set(lastMondayOfAugust(year), "National Heroes Day");
   for (const [iso, name] of PROCLAIMED[year] ?? []) {
     map.set(iso, name);
   }

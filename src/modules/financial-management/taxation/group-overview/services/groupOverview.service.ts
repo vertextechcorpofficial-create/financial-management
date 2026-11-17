@@ -7,6 +7,7 @@ import { loadTaxRates } from "./taxRates.service";
 import { computeTax, computeVat } from "./taxEngine";
 import { defaultProfile, loadProfiles } from "./profile.service";
 import { loadCarryovers } from "./carryover.service";
+import { loadCarryoverInput } from "./carryovers.service";
 import { listRegistryCompaniesWithHealth } from "./registry";
 import type {
   GroupAttentionItem,
@@ -26,6 +27,15 @@ import type {
  * than five. Each company's figures are then read and computed independently: one
  * company failing never blanks its neighbours, it becomes a row with a reason.
  */
+
+/** User copy, not a transport report: the review found raw `(500)`-style codes on screen (G2/W6). */
+function plainSentence(text: string): string {
+  return text
+    .replace(/\s*\(\d{3}\)\s*/g, " ")
+    .replace(/\s+([.,;])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 
 function figuresHaveActivity(figures: QuarterFigures[]): boolean {
   return figures.some(
@@ -73,6 +83,7 @@ async function buildRow(
   taxYear: number,
   profileState: { profile: ReturnType<typeof defaultProfile>; missing: boolean } | undefined,
   springToken?: string | null,
+  carryoverNotices?: Set<string>,
 ): Promise<GroupCompanyRow> {
   const state = profileState ?? { profile: defaultProfile(company.companyId, taxYear), missing: true };
 
@@ -81,11 +92,24 @@ async function buildRow(
   }
 
   try {
-    const { figures, salesSource } = await loadFigures(company, taxYear, [], { springToken });
+    const { figures, salesSource, failed, notices } = await loadFigures(company, taxYear, [], { springToken });
+
+    // G1/G2: a source that refused is not a zero. Without its read the position is unknown, and
+    // rendering that as `Not entered` told a reader the company owes nothing when the desk could
+    // not see the data at all.
+    if (failed.length > 0) {
+      const reason =
+        notices.find((notice) => /could not be read/i.test(notice)) ??
+        `The instance refused the ${failed.join(" and ")} read.`;
+      return emptyRow(company, plainSentence(reason), "UNREADABLE", state.missing);
+    }
+
     const quarterly = (pick: (quarter: (typeof figures)[number]) => number) =>
       roundMoney(figures.reduce((total, quarter) => total + pick(quarter), 0));
     const rates = await loadTaxRates(company, taxYear);
-    const tax = computeTax(figures, state.profile, rates);
+    const carryover = await loadCarryoverInput(company.companyId, taxYear);
+    if (carryover.notice && carryoverNotices) carryoverNotices.add(carryover.notice);
+    const tax = computeTax(figures, state.profile, rates, carryover.input);
     const vat = computeVat(figures, state.profile, rates);
     const withholding = roundMoney(figures.reduce((total, quarter) => total + quarter.cwt, 0));
     const hasActivity = figuresHaveActivity(figures);
@@ -138,7 +162,11 @@ const GROUP_CACHE_TTL_MS = 10 * 60_000;
 function authKey(springToken: string | null | undefined): string {
   return springToken ? springToken.slice(-8) : "anon";
 }
-const groupCache = new Map<string, { at: number; data: GroupOverviewData }>();
+/** Same reason as the worksheet cache: a route's clear has to reach the page's copy. */
+const sharedStore = globalThis as unknown as {
+  __fmTaxationGroupCache?: Map<string, { at: number; data: GroupOverviewData }>;
+};
+const groupCache = (sharedStore.__fmTaxationGroupCache ??= new Map());
 
 export async function loadGroupOverview(
   taxYear: number,
@@ -181,8 +209,9 @@ async function buildGroupOverview(taxYear: number, springToken?: string | null):
     loadCarryovers(companies, taxYear),
   ]);
 
+  const carryoverNotices = new Set<string>();
   const rows = await Promise.all(
-    registry.map((company) => buildRow(company, taxYear, profileLoad.byCompany.get(company.companyId), springToken)),
+    registry.map((company) => buildRow(company, taxYear, profileLoad.byCompany.get(company.companyId), springToken, carryoverNotices)),
   );
 
   const totals = rows.reduce<GroupTotals>(
@@ -195,8 +224,13 @@ async function buildGroupOverview(taxYear: number, springToken?: string | null):
         acc.taxDueOnPayable += row.taxDue;
         acc.creditsOnPayable += row.credits;
       }
-      if (row.netPosition < 0) acc.overpaid += -row.netPosition;
-      if (row.status === "OVERPAID") acc.overpaidCompanies += 1;
+      // G4: the amount and the count must come from one set. A company with no activity but a
+      // recorded 1702Q payment carried a negative position while its status stayed `Not entered`,
+      // which printed ₱25,000.00 of credit above `0 of 10`.
+      if (row.status === "OVERPAID") {
+        acc.overpaid += -row.netPosition;
+        acc.overpaidCompanies += 1;
+      }
       if (row.status === "UNREADABLE") acc.unreadableCompanies += 1;
       if (row.reachable && row.status !== "UNREADABLE") acc.readableCompanies += 1;
       return acc;
@@ -264,6 +298,16 @@ async function buildGroupOverview(taxYear: number, springToken?: string | null):
       companyCode: "−",
       title: "Tax profiles are unreadable",
       detail: profileLoad.notice,
+    });
+  }
+
+  if (carryoverNotices.size > 0) {
+    attention.unshift({
+      key: "carryover-table",
+      severity: "HIGH",
+      companyCode: "−",
+      title: "Carryover lots and recorded 1702Q payments are unreadable",
+      detail: [...carryoverNotices].join(" "),
     });
   }
 

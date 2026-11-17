@@ -17,13 +17,15 @@ const SECTION_LABEL: Record<WorksheetLine["section"], string> = {
 interface Props {
   lines: WorksheetLine[];
   total: number;
+  /** The cost-of-sales basis the sheet carries, named on the face of the table (W1/W2). */
+  basisLabel: string;
 }
 
 /**
  * The 1702Q worksheet: one row per numbered line, one column per quarter, plus the year.
  * Every row already states how it is built, so there is nothing to drill into.
  */
-export function WorksheetTable({ lines, total }: Props) {
+export function WorksheetTable({ lines, total, basisLabel }: Props) {
   // Group sales, group cost of sales, other income, non-deductible expenses and NOLCO sit at zero on a
   // clean year; five guaranteed-empty rows push the lines that matter off the fold.
   const visible = lines.filter((line) => line.emphasis || line.values.some((value) => Math.abs(value) >= 0.005) || Math.abs(line.yearValue) >= 0.005);
@@ -35,7 +37,15 @@ export function WorksheetTable({ lines, total }: Props) {
   return (
     <section aria-label="Tax worksheet" className="overflow-hidden rounded-2xl border border-border/50 border-t-[3px] border-t-indigo-500/70 bg-card shadow-sm">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border/50 px-4 py-3">
-        <h2 className="min-w-0 text-sm font-semibold">1702Q worksheet</h2>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold">1702Q worksheet</h2>
+          {/* W2: a 5× swing in tax due sat in a block below the fold with nothing on the face of the
+              return saying which reading produced line 5. It is named here, next to the lines. */}
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Cost of sales read as <span className="font-medium text-foreground">{basisLabel}</span>, so line 5 is line 1
+            less lines 2, 3 and 3a on that basis.
+          </p>
+        </div>
         <Badge variant="outline" className="tabular-nums text-[11px]">
           {visible.length} of {total} lines
         </Badge>

@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
-import { PAGE_SIZE, REGIME_SHORT, netPositionClass, statusLabel } from "../constants";
-import type { GroupAttentionItem, GroupCompanyRow } from "../types";
+import { GROUP_FILTER_STATUSES, PAGE_SIZE, REGIME_LABELS, REGIME_SHORT, matchesFilterStatus, netPositionClass } from "../constants";
+import type { GroupAttentionItem, GroupCompanyRow, TaxRegime } from "../types";
 import { CompanyDetailDialog } from "./CompanyDetailDialog";
 import { StatusBadge } from "./StatusBadge";
 import { TablePager } from "./TablePager";
@@ -57,19 +57,29 @@ export function CompanyTable({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("ALL");
+  const [regime, setRegime] = useState("ALL");
   const [sort, setSort] = useState<"NET_DESC" | "NET_ASC" | "NAME">("NET_DESC");
   const [lastFocus, setLastFocus] = useState<HTMLElement | null>(null);
 
   const statuses = useMemo(() => {
-    const order = ["DUE", "OVERPAID", "SETTLED", "NOT_ENTERED", "UNREADABLE"];
+    // G5: the filter speaks TABLE 6 (payable, overpaid, needs attention, unreadable, not entered).
+    // `Settled` was our own word for "net position zero" and is not a status the spec names, so a
+    // settled row is reachable through `All statuses` and by opening it from the payable list.
     const present = new Set(rows.map((row) => row.status));
-    return order.filter((value) => present.has(value as GroupCompanyRow["status"]));
+    return GROUP_FILTER_STATUSES.filter((option) => present.has(option.matches as GroupCompanyRow["status"]));
+  }, [rows]);
+
+  const regimes = useMemo(() => {
+    const present = new Set(rows.map((row) => row.regime));
+    return (Object.keys(REGIME_SHORT) as TaxRegime[]).filter((regime) => present.has(regime));
   }, [rows]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const matching = rows.filter((row) => {
-      if (status !== "ALL" && row.status !== status) return false;
+      if (status !== "ALL" && !matchesFilterStatus(row, status)) return false;
+      if (regime === "UNKNOWN" && row.regime !== null) return false;
+      if (regime !== "ALL" && regime !== "UNKNOWN" && row.regime !== regime) return false;
       if (!needle) return true;
       return `${row.code} ${row.name}`.toLowerCase().includes(needle);
     });
@@ -81,14 +91,14 @@ export function CompanyTable({
       if (noA !== noB) return noA ? 1 : -1;
       return sort === "NET_ASC" ? a.netPosition - b.netPosition : b.netPosition - a.netPosition;
     });
-  }, [rows, q, status, sort]);
+  }, [rows, q, status, regime, sort]);
 
   const total = filtered.length;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
   const start = (safePage - 1) * PAGE_SIZE;
   const visible = filtered.slice(start, start + PAGE_SIZE);
-  const dirty = q !== "" || status !== "ALL";
+  const dirty = q !== "" || status !== "ALL" || regime !== "ALL";
 
   function openRow(row: GroupCompanyRow, origin?: HTMLElement | null) {
     setLastFocus(origin ?? null);
@@ -130,7 +140,7 @@ export function CompanyTable({
         </header>
 
         <div aria-label="Company filters" className="border-b border-border/50 px-4 py-3">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
             <div className="relative">
               <Search
                 aria-hidden
@@ -160,11 +170,32 @@ export function CompanyTable({
               </SelectTrigger>
               <SelectContent className="max-h-60">
                 <SelectItem value="ALL">All statuses</SelectItem>
-                {statuses.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {statusLabel(value)}
+                {statuses.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={regime}
+              onValueChange={(value) => {
+                setRegime(value);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger aria-label="Regime" className="w-full">
+                <SelectValue placeholder="Regime" />
+              </SelectTrigger>
+              <SelectContent className="max-h-60">
+                <SelectItem value="ALL">All regimes</SelectItem>
+                {regimes.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {REGIME_LABELS[value]}
+                  </SelectItem>
+                ))}
+                <SelectItem value="UNKNOWN">No regime on file</SelectItem>
               </SelectContent>
             </Select>
 
@@ -175,6 +206,7 @@ export function CompanyTable({
                 onClick={() => {
                   setQ("");
                   setStatus("ALL");
+                  setRegime("ALL");
                   setPage(1);
                 }}
               >
@@ -196,7 +228,7 @@ export function CompanyTable({
                   <button
                     type="button"
                     onClick={() => setSort(sort === "NAME" ? "NET_DESC" : "NAME")}
-                    className="inline-flex items-center gap-1 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    className="inline-flex items-center gap-1 uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                   >
                     Company
                     {sort === "NAME" && <span aria-hidden>←</span>}
@@ -215,7 +247,7 @@ export function CompanyTable({
                   <button
                     type="button"
                     onClick={() => setSort(sort === "NET_ASC" ? "NET_DESC" : "NET_ASC")}
-                    className="inline-flex items-center gap-1 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    className="inline-flex items-center gap-1 uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                   >
                     Net position
                     {sort !== "NAME" && <span aria-hidden>{sort === "NET_ASC" ? "←" : "↓"}</span>}
