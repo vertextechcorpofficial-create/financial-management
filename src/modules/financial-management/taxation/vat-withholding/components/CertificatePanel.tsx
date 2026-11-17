@@ -90,7 +90,7 @@ export function CertificatePanel({ register }: { register: CertificateRegister }
         </div>
       )}
 
-      <div className="overflow-x-auto px-4 pt-4">
+      <div hidden={register.rows.length === 0} className="overflow-x-auto px-4 pt-4">
         <Table aria-label="2307 expected versus on certificates">
           <TableHeader>
             <TableRow>

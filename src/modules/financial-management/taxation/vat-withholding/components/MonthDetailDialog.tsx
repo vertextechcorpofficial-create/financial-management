@@ -58,16 +58,26 @@ export function MonthDetailDialog({
               <Field label="Tax withheld" value={formatCurrency(row.withheld)} />
               <Field
                 label="On 0619-E (month)"
-                value={row.agentDue == null ? "Quarter-end month" : formatCurrency(row.agentDue)}
+                value={row.agentDue == null ? "—" : formatCurrency(row.agentDue)}
                 muted={row.agentDue == null}
               />
               <Field
                 label="On 1601-EQ (quarter)"
-                value={row.quarterlyDue == null ? "Not a quarter end" : formatCurrency(row.quarterlyDue)}
+                value={row.quarterlyDue == null ? "—" : formatCurrency(row.quarterlyDue)}
                 muted={row.quarterlyDue == null}
               />
             </dl>
 
+            {row.agentDue == null ? (
+              <p className="text-xs text-muted-foreground">
+                Every third month closes a quarter, so no 0619-E falls in this month.
+              </p>
+            ) : null}
+            {row.quarterlyDue == null ? (
+              <p className="text-xs text-muted-foreground">
+                The 1601-EQ amount is carried by the quarter-end month only.
+              </p>
+            ) : null}
             <p className="text-xs text-muted-foreground">
               Per-supplier split is not stored in this system; the month is summed from purchase orders.
             </p>

@@ -38,6 +38,7 @@ export function LockDialog({ periodKey, isSaving, onClose, onSubmit }: LockDialo
     resolver: zodResolver(lockFormSchema),
     defaultValues: { reason: "" },
   });
+  const reasonError = form.formState.errors.reason?.message;
 
   async function submit(values: LockFormValues) {
     if (isSaving) return;
@@ -86,6 +87,10 @@ export function LockDialog({ periodKey, isSaving, onClose, onSubmit }: LockDialo
                 <Alert variant="destructive">
                   <AlertDescription>{alert}</AlertDescription>
                 </Alert>
+              ) : reasonError ? (
+                <Alert variant="destructive">
+                  <AlertDescription>{reasonError}</AlertDescription>
+                </Alert>
               ) : null}
 
               <FormField
@@ -116,7 +121,15 @@ export function LockDialog({ periodKey, isSaving, onClose, onSubmit }: LockDialo
                   Cancel
                 </Button>
               </DialogClose>
-              <Button type="submit" form="lock-period-form" disabled={isSaving} className="min-h-11 md:min-h-0">
+              <Button
+                type="submit"
+                disabled={isSaving}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void form.handleSubmit(submit)();
+                }}
+                className="min-h-11 md:min-h-0"
+              >
                 {isSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
                 Lock
               </Button>

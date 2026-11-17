@@ -11,8 +11,8 @@ import { QuarterDetailDialog } from "./QuarterDetailDialog";
 /**
  * Quarterly 2550Q figures, one row per quarter.
  *
- * Zero-rated sales have no source in this system: the column says so instead of printing
- * 0.00, and the dialog repeats the same honest gap.
+ * Zero-rated sales have no source in this system, so the 2550Q deduction for them is 0.00 — stated
+ * once under the table instead of as a column of "Not recorded" that can never hold a figure.
  */
 export function QuarterlyVatTable({ figures, vat }: { figures: QuarterFigures[]; vat: VatComputation }) {
   const carried = carryOut(vat);
@@ -52,7 +52,6 @@ export function QuarterlyVatTable({ figures, vat }: { figures: QuarterFigures[];
             <thead>
               <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th scope="col" className="px-4 py-2 font-semibold">Quarter</th>
-                <th scope="col" className="px-4 py-2 font-semibold">Zero-rated sales</th>
                 <th scope="col" className="px-4 py-2 text-right font-semibold">VATable sales</th>
                 <th scope="col" className="px-4 py-2 text-right font-semibold">Output VAT</th>
                 <th scope="col" className="px-4 py-2 text-right font-semibold">Input VAT</th>
@@ -72,9 +71,6 @@ export function QuarterlyVatTable({ figures, vat }: { figures: QuarterFigures[];
                   className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/30 focus-visible:bg-muted/40 focus-visible:outline-none"
                 >
                   <td className="px-4 py-2.5 font-medium">{row.quarter}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground" title="Zero-rated sales are not recorded in this system">
-                    Not recorded
-                  </td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{money(row.sales)}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{money(row.output)}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{money(row.input)}</td>
@@ -129,7 +125,8 @@ export function QuarterlyVatTable({ figures, vat }: { figures: QuarterFigures[];
         </ul>
 
         <p className="border-t px-4 py-3 text-xs text-muted-foreground">
-          Zero-rated sales are not recorded in this system.
+          The 2550Q zero-rated line is not deducted here: this system records neither zero-rated nor
+          exempt sales, so the term in the payable formula is ₱0.00 rather than a figure read from data.
         </p>
       </section>
 

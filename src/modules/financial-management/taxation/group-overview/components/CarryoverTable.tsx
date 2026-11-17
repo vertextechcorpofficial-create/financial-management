@@ -9,16 +9,16 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/utils";
 import { CARRYOVER_KIND_LABELS, PAGE_SIZE } from "../constants";
-import type { CarryoverLot } from "../types";
+import type { CarryoverLotRow } from "../types";
 import { TablePager } from "./TablePager";
 
 const COLUMNS = 7;
 
-function kindLabel(lot: CarryoverLot) {
+function kindLabel(lot: CarryoverLotRow) {
   return CARRYOVER_KIND_LABELS[lot.kind] ?? lot.kind;
 }
 
-function expiry(lot: CarryoverLot) {
+function expiry(lot: CarryoverLotRow) {
   return lot.expiresAfterYear === null ? "No expiry" : `After ${lot.expiresAfterYear}`;
 }
 
@@ -33,7 +33,7 @@ export function CarryoverTable({
   notice,
   year,
 }: {
-  lots: CarryoverLot[];
+  lots: CarryoverLotRow[];
   notice: string | null;
   year: number;
 }) {

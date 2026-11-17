@@ -42,10 +42,10 @@ interface Props {
 export function PaymentDetailDialog({ payment, onOpenChange }: Props) {
   return (
     <Dialog open={payment !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] rounded-2xl p-0 sm:max-w-[620px]">
+      <DialogContent showCloseButton={false} className="w-[95vw] rounded-2xl p-0 sm:max-w-[620px]">
         <div className="flex max-h-[85vh] flex-col overflow-hidden">
           <DialogHeader className="border-b border-border/50 px-6 py-4">
-            <DialogTitle className="pr-8 text-base">
+            <DialogTitle className="text-base">
               {payment ? `${payment.formCode} payment` : "Payment"}
             </DialogTitle>
             <DialogDescription className="flex flex-wrap items-center gap-2">
@@ -74,7 +74,7 @@ export function PaymentDetailDialog({ payment, onOpenChange }: Props) {
                   {payment.referenceNo ?? <Missing />}
                 </Detail>
                 <Detail label="Recorded by">
-                  {payment.createdByName ?? (payment.createdBy === null ? <Missing /> : `#${payment.createdBy}`)}
+                  {payment.createdByName ?? <Missing />}
                 </Detail>
                 <Detail label="Recorded at" className="col-span-2 tabular-nums">
                   {recordedAt(payment.createdAt)}

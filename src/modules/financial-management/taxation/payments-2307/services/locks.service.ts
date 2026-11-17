@@ -4,6 +4,7 @@ import { lockPeriodOf, PERIOD_KEYS } from "../constants";
 import { phtStamp } from "../pht";
 import type { PaymentPeriodKey, PeriodKey, PeriodLockRow } from "../types";
 import type { Actor } from "./actor";
+import { loadUserNames } from "./actor";
 import { appendChangeLog, formatValues } from "./changeLog";
 import { asNumber, asString, createItem, isCollectionUnavailable, listItems, updateItem } from "./directus";
 import { RowNotFoundError } from "./rowErrors";
@@ -80,7 +81,17 @@ export async function loadLocks(companyId: number, taxYear: number): Promise<Loc
       sort: "period_key",
       limit: -1,
     });
-    return { locks: rows.map(mapLock), notices: [] };
+    const locks = rows.map(mapLock);
+    // Older rows carry only an id, and a bare number is not a person's name in a lock trail.
+    const actorNames = await loadUserNames(locks.map((lock) => lock.lockedBy));
+    return {
+      locks: locks.map((lock) => ({
+        ...lock,
+        lockedByName:
+          lock.lockedByName ?? (lock.lockedBy === null ? null : (actorNames.get(lock.lockedBy) ?? null)),
+      })),
+      notices: [],
+    };
   } catch (error) {
     return {
       locks: [],

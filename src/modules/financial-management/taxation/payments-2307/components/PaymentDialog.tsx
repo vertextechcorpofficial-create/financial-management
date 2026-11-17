@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { PAYMENT_FORMS, PAYMENT_PERIOD_KEYS, PAYMENT_PERIOD_LABELS } from "../constants";
+import { PAYMENT_FORMS, PAYMENT_PERIOD_LABELS, periodsForForm } from "../constants";
 import { phtToday } from "../pht";
 import { Payments2307ApiError } from "../providers/payments2307Api";
 import {
@@ -37,11 +37,13 @@ const FORM_ID = "payment-2307-payment-form";
 
 /** Seventeen periods and thirteen forms: past the point a plain select stays scannable. */
 const FORM_OPTIONS = PAYMENT_FORMS.map((code) => ({ value: code, label: code }));
-const PERIOD_OPTIONS = PAYMENT_PERIOD_KEYS.map((key) => ({
-  value: key,
-  label: PAYMENT_PERIOD_LABELS[key],
-  searchText: `${key} ${PAYMENT_PERIOD_LABELS[key]}`,
-}));
+function periodOptions(formCode: string) {
+  return periodsForForm(formCode).map((key) => ({
+    value: key,
+    label: PAYMENT_PERIOD_LABELS[key],
+    searchText: `${key} ${PAYMENT_PERIOD_LABELS[key]}`,
+  }));
+}
 
 function blankValues(): PaymentFormValues {
   return { periodKey: "Q1", formCode: "2550Q", paidOn: phtToday(), amount: "", referenceNo: "", remarks: "" };
@@ -88,6 +90,10 @@ export function PaymentDialog({
     resolver: zodResolver(paymentFormSchema),
     defaultValues: blankValues(),
   });
+
+  // The period picker only offers the periods this form is actually filed for; a pair that slips
+  // through is rejected by paymentFormSchema on save rather than repointed here.
+  const formCode = useWatch({ control: form.control, name: "formCode" });
 
   useEffect(() => {
     if (!open) return;
@@ -182,7 +188,7 @@ export function PaymentDialog({
                       </FormLabel>
                       <FormControl>
                         <OptionCombobox
-                          options={PERIOD_OPTIONS}
+                          options={periodOptions(formCode)}
                           value={field.value}
                           onChange={field.onChange}
                           placeholder="Pick a period"

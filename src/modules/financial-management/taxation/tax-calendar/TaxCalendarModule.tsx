@@ -139,7 +139,11 @@ export function TaxCalendarModule() {
         <Tile
           label="Estimated cash out"
           value={formatCurrency(calendar.counts.estimated)}
-          hint="Unfiled estimates only"
+          hint={
+            calendar.counts.credits < 0
+              ? `Unfiled estimates only · ${formatCurrency(Math.abs(calendar.counts.credits))} in carry-over credits not netted`
+              : "Unfiled estimates only"
+          }
           tone={calendar.counts.estimated > 0 ? "warning" : "neutral"}
         />
 

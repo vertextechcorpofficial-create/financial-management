@@ -21,6 +21,21 @@ import { loadSttSales, loadSpringExpenses, loadSpringSales } from "./stt.client"
 
 const CANCELLED_SALES = ["Cancelled", "Void", "cancelled", "void"];
 
+const AMOUNT = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2 });
+const COUNT = new Intl.NumberFormat("en-PH");
+
+/**
+ * Server copy reaches the screen verbatim, so a transport code never belongs in it (W6):
+ * "refused the request (431)" reads as a code fragment, not a sentence.
+ */
+function plain(text: string): string {
+  return text
+    .replace(/\s*\(\d{3}\)\s*/g, " ")
+    .replace(/\s+([.,;])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 /**
  * `chart_of_accounts.account_type` values a return may deduct: 7 cost of goods sold,
  * 8 cost of services, 9 operating expenses, 10 finance costs. Everything else the
@@ -383,10 +398,17 @@ export async function loadFigures(
       const yearGross = gross.reduce((total, value) => total + value, 0);
       const yearRegister = figures.reduce((total, quarter) => total + quarter.sales + quarter.salesVat, 0);
       salesSource = "STT_VIEW";
-      notices.push(
-        `Sales come from the itemized sales view: ${stt.sales.lines} product lines on ${stt.sales.invoices} invoices. ` +
-          `The invoice register carries ${yearRegister.toFixed(2)} for the same year, so the two bases differ by ${(yearRegister - yearGross).toFixed(2)}.`,
-      );
+      // One fact per sentence, and no comparison when the two bases agree: the old copy printed
+      // raw decimals and a "differ by 0.00" beside them, which read like a contradiction (W6).
+      const sentences = [
+        `Sales come from the itemized sales view: ${COUNT.format(stt.sales.lines)} product lines on ${COUNT.format(stt.sales.invoices)} invoices, ${AMOUNT.format(yearGross)} including VAT.`,
+      ];
+      if (Math.abs(yearRegister - yearGross) >= 0.005) {
+        sentences.push(
+          `The invoice register totals ${AMOUNT.format(yearRegister)} on the same basis, so the two differ by ${AMOUNT.format(yearRegister - yearGross)}.`,
+        );
+      }
+      notices.push(sentences.join(" "));
       if (stt.reason) notices.push(`Only part of the year came from that view: ${stt.reason}.`);
     } else if (stt.reason) {
       notices.push(`Sales fall back to the invoice register because ${stt.reason}.`);
@@ -432,7 +454,7 @@ export async function loadFigures(
     }
   } catch (error) {
     failed.push("sales");
-    notices.push(`Sales invoices could not be read: ${error instanceof Error ? error.message : String(error)}`);
+    notices.push(`Sales invoices could not be read: ${plain(error instanceof Error ? error.message : String(error))}`);
   }
 
   // Cost of sales has no ledger in this ERP. The two readings the desk shows are the
@@ -482,7 +504,7 @@ export async function loadFigures(
           quarter.cogsProductCost += (sums.total_amount ?? 0) * ratio;
         });
         notices.push(
-          `Product standard cost covers ${costedLines} of ${byProduct.length} sold products; line amounts carry the rest at cost ${(ratio * 100).toFixed(1)}% of price.`,
+          `Product standard cost covers ${COUNT.format(costedLines)} of ${COUNT.format(byProduct.length)} sold products; line amounts carry the rest at cost ${(ratio * 100).toFixed(1)}% of price.`,
         );
       } else {
         notices.push("No product carries a standard cost, so cost of sales from product cost is zero.");
@@ -515,7 +537,7 @@ export async function loadFigures(
     });
   } catch (error) {
     failed.push("purchases");
-    notices.push(`Purchase orders could not be read: ${error instanceof Error ? error.message : String(error)}`);
+    notices.push(`Purchase orders could not be read: ${plain(error instanceof Error ? error.message : String(error))}`);
   }
 
   /**
@@ -562,9 +584,9 @@ export async function loadFigures(
       }
     } catch (error) {
       notices.push(
-        `Disbursement lines could not be read (${
-          error instanceof Error ? error.message : String(error)
-        }), so deductions fall back to the expense register.`,
+        `Disbursement lines could not be read: ${plain(
+          error instanceof Error ? error.message : String(error),
+        )} Deductions fall back to the expense register.`,
       );
     }
   }

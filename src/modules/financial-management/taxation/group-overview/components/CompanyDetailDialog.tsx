@@ -97,9 +97,17 @@ export function CompanyDetailDialog({
   if (!row) return null;
 
   const unreadable = row.status === "UNREADABLE";
-  const money = (value: number) => (unreadable ? "not available" : formatCurrency(value));
+  const money = (value: number) => (unreadable ? "—" : formatCurrency(value));
   const muted = unreadable ? "text-muted-foreground" : undefined;
-  const position = row.netPosition > 0 ? "still payable" : row.netPosition < 0 ? "overpaid" : "settled";
+  // G1: a refused read has no position. Saying `settled` over fourteen dashes was the worst of the
+  // three readings — it turned "we could not see it" into "it owes nothing".
+  const position = unreadable
+    ? "not available"
+    : row.netPosition > 0
+      ? "still payable"
+      : row.netPosition < 0
+        ? "overpaid"
+        : "settled";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -241,7 +249,7 @@ export function CompanyDetailDialog({
               <Badge variant="outline" className="font-normal">
                 {attentionCount === 0
                   ? "No attention items"
-                  : `${attentionCount} ${attentionCount === 1 ? "item" : "items"} need attention`}
+                  : `${attentionCount} ${attentionCount === 1 ? "item needs" : "items need"} attention`}
               </Badge>
               <Badge variant="outline" className="font-normal">
                 {row.reachable ? "Instance reachable" : "Instance not reachable"}

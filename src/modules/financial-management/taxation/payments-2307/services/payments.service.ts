@@ -4,6 +4,7 @@ import { PAYMENT_PERIOD_KEYS } from "../constants";
 import { phtStamp } from "../pht";
 import type { PaymentPeriodKey, PaymentRow } from "../types";
 import type { Actor } from "./actor";
+import { loadUserNames } from "./actor";
 import { appendChangeLog, changedFields, formatValues } from "./changeLog";
 import {
   asNumber,
@@ -116,7 +117,14 @@ export async function loadPayments(companyId: number, taxYear: number): Promise<
     });
     const payments = rows.map(mapPayment);
     const names = await loadCreatorNames(companyId, taxYear);
-    return { payments: payments.map((row) => ({ ...row, createdByName: names.get(row.id) ?? null })), notices };
+    const actors = await loadUserNames(payments.map((row) => row.createdBy));
+    return {
+      payments: payments.map((row) => ({
+        ...row,
+        createdByName: names.get(row.id) ?? (row.createdBy === null ? null : (actors.get(row.createdBy) ?? null)),
+      })),
+      notices,
+    };
   } catch (error) {
     notices.push(
       isCollectionUnavailable(error)

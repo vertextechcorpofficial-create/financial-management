@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FileDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { Download, FileDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -26,6 +26,7 @@ import {
   PERIOD_LABELS,
   WITHHOLDING_LABELS,
   certificateStatusLabel,
+  effectiveRatePercent,
 } from "../constants";
 import type { CertificateBody } from "../schemas";
 import type { CertificateRow, ExpectedPeriod, PrefillResult } from "../types";
@@ -34,6 +35,7 @@ import { CertificateDialog } from "./CertificateDialog";
 import { ConfirmDeleteDialog } from "./ConfirmDeleteDialog";
 import { StatusBadge } from "./StatusBadge";
 import { TablePager } from "./TablePager";
+import { downloadCertificates } from "../utils/exportWorkbook";
 
 const SOURCE_LABELS: Record<string, string> = {
   MANUAL: "Manual",
@@ -45,6 +47,14 @@ const COLUMN_COUNT = 11;
 
 function periodOrder(periodKey: string): number {
   return PERIOD_KEYS.indexOf(periodKey as (typeof PERIOD_KEYS)[number]);
+}
+
+/**
+ * Some seeded rows store the rate as a fraction (0.05) and others as a percent (2), so the stored
+ * number cannot be printed as-is. The two money figures always agree, so the percent is read from them.
+ */
+function ratePercent(row: CertificateRow): number {
+  return effectiveRatePercent(row.incomeAmount, row.taxWithheld, row.taxRate);
 }
 
 interface CertificatesTabProps {
@@ -116,8 +126,17 @@ export function CertificatesTab({
         const covered = recorded.get(key) ?? 0;
         return { period, recorded: covered, difference: covered - period.expected };
       })
-      .filter((row) => row.period.expected > 0 && Math.abs(row.difference) > 0.005);
+      .filter((row) => row.period.known && row.period.expected > 0 && Math.abs(row.difference) > 0.005);
   }, [certificates, expected]);
+
+  // A period the ledger could not read is unknown, not matched: an empty expectation list only means
+  // "everything agrees" when at least one side of the ledger actually answered.
+  const receivedKnown = expected.some((period) => period.direction === "RECEIVED" && period.known);
+  const issuedKnown = expected.some((period) => period.direction === "ISSUED" && period.known);
+  const anyKnown = receivedKnown || issuedKnown;
+  const unreadable = [!receivedKnown ? "received" : null, !issuedKnown ? "issued" : null].filter(
+    (side): side is string => side !== null,
+  );
 
   async function prefill() {
     setPrefillError(null);
@@ -165,6 +184,18 @@ export function CertificatesTab({
             type="button"
             variant="outline"
             size="sm"
+            onClick={() => downloadCertificates(rows)}
+            disabled={certificates.length === 0}
+            title={certificates.length === 0 ? "No certificates to export" : "Download these rows as a workbook"}
+            className="min-h-11 md:min-h-0"
+          >
+            <Download className="mr-2 size-4" />
+            Export
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
             onClick={() => setConfirmPrefill(true)}
             disabled={isSaving || isLoading}
             className="min-h-11 md:min-h-0"
@@ -196,20 +227,20 @@ export function CertificatesTab({
       ) : null}
 
       <div className="hidden overflow-x-auto min-[1300px]:block">
-        <Table aria-label="2307 certificates" className="min-w-[1020px]">
+        <Table aria-label="2307 certificates" className="w-full">
           <TableHeader>
             <TableRow>
-              <TableHead className="min-w-[220px]">Issuer / payee</TableHead>
-              <TableHead className="min-w-[130px]">TIN</TableHead>
-              <TableHead>Period</TableHead>
-              <TableHead className="min-w-[140px]">Income type</TableHead>
-              <TableHead className="text-right">Income</TableHead>
-              <TableHead className="text-right">Rate</TableHead>
-              <TableHead className="text-right">Withheld</TableHead>
-              <TableHead>Received</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="min-w-[180px]">Issuer / payee</TableHead>
+              <TableHead className="min-w-[120px]">TIN</TableHead>
+              <TableHead className="whitespace-nowrap">Period</TableHead>
+              <TableHead className="min-w-[120px]">Income type</TableHead>
+              <TableHead className="whitespace-nowrap text-right">Income</TableHead>
+              <TableHead className="whitespace-nowrap text-right">Rate</TableHead>
+              <TableHead className="whitespace-nowrap text-right">Withheld</TableHead>
+              <TableHead className="whitespace-nowrap">Received</TableHead>
+              <TableHead className="whitespace-nowrap">Source</TableHead>
+              <TableHead className="whitespace-nowrap">Status</TableHead>
+              <TableHead className="w-[88px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -262,7 +293,7 @@ export function CertificatesTab({
                       </span>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(row.incomeAmount)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatNumber(row.taxRate, "en-PH", 2)}%</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatNumber(ratePercent(row), "en-PH", 2)}%</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(row.taxWithheld)}</TableCell>
                     <TableCell className="tabular-nums">{row.dateReceived ?? "—"}</TableCell>
                     <TableCell>{SOURCE_LABELS[row.source] ?? row.source}</TableCell>
@@ -330,7 +361,7 @@ export function CertificatesTab({
                   <dd className="tabular-nums font-medium">{formatCurrency(row.taxWithheld)}</dd>
                 </div>
                 <div className="text-right">
-                  <dt className="text-muted-foreground">Income at {formatNumber(row.taxRate, "en-PH", 2)}%</dt>
+                  <dt className="text-muted-foreground">Income at {formatNumber(ratePercent(row), "en-PH", 2)}%</dt>
                   <dd className="tabular-nums">{formatCurrency(row.incomeAmount)}</dd>
                 </div>
               </dl>
@@ -393,13 +424,23 @@ export function CertificatesTab({
           </p>
         </div>
         <Badge variant="outline" className="tabular-nums text-[11px]">
-          {expectation.length === 0 ? "All matched" : `${formatNumber(expectation.length)} to reconcile`}
+          {!anyKnown
+            ? "Not compared"
+            : expectation.length === 0
+              ? "All matched"
+              : `${formatNumber(expectation.length)} to reconcile`}
         </Badge>
       </header>
 
       {expectation.length === 0 ? (
         <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-          Every period the ledger expects carries a certificate.
+          {!anyKnown
+            ? "The withholding ledger could not be read, so no period can be compared. The certificates above are listed but not matched."
+            : `Every period the ledger could read carries a certificate.${
+                unreadable.length > 0
+                  ? ` ${unreadable.join(" and ")} certificates are not compared: that side of the ledger could not be read.`
+                  : ""
+              }`}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -439,7 +480,7 @@ export function CertificatesTab({
                           : "Matched within ₱1"
                     }
                   >
-                    {formatCurrency(difference)}
+                    {difference < 0 ? `−${formatCurrency(Math.abs(difference))}` : formatCurrency(difference)}
                   </TableCell>
                   <TableCell className="pr-5">
                     <StatusBadge status={period.status} label={certificateStatusLabel(period.status)} />
@@ -448,6 +489,10 @@ export function CertificatesTab({
               ))}
             </TableBody>
           </Table>
+          <p className="border-t border-border/50 px-5 py-2 text-[11px] text-muted-foreground">
+            Matched within ₱1 · Short: less recorded than the ledger · Over: more recorded · Not received: past due and
+            missing · Not due yet: the quarter has not closed.
+          </p>
         </div>
       )}
     </section>

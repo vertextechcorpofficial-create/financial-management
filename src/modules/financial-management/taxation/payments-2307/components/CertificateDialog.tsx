@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -104,10 +104,28 @@ export function CertificateDialog({
 
   useEffect(() => {
     if (!open) return;
+    manualWithheld.current = false;
     form.reset(certificate ? valuesFrom(certificate) : blankValues());
   }, [open, certificate, form]);
 
-  /** Withheld follows rate × income until someone types a different figure. */
+  /**
+   * Withheld follows rate × income as the figures are typed, and stops following the moment someone
+   * types their own figure into it — a memo can be for a rounded amount, and silently overwriting
+   * that would be worse than a stale-looking field.
+   */
+  const manualWithheld = useRef(false);
+  const income = useWatch({ control: form.control, name: "incomeAmount" });
+  const rate = useWatch({ control: form.control, name: "taxRate" });
+
+  useEffect(() => {
+    if (manualWithheld.current) return;
+    const incomeValue = Number(income);
+    const rateValue = Number(rate);
+    if (!Number.isFinite(incomeValue) || !Number.isFinite(rateValue) || incomeValue <= 0 || rateValue <= 0) return;
+    const next = String(Math.round(incomeValue * rateValue) / 100);
+    if (form.getValues("taxWithheld") !== next) form.setValue("taxWithheld", next, { shouldDirty: true });
+  }, [income, rate, form]);
+
   function recomputeWithheld() {
     const income = Number(form.getValues("incomeAmount"));
     const rate = Number(form.getValues("taxRate"));
@@ -396,7 +414,16 @@ export function CertificateDialog({
                         Withheld <span className="text-destructive">*</span>
                       </FormLabel>
                       <FormControl>
-                        <Input {...field} inputMode="decimal" className="text-right tabular-nums" placeholder="0.00" />
+                        <Input
+                          {...field}
+                          inputMode="decimal"
+                          className="text-right tabular-nums"
+                          placeholder="0.00"
+                          onChange={(event) => {
+                            manualWithheld.current = true;
+                            field.onChange(event);
+                          }}
+                        />
                       </FormControl>
                       <FormDescription>Rate × income, editable.</FormDescription>
                       <FormMessage />
