@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -8,11 +8,8 @@ import { ReviewSkeleton } from "./PettyCashSkeletons";
 import { ReplenishmentJournal } from "./ReplenishmentJournal";
 import { ReplenishmentStatus } from "./ReplenishmentStatus";
 import { useFundDecision, useFundRead } from "../hooks/useFunds";
-import { replenishmentApi } from "../providers/replenishment.api";
-import { onboardingRequestId } from "../providers/onboarding.api";
 import { onboardingFieldError } from "../utils/onboardingFeedback";
 import { voucherCents, voucherMoney } from "../utils/voucherMoney";
-import { voucherFileError } from "../utils/voucherFiles";
 import type { ReplenishmentReview } from "../replenishment-types";
 
 export const APPROVAL_API = "/api/fm/petty-cash/replenishment-approval";
@@ -21,9 +18,8 @@ const sum = (values: string[]) => { const cents = values.reduce((n, v) => n + vo
 
 export function ReplenishmentApprovalReview({ id, actorName, onClose, onChanged }: { id: number; actorName: string; onClose: () => void; onChanged: (record: ReplenishmentReview) => void }) {
   const read = useFundRead<ReplenishmentReview>(`replenishment-approval/requests/${id}`), command = useFundDecision<ReplenishmentReview>();
-  const [remarks, setRemarks] = useState(""), [confirmed, setConfirmed] = useState(false), [uploading, setUploading] = useState(false), [fileError, setFileError] = useState<Error | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null), failedUpload = useRef<{ file: File; requestId: string; version: number } | null>(null);
-  const data = read.data, r = data?.row.request, p = r?.snapshot, locked = command.busy || command.uncertain || uploading, pending = r?.state === "PENDING";
+  const [remarks, setRemarks] = useState(""), [confirmed, setConfirmed] = useState(false);
+  const data = read.data, r = data?.row.request, p = r?.snapshot, locked = command.busy || command.uncertain, pending = r?.state === "PENDING";
   const remarksError = onboardingFieldError(command.error, "remarks") || onboardingFieldError(command.error, "reason");
   const cashError = onboardingFieldError(command.error, "cashConfirmed");
   function reload() { setConfirmed(false); command.clearError(); read.refresh(); }
@@ -32,30 +28,16 @@ export function ReplenishmentApprovalReview({ id, actorName, onClose, onChanged 
     const payload = action === "approve" ? { version: r.version, reviewToken: data.reviewToken, cashConfirmed: confirmed, remarks } : { version: r.version, reason: remarks };
     const result = await command.run(`replenishment-approval/requests/${id}/${action}`, payload); if (result) onChanged(result);
   }
-  async function upload(files: File[], retry?: { requestId: string; version: number }) {
-    for (const file of files) { const invalid = voucherFileError(file); if (invalid) { setFileError(new Error(invalid.message)); return; } }
-    setUploading(true); setFileError(null); setConfirmed(false);
-    try {
-      for (const file of files) {
-        const current = await replenishmentApi<{ version: number }>(`requests/${id}`);
-        const job = retry || { requestId: onboardingRequestId(), version: current.version }; failedUpload.current = { ...job, file };
-        const form = new FormData(); form.set("file", file); form.set("version", String(job.version)); form.set("requestId", job.requestId);
-        await replenishmentApi(`requests/${id}/attachments`, { method: "POST", body: form }); failedUpload.current = null;
-      }
-    } catch (cause) { setFileError(cause instanceof Error ? cause : new Error("Supporting file upload failed. Retry the same file.")); }
-    finally { setUploading(false); read.refresh(); }
-  }
   const print = <Button variant="outline" asChild><a target="_blank" rel="noreferrer" href={`${APPROVAL_API}/requests/${id}/print`}>Print</a></Button>;
 
   return <Dialog open onOpenChange={open => { if (!open && !locked) onClose(); }}><DialogContent showCloseButton={!locked} className="max-h-[90vh] grid-cols-1 overflow-y-auto sm:max-w-[1100px]" onEscapeKeyDown={event => { if (locked) event.preventDefault(); }} onInteractOutside={event => { if (locked) event.preventDefault(); }}>
     <DialogHeader><DialogTitle>{r && p ? `${r.docNo} - ${p.fund.docNo} ${p.fund.name}` : "Replenishment review"}</DialogTitle><DialogDescription>Review the reconciliation, vouchers, supporting documents and journal before deciding.</DialogDescription></DialogHeader>
     {read.loading && <ReviewSkeleton label="Loading replenishment review" />}<ErrorBox error={read.error || null} retry={reload} title="Unable to load this replenishment" /><ErrorBox error={command.error} />
-    {data && r && p && <><div><ReplenishmentStatus state={r.state} /></div><div className="grid gap-4 rounded-lg bg-muted/30 p-4 text-sm sm:grid-cols-3">{[["Prepared by", `${r.preparedBy} - ${r.submittedAt.slice(0, 10)}`], ["Custodian", p.fund.custodian], ["Approved by", r.decidedBy || (pending ? "Pending" : "-")]].map(([label, value]) => <div key={label}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-medium">{value}</p></div>)}</div>
+    {data && r && p && <><div><ReplenishmentStatus state={r.state} /></div><div className="grid gap-4 rounded-lg bg-muted/30 p-4 text-sm sm:grid-cols-3">{[["Prepared by", `${r.preparedBy} - ${r.submittedAt.slice(0, 10)}`], ["Custodian", p.fund.custodian], [pending ? "Approval group" : "Decided by", pending ? "Replenishment Approval" : data.row.decidedBy || r.decidedBy || r.approver || "-"]].map(([label, value]) => <div key={label}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-medium">{value}</p></div>)}</div>
       <dl className="divide-y text-sm">{[["Imprest amount", p.fund.imprest], ["Expected cash", p.fund.expectedCash], ["Cash counted", p.countedCash], ["Over/(short)", p.variance], ["To reimburse", p.reimbursement]].map(([label, value]) => <div key={label} className="grid grid-cols-2 gap-3 py-2"><dt>{label}</dt><dd className="text-right font-medium">{voucherMoney(value)}</dd></div>)}</dl>
       {!!data.blockers.length && <OnboardingFeedback tone="warning" title="Resolve these items before approving"><ul className="list-inside list-disc space-y-1">{data.blockers.map(message => <li key={message}>{message}</li>)}</ul></OnboardingFeedback>}
       <section className="space-y-2"><h2 className="font-medium">Vouchers ({p.vouchers.length})</h2><div className="overflow-x-auto rounded-lg border"><table aria-label="Supporting vouchers" className={table}><thead className="border-b bg-muted/30"><tr>{["Voucher", "Date", "Payee", "Receipts", "Gross", "Cash paid"].map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>{p.vouchers.map(v => <tr key={v.id} className="border-b align-top"><td className="whitespace-nowrap">{v.docNo}</td><td className="whitespace-nowrap">{v.date}</td><td>{v.payee}</td><td>{data.receipts?.filter(l => l.voucherId === v.id).length ? data.receipts.filter(l => l.voucherId === v.id).map((l, i) => <p key={i}>{l.documentType.replaceAll("_", " ")} {l.receiptNo}</p>) : v.receipts.join(", ")}</td><td className="whitespace-nowrap text-right">{voucherMoney(v.gross)}</td><td className="whitespace-nowrap text-right">{voucherMoney(v.netCash)}</td></tr>)}</tbody><tfoot><tr><th colSpan={4} className="text-left">Total</th><td className="whitespace-nowrap text-right">{voucherMoney(sum(p.vouchers.map(v => v.gross)))}</td><td className="whitespace-nowrap text-right">{voucherMoney(sum(p.vouchers.map(v => v.netCash)))}</td></tr></tfoot></table></div></section>
       <section className="space-y-2"><h2 className="font-medium">Supporting documents ({r.attachments.length})</h2>{r.attachments.length ? r.attachments.map(file => <div key={file.id} className="flex flex-wrap items-center gap-3 rounded-lg border p-2 text-sm"><span className="min-w-0 flex-1 break-words">{file.filename} - {(file.fileSize / 1024).toFixed(0)} KB</span>{file.state === "READY" ? <><a className="underline" target="_blank" rel="noreferrer" href={`${APPROVAL_API}/requests/${id}/attachments/${file.id}?view=preview`}>View</a><a className="underline" href={`${APPROVAL_API}/requests/${id}/attachments/${file.id}`}>Download</a></> : <span>Upload incomplete</span>}</div>) : <p className="text-sm text-muted-foreground">No documents attached.</p>}
-        {data.canAddDocuments && <><p className="text-xs text-muted-foreground">JPG, PNG or PDF. Maximum 5 MB per file. Pending documents are retained.</p><input ref={fileInput} hidden multiple type="file" accept="image/jpeg,image/png,application/pdf" disabled={locked} onChange={event => { const files = Array.from(event.target.files || []); event.target.value = ""; void upload(files); }} /><Button size="sm" variant="outline" disabled={locked} onClick={() => fileInput.current?.click()}>Add document</Button></>}<ErrorBox error={fileError} retry={failedUpload.current && data.canAddDocuments ? () => { const job = failedUpload.current; if (job) void upload([job.file], job); } : undefined} title="Document action failed" />
       </section>
       <section className="space-y-2"><h2 className="font-medium">{pending ? "Journal entry on approval" : "Submitted journal entry"}{data.accountingDate ? ` - ${data.accountingDate}` : ""}</h2><ReplenishmentJournal lines={p.lines} varianceLines={p.reconciliation?.varianceLines} /></section>
       {pending && <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><label htmlFor="replenishment-decider" className="text-sm font-medium">Approver</label><Input id="replenishment-decider" readOnly value={actorName} /></div><div className="space-y-2"><label htmlFor="replenishment-remarks" className="text-sm font-medium">Remarks (required to reject)</label><Input id="replenishment-remarks" maxLength={1000} value={remarks} disabled={locked || !data.canReject} aria-invalid={Boolean(remarksError)} aria-describedby={remarksError ? "replenishment-remarks-error" : undefined} onChange={event => setRemarks(event.target.value)} />{remarksError && <p id="replenishment-remarks-error" className="text-xs font-medium text-destructive">{remarksError}</p>}</div></div>}
