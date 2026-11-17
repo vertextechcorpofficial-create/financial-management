@@ -2,21 +2,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { voucherApi } from "../providers/vouchers.api";
 import { onboardingRequestId } from "../providers/onboarding.api";
+import { sameResource } from "../utils/readResource";
 import { PREVIEW_RETRY_DELAYS, retryablePreviewError } from "../utils/voucherPreview";
 import type { VoucherInput, VoucherPreview } from "../voucher-types";
 
 export function useVoucherRead<T>(path: string | null, delay = 0) {
-  const [revision, setRevision] = useState(0), [result, setResult] = useState<{ key: string; path: string; data: T | null; error: Error | null } | null>(null);
+  const [revision, setRevision] = useState(0), [result, setResult] = useState<{ key: string; path: string; data: T | null; error: Error | null; updatedAt?: number } | null>(null);
   const key = JSON.stringify([path, revision]);
   useEffect(() => {
     if (!path) return;
     const controller = new AbortController();
-    const timer = setTimeout(() => { voucherApi<T>(path, { signal: controller.signal }).then(data => { if (!controller.signal.aborted) setResult({ key, path, data, error: null }); })
-      .catch(cause => { if (!controller.signal.aborted) setResult(previous => ({ key, path, data: previous?.path === path ? previous.data : null, error: cause instanceof Error ? cause : new Error("Unable to load vouchers.") })); }); }, delay);
+    const timer = setTimeout(() => { voucherApi<T>(path, { signal: controller.signal }).then(data => { if (!controller.signal.aborted) setResult({ key, path, data, error: null, updatedAt: Date.now() }); })
+      .catch(cause => { if (!controller.signal.aborted) setResult(previous => ({ key, path, data: previous?.path === path ? previous.data : null, error: cause instanceof Error ? cause : new Error("Unable to load vouchers."), updatedAt: previous?.path === path ? previous.updatedAt : undefined })); }); }, delay);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [path, key, delay]);
-  const resolved = result?.key === key, samePath = path !== null && result?.path === path;
-  return { data: samePath ? result.data : null, error: resolved ? result.error : null, loading: path !== null && !samePath, refreshing: Boolean(samePath) && !resolved, refresh: useCallback(() => setRevision(value => value + 1), []) };
+  const active = result && path !== null && (result.path === path || sameResource(result.path, path)) ? result : null, resolved = active?.key === key;
+  return { data: active?.data ?? null, updatedAt: active?.updatedAt ?? null, error: active?.path === path ? active.error : null, loading: path !== null && !active, refreshing: Boolean(active) && !resolved, refresh: useCallback(() => setRevision(value => value + 1), []) };
 }
 export function useVoucherPreview(input: VoucherInput, enabled = true, fundVersion?: number) {
   const serialized = JSON.stringify(input); const [revision, setRevision] = useState(0);

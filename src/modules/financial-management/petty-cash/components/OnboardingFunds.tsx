@@ -6,11 +6,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import type { Choice, Fund, FundReference, Page, Settings } from "../onboarding-types";
 import { useOnboardingCommand, useOnboardingRead } from "../hooks/useOnboarding";
+import { usePettyCashRefresh } from "../hooks/usePettyCashRefresh";
 import { OnboardingError } from "../providers/onboarding.api";
 import { OnboardingChoice } from "./OnboardingChoice";
 import { ErrorBox, Field, NativeSelect, OnboardingFeedback, Paging } from "./OnboardingCommon";
 import { FundStatusBadge } from "./FundStatusBadge";
 import { TableSkeleton } from "./PettyCashSkeletons";
+import { UpdatedAgo } from "./UpdatedAgo";
 import { onboardingFieldError, onboardingFieldErrors } from "../utils/onboardingFeedback";
 import { fundFilterParams } from "../utils/fundFilters";
 
@@ -33,7 +35,8 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
   useEffect(() => { const timer = window.setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 250); return () => window.clearTimeout(timer); }, [search]);
   const filtersActive = Boolean(search.trim() || department || custodian || statusFilter !== "ALL");
   const query = fundFilterParams({ page, search: debouncedSearch, departmentId: department?.id, custodianId: custodian?.id, status: statusFilter }).toString();
-  const { data, loading, error, refresh } = useOnboardingRead<Page<Fund>>(`funds?${query}`);
+  const { data, loading, refreshing, updatedAt, error, refresh } = useOnboardingRead<Page<Fund>>(`funds?${query}`);
+  usePettyCashRefresh(refresh, loading || refreshing);
   function clearFilters() { setSearch(""); setDebouncedSearch(""); setDepartment(null); setCustodian(null); setStatusFilter("ALL"); setPage(1); }
   function changeDepartment(value: Choice | null) { setDepartment(value); setPage(1); }
   function changeCustodian(value: Choice | null) { setCustodian(value); setPage(1); }
@@ -47,7 +50,7 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
     setPage(1);
     refresh();
   }
-  return <div className="space-y-4 rounded-xl border bg-card p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Fund requests</h2>{canSubmit && <Button onClick={() => setEditor("new")}>+ New fund request</Button>}</div>
+  return <div className="space-y-4 rounded-xl border bg-card p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Fund requests</h2><div className="flex flex-wrap items-center gap-3"><UpdatedAgo at={updatedAt} onRefresh={refresh} />{canSubmit && <Button onClick={() => setEditor("new")}>+ New fund request</Button>}</div></div>
     <div role="search" aria-label="Fund request filters" className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3">
       <div className="min-w-56 flex-1 space-y-2"><label htmlFor="fund-search" className="text-sm font-medium">Search</label><Input id="fund-search" type="search" aria-label="Search funds" placeholder="Fund name, PCF #, or requester" value={search} onChange={event => setSearch(event.target.value)} /></div>
       <div className="w-full sm:w-52"><OnboardingChoice label="Department" resource="departments" selected={department} onSelect={changeDepartment} placeholder="All departments" /></div>
@@ -55,7 +58,7 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
       <div className="w-full sm:w-48"><NativeSelect label="Status" id="fund-status" value={statusFilter} onChange={changeStatus}><option value="ALL">All statuses</option><option value="PENDING">Pending approval</option><option value="ACTIVE">Active</option><option value="REJECTED">Rejected</option><option value="CLOSED">Closed</option></NativeSelect></div>
       {filtersActive && <Button type="button" variant="ghost" onClick={clearFilters}>Clear filters</Button>}
     </div>
-    <ErrorBox error={error} retry={refresh} title="Could not load fund requests" />{loading && <TableSkeleton label="Loading fund requests" rows={5} columns={9} />}
+    <ErrorBox error={error} retry={refresh} title="Could not load fund requests" />{loading && <TableSkeleton label="Loading fund requests" rows={5} columns={9} />}{refreshing && <p role="status" className="text-sm text-muted-foreground">Updating fund requests...</p>}
     {data && <><div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="bg-muted/40"><tr>{["Fund", "Department", "Custodian", "Imprest", "Per voucher", "Approval above", "Requested by", "Status", ...(canEdit || canDelete ? [""] : [])].map((label, i) => <th key={i} className="p-3">{label}</th>)}</tr></thead><tbody>
       {data.items.map(item => <tr className="border-t" key={item.id}><td className="p-3"><span>{item.docNo}</span><strong className="block">{item.name || "Not set"}</strong></td><td className="p-3">{item.department?.name || "Not set"}</td><td className="p-3">{item.custodian?.name || "Not set"}</td>
         <td className="whitespace-nowrap p-3">{money(item.imprestAmount)}</td><td className="whitespace-nowrap p-3">{money(item.perVoucherLimit)}</td><td className="whitespace-nowrap p-3">{money(item.approvalThreshold)}</td><td className="p-3">{item.requestedBy?.name || "Not set"}<small className="block text-muted-foreground">{item.createdAt?.slice(0, 10)}</small></td><td className="p-3"><FundStatusBadge status={item.status} /></td>
