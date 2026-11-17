@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ALL } from "../constants";
 import { EMPTY_LOG_FILTERS, type LogFilters } from "../hooks/useMasterlist";
 import { DateField } from "./DateField";
+import { OptionCombobox } from "./OptionCombobox";
 
 type Props = {
   filters: LogFilters;
@@ -60,32 +61,25 @@ export function AuditFilters({ filters, modules, users, onChange }: Props) {
         />
       </div>
 
-      <Select value={filters.module} onValueChange={(value) => onChange({ ...filters, module: value })}>
-        <SelectTrigger className="w-full" aria-label="Module filter">
-          <SelectValue className="truncate" placeholder="All modules" />
-        </SelectTrigger>
-        <SelectContent className="max-h-60">
-          <SelectItem value={ALL}>All modules</SelectItem>
-          {modules.map((module) => (
-            <SelectItem key={module} value={module}>
-              {module}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <OptionCombobox
+        options={[{ value: ALL, label: "All modules" }, ...modules.map((module) => ({ value: module, label: module }))]}
+        value={filters.module}
+        onChange={(value) => onChange({ ...filters, module: value })}
+        placeholder="All modules"
+        searchPlaceholder="Search modules"
+        emptyLabel="No module matches."
+        aria-label="Module filter"
+      />
 
-      <Select value={filters.user} onValueChange={(value) => onChange({ ...filters, user: value })}>
-        <SelectTrigger className="w-full" aria-label="User filter">
-          <SelectValue className="truncate" placeholder="All users" />
-        </SelectTrigger>
-        <SelectContent className="max-h-60">
-          {userOptions.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <OptionCombobox
+        options={userOptions}
+        value={filters.user}
+        onChange={(value) => onChange({ ...filters, user: value })}
+        placeholder="All users"
+        searchPlaceholder="Search users"
+        emptyLabel="No user matches."
+        aria-label="User filter"
+      />
 
       <Select value={filters.pht} onValueChange={(value) => onChange({ ...filters, pht: value })}>
         <SelectTrigger className="w-full" aria-label="Timestamp filter">

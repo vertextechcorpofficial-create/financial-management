@@ -16,6 +16,7 @@ import type { PaymentBody } from "../schemas";
 import type { PaymentRow } from "../types";
 import { ConfirmDeleteDialog } from "./ConfirmDeleteDialog";
 import { DateField } from "./DateField";
+import { OptionCombobox } from "./OptionCombobox";
 import { PaymentDetailDialog } from "./PaymentDetailDialog";
 import { PaymentDialog } from "./PaymentDialog";
 import { TablePager } from "./TablePager";
@@ -167,25 +168,21 @@ export function PaymentsTab({
 
           <div className="space-y-1.5">
             <Label className="text-[11px] font-medium text-muted-foreground">Form</Label>
-            <Select
+            <OptionCombobox
+              options={[
+                { value: "ALL", label: "All forms" },
+                ...formCodes.map((value) => ({ value, label: value })),
+              ]}
               value={formCode}
-              onValueChange={(value) => {
+              onChange={(value) => {
                 setFormCode(value);
                 setPage(1);
               }}
-            >
-              <SelectTrigger className="w-full" aria-label="Form code filter">
-                <SelectValue placeholder="All forms" />
-              </SelectTrigger>
-              <SelectContent className="max-h-60">
-                <SelectItem value="ALL">All forms</SelectItem>
-                {formCodes.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {value}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              placeholder="All forms"
+              searchPlaceholder="Search form codes"
+              emptyLabel="No form code matches."
+              aria-label="Form code filter"
+            />
           </div>
 
           <div className="space-y-1.5">
