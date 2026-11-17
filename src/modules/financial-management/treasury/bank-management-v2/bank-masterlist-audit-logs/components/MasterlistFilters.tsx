@@ -98,22 +98,18 @@ export function MasterlistFilters({
 
         <div className="space-y-1.5">
           <Label className="text-[11px] font-medium text-muted-foreground">Account type</Label>
-          <Select
+          <OptionCombobox
+            options={[
+              { value: ALL, label: "All types" },
+              ...accountTypeOptions.map((option) => ({ value: option, label: option })),
+            ]}
             value={filters.type ?? ALL}
-            onValueChange={(value) => onChange({ ...filters, type: value === ALL ? undefined : value })}
-          >
-            <SelectTrigger className="w-full" aria-label="Account type filter">
-              <SelectValue className="truncate" placeholder="All types" />
-            </SelectTrigger>
-            <SelectContent className="max-h-60">
-              <SelectItem value={ALL}>All types</SelectItem>
-              {accountTypeOptions.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onChange={(value) => onChange({ ...filters, type: value === ALL ? undefined : value })}
+            placeholder="All types"
+            searchPlaceholder="Search account types"
+            emptyLabel="No account type matches."
+            aria-label="Account type filter"
+          />
         </div>
 
         <div className="space-y-1.5">
@@ -135,22 +131,18 @@ export function MasterlistFilters({
 
         <div className="space-y-1.5">
           <Label className="text-[11px] font-medium text-muted-foreground">IFRS 9 category</Label>
-          <Select
+          <OptionCombobox
+            options={[
+              { value: ALL, label: "All categories" },
+              ...ifrsOptions.map((option) => ({ value: option, label: option })),
+            ]}
             value={filters.ifrs ?? ALL}
-            onValueChange={(value) => onChange({ ...filters, ifrs: value === ALL ? undefined : value })}
-          >
-            <SelectTrigger className="w-full" aria-label="IFRS 9 category filter">
-              <SelectValue className="truncate" placeholder="All categories" />
-            </SelectTrigger>
-            <SelectContent className="max-h-60">
-              <SelectItem value={ALL}>All categories</SelectItem>
-              {ifrsOptions.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onChange={(value) => onChange({ ...filters, ifrs: value === ALL ? undefined : value })}
+            placeholder="All categories"
+            searchPlaceholder="Search IFRS 9 categories"
+            emptyLabel="No category matches."
+            aria-label="IFRS 9 category filter"
+          />
         </div>
 
         <div className="space-y-1.5">

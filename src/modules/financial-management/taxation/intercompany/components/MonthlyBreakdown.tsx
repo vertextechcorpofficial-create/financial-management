@@ -14,6 +14,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { formatMonth, toneClass } from "../constants";
 import { usePager } from "../hooks/usePager";
 import { TablePager } from "./TablePager";
+import { OptionCombobox } from "./OptionCombobox";
 import type { IntercompanyMonthlyRow } from "../types";
 
 const PAGE_SIZE = 10;
@@ -100,19 +101,22 @@ export function MonthlyBreakdown({
               </SelectContent>
             </Select>
 
-            <Select value={filter.counterparty} onValueChange={(value) => patch({ counterparty: value })}>
-              <SelectTrigger aria-label="Counterparty" className="w-full">
-                <SelectValue placeholder="Counterparty" />
-              </SelectTrigger>
-              <SelectContent className="max-h-60">
-                <SelectItem value="ALL">All counterparties</SelectItem>
-                {counterparties.map((item) => (
-                  <SelectItem key={item.code} value={item.code}>
-                    {item.code} · {item.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <OptionCombobox
+              options={[
+                { value: "ALL", label: "All counterparties" },
+                ...counterparties.map((item) => ({
+                  value: item.code,
+                  label: `${item.code} · ${item.name}`,
+                  searchText: `${item.code} ${item.name}`,
+                })),
+              ]}
+              value={filter.counterparty}
+              onChange={(value) => patch({ counterparty: value })}
+              placeholder="Counterparty"
+              searchPlaceholder="Search counterparties"
+              emptyLabel="No counterparty matches."
+              aria-label="Counterparty"
+            />
 
             <Select value={filter.direction} onValueChange={(value) => patch({ direction: value as Direction })}>
               <SelectTrigger aria-label="Direction" className="w-full">
