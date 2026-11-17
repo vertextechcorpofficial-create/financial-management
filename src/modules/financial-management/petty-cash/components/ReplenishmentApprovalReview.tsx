@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ErrorBox, OnboardingFeedback } from "./OnboardingCommon";
+import { DecisionConfirm } from "./DecisionConfirm";
+import { ReviewActions } from "./ReviewActions";
 import { ReviewSkeleton } from "./PettyCashSkeletons";
 import { ReplenishmentJournal } from "./ReplenishmentJournal";
 import { ReplenishmentStatus } from "./ReplenishmentStatus";
@@ -18,11 +20,11 @@ const sum = (values: string[]) => { const cents = values.reduce((n, v) => n + vo
 
 export function ReplenishmentApprovalReview({ id, actorName, onClose, onChanged }: { id: number; actorName: string; onClose: () => void; onChanged: (record: ReplenishmentReview) => void }) {
   const read = useFundRead<ReplenishmentReview>(`replenishment-approval/requests/${id}`), command = useFundDecision<ReplenishmentReview>();
-  const [remarks, setRemarks] = useState(""), [confirmed, setConfirmed] = useState(false);
+  const [remarks, setRemarks] = useState(""), [confirmed, setConfirmed] = useState(false), [confirming, setConfirming] = useState(false);
   const data = read.data, r = data?.row.request, p = r?.snapshot, locked = command.busy || command.uncertain, pending = r?.state === "PENDING";
   const remarksError = onboardingFieldError(command.error, "remarks") || onboardingFieldError(command.error, "reason");
   const cashError = onboardingFieldError(command.error, "cashConfirmed");
-  function reload() { setConfirmed(false); command.clearError(); read.refresh(); }
+  function reload() { setConfirmed(false); setConfirming(false); command.clearError(); read.refresh(); }
   async function decide(action: "approve" | "reject") {
     if (!r || !data) return;
     const payload = action === "approve" ? { version: r.version, reviewToken: data.reviewToken, cashConfirmed: confirmed, remarks } : { version: r.version, reason: remarks };
@@ -46,6 +48,7 @@ export function ReplenishmentApprovalReview({ id, actorName, onClose, onChanged 
       {!!data.history.length && <details className="rounded-lg border p-3 text-sm"><summary className="cursor-pointer font-medium">Action history</summary><ul className="mt-3 space-y-2">{data.history.map((h, i) => <li key={i}>{h.occurredAt.replace("T", " ")} - {h.actorName} - {h.action.replaceAll("_", " ")}{h.reason ? ` - ${h.reason}` : ""}</li>)}</ul></details>}
     </>}
     {command.uncertain && <p role="status" className="text-sm">The decision outcome is not confirmed. Retry the same decision to safely recover its result.</p>}
-    <div className="flex flex-wrap gap-2 pt-2">{command.uncertain ? <Button disabled={command.busy} onClick={async () => { const result = await command.retry(); if (result) onChanged(result); }}>{command.busy ? "Checking decision..." : "Retry decision"}</Button> : pending && <><Button disabled={locked || !data?.canApprove || !confirmed || Boolean(data?.blockers.length)} onClick={() => void decide("approve")}>Approve and post</Button><Button variant="destructive" disabled={locked || !data?.canReject || !remarks.trim()} onClick={() => void decide("reject")}>Reject</Button></>}{r && print}<Button variant="outline" disabled={locked} onClick={onClose}>Cancel</Button>{command.error && !locked && <Button variant="outline" onClick={reload}>Reload review</Button>}</div>
+    {confirming && data && r && p && !command.uncertain && <DecisionConfirm title={`Approve and post ${r.docNo}?`} description="This posts the replenishment entry and updates the fund balance. It cannot be undone." items={[["Fund", `${p.fund.docNo} · ${p.fund.name}`], ["Cash counted", voucherMoney(p.countedCash)], ["Over / (short)", voucherMoney(p.variance)], ["To reimburse", voucherMoney(p.reimbursement)], ["Posting date", data.accountingDate || "-"]]} confirmLabel="Approve and post" busy={command.busy} onCancel={() => setConfirming(false)} onConfirm={() => { setConfirming(false); void decide("approve"); }} />}
+    <ReviewActions>{command.uncertain ? <Button disabled={command.busy} onClick={async () => { const result = await command.retry(); if (result) onChanged(result); }}>{command.busy ? "Checking decision..." : "Retry decision"}</Button> : pending && <><Button disabled={locked || !data?.canApprove || !confirmed || Boolean(data?.blockers.length)} onClick={() => setConfirming(true)}>Approve and post</Button><Button variant="destructive" disabled={locked || !data?.canReject || !remarks.trim()} onClick={() => void decide("reject")}>Reject</Button></>}{r && print}<Button variant="outline" disabled={locked} onClick={onClose}>Cancel</Button>{command.error && !locked && <Button variant="outline" onClick={reload}>Reload review</Button>}</ReviewActions>
   </DialogContent></Dialog>;
 }

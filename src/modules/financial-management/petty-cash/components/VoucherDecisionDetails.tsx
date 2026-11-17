@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useFundRead } from "../hooks/useFunds";
 import { ErrorBox } from "./OnboardingCommon";
 import { VoucherReviewSkeleton } from "./PettyCashSkeletons";
+import { ReviewActions } from "./ReviewActions";
 import { ReceiptTable, voucherMoney, voucherStatus } from "./VoucherReview";
 import type { VoucherDecision } from "../voucher-approval-types";
 
@@ -22,6 +23,6 @@ export function VoucherDecisionDetails({ id, onClose }: { id: number; onClose: (
       {value.proposed && <div className="rounded-lg border p-3 text-sm"><h2 className="font-medium">Correction reviewed</h2><p>Gross: {voucherMoney(value.effective.saved.totals.gross)} → {voucherMoney(target.saved.totals.gross)}</p><p>Net cash: {voucherMoney(value.effective.saved.totals.netCash)} → {voucherMoney(target.saved.totals.netCash)}</p><p>Original particulars: {value.effective.saved.particulars}</p></div>}
       <ReceiptTable revision={target} />{target.attachments.length > 0 && <section className="space-y-2"><h2 className="font-medium">Supporting documents at review</h2><div className="flex flex-wrap gap-2">{target.attachments.filter(file => file.state === "READY").map(file => <Button key={file.id} variant="outline" size="sm" asChild><a className="max-w-full truncate" href={`${resource}/attachments/${file.id}?view=preview`} target="_blank" rel="noreferrer">{file.filename}</a></Button>)}</div></section>}
     </>}
-    <div className="flex flex-wrap justify-end gap-2">{data && <Button variant="outline" asChild><a href={`${resource}/print`} target="_blank" rel="noreferrer">Print decision</a></Button>}<Button variant="outline" onClick={onClose}>Close</Button></div>
+    <ReviewActions align="end">{data && <Button variant="outline" asChild><a href={`${resource}/print`} target="_blank" rel="noreferrer">Print decision</a></Button>}<Button variant="outline" onClick={onClose}>Close</Button></ReviewActions>
   </DialogContent></Dialog>;
 }

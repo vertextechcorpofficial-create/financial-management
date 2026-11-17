@@ -6,9 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FundingAccountChoice } from "./components/FundingAccountChoice";
+import { DecisionConfirm } from "./components/DecisionConfirm";
+import { ReviewActions } from "./components/ReviewActions";
 import { ErrorBox, Field, OnboardingFeedback } from "./components/OnboardingCommon";
 import { ReviewSkeleton, PreviewSkeleton, TableSkeleton } from "./components/PettyCashSkeletons";
 import { useFundDecision, useFundRead } from "./hooks/useFunds";
+import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
+import { UpdatedAgo } from "./components/UpdatedAgo";
 import { OnboardingError } from "./providers/onboarding.api";
 import type { Choice, Page } from "./onboarding-types";
 import type { FundDetails, FundRecord } from "./fund-types";
@@ -41,6 +45,7 @@ function LegacyFundApproval({ actorName, canDecide }: { actorName: string; canDe
   const [selected, setSelected] = useState<string | null>(null);
   const pending = useFundRead<Page<FundRecord>>(`${root}/funds?queue=pending&page=${pendingPage}&pageSize=25`);
   const decided = useFundRead<Page<FundRecord>>(`${root}/funds?queue=decided&page=${decidedPage}&pageSize=25`);
+  usePettyCashRefresh(pending.refresh, pending.loading || pending.refreshing);
   function changed(result: FundDetails) {
     toast.success(result.fund.status === "ACTIVE"
       ? `${result.fund.docNo} approved and funded.${result.journal ? ` Establishment entry ${result.journal.number} was posted.` : ""}`
@@ -50,7 +55,7 @@ function LegacyFundApproval({ actorName, canDecide }: { actorName: string; canDe
     setDecidedPage(1); pending.refresh(); decided.refresh();
   }
   return <section className="space-y-5"><div><h1 className="text-2xl font-semibold tracking-tight">Onboarding Approval</h1><p className="mt-2 text-sm text-muted-foreground">Approve or reject new fund requests. Select a request to see its details and decide. Approval records funding and posts the entry.</p></div>
-    <section className="overflow-hidden rounded-xl border bg-card"><h2 className="p-5 text-lg font-semibold">Awaiting approval{pending.data ? ` (${pending.data.total})` : ""}</h2>
+    <section className="overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center justify-between gap-2 p-5"><h2 className="text-lg font-semibold">Awaiting approval{pending.data ? ` (${pending.data.total})` : ""}</h2><UpdatedAgo at={pending.updatedAt} onRefresh={pending.refresh} /></div>
       {pending.loading && <div className="px-5 pb-5"><TableSkeleton label="Loading pending approval requests" rows={5} columns={8} /></div>}<ErrorBox error={pending.error || null} retry={pending.refresh} title="Could not load approval queue" />
       {pending.data && <>{pending.data.items.length ? <div className="overflow-x-auto"><table aria-label="Awaiting approval" className="w-full text-left text-sm [&_th]:whitespace-nowrap [&_th]:p-3 [&_th]:font-medium [&_td]:p-3"><thead className="border-y bg-muted/40"><tr>{["Request", "Type", "Fund", "Detail", "Requested by", "Date", "Status", ""].map((label, index) => <th key={index}>{label}</th>)}</tr></thead><tbody>
         {pending.data.items.map(fund => <tr key={fund.id} tabIndex={0} className="cursor-pointer border-b align-top last:border-0 hover:bg-muted/30 focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setSelected(fund.id)} onKeyDown={event => { if (event.target === event.currentTarget && event.key === "Enter") setSelected(fund.id); }}>
@@ -72,7 +77,7 @@ function LegacyFundApproval({ actorName, canDecide }: { actorName: string; canDe
 }
 
 function FundApprovalReview({ id, actorName, canDecide, onClose, onChanged }: { id: string; actorName: string; canDecide: boolean; onClose: () => void; onChanged: (result: FundDetails) => void }) {
-  const [funding, setFunding] = useState<Choice | null>(null), [remarks, setRemarks] = useState(""), [confirmed, setConfirmed] = useState(false), [decision, setDecision] = useState<"approve" | "reject" | null>(null);
+  const [funding, setFunding] = useState<Choice | null>(null), [remarks, setRemarks] = useState(""), [confirmed, setConfirmed] = useState(false), [confirming, setConfirming] = useState(false), [decision, setDecision] = useState<"approve" | "reject" | null>(null);
   const read = useFundRead<FundDetails>(`${root}/funds/${id}`);
   const selectedPreview = useFundRead<FundDetails>(funding ? `${root}/funds/${id}?fundingAccountId=${funding.id}` : null);
   const command = useFundDecision(), data = selectedPreview.data ?? read.data, fund = data?.fund;
@@ -84,7 +89,7 @@ function FundApprovalReview({ id, actorName, canDecide, onClose, onChanged }: { 
   const remarksError = onboardingFieldError(command.error, "remarks") || onboardingFieldError(command.error, "reason");
   const departmentError = onboardingFieldError(command.error, "departmentId");
   const cashError = onboardingFieldError(command.error, "cashConfirmed");
-  function reload() { setConfirmed(false); setDecision(null); command.clearError(); read.refresh(); selectedPreview.refresh(); }
+  function reload() { setConfirmed(false); setConfirming(false); setDecision(null); command.clearError(); read.refresh(); selectedPreview.refresh(); }
   async function decide(action: "approve" | "reject") {
     if (!fund) return;
     setDecision(action);
@@ -112,9 +117,10 @@ function FundApprovalReview({ id, actorName, canDecide, onClose, onChanged }: { 
       {!pending && <p className="text-sm text-muted-foreground">This request has already been decided. Close the review to see its decision in the register.</p>}
     </>}
     {command.uncertain && <OnboardingFeedback tone="warning" title="Decision outcome is unconfirmed"><p>Retry the same decision to check its status and safely complete it.</p></OnboardingFeedback>}
-    <div className="flex flex-wrap gap-2 pt-2">{command.uncertain ? <Button disabled={command.busy} onClick={async () => { const result = await command.retry(); if (result) onChanged(result); }}>{command.busy ? "Checking decision..." : "Retry decision"}</Button> : pending && canDecide && <>
-      <Button disabled={locked || !data?.canDecide || !funding || !preview?.ready || !confirmed || Boolean(departmentError)} onClick={() => void decide("approve")}>{command.busy ? "Submitting decision..." : "Approve and fund"}</Button>
+    {confirming && pending && canDecide && fund && preview && !command.uncertain && <DecisionConfirm title={`Approve and fund ${fund.docNo}?`} description="This activates the fund and posts the funding entry. It cannot be undone." items={[["Fund", `${fund.docNo} · ${fund.name}`], ["Department", fund.department?.name || "Not set"], ["Custodian", fund.custodian?.name || "Not set"], ["Imprest", money(fund.imprestAmount)], ["Funding account", funding ? `${funding.code} · ${funding.name}` : "Not selected"], ["Posting date", preview.accountingDate || "-"]]} confirmLabel="Approve and fund" busy={command.busy} onCancel={() => setConfirming(false)} onConfirm={() => { setConfirming(false); void decide("approve"); }} />}
+    <ReviewActions>{command.uncertain ? <Button disabled={command.busy} onClick={async () => { const result = await command.retry(); if (result) onChanged(result); }}>{command.busy ? "Checking decision..." : "Retry decision"}</Button> : pending && canDecide && <>
+      <Button disabled={locked || !data?.canDecide || !funding || !preview?.ready || !confirmed || Boolean(departmentError)} onClick={() => setConfirming(true)}>{command.busy ? "Submitting decision..." : "Approve and fund"}</Button>
       <Button variant="destructive" disabled={locked || !data?.canDecide || !remarks.trim()} onClick={() => void decide("reject")}>Reject</Button>
-    </>}<Button variant="outline" disabled={locked} onClick={onClose}>Cancel</Button>{command.error && !locked && <Button variant="outline" onClick={reload}>Reload review</Button>}</div>
+    </>}<Button variant="outline" disabled={locked} onClick={onClose}>Cancel</Button>{command.error && !locked && <Button variant="outline" onClick={reload}>Reload review</Button>}</ReviewActions>
   </DialogContent></Dialog>;
 }

@@ -3,7 +3,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
 import { useFundRead, useFundDecision } from "./hooks/useFunds";
 import { MasterChoice, MasterError } from "./components/MasterCommon";
 import { Field, NativeSelect, OnboardingFeedback } from "./components/OnboardingCommon";
@@ -56,8 +55,6 @@ export default function PettyCashReportsModule() {
   const tableQuery = kind === "vouchers" ? historical : kind === "audit" ? params(dates) : (kind === "funds" || kind === "gl-reconciliation") ? params(fundParam) : kind === "ewt" ? params({ ...fundParam, quarter: selectedQuarter }) : params({ ...fundParam, ...dates });
   const overview = useFundRead<ReportOverview>(invalid ? null : `reports/overview?${historical}`, 250), position = useFundRead<ReportPosition>(`reports/current-position?${params(fundParam)}`);
   const report = useFundRead<ReportTable>(scopeInvalid ? null : `reports/tables/${kind}?${tableQuery}&page=${page}&pageSize=25`, 250), analysis = overview.data, filtersActive = Boolean(fund || account || payee || from || to || status);
-  usePettyCashRefresh(position.refresh, position.loading || position.refreshing);
-  usePettyCashRefresh(report.refresh, report.loading || report.refreshing);
   function changed(action: () => void) { action(); setPage(1); command.clearError(); }
   function clear() { setFund(null); setAccount(null); setPayee(null); setFrom(""); setTo(""); setStatus(""); setPage(1); command.clearError(); }
   function requestCertificate(payeeId?: number, payeeName?: string) { if (!selectedQuarter) return; command.clearError(); setCertificateRequest({ payeeId, payeeName }); }

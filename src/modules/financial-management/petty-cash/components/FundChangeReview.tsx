@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { FundingAccountChoice } from "./FundingAccountChoice";
+import { DecisionConfirm } from "./DecisionConfirm";
+import { ReviewActions } from "./ReviewActions";
 import { MasterError, MasterTable, CountLabel } from "./MasterCommon";
 import { Field, OnboardingFeedback } from "./OnboardingCommon";
 import { ReviewSkeleton } from "./PettyCashSkeletons";
@@ -16,14 +18,14 @@ import { onboardingFieldError } from "../utils/onboardingFeedback";
 import { voucherMoney as money } from "../utils/voucherMoney";
 
 export function FundChangeReview({ id, actorName, canDecide, onClose, onChanged }: { id: string; actorName: string; canDecide: boolean; onClose: () => void; onChanged: (message?: string) => void }) {
-  const [funding, setFunding] = useState<Choice | null>(null), [remarks, setRemarks] = useState(""), [confirmed, setConfirmed] = useState(false), [decision, setDecision] = useState<"approve" | "reject" | null>(null);
+  const [funding, setFunding] = useState<Choice | null>(null), [remarks, setRemarks] = useState(""), [confirmed, setConfirmed] = useState(false), [confirming, setConfirming] = useState(false), [decision, setDecision] = useState<"approve" | "reject" | null>(null);
   const read = useFundRead<ChangePreview>(`onboarding-approval/changes/${id}${funding ? `?fundingAccountId=${funding.id}` : ""}`), command = useFundDecision<ChangePreview>(), data = read.data, locked = command.busy || command.uncertain;
   const conflict = command.error instanceof OnboardingError && command.error.status === 409;
   const reviewErrorTitle = decision === "reject" ? "Could not reject fund change" : decision === "approve" ? "Could not approve fund change" : "Could not complete fund decision";
   const fundingError = onboardingFieldError(command.error, "fundingAccountId");
   const remarksError = onboardingFieldError(command.error, "remarks") || onboardingFieldError(command.error, "reason");
   const cashError = onboardingFieldError(command.error, "cashConfirmed");
-  function reload() { setConfirmed(false); setDecision(null); command.clearError(); read.refresh(); }
+  function reload() { setConfirmed(false); setConfirming(false); setDecision(null); command.clearError(); read.refresh(); }
   async function decide(action: "approve" | "reject") {
     if (!data) return;
     setDecision(action);
@@ -41,7 +43,8 @@ export function FundChangeReview({ id, actorName, canDecide, onClose, onChanged 
       {data.change.state === "PENDING" && !canDecide && <OnboardingFeedback tone="info" title="Review only"><p>You can review this request, but only users with approval access can approve or reject it.</p></OnboardingFeedback>}
       {data.change.state === "PENDING" && <><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><label htmlFor="change-approver" className="text-sm font-medium">Approver</label><Input id="change-approver" readOnly value={actorName} /></div><Field label="Remarks (required to reject)" id="change-remarks" value={remarks} maxLength={1000} disabled={locked} error={remarksError} onChange={value => { setRemarks(value); command.clearError(); }} /></div>{data.cashRequired && <><label className="flex items-center gap-2 text-sm"><input aria-invalid={Boolean(cashError)} aria-describedby={cashError ? "change-cash-error" : undefined} type="checkbox" disabled={locked} checked={confirmed} onChange={event => { setConfirmed(event.target.checked); command.clearError(); }} />I confirm the funding or counted cash return required by this change.</label>{cashError && <p id="change-cash-error" className="text-xs font-medium text-destructive">{cashError}</p>}</>}</>}
       {command.uncertain && <OnboardingFeedback tone="warning" title="Decision outcome is unconfirmed"><p>Retry the same decision to check its status and safely complete it.</p></OnboardingFeedback>}
+    {confirming && data?.change.state === "PENDING" && !command.uncertain && <DecisionConfirm title={`Approve ${data.change.docNo}?`} description="This approves the fund change and posts the entry where one is required. It cannot be undone." items={[["Change", `${data.change.docNo} · ${CHANGE_TYPES[data.change.type as keyof typeof CHANGE_TYPES]}`], ["Fund", `${data.fund.docNo} · ${data.fund.name}`], ["Detail", data.change.newImprest ? `${money(data.change.requestedFund.imprest)} → ${money(data.change.newImprest)}` : data.change.newCustodian || "Return counted cash and close"], ["Funding account", funding ? `${funding.code} · ${funding.name}` : data.fundingRequired ? "Not selected" : "Not required"], ["Cash confirmation", data.cashRequired ? "Confirmed" : "Not required"]]} confirmLabel="Approve change" busy={command.busy} onCancel={() => setConfirming(false)} onConfirm={() => { setConfirming(false); void decide("approve"); }} />}
     </>}
-    <div className="flex flex-wrap justify-end gap-2">{command.uncertain ? <Button disabled={command.busy} onClick={async () => { if (await command.retry()) onChanged(); }}>Check / retry decision</Button> : data?.change.state === "PENDING" && <><Button disabled={!canDecide || !data.canApprove || data.cashRequired && !confirmed || locked} onClick={() => void decide("approve")}>{command.busy ? "Saving..." : "Approve"}</Button><Button variant="destructive" disabled={!canDecide || !data.canReject || !remarks.trim() || locked} onClick={() => void decide("reject")}>Reject</Button></>}<Button variant="outline" disabled={locked} onClick={reload}>Reload review</Button><Button variant="outline" disabled={locked} onClick={onClose}>Close</Button></div>
+    <ReviewActions align="end">{command.uncertain ? <Button disabled={command.busy} onClick={async () => { if (await command.retry()) onChanged(); }}>Check / retry decision</Button> : data?.change.state === "PENDING" && <><Button disabled={!canDecide || !data.canApprove || data.cashRequired && !confirmed || locked} onClick={() => setConfirming(true)}>{command.busy ? "Saving..." : "Approve"}</Button><Button variant="destructive" disabled={!canDecide || !data.canReject || !remarks.trim() || locked} onClick={() => void decide("reject")}>Reject</Button></>}<Button variant="outline" disabled={locked} onClick={reload}>Reload review</Button><Button variant="outline" disabled={locked} onClick={onClose}>Close</Button></ReviewActions>
   </DialogContent></Dialog>;
 }

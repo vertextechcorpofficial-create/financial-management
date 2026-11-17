@@ -3,6 +3,8 @@ import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useFundRead } from "./hooks/useFunds";
+import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
+import { UpdatedAgo } from "./components/UpdatedAgo";
 import type { ApprovalRow } from "./master-types";
 import type { Page } from "./onboarding-types";
 import { ApprovalFilterBar } from "./components/ApprovalFilterBar";
@@ -17,6 +19,7 @@ export default function PettyCashApprovalQueue({ actorName, canDecide, renderFun
   const [pendingFilters, setPendingFilters] = useState<ApprovalFilterState>({ ...EMPTY_APPROVAL_FILTERS.pending }), [decidedFilters, setDecidedFilters] = useState<ApprovalFilterState>({ ...EMPTY_APPROVAL_FILTERS.decided });
   const pending = useFundRead<Page<ApprovalRow>>(`onboarding-approval/requests?${approvalFilterParams({ queue: "pending", page: pendingPage, filters: pendingFilters })}`, 250);
   const decided = useFundRead<Page<ApprovalRow>>(`onboarding-approval/requests?${approvalFilterParams({ queue: "decided", page: decidedPage, filters: decidedFilters })}`, 250);
+  usePettyCashRefresh(pending.refresh, pending.loading || pending.refreshing);
   function updatePending(patch: Partial<ApprovalFilterState>) { setPendingFilters(filters => ({ ...filters, ...patch })); setPendingPage(1); }
   function updateDecided(patch: Partial<ApprovalFilterState>) { setDecidedFilters(filters => ({ ...filters, ...patch })); setDecidedPage(1); }
   function clearPending() { setPendingFilters({ ...EMPTY_APPROVAL_FILTERS.pending }); setPendingPage(1); }
@@ -34,7 +37,7 @@ export default function PettyCashApprovalQueue({ actorName, canDecide, renderFun
     ]).map(({ name, queue, read, page, setPage, isPending, filters, update, clear }) => {
       const active = approvalFiltersActive(filters, queue);
       return <section key={name} className="space-y-3 rounded-xl border bg-card p-5">
-        <h2 className="text-lg font-semibold">{isPending ? `Awaiting approval${read.data ? ` (${read.data.total})` : ""}` : `Decided${read.data ? ` (${read.data.total})` : ""}`}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold">{isPending ? `Awaiting approval${read.data ? ` (${read.data.total})` : ""}` : `Decided${read.data ? ` (${read.data.total})` : ""}`}</h2>{isPending && <UpdatedAgo at={read.updatedAt} onRefresh={read.refresh} />}</div>
         <ApprovalFilterBar queue={queue} filters={filters} onChange={update} onClear={clear} />
         <MasterError error={read.error} retry={read.refresh} title={isPending ? "Could not load approval queue" : "Could not load decided requests"} />
         {read.loading && <TableSkeleton label={isPending ? "Loading pending approval requests" : "Loading decided requests"} rows={5} columns={isPending ? 8 : 7} />}

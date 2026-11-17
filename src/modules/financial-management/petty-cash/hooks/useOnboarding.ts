@@ -2,21 +2,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { onboardingApi, onboardingRequestId, OnboardingError } from "../providers/onboarding.api";
 import { isUnauthorized } from "../utils/sessionExpiry";
+import { sameResource } from "../utils/readResource";
 
 export function useOnboardingRead<T>(path: string, delay = 0) {
   const [revision, setRevision] = useState(0);
-  const [result, setResult] = useState<{ key: string; data: T | null; error: Error | null } | null>(null);
+  const [result, setResult] = useState<{ key: string; path: string; data: T | null; error: Error | null; updatedAt?: number } | null>(null);
   const key = JSON.stringify([path, revision]);
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      onboardingApi<T>(path, { signal: controller.signal }).then(data => { if (!controller.signal.aborted) setResult({ key, data, error: null }); })
-        .catch(cause => { if (!controller.signal.aborted && !isUnauthorized(cause)) setResult({ key, data: null, error: cause instanceof Error ? cause : new Error("Unable to load Onboarding.") }); });
+      onboardingApi<T>(path, { signal: controller.signal }).then(data => { if (!controller.signal.aborted) setResult({ key, path, data, error: null, updatedAt: Date.now() }); })
+        .catch(cause => { if (!controller.signal.aborted && !isUnauthorized(cause)) setResult(previous => ({ key, path, data: null, error: cause instanceof Error ? cause : new Error("Unable to load Onboarding."), updatedAt: previous?.path === path ? previous.updatedAt : undefined })); });
     }, delay);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [path, key, delay]);
-  return { data: result?.key === key ? result.data : null, error: result?.key === key ? result.error : null,
-    loading: result?.key !== key, refresh: useCallback(() => setRevision(value => value + 1), []) };
+  const active = result && (result.key === key || sameResource(result.path, path)) ? result : null, resolved = active?.key === key;
+  return { data: active?.data ?? null, updatedAt: active?.updatedAt ?? null, error: active?.path === path ? active.error : null,
+    loading: !active, refreshing: Boolean(active) && !resolved, refresh: useCallback(() => setRevision(value => value + 1), []) };
 }
 export function useOnboardingCommand() {
   const active = useRef(false); const identity = useRef<{ fingerprint: string; key: string } | null>(null);

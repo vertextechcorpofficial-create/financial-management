@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useFundRead } from "./hooks/useFunds";
+import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
+import { UpdatedAgo } from "./components/UpdatedAgo";
 import { ErrorBox, Paging } from "./components/OnboardingCommon";
 import { FundSelect } from "./components/FundSelect";
 import { ResponsiveListSkeleton } from "./components/PettyCashSkeletons";
@@ -30,12 +32,13 @@ function Queue({ queue, funds, fundsDisabled, revision, onOpen }: { queue: "pend
   const params = new URLSearchParams({ queue, page: String(page), pageSize: "25", decision });
   if (search.trim()) params.set("search", search.trim()); if (fundId) params.set("fundId", fundId); if (from) params.set("dateFrom", from); if (to) params.set("dateTo", to);
   const read = useFundRead<Page<VoucherApprovalRow>>(invalid ? null : `disbursement-approval/requests?${params}`, 250), refresh = read.refresh;
+  usePettyCashRefresh(refresh, !pending || read.loading || read.refreshing);
   useEffect(() => { if (revision) refresh(); }, [revision, refresh]);
   const lastPage = read.data ? Math.max(1, Math.ceil(read.data.total / 25)) : page;
   if (page > lastPage) setPage(lastPage);
   function update(action: () => void) { action(); setPage(1); }
   const headers = pending ? ["Voucher / revision", "Fund", "Payee / particulars", "Prepared by", "Voucher date / submitted", "Gross", "Cash paid", "Cash to pay / (return)", ""] : ["Voucher / revision", "Fund", "Payee / particulars", "Decision", "Decided by", "Decided at", "Cash paid before", "Cash paid / (returned)", ""];
-  return <section aria-label={title} className="overflow-hidden rounded-xl border bg-card"><div className="space-y-3 p-5"><h2 className="text-lg font-semibold">{title}{read.data ? ` (${read.data.total})` : ""}</h2><p className="text-sm text-muted-foreground">{pending ? "Oldest submitted vouchers and corrections appear first." : "Individual approval and rejection decisions, newest first. Direct payments are not approval decisions."}</p>
+  return <section aria-label={title} className="overflow-hidden rounded-xl border bg-card"><div className="space-y-3 p-5"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold">{title}{read.data ? ` (${read.data.total})` : ""}</h2>{pending && <UpdatedAgo at={read.updatedAt} onRefresh={refresh} />}</div><p className="text-sm text-muted-foreground">{pending ? "Oldest submitted vouchers and corrections appear first." : "Individual approval and rejection decisions, newest first. Direct payments are not approval decisions."}</p>
     <div role="search" aria-label={`${title} filters`} className="flex flex-wrap items-end gap-3">
       <div className="min-w-0 flex-1 basis-56 space-y-1"><label htmlFor={`${queue}-search`} className="text-xs">Search</label><Input id={`${queue}-search`} placeholder="Voucher, fund, payee, particulars or receipt" maxLength={200} value={search} onChange={event => update(() => setSearch(event.target.value))} /></div>
       <div className="w-64 max-w-full"><FundSelect funds={funds} value={fundId ? Number(fundId) : null} onChange={value => update(() => setFundId(value === null ? "" : String(value)))} includeAll size="sm" disabled={fundsDisabled} pageSize={10} searchPlaceholder="Search fund number or name..." /></div>
