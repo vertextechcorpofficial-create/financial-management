@@ -163,11 +163,10 @@ export function ScheduleTab({ schedules }: { schedules: ReturnType<typeof useSch
           <div className={`flex items-start gap-2 border-b border-border/50 px-4 py-3 text-sm ${toneClass("warning")}`}>
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <div>
-              <p className="font-medium">The installments do not add up to what this version started with.</p>
+              <p className="font-medium">The last installment does not clear the principal.</p>
               <p className="text-xs text-muted-foreground">
-                Principal across this version is {money(tie.schedulePrincipal)} against {money(tie.loanPrincipal)} of
-                principal open when it was written, a difference of {money(tie.difference)}. Regenerate the schedule, or
-                check the last restatement.
+                {money(tie.schedulePrincipal)} of principal is scheduled and {money(tie.difference)} is still open
+                after the final installment. Regenerate the schedule, or check the last restatement.
               </p>
             </div>
           </div>
@@ -265,7 +264,7 @@ export function ScheduleTab({ schedules }: { schedules: ReturnType<typeof useSch
                     <TableCell className="text-right tabular-nums text-muted-foreground">—</TableCell>
                     <TableCell className="text-right tabular-nums">{money(data.totals.paid)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {tie?.ties ? "Ties to principal" : "Does not tie"}
+                      {!tie ? "—" : tie.ties ? (tie.capitalised > 0 ? "Clears the balance" : "Ties to principal") : "Does not tie"}
                     </TableCell>
                   </TableRow>
                 </TableFooter>

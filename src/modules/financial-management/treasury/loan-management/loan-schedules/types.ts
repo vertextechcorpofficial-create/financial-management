@@ -208,6 +208,11 @@ export interface ScheduleTotals {
 export interface ScheduleTie {
   schedulePrincipal: number;
   loanPrincipal: number;
+  /** Principal open on the version's first row, before any restatement step. */
+  openingPrincipal: number;
+  /** Principal a restructure added at a step in the chain, usually overdue interest capitalised. */
+  capitalised: number;
+  /** Principal the last installment leaves open; zero when the chain closes. */
   difference: number;
   ties: boolean;
 }
