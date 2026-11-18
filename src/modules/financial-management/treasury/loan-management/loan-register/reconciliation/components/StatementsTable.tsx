@@ -13,6 +13,7 @@ type Props = {
   rows: StatementRow[];
   isLoading: boolean;
   isFiltered: boolean;
+  onOpen: (row: StatementRow) => void;
 };
 
 /** Lender figure on top, ours underneath. A reader comparing a statement needs both on one line. */
@@ -48,7 +49,7 @@ function varianceText(row: StatementRow) {
   return differing.map(([label, delta]) => `${label} ${formatCurrency(delta)}`).join(" · ");
 }
 
-export function StatementsTable({ rows, isLoading, isFiltered }: Props) {
+export function StatementsTable({ rows, isLoading, isFiltered, onOpen }: Props) {
   return (
     <>
       <div className="hidden overflow-x-auto min-[1300px]:block">
@@ -87,7 +88,11 @@ export function StatementsTable({ rows, isLoading, isFiltered }: Props) {
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={row.id} className="hover:bg-muted/30">
+                <tr
+                  key={row.id}
+                  className="cursor-pointer transition-colors hover:bg-muted/30"
+                  onClick={() => onOpen(row)}
+                >
                   <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{row.statementDate}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{row.loanNo}</td>
                   <td className="px-3 py-2.5">
@@ -137,7 +142,12 @@ export function StatementsTable({ rows, isLoading, isFiltered }: Props) {
           </li>
         ) : (
           rows.map((row) => (
-            <li key={row.id} className="px-4 py-3">
+            <li
+              key={row.id}
+              role="presentation"
+              className="cursor-pointer px-4 py-3 transition-colors hover:bg-muted/30"
+              onClick={() => onOpen(row)}
+            >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <span className="text-sm font-medium tabular-nums">{row.statementDate}</span>
                 <StatusBadge tone={STATEMENT_RESULT_TONE[row.result]}>{STATEMENT_RESULT_LABEL[row.result]}</StatusBadge>

@@ -8,11 +8,10 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber } from "@/lib/utils";
 
-import { ACCENT, LOCK_BLOCKS, SETTINGS_PAGE_SIZE } from "../constants";
+import { ACCENT, SETTINGS_PAGE_SIZE } from "../constants";
 import { phtDisplayStamp } from "../pht";
 import type { SettingsLock, SettingsValue } from "../types";
 import { CloseBooksDialog } from "./CloseBooksDialog";
-import { Notice } from "./Notice";
 import { ReopenDialog } from "./ReopenDialog";
 import { StatusBadge } from "./StatusBadge";
 import { TablePager, pageCountFor, pageSlice, usePageSize } from "./TablePager";
@@ -45,18 +44,14 @@ export function PeriodsTab({
 
   return (
     <div className="space-y-3">
-      <Notice tone="warning" title="What a lock refuses">
-        {LOCK_BLOCKS}
-      </Notice>
-
       <Card className={`border-t-[3px] ${ACCENT}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold">Books closed through</h3>
+            <h3 className="text-sm font-semibold">Lock date</h3>
             <p className="text-xs text-muted-foreground">
               {currentLock
-                ? `Closed through ${currentLock.lockedThrough}${currentLock.lockedByName ? ` by ${currentLock.lockedByName}` : ""}. Reopen it before posting anything dated on or before that day.`
-                : "No period is closed, so every date can be posted."}
+                ? `Nothing dated on or before ${currentLock.lockedThrough} can be posted${currentLock.lockedByName ? `, set by ${currentLock.lockedByName}` : ""}.`
+                : "No lock date is set, so every date can be posted."}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -84,7 +79,7 @@ export function PeriodsTab({
               onClick={() => setClosing(true)}
             >
               <Lock className="mr-1.5 h-4 w-4" aria-hidden />
-              Close the books
+              Set lock date
             </Button>
           </div>
         </div>
@@ -93,10 +88,10 @@ export function PeriodsTab({
           <Table className="table-fixed [&_th:first-child]:pl-4 [&_td:first-child]:pl-4 [&_th:last-child]:pr-4 [&_td:last-child]:pr-4 [&_th]:py-2.5 [&_td]:py-3">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[150px]">Closed through</TableHead>
+                <TableHead className="w-[150px]">Lock date</TableHead>
                 <TableHead>Note</TableHead>
-                <TableHead className="w-[170px]">Closed by</TableHead>
-                <TableHead className="w-[170px]">Closed at</TableHead>
+                <TableHead className="w-[170px]">Set by</TableHead>
+                <TableHead className="w-[170px]">Set at</TableHead>
                 <TableHead className="w-[150px]">Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -127,7 +122,7 @@ export function PeriodsTab({
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
-                    No period has been closed yet.
+                    No lock date has been set yet.
                   </TableCell>
                 </TableRow>
               ) : null}
@@ -153,7 +148,7 @@ export function PeriodsTab({
             </li>
           ))}
           {rows.length === 0 ? (
-            <li className="px-4 py-10 text-center text-sm text-muted-foreground">No period has been closed yet.</li>
+            <li className="px-4 py-10 text-center text-sm text-muted-foreground">No lock date has been set yet.</li>
           ) : null}
         </ul>
 
@@ -177,8 +172,7 @@ export function PeriodsTab({
           <div className="min-w-0">
             <h3 className="text-sm font-semibold">Stored values</h3>
             <p className="text-xs text-muted-foreground">
-              Read-only. These pairs are spare settings kept for future screens; nothing on the loan screens reads
-              them yet, so there is nothing to change here.
+              Read-only. No screen reads these keys.
             </p>
           </div>
         </div>

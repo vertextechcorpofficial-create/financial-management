@@ -12,6 +12,7 @@ import { useStatements } from "../hooks/useStatements";
 import { ReconciliationTable } from "./ReconciliationTable";
 import { Notice } from "./Notice";
 import { RollForwardPanel } from "./RollForwardPanel";
+import { ReconciliationDetailDialog } from "./ReconciliationDetailDialog";
 import { SignOffDialog } from "./SignOffDialog";
 import { StatementsPanel } from "./StatementsPanel";
 import { TablePager, pageCountFor, usePageSize } from "./TablePager";
@@ -23,6 +24,7 @@ export function ReconciliationModule() {
   const statements = useStatements();
   const [tab, setTab] = useState("roll-forward");
   const [signing, setSigning] = useState<ReconciliationRow | null>(null);
+  const [viewing, setViewing] = useState<ReconciliationRow | null>(null);
   const [pageSize, setPageSize] = usePageSize(RECONCILIATION_STORAGE_KEY, RECONCILIATION_PAGE_SIZE);
   const pageCount = pageCountFor(reconciliation.total, pageSize);
 
@@ -113,6 +115,7 @@ export function ReconciliationModule() {
               isLoading={reconciliation.isLoading}
               isFiltered={reconciliation.resultFilter !== "ALL"}
               onSignOff={(row) => setSigning(row)}
+              onOpen={(row) => setViewing(row)}
             />
 
             {reconciliation.total > 0 ? (
@@ -142,6 +145,14 @@ export function ReconciliationModule() {
           />
         </TabsContent>
       </Tabs>
+
+      <ReconciliationDetailDialog
+        row={viewing}
+        open={viewing !== null}
+        onOpenChange={(open) => {
+          if (!open) setViewing(null);
+        }}
+      />
 
       <SignOffDialog
         row={signing}

@@ -18,7 +18,7 @@ import { LOCK_BLOCKS } from "../constants";
 import { DateField } from "./DateField";
 import { phtToday } from "../pht";
 
-/** Close the books through a date, with a note for the audit line. */
+/** Lock posting through a date, with a note for the audit line. */
 export function CloseBooksDialog({
   currentLockedThrough,
   isSaving,
@@ -36,11 +36,11 @@ export function CloseBooksDialog({
 
   const dateError =
     lockedThrough === ""
-      ? "Pick the date the books are closed through."
+      ? "Pick the lock date."
       : lockedThrough > phtToday()
-        ? "The closing date cannot be in the future."
+        ? "The lock date cannot be in the future."
         : currentLockedThrough && lockedThrough <= currentLockedThrough
-          ? `The books are already closed through ${currentLockedThrough}.`
+          ? `The lock date is already ${currentLockedThrough}.`
           : "";
 
   async function submit() {
@@ -54,19 +54,19 @@ export function CloseBooksDialog({
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[550px]">
         <DialogHeader className="border-b px-6 py-4">
-          <DialogTitle>Close the books</DialogTitle>
+          <DialogTitle>Set lock date</DialogTitle>
           <DialogDescription>{LOCK_BLOCKS}</DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           <div className="space-y-2">
             <Label>
-              Closed through <span className="text-destructive">*</span>
+              Lock date <span className="text-destructive">*</span>
             </Label>
             <DateField
               value={lockedThrough}
               onChange={setLockedThrough}
-              placeholder="Pick the closing date"
+              placeholder="Pick a date"
               maxDate={phtToday()}
               inDialog
               aria-invalid={touched && Boolean(dateError)}
@@ -75,7 +75,7 @@ export function CloseBooksDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="close-note">Note</Label>
+            <Label htmlFor="close-note">Note (optional)</Label>
             <Input
               id="close-note"
               value={note}
@@ -90,7 +90,7 @@ export function CloseBooksDialog({
             Cancel
           </Button>
           <Button type="button" disabled={isSaving} onClick={() => void submit()}>
-            Close the books
+            Set lock date
           </Button>
         </DialogFooter>
       </DialogContent>

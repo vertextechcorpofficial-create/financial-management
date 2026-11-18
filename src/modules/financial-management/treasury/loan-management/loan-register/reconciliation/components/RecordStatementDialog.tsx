@@ -161,6 +161,7 @@ export function RecordStatementDialog({ open, onOpenChange, loans, today, isSavi
               inDialog
               aria-label="Statement date"
               aria-invalid={Boolean(errors.statementDate)}
+              className="w-full sm:w-[190px]"
             />
             {errors.statementDate ? <p className="mt-1 text-xs text-destructive">{errors.statementDate}</p> : null}
           </div>

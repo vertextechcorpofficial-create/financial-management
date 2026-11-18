@@ -44,10 +44,10 @@ export function ReopenDialog({
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[520px]">
         <DialogHeader className="border-b px-6 py-4">
-          <DialogTitle>Reopen the books after {lock.lockedThrough}</DialogTitle>
+          <DialogTitle>Remove the lock on {lock.lockedThrough}</DialogTitle>
           <DialogDescription>
-            Reopening lets payments and reconciliations dated on or before {lock.lockedThrough} post again. The reason stays on
-            the lock row.
+            Payments and reconciliations dated on or before {lock.lockedThrough} can post again. The reason stays on
+            the row.
           </DialogDescription>
         </DialogHeader>
 
@@ -71,7 +71,7 @@ export function ReopenDialog({
             Cancel
           </Button>
           <Button type="button" disabled={isSaving} onClick={() => void submit()}>
-            Reopen the books
+            Remove the lock
           </Button>
         </DialogFooter>
       </DialogContent>

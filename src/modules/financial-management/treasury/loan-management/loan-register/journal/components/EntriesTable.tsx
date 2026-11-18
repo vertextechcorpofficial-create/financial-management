@@ -66,14 +66,28 @@ export function EntriesTable({ rows, isLoading, isFiltered, onOpen }: Props) {
               <th className="px-4 py-2.5 text-right font-medium">Debit</th>
               <th className="px-4 py-2.5 text-right font-medium">Credit</th>
               <th className="px-4 py-2.5 text-left font-medium">Status</th>
-              <th className="px-4 py-2.5 text-right font-medium">Lines</th>
+              <th className="px-4 py-2.5 text-right font-medium">
+                <span className="sr-only">Open</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {rows.map((row) => (
               <tr
                 key={row.id}
-                className={`transition-colors hover:bg-muted/40 ${row.status === "REVERSED" ? "text-muted-foreground" : ""}`}
+                tabIndex={0}
+                role="button"
+                aria-label={`Open ${row.entryNo}`}
+                onClick={() => onOpen(row)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpen(row);
+                  }
+                }}
+                className={`cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+                  row.status === "REVERSED" ? "text-muted-foreground" : ""
+                }`}
               >
                 <td className="px-4 py-3 whitespace-nowrap tabular-nums text-muted-foreground">{shortDate(row.entryDate)}</td>
                 <td className="px-4 py-3">
@@ -86,16 +100,16 @@ export function EntriesTable({ rows, isLoading, isFiltered, onOpen }: Props) {
                   ) : null}
                 </td>
                 <td className="px-4 py-3">
-                  <div className="max-w-[170px] truncate" title={`${row.loanNo ?? "—"} · ${row.lenderName ?? "—"}`}>
+                  <div className="max-w-[150px] truncate" title={`${row.loanNo ?? "—"} · ${row.lenderName ?? "—"}`}>
                     {row.loanNo ?? "—"}
                   </div>
-                  <div className="max-w-[170px] truncate text-xs text-muted-foreground">{row.lenderName ?? "—"}</div>
+                  <div className="max-w-[150px] truncate text-xs text-muted-foreground">{row.lenderName ?? "—"}</div>
                 </td>
                 <td className="px-4 py-3">
                   <StatusBadge tone={ENTRY_TYPE_TONE[row.entryType]}>{ENTRY_TYPE_LABEL[row.entryType]}</StatusBadge>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="max-w-[200px] truncate" title={row.description || undefined}>
+                  <div className="max-w-[160px] truncate" title={row.description || undefined}>
                     {row.description || "—"}
                   </div>
                   <BalanceBadge row={row} />
@@ -112,10 +126,13 @@ export function EntriesTable({ rows, isLoading, isFiltered, onOpen }: Props) {
                     size="sm"
                     className="h-8"
                     aria-label={`View lines for ${row.entryNo}`}
-                    onClick={() => onOpen(row)}
+                    title="View the posted lines"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpen(row);
+                    }}
                   >
-                    <Eye className="mr-1.5 h-4 w-4" aria-hidden />
-                    View lines
+                    <Eye className="h-4 w-4" aria-hidden />
                   </Button>
                 </td>
               </tr>

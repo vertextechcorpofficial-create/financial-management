@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatNumber } from "@/lib/utils";
 
 import { ACCENT, ACCOUNT_KIND_LABEL, SETTINGS_PAGE_SIZE } from "../constants";
-import type { AccountBody } from "../schemas";
+import type { AccountBody, AccountPatch } from "../schemas";
 import type { GlAccountOption, SettingsAccount } from "../types";
 import { AccountDialog } from "./AccountDialog";
 import { Notice } from "./Notice";
@@ -21,7 +21,7 @@ type Props = {
   chartAccounts: GlAccountOption[];
   isSaving: boolean;
   onAdd: (body: AccountBody) => Promise<unknown>;
-  onEdit: (id: number, patch: { isActive?: boolean }) => Promise<unknown>;
+  onEdit: (id: number, patch: AccountPatch) => Promise<unknown>;
 };
 
 /** Where money is paid from. A retired row stays listed, because payments point at it. */
@@ -29,6 +29,7 @@ export function AccountsTab({ accounts, chartAccounts, isSaving, onAdd, onEdit }
   const [pageSize, setPageSize] = usePageSize("fm.loan-settings.accounts-rows", SETTINGS_PAGE_SIZE);
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<SettingsAccount | null>(null);
   const pageCount = pageCountFor(accounts.length, pageSize);
   const rows = useMemo(() => pageSlice(accounts, page, pageSize), [accounts, page, pageSize]);
   const active = accounts.filter((row) => row.isActive);
@@ -37,15 +38,9 @@ export function AccountsTab({ accounts, chartAccounts, isSaving, onAdd, onEdit }
     <div className="space-y-3">
       {active.length === 0 ? (
         <Notice tone="warning" title="No active payment account.">
-          The Payments screen cannot record a payment until one is active here: every payment needs an account to pay from
-          and a GL account to debit.
+          Payments cannot be recorded until one account here is active.
         </Notice>
-      ) : (
-        <Notice tone="info" title="What this controls">
-          A payment is only offered from an account that is active. Each payment debits the GL account named here, and the charge
-          percent is added to the money leaving.
-        </Notice>
-      )}
+      ) : null}
 
       <Card className={`border-t-[3px] ${ACCENT}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
@@ -113,12 +108,18 @@ export function AccountsTab({ accounts, chartAccounts, isSaving, onAdd, onEdit }
                 <TableHead className="w-[92px] text-right">Charge</TableHead>
                 <TableHead className="w-[104px] text-right">Payments</TableHead>
                 <TableHead className="w-[104px]">Status</TableHead>
-                <TableHead className="w-[132px] text-right">Action</TableHead>
+                <TableHead className="w-[132px] text-right">
+                  <span className="sr-only">Action</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((account) => (
-                <TableRow key={account.id}>
+                <TableRow
+                  key={account.id}
+                  className="cursor-pointer transition-colors hover:bg-muted/40"
+                  onClick={() => setEditing(account)}
+                >
                   <TableCell className="max-w-[240px] truncate font-medium" title={account.name}>
                     {account.name}
                   </TableCell>
@@ -146,7 +147,10 @@ export function AccountsTab({ accounts, chartAccounts, isSaving, onAdd, onEdit }
                             : "Retiring stops this account being offered for new payments."
                           : "Offer this account again when recording a payment."
                       }
-                      onClick={() => void onEdit(account.id, { isActive: !account.isActive })}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void onEdit(account.id, { isActive: !account.isActive });
+                      }}
                     >
                       {account.isActive ? "Retire" : "Activate"}
                     </Button>
@@ -191,6 +195,16 @@ export function AccountsTab({ accounts, chartAccounts, isSaving, onAdd, onEdit }
           isSaving={isSaving}
           onClose={() => setDialogOpen(false)}
           onSubmit={onAdd}
+        />
+      ) : null}
+
+      {editing ? (
+        <AccountDialog
+          account={editing}
+          chartAccounts={chartAccounts}
+          isSaving={isSaving}
+          onClose={() => setEditing(null)}
+          onSubmit={(body) => onEdit(editing.id, body)}
         />
       ) : null}
     </div>

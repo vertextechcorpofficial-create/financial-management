@@ -30,14 +30,12 @@ export function MappingsTab({ mappings, chartAccounts, isSaving, onChange }: Pro
 
   return (
     <div className="space-y-3">
-      {unmapped.length === 0 ? (
-        <Notice tone="info" title="Every posting account is mapped.">
-          Releases, accruals, payments and closures all have an account to post to.
-        </Notice>
-      ) : (
-        <Notice tone="danger" title={`${formatNumber(unmapped.length)} posting account${unmapped.length === 1 ? " is" : "s are"} not mapped.`}>
-          Any posting that needs one of these keys is refused until an account is chosen. The sentence under each row names what
-          stops working.
+      {unmapped.length === 0 ? null : (
+        <Notice
+          tone="danger"
+          title={`${formatNumber(unmapped.length)} posting account${unmapped.length === 1 ? " is" : "s are"} not mapped.`}
+        >
+          Posting stops at any key that has no account.
         </Notice>
       )}
 

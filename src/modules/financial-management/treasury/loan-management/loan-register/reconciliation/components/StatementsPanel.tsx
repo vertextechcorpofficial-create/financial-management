@@ -10,9 +10,10 @@ import { formatCurrency } from "@/lib/utils";
 
 import { ACCENT, STATEMENT_PAGE_SIZE, STATEMENT_STORAGE_KEY } from "../constants";
 import type { useStatements } from "../hooks/useStatements";
-import type { LoanOption } from "../types";
+import type { LoanOption, StatementRow } from "../types";
 import { Notice } from "./Notice";
 import { RecordStatementDialog } from "./RecordStatementDialog";
+import { StatementDetailDialog } from "./StatementDetailDialog";
 import { StatementsTable } from "./StatementsTable";
 import { TablePager, pageCountFor, usePageSize } from "./TablePager";
 
@@ -31,6 +32,7 @@ const RESULT_OPTIONS = [
 /** Lender statements: the record band, the comparison table and one pager. */
 export function StatementsPanel({ loans, today, statements }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [viewing, setViewing] = useState<StatementRow | null>(null);
   const [pageSize, setPageSize] = usePageSize(STATEMENT_STORAGE_KEY, STATEMENT_PAGE_SIZE);
   const pageCount = pageCountFor(statements.total, pageSize);
   // Net, not gross: absolute values would hide two statements that disagree in opposite directions.
@@ -94,6 +96,7 @@ export function StatementsPanel({ loans, today, statements }: Props) {
         rows={statements.rows}
         isLoading={statements.isLoading}
         isFiltered={statements.resultFilter !== "ALL"}
+        onOpen={(row) => setViewing(row)}
       />
 
       {statements.total > 0 ? (
@@ -112,6 +115,14 @@ export function StatementsPanel({ loans, today, statements }: Props) {
           className="border-t border-border/50 px-4 py-3"
         />
       ) : null}
+
+      <StatementDetailDialog
+        row={viewing}
+        open={viewing !== null}
+        onOpenChange={(open) => {
+          if (!open) setViewing(null);
+        }}
+      />
 
       <RecordStatementDialog
         open={dialogOpen}

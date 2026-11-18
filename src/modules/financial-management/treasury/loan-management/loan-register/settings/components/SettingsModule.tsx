@@ -3,12 +3,10 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatNumber } from "@/lib/utils";
 
 import { useSettings } from "../hooks/useSettings";
-import { phtDisplayStamp } from "../pht";
 import { AccountsTab } from "./AccountsTab";
 import { HolidaysTab } from "./HolidaysTab";
 import { MappingsTab } from "./MappingsTab";
@@ -35,7 +33,7 @@ export function SettingsModule() {
           <h1 className="text-lg font-semibold">Loan Settings</h1>
           <p className="text-sm text-muted-foreground">
             The accounts money moves through, the days the schedule avoids, the GL accounts every posting needs, and how far the
-            books are closed.
+            posting is locked.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -58,85 +56,72 @@ export function SettingsModule() {
 
       {settings.error ? (
         <Notice tone="danger" title="The settings could not be read.">
-          {settings.error} Nothing on this page can be saved while the tables cannot be read: a change would be written blind.
+          {settings.error}
         </Notice>
       ) : null}
 
       {!settings.isLoading && settings.accounts.filter((row) => row.isActive).length === 0 ? (
-        <Notice tone="warning" title="Payments are blocked.">
-          No payment account is active, so the Payments screen cannot record anything. Add one on the Payment accounts tab.
+        <Notice tone="warning" title="No payment account is active.">
+          No payment can be recorded until one is. Add it on Payment accounts.
         </Notice>
       ) : null}
 
       {settings.currentLock ? (
-        <Notice tone="info" title={`Books closed through ${settings.currentLock.lockedThrough}.`}>
-          Anything dated on or before that day is refused: payments, prepayments, restructures, payoffs, reconciliations and loan
-          approvals. Reopen the period on the Periods and locks tab to post one.
+        <Notice tone="info" title={`Locked through ${settings.currentLock.lockedThrough}.`}>
+          Posting dated on or before that day is refused.
         </Notice>
       ) : null}
 
-      <Card className="overflow-hidden rounded-2xl p-0">
-        <Tabs value={tab} onValueChange={setTab} className="gap-0">
-          <div className="border-b border-border px-4 py-3">
-            <TabsList className="h-auto flex-wrap gap-1 bg-transparent p-0">
-              {TABS.map((entry) => (
-                <TabsTrigger
-                  key={entry.value}
-                  value={entry.value}
-                  className="min-h-11 rounded-md px-3 text-sm md:min-h-0"
-                >
-                  {entry.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+        <TabsList>
+          {TABS.map((entry) => (
+            <TabsTrigger key={entry.value} value={entry.value} className="min-h-11 md:min-h-0">
+              {entry.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-          <TabsContent value="accounts" className="mt-0 p-4">
-            <AccountsTab
-              accounts={settings.accounts}
-              chartAccounts={settings.chartAccounts}
-              isSaving={settings.isSaving}
-              onAdd={settings.addAccount}
-              onEdit={settings.editAccount}
-            />
-          </TabsContent>
+        <TabsContent value="accounts">
+          <AccountsTab
+            accounts={settings.accounts}
+            chartAccounts={settings.chartAccounts}
+            isSaving={settings.isSaving}
+            onAdd={settings.addAccount}
+            onEdit={settings.editAccount}
+          />
+        </TabsContent>
 
-          <TabsContent value="holidays" className="mt-0 p-4">
-            <HolidaysTab
-              holidays={settings.holidays}
-              isSaving={settings.isSaving}
-              onAdd={settings.addHoliday}
-              onDelete={settings.removeHoliday}
-            />
-          </TabsContent>
+        <TabsContent value="holidays">
+          <HolidaysTab
+            holidays={settings.holidays}
+            isSaving={settings.isSaving}
+            onAdd={settings.addHoliday}
+            onEdit={settings.editHoliday}
+            onDelete={settings.removeHoliday}
+          />
+        </TabsContent>
 
-          <TabsContent value="gl" className="mt-0 p-4">
-            <MappingsTab
-              mappings={settings.mappings}
-              chartAccounts={settings.chartAccounts}
-              isSaving={settings.isSaving}
-              onChange={settings.mapKey}
-            />
-          </TabsContent>
+        <TabsContent value="gl">
+          <MappingsTab
+            mappings={settings.mappings}
+            chartAccounts={settings.chartAccounts}
+            isSaving={settings.isSaving}
+            onChange={settings.mapKey}
+          />
+        </TabsContent>
 
-          <TabsContent value="periods" className="mt-0 p-4">
-            <PeriodsTab
-              locks={settings.locks}
-              currentLock={settings.currentLock}
-              values={settings.values}
-              isSaving={settings.isSaving}
-              onCloseBooks={settings.lockPeriod}
-              onReopen={settings.reopenPeriod}
-            />
-          </TabsContent>
-        </Tabs>
-      </Card>
+        <TabsContent value="periods">
+          <PeriodsTab
+            locks={settings.locks}
+            currentLock={settings.currentLock}
+            values={settings.values}
+            isSaving={settings.isSaving}
+            onCloseBooks={settings.lockPeriod}
+            onReopen={settings.reopenPeriod}
+          />
+        </TabsContent>
 
-      <p className="text-xs text-muted-foreground">
-        {settings.isLoading
-          ? "Reading the settings…"
-          : `Read at ${phtDisplayStamp(new Date().toISOString())} · ${formatNumber(settings.mappings.length)} GL keys · ${formatNumber(settings.holidays.length)} holidays · ${formatNumber(settings.locks.length)} closings recorded.`}
-      </p>
+      </Tabs>
     </div>
   );
 }

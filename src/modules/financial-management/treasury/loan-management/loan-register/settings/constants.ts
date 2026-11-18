@@ -44,14 +44,6 @@ export const HOLIDAY_KIND_TONE: Record<HolidayKind, Tone> = {
   LOCAL: "neutral",
 };
 
-/**
- * Two Philippine holidays are not calendar rows: National Heroes Day is the last Monday of
- * August, and Holy Week moves with Easter. The schedule engine derives both, so adding them
- * here would create a second, wrong source for the same date.
- */
-export const HOLIDAY_DERIVED_NOTE =
-  "National Heroes Day (last Monday of August) and Holy Week (moves with Easter) are derived by the schedule engine, so they are not rows here.";
-
 /** One line per mapping key: what stops working while the key has no account. */
 export const MAPPING_BLOCKS: Record<string, string> = {
   LOAN_PRINCIPAL:
@@ -109,6 +101,6 @@ export function mappingLabel(key: string): string {
   return MAPPING_LABELS[key] ?? key.replace(/_/g, " ").toLowerCase();
 }
 
-/** What a closed period stops, in the words the screen shows above the lock. */
+/** The one line the lock dialog shows under its title. */
 export const LOCK_BLOCKS =
-  "A lock refuses any payment, prepayment, restructure, payoff or reconciliation dated on or before the closing date. Approving a loan whose release date falls inside the lock is refused too.";
+  "Nothing dated on or before this date can be posted.";

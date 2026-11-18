@@ -30,7 +30,7 @@ export function JournalFilters({ filters, options, onChange, onClear }: Props) {
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-      <div className="relative w-full min-w-0 sm:w-[280px]">
+      <div className="relative min-w-[160px] flex-1">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
         <Input
           value={filters.q}
@@ -41,7 +41,7 @@ export function JournalFilters({ filters, options, onChange, onClear }: Props) {
         />
       </div>
 
-      <div className="w-full min-w-0 sm:w-[220px]">
+      <div className="w-full min-w-0 sm:w-[165px]">
         <OptionCombobox
           options={loans.map((loan) => ({ value: String(loan.id), label: loan.label, searchText: loan.searchText }))}
           value={filters.loanId ? String(filters.loanId) : ""}
@@ -57,7 +57,7 @@ export function JournalFilters({ filters, options, onChange, onClear }: Props) {
         value={filters.entryType}
         onValueChange={(value) => onChange({ entryType: value as JournalFilters["entryType"] })}
       >
-        <SelectTrigger className="h-9 w-full sm:w-[190px]" aria-label="Filter by entry type">
+        <SelectTrigger className="h-9 w-full sm:w-[165px]" aria-label="Filter by entry type">
           <SelectValue className="truncate" placeholder="Every entry type" />
         </SelectTrigger>
         <SelectContent className="max-h-60">
@@ -70,7 +70,7 @@ export function JournalFilters({ filters, options, onChange, onClear }: Props) {
         </SelectContent>
       </Select>
 
-      <div className="w-full min-w-0 sm:w-[195px]">
+      <div className="w-full min-w-0 sm:w-[160px]">
         <OptionCombobox
           options={accounts.map((account) => ({
             value: String(account.id),
@@ -86,7 +86,7 @@ export function JournalFilters({ filters, options, onChange, onClear }: Props) {
         />
       </div>
 
-      <div className="w-[150px]">
+      <div className="w-[125px]">
         <DateField
           id="journal-from"
           value={filters.from}
@@ -95,7 +95,7 @@ export function JournalFilters({ filters, options, onChange, onClear }: Props) {
           aria-label="Entries from"
         />
       </div>
-      <div className="w-[150px]">
+      <div className="w-[125px]">
         <DateField
           id="journal-to"
           value={filters.to}

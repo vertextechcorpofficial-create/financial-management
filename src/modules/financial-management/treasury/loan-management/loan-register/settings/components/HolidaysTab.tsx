@@ -8,12 +8,11 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber } from "@/lib/utils";
 
-import { ACCENT, HOLIDAY_DERIVED_NOTE, HOLIDAY_KIND_LABEL, HOLIDAY_KIND_TONE, SETTINGS_PAGE_SIZE } from "../constants";
+import { ACCENT, HOLIDAY_KIND_LABEL, HOLIDAY_KIND_TONE, SETTINGS_PAGE_SIZE } from "../constants";
 import { phtDate } from "../pht";
 import type { HolidayBody } from "../schemas";
 import type { SettingsHoliday } from "../types";
 import { HolidayDialog } from "./HolidayDialog";
-import { Notice } from "./Notice";
 import { StatusBadge } from "./StatusBadge";
 import { TablePager, pageCountFor, pageSlice, usePageSize } from "./TablePager";
 
@@ -21,13 +20,15 @@ type Props = {
   holidays: SettingsHoliday[];
   isSaving: boolean;
   onAdd: (body: HolidayBody) => Promise<unknown>;
+  onEdit: (id: number, body: HolidayBody) => Promise<unknown>;
   onDelete: (id: number) => Promise<unknown>;
 };
 
 /** Holiday rows the schedule engine moves a due date off. */
-export function HolidaysTab({ holidays, isSaving, onAdd, onDelete }: Props) {
+export function HolidaysTab({ holidays, isSaving, onAdd, onEdit, onDelete }: Props) {
   const [pageSize, setPageSize] = usePageSize("fm.loan-settings.holidays-rows", SETTINGS_PAGE_SIZE);
   const [page, setPage] = useState(1);
+  const [editing, setEditing] = useState<SettingsHoliday | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const pageCount = pageCountFor(holidays.length, pageSize);
   const rows = useMemo(() => pageSlice(holidays, page, pageSize), [holidays, page, pageSize]);
@@ -35,10 +36,6 @@ export function HolidaysTab({ holidays, isSaving, onAdd, onDelete }: Props) {
 
   return (
     <div className="space-y-3">
-      <Notice tone="info" title="What this controls">
-        A due date that lands on a weekend or on one of these dates moves to the next business day. {HOLIDAY_DERIVED_NOTE}
-      </Notice>
-
       <Card className={`border-t-[3px] ${ACCENT}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div className="min-w-0">
@@ -61,13 +58,17 @@ export function HolidaysTab({ holidays, isSaving, onAdd, onDelete }: Props) {
         <ul className="divide-y divide-border min-[1300px]:hidden">
           {rows.map((holiday) => (
             <li key={holiday.id} className="flex items-start justify-between gap-3 px-4 py-3">
-              <div className="min-w-0 space-y-1">
+              <button
+                type="button"
+                className="min-w-0 flex-1 space-y-1 text-left"
+                onClick={() => setEditing(holiday)}
+              >
                 <p className="truncate font-medium" title={holiday.name}>
                   {holiday.name}
                 </p>
                 <p className="text-xs tabular-nums text-muted-foreground">{holiday.holidayDate}</p>
                 <StatusBadge tone={HOLIDAY_KIND_TONE[holiday.kind]}>{HOLIDAY_KIND_LABEL[holiday.kind]}</StatusBadge>
-              </div>
+              </button>
               <Button
                 type="button"
                 variant="ghost"
@@ -99,7 +100,11 @@ export function HolidaysTab({ holidays, isSaving, onAdd, onDelete }: Props) {
             </TableHeader>
             <TableBody>
               {rows.map((holiday) => (
-                <TableRow key={holiday.id}>
+                <TableRow
+                  key={holiday.id}
+                  className="cursor-pointer transition-colors hover:bg-muted/40"
+                  onClick={() => setEditing(holiday)}
+                >
                   <TableCell className="max-w-[420px] truncate font-medium" title={holiday.name}>
                     {holiday.name}
                   </TableCell>
@@ -116,7 +121,10 @@ export function HolidaysTab({ holidays, isSaving, onAdd, onDelete }: Props) {
                       aria-label={`Remove ${holiday.name}`}
                       title={`Remove ${holiday.name}`}
                       disabled={isSaving}
-                      onClick={() => void onDelete(holiday.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void onDelete(holiday.id);
+                      }}
                     >
                       <Trash2 className="h-4 w-4" aria-hidden />
                     </Button>
@@ -151,6 +159,15 @@ export function HolidaysTab({ holidays, isSaving, onAdd, onDelete }: Props) {
 
       {dialogOpen ? (
         <HolidayDialog holiday={null} isSaving={isSaving} onClose={() => setDialogOpen(false)} onSubmit={onAdd} />
+      ) : null}
+
+      {editing ? (
+        <HolidayDialog
+          holiday={editing}
+          isSaving={isSaving}
+          onClose={() => setEditing(null)}
+          onSubmit={(body) => onEdit(editing.id, body)}
+        />
       ) : null}
     </div>
   );

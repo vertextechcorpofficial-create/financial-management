@@ -9,13 +9,14 @@ import type { ReconciliationRow } from "../types";
 import { RESULT_LABEL, RESULT_TONE } from "../constants";
 import { StatusBadge } from "./StatusBadge";
 
-const COLUMNS = 13;
+const COLUMNS = 7;
 
 type Props = {
   rows: ReconciliationRow[];
   isLoading: boolean;
   isFiltered: boolean;
   onSignOff: (row: ReconciliationRow) => void;
+  onOpen: (row: ReconciliationRow) => void;
 };
 
 /** A peso amount, with a rounding zero shown as zero rather than as a minus zero. */
@@ -39,22 +40,31 @@ function signedLabel(row: ReconciliationRow) {
   );
 }
 
+/** The buckets that moved the period, kept on one line so no money leaves the face of the table. */
+function movementLabel(row: ReconciliationRow): string {
+  const buckets: Array<[string, number]> = [
+    ["new loans", row.newLoans],
+    ["interest", row.interestAmortization],
+    ["payments", -row.payments],
+    ["prepayments", -row.partialPrepayments],
+    ["restructures", -row.restructures],
+    ["payoffs", -row.payoffs],
+  ];
+  const moved = buckets.filter(([, amount]) => Math.abs(amount) >= 0.005);
+  if (moved.length === 0) return "No movement in this period";
+  return moved.map(([label, amount]) => `${label} ${peso(amount)}`).join(" \u00b7 ");
+}
+
 /** The saved periods. One row per period: the figures the sign-off froze, not a live recalculation. */
-export function ReconciliationTable({ rows, isLoading, isFiltered, onSignOff }: Props) {
+export function ReconciliationTable({ rows, isLoading, isFiltered, onSignOff, onOpen }: Props) {
   return (
     <>
       <div className="hidden overflow-x-auto min-[1300px]:block">
-        <table className="w-full min-w-[1240px] border-collapse text-sm">
+        <table className="w-full border-collapse text-sm">
           <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-4 py-2.5 text-left font-medium">Period</th>
+              <th className="px-4 py-2.5 text-left font-medium">Period and movement</th>
               <th className="px-3 py-2.5 text-right font-medium">Opening</th>
-              <th className="px-3 py-2.5 text-right font-medium">New loans</th>
-              <th className="px-3 py-2.5 text-right font-medium">Interest &amp; amort.</th>
-              <th className="px-3 py-2.5 text-right font-medium">Payments</th>
-              <th className="px-3 py-2.5 text-right font-medium">Prepayments</th>
-              <th className="px-3 py-2.5 text-right font-medium">Restructures</th>
-              <th className="px-3 py-2.5 text-right font-medium">Payoffs</th>
               <th className="px-3 py-2.5 text-right font-medium">Closing</th>
               <th className="px-3 py-2.5 text-right font-medium">Difference</th>
               <th className="px-3 py-2.5 text-left font-medium">Result</th>
@@ -83,24 +93,25 @@ export function ReconciliationTable({ rows, isLoading, isFiltered, onSignOff }: 
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={row.id} className="hover:bg-muted/30">
-                  <td className="px-4 py-2.5 whitespace-nowrap">
-                    <span className="block text-sm">
+                <tr
+                  key={row.id}
+                  className="cursor-pointer transition-colors hover:bg-muted/30"
+                  onClick={() => onOpen(row)}
+                >
+                  <td className="px-4 py-2.5">
+                    <span className="block whitespace-nowrap text-sm">
                       {row.periodStart} → {row.periodEnd}
                     </span>
+                    <span className="block max-w-[360px] truncate text-xs tabular-nums text-muted-foreground" title={movementLabel(row)}>
+                      {movementLabel(row)}
+                    </span>
                     {row.remarks ? (
-                      <span className="block max-w-[220px] truncate text-xs text-muted-foreground" title={row.remarks}>
+                      <span className="block max-w-[360px] truncate text-xs text-muted-foreground" title={row.remarks}>
                         {row.remarks}
                       </span>
                     ) : null}
                   </td>
                   <td className="px-3 py-2.5 text-right">{money(row.openingBalance)}</td>
-                  <td className="px-3 py-2.5 text-right">{money(row.newLoans)}</td>
-                  <td className="px-3 py-2.5 text-right">{money(row.interestAmortization)}</td>
-                  <td className="px-3 py-2.5 text-right">{money(-row.payments)}</td>
-                  <td className="px-3 py-2.5 text-right">{money(-row.partialPrepayments)}</td>
-                  <td className="px-3 py-2.5 text-right">{money(-row.restructures)}</td>
-                  <td className="px-3 py-2.5 text-right">{money(-row.payoffs)}</td>
                   <td className="px-3 py-2.5 text-right font-medium">{money(row.closingBalance)}</td>
                   <td className="px-3 py-2.5 text-right">
                     <span
@@ -125,7 +136,10 @@ export function ReconciliationTable({ rows, isLoading, isFiltered, onSignOff }: 
                       className="h-8"
                       disabled={Boolean(row.signedAt)}
                       title={row.signedAt ? "This period is already signed off" : "Sign off this period"}
-                      onClick={() => onSignOff(row)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSignOff(row);
+                      }}
                     >
                       {row.signedAt ? "Signed" : "Sign off"}
                     </Button>
@@ -152,7 +166,11 @@ export function ReconciliationTable({ rows, isLoading, isFiltered, onSignOff }: 
           </li>
         ) : (
           rows.map((row) => (
-            <li key={row.id} className="px-4 py-3">
+            <li
+              key={row.id}
+              className="cursor-pointer px-4 py-3 transition-colors hover:bg-muted/30"
+              onClick={() => onOpen(row)}
+            >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <span className="text-sm font-medium">
                   {row.periodStart} → {row.periodEnd}
@@ -183,7 +201,10 @@ export function ReconciliationTable({ rows, isLoading, isFiltered, onSignOff }: 
                   variant="outline"
                   className="h-8"
                   disabled={Boolean(row.signedAt)}
-                  onClick={() => onSignOff(row)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSignOff(row);
+                  }}
                 >
                   {row.signedAt ? "Signed" : "Sign off"}
                 </Button>

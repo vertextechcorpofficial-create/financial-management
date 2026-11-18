@@ -56,7 +56,7 @@ export function RollForwardPanel({
     <div className="space-y-4">
       <div className="rounded-lg border border-border/60 bg-card p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-[170px] flex-1">
+          <div className="min-w-0">
             <Label htmlFor="period-start" className="mb-1.5 block text-xs font-medium text-muted-foreground">
               Period from
             </Label>
@@ -66,9 +66,10 @@ export function RollForwardPanel({
               onChange={(value) => onPeriodChange({ ...period, periodStart: value })}
               placeholder="Pick the first day"
               aria-label="Period start"
+              className="w-full sm:w-[164px]"
             />
           </div>
-          <div className="min-w-[170px] flex-1">
+          <div className="min-w-0">
             <Label htmlFor="period-end" className="mb-1.5 block text-xs font-medium text-muted-foreground">
               Period to
             </Label>
@@ -78,6 +79,7 @@ export function RollForwardPanel({
               onChange={(value) => onPeriodChange({ ...period, periodEnd: value })}
               placeholder="Pick the last day"
               aria-label="Period end"
+              className="w-full sm:w-[164px]"
             />
           </div>
           <Button

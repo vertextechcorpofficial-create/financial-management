@@ -40,7 +40,7 @@ export function JournalModule() {
       </header>
 
       <Tabs defaultValue="entries" className="space-y-4">
-        <TabsList className="h-auto w-full justify-start gap-1 rounded-lg p-1 sm:w-auto">
+        <TabsList>
           <TabsTrigger value="entries" className="min-h-11 md:min-h-0">
             Entries
           </TabsTrigger>
@@ -49,7 +49,7 @@ export function JournalModule() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="entries" className="mt-0">
+        <TabsContent value="entries">
           <EntriesTab
             filters={filters}
             onChange={onChange}
@@ -59,7 +59,7 @@ export function JournalModule() {
           />
         </TabsContent>
 
-        <TabsContent value="summary" className="mt-0">
+        <TabsContent value="summary">
           <SummaryTab
             filters={filters}
             onChange={onChange}

@@ -5,12 +5,7 @@ import { CalendarIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverContentInDialog,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 interface DateFieldProps {
@@ -24,7 +19,11 @@ interface DateFieldProps {
   minDate?: string;
   /** Latest selectable day, inclusive, as `YYYY-MM-DD`. */
   maxDate?: string;
-  /** Set inside a Dialog: a portalled popover is dismissed by the dialog's layer on click. */
+  /**
+   * Inside a Dialog the popover is `modal`: its layer sits above the dialog's, so a click
+   * on the calendar reaches the calendar instead of dismissing the dialog, and the
+   * portalled content escapes the dialog body's overflow instead of being clipped by it.
+   */
   inDialog?: boolean;
   className?: string;
   "aria-label"?: string;
@@ -61,12 +60,11 @@ export function DateField({
   const selected = parseDateValue(value);
   const min = parseDateValue(minDate ?? "");
   const max = parseDateValue(maxDate ?? "");
-  const Content = inDialog ? PopoverContentInDialog : PopoverContent;
 
   const blocked = [...(min ? [{ before: min }] : []), ...(max ? [{ after: max }] : [])];
 
   return (
-    <Popover>
+    <Popover modal={inDialog}>
       <PopoverTrigger asChild>
         <Button
           id={id}
@@ -86,7 +84,7 @@ export function DateField({
           <span className="truncate">{selected ? format(selected, "LLL dd, y") : placeholder}</span>
         </Button>
       </PopoverTrigger>
-      <Content className="w-auto p-0" align="start">
+      <PopoverContent className="w-auto p-0" align="start">
         <Calendar
           mode="single"
           selected={selected}
@@ -96,7 +94,7 @@ export function DateField({
             if (date) onChange(formatDateValue(date));
           }}
         />
-      </Content>
+      </PopoverContent>
     </Popover>
   );
 }
