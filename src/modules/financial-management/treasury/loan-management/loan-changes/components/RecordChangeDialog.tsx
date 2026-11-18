@@ -20,13 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/utils";
 
-import {
-  CHANGE_KINDS,
-  CHANGE_KIND_HINT,
-  CHANGE_KIND_LABEL,
-  PREPAYMENT_OPTION_LABEL,
-  PREPAYMENT_OPTIONS,
-} from "../constants";
+import { CHANGE_KINDS, CHANGE_KIND_LABEL, PREPAYMENT_OPTION_LABEL, PREPAYMENT_OPTIONS } from "../constants";
 import { phtDate } from "../pht";
 import { fetchChangeContext, recordChangeRequest } from "../providers/changesApi";
 import { outstandingPrincipal, planChange } from "../services/changePlan";
@@ -74,6 +68,8 @@ const toNumber = (raw: string): number | null => {
   const value = Number(cleaned);
   return Number.isFinite(value) ? value : null;
 };
+
+const money = (value: number) => formatCurrency(Math.abs(value) < 0.005 ? 0 : value);
 
 export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Props) {
   const [form, setForm] = useState<FormState>(blank);
@@ -232,331 +228,319 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
     }
   }
 
+  const plan = preview?.plan ?? null;
+  const subtitle = context
+    ? `${context.loan.loanNo} · ${context.loan.lenderName} · version ${context.loan.scheduleVersion}`
+    : "Choose the loan this change applies to.";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[760px]">
-        <div className="flex max-h-[85vh] flex-col overflow-hidden">
-          <DialogHeader className="border-b border-border px-6 py-4">
-            <DialogTitle>Record a change</DialogTitle>
-            <DialogDescription>
-              A change rewrites the remaining installments as a new schedule version and keeps the paid ones untouched.
-            </DialogDescription>
-          </DialogHeader>
+        <DialogHeader className="space-y-1 border-b border-border px-6 py-4">
+          <DialogTitle className="truncate">Record a change</DialogTitle>
+          <DialogDescription className="truncate">{subtitle}</DialogDescription>
+        </DialogHeader>
 
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="change-loan">Loan</Label>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Tile label="Outstanding" value={context ? money(outstandingPrincipal(context.schedule)) : "—"} />
+            <Tile label="Installment" value={plan ? money(plan.newInstallment) : context ? money(context.loan.installmentAmount) : "—"} />
+            <Tile label="Maturity" value={plan?.newMaturity ?? context?.loan.maturityDate ?? "—"} />
+            <Tile label={form.kind === "RATE_CHANGE" ? "Rate after" : "Cash for this"} value={plan ? (form.kind === "RATE_CHANGE" ? `${plan.eirAfter.toFixed(2)}%` : money(plan.cashAmount)) : "—"} />
+          </div>
+
+          {isLoadingContext ? (
+            <Notice tone="info" title="Reading the loan">
+              Schedule and payoff quote for {selectedLoanLabel}.
+            </Notice>
+          ) : null}
+
+          {contextError ? (
+            <Notice tone="danger" title="Could not read this loan">
+              <p>
+                The schedule and payoff quote did not come back, so nothing can be recorded yet. {contextError}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => setContextAttempt((attempt) => attempt + 1)}
+              >
+                Try again
+              </Button>
+            </Notice>
+          ) : null}
+
+          {context?.notices.map((notice) => (
+            <Notice key={notice} tone={context.canChange ? "info" : "warning"}>
+              {notice}
+            </Notice>
+          ))}
+
+          <Group title="The change">
+            <Field label="Loan" required error={errors.loanId} htmlFor="change-loan" span>
+              <OptionCombobox
+                value={form.loanId ? String(form.loanId) : ""}
+                onChange={(value) => setForm((current) => ({ ...current, loanId: value ? Number(value) : null }))}
+                placeholder="Choose a loan"
+                searchPlaceholder="Search loan no or lender"
+                emptyLabel="No open loan found."
+                options={loans.map((loan) => ({
+                  value: String(loan.id),
+                  label: `${loan.loanNo} · ${loan.lenderName}`,
+                  searchText: `${loan.loanNo} ${loan.lenderName}`,
+                }))}
+              />
+            </Field>
+
+            <Field label="Kind" htmlFor="change-kind">
+              <Select value={form.kind} onValueChange={(value) => setForm((current) => ({ ...current, kind: value as ChangeKind }))}>
+                <SelectTrigger id="change-kind" className="h-9 w-full">
+                  <SelectValue placeholder="Choose the kind" />
+                </SelectTrigger>
+                <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
+                  {CHANGE_KINDS.map((kind) => (
+                    <SelectItem key={kind} value={kind}>
+                      {CHANGE_KIND_LABEL[kind]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field label="Effective date" required error={errors.effectiveDate} htmlFor="change-date">
+              <DateField
+                id="change-date"
+                value={form.effectiveDate}
+                onChange={(value) => setForm((current) => ({ ...current, effectiveDate: value }))}
+                inDialog
+              />
+            </Field>
+          </Group>
+
+          <Group title="Terms">
+            {form.kind === "PREPAYMENT" ? (
+              <>
+                <Field label="Amount prepaid" required error={errors.amount} htmlFor="change-amount">
+                  <Input
+                    id="change-amount"
+                    inputMode="decimal"
+                    value={form.amount}
+                    onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
+                    aria-invalid={errors.amount ? true : undefined}
+                    className="h-9 tabular-nums"
+                  />
+                </Field>
+
+                <Field label="What the prepayment buys" htmlFor="change-option">
+                  <Select
+                    value={form.prepaymentOption}
+                    onValueChange={(value) =>
+                      setForm((current) => ({ ...current, prepaymentOption: value as PrepaymentOption }))
+                    }
+                  >
+                    <SelectTrigger id="change-option" className="h-9 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
+                      {PREPAYMENT_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {PREPAYMENT_OPTION_LABEL[option]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </>
+            ) : null}
+
+            {form.kind === "RATE_CHANGE" || form.kind === "RESTRUCTURE" ? (
+              <Field label="New rate (%)" required error={errors.newRate} htmlFor="change-rate">
+                <Input
+                  id="change-rate"
+                  inputMode="decimal"
+                  value={form.newRate}
+                  onChange={(event) => setForm((current) => ({ ...current, newRate: event.target.value }))}
+                  aria-invalid={errors.newRate ? true : undefined}
+                  className="h-9 tabular-nums"
+                />
+              </Field>
+            ) : null}
+
+            {form.kind === "RESTRUCTURE" ? (
+              <Field label="Installments to run" required error={errors.newTermPayments} htmlFor="change-term">
+                <Input
+                  id="change-term"
+                  inputMode="numeric"
+                  value={form.newTermPayments}
+                  onChange={(event) => setForm((current) => ({ ...current, newTermPayments: event.target.value }))}
+                  aria-invalid={errors.newTermPayments ? true : undefined}
+                  className="h-9 tabular-nums"
+                />
+              </Field>
+            ) : null}
+
+            <Field label="Prepayment penalty %" htmlFor="change-penalty">
+              <Input
+                id="change-penalty"
+                inputMode="decimal"
+                value={form.penaltyRate}
+                onChange={(event) => setForm((current) => ({ ...current, penaltyRate: event.target.value }))}
+                className="h-9 tabular-nums"
+                disabled={form.kind === "RATE_CHANGE"}
+              />
+            </Field>
+          </Group>
+
+          <Group title="Money and notes">
+            {needsMoney && context ? (
+              <Field label="Money account" required error={errors.accountId} htmlFor="change-account">
                 <OptionCombobox
-                  value={form.loanId ? String(form.loanId) : ""}
-                  onChange={(value) => setForm((current) => ({ ...current, loanId: value ? Number(value) : null }))}
-                  placeholder="Choose a loan"
-                  searchPlaceholder="Search loan no or lender"
-                  emptyLabel="No open loan found."
-                  options={loans.map((loan) => ({
-                    value: String(loan.id),
-                    label: `${loan.loanNo} · ${loan.lenderName}`,
-                    searchText: `${loan.loanNo} ${loan.lenderName}`,
+                  value={form.accountId ? String(form.accountId) : ""}
+                  onChange={(value) => setForm((current) => ({ ...current, accountId: Number(value) }))}
+                  placeholder="Choose an account"
+                  searchPlaceholder="Search account"
+                  emptyLabel="No payment account is set up."
+                  className="h-9 w-full justify-between"
+                  options={context.accounts.map((account) => ({
+                    value: String(account.id),
+                    label: `${account.name} · ${account.label}`,
+                    searchText: `${account.name} ${account.label}`,
                   }))}
                 />
-                {errors.loanId ? <p className="text-xs text-destructive">{errors.loanId}</p> : null}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="change-kind">Kind</Label>
-                <Select value={form.kind} onValueChange={(value) => setForm((current) => ({ ...current, kind: value as ChangeKind }))}>
-                  <SelectTrigger id="change-kind" className="h-9 w-full">
-                    <SelectValue placeholder="Choose the kind" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
-                    {CHANGE_KINDS.map((kind) => (
-                      <SelectItem key={kind} value={kind}>
-                        {CHANGE_KIND_LABEL[kind]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">{CHANGE_KIND_HINT[form.kind]}</p>
-              </div>
-            </div>
-
-            {isLoadingContext ? (
-              <div className="space-y-2" aria-live="polite">
-                <Notice tone="info" title="Reading the loan">
-                  Reading {selectedLoanLabel}&rsquo;s schedule and current payoff quote. The figures and the preview appear
-                  as soon as it answers.
-                </Notice>
-                <div className="space-y-1.5">
-                  <div className="h-3 w-40 animate-pulse rounded bg-muted" />
-                  <div className="h-3 w-56 animate-pulse rounded bg-muted" />
-                  <div className="h-3 w-48 animate-pulse rounded bg-muted" />
-                </div>
-              </div>
+              </Field>
             ) : null}
 
-            {contextError ? (
-              <Notice tone="danger" title="Could not read this loan">
-                <p>
-                  The schedule and payoff quote did not come back, so nothing can be recorded yet. {contextError}
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => setContextAttempt((attempt) => attempt + 1)}
-                >
-                  Try again
-                </Button>
-              </Notice>
-            ) : null}
+            <Field label="Notes" htmlFor="change-notes" span>
+              <Textarea
+                id="change-notes"
+                value={form.notes}
+                onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                placeholder="Reference of the borrower's letter"
+                rows={2}
+                className="min-h-[72px] resize-none"
+              />
+            </Field>
+          </Group>
 
-            {context ? (
-              <div className="space-y-3">
-                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Outstanding principal</span>
-                    <span className="tabular-nums">{formatCurrency(outstandingPrincipal(context.schedule))}</span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Installment · maturity</span>
-                    <span className="tabular-nums">
-                      {formatCurrency(context.loan.installmentAmount)} · {context.loan.maturityDate ?? "—"}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Payoff today</span>
-                    <span className="tabular-nums">{formatCurrency(context.payoff)}</span>
-                  </div>
-                </div>
-
-                {context.notices.map((notice) => (
-                  <Notice key={notice} tone={context.canChange ? "info" : "warning"}>
-                    {notice}
-                  </Notice>
-                ))}
+          {plan ? (
+            <section className="overflow-hidden rounded-lg border border-border/60">
+              <div className="border-b border-border/60 bg-muted/20 px-4 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Before and after</p>
               </div>
-            ) : null}
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="change-date">Effective date</Label>
-                <DateField
-                  id="change-date"
-                  value={form.effectiveDate}
-                  onChange={(value) => setForm((current) => ({ ...current, effectiveDate: value }))}
-                  inDialog
-                />
-                {errors.effectiveDate ? <p className="text-xs text-destructive">{errors.effectiveDate}</p> : null}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="change-penalty">Prepayment penalty rate (%)</Label>
-                <Input
-                  id="change-penalty"
-                  inputMode="decimal"
-                  value={form.penaltyRate}
-                  onChange={(event) => setForm((current) => ({ ...current, penaltyRate: event.target.value }))}
-                  className="h-9 tabular-nums"
-                  disabled={form.kind === "RATE_CHANGE"}
-                />
-                <p className="text-xs text-muted-foreground">Only when the lender charges one. Leave 0 for none.</p>
-              </div>
-
-              {form.kind === "PREPAYMENT" ? (
-                <>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="change-amount">Amount prepaid</Label>
-                    <Input
-                      id="change-amount"
-                      inputMode="decimal"
-                      value={form.amount}
-                      onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
-                      aria-invalid={errors.amount ? true : undefined}
-                      className="h-9 tabular-nums"
-                    />
-                    {errors.amount ? <p className="text-xs text-destructive">{errors.amount}</p> : null}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="change-option">What the prepayment buys</Label>
-                    <Select
-                      value={form.prepaymentOption}
-                      onValueChange={(value) =>
-                        setForm((current) => ({ ...current, prepaymentOption: value as PrepaymentOption }))
-                      }
-                    >
-                      <SelectTrigger id="change-option" className="h-9 w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
-                        {PREPAYMENT_OPTIONS.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {PREPAYMENT_OPTION_LABEL[option]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              ) : null}
-
-              {form.kind === "RATE_CHANGE" || form.kind === "RESTRUCTURE" ? (
-                <div className="space-y-1.5">
-                  <Label htmlFor="change-rate">New rate (%)</Label>
-                  <Input
-                    id="change-rate"
-                    inputMode="decimal"
-                    value={form.newRate}
-                    onChange={(event) => setForm((current) => ({ ...current, newRate: event.target.value }))}
-                    aria-invalid={errors.newRate ? true : undefined}
-                    className="h-9 tabular-nums"
+              <dl className="divide-y divide-border/50">
+                <Row label="Installment" value={`${money(plan.oldInstallment)} → ${money(plan.newInstallment)}`} />
+                <Row label="Maturity" value={`${plan.oldMaturity ?? "—"} → ${plan.newMaturity ?? "—"}`} />
+                <Row label="Principal after" value={money(plan.outstandingAfter)} />
+                <Row label="Cash for this change" value={money(plan.cashAmount)} />
+                <Row label="Effective rate" value={`${plan.eirBefore.toFixed(2)}% → ${plan.eirAfter.toFixed(2)}%`} />
+                <Row label="Gain / loss" value={plan.gainLoss === 0 ? "—" : money(plan.gainLoss)} />
+                {plan.testPct !== null ? (
+                  <Row
+                    label="10% test"
+                    value={`${plan.testPct.toFixed(2)}% · ${plan.substantial ? "substantial" : "not substantial"}`}
                   />
-                  {errors.newRate ? <p className="text-xs text-destructive">{errors.newRate}</p> : null}
-                </div>
-              ) : null}
-
-              {form.kind === "RESTRUCTURE" ? (
-                <div className="space-y-1.5">
-                  <Label htmlFor="change-term">Installments to run</Label>
-                  <Input
-                    id="change-term"
-                    inputMode="numeric"
-                    value={form.newTermPayments}
-                    onChange={(event) => setForm((current) => ({ ...current, newTermPayments: event.target.value }))}
-                    aria-invalid={errors.newTermPayments ? true : undefined}
-                    className="h-9 tabular-nums"
-                  />
-                  {errors.newTermPayments ? <p className="text-xs text-destructive">{errors.newTermPayments}</p> : null}
-                </div>
-              ) : null}
-
-              {needsMoney && context ? (
-                <div className="space-y-1.5">
-                  <Label htmlFor="change-account">Money account</Label>
-                  <OptionCombobox
-                    value={form.accountId ? String(form.accountId) : ""}
-                    onChange={(value) => setForm((current) => ({ ...current, accountId: Number(value) }))}
-                    placeholder="Choose an account"
-                    searchPlaceholder="Search account"
-                    emptyLabel="No payment account is set up."
-                    className="h-9 w-full justify-between"
-                    options={context.accounts.map((account) => ({
-                      value: String(account.id),
-                      label: `${account.name} · ${account.label}`,
-                      searchText: `${account.name} ${account.label}`,
-                    }))}
-                  />
-                  {errors.accountId ? <p className="text-xs text-destructive">{errors.accountId}</p> : null}
-                </div>
-              ) : null}
-
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="change-notes">Notes</Label>
-                <Textarea
-                  id="change-notes"
-                  value={form.notes}
-                  onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                  placeholder="Why the borrower asked, or the reference of the letter"
-                  rows={2}
-                  className="min-h-[80px] resize-none"
+                ) : null}
+                <Row
+                  label="Journal entry"
+                  value={
+                    plan.journalLines.length === 0
+                      ? "none · no money moves"
+                      : `${plan.journalLines.length} lines · ${money(
+                          plan.journalLines.reduce((sum, line) => sum + line.credit, 0),
+                        )}`
+                  }
                 />
-              </div>
-            </div>
-
-            {preview ? (
-              preview.plan ? (
-                <div className="rounded-lg border border-border bg-muted/30 px-3 py-3 text-sm">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Before and after</p>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Installment</span>
-                      <span className="tabular-nums">
-                        {formatCurrency(preview.plan.oldInstallment)} → {formatCurrency(preview.plan.newInstallment)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Maturity</span>
-                      <span className="tabular-nums">
-                        {preview.plan.oldMaturity ?? "—"} → {preview.plan.newMaturity ?? "—"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Principal after</span>
-                      <span className="tabular-nums">{formatCurrency(preview.plan.outstandingAfter)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Cash for this change</span>
-                      <span className="tabular-nums">{formatCurrency(preview.plan.cashAmount)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Effective rate</span>
-                      <span className="tabular-nums">
-                        {preview.plan.eirBefore.toFixed(2)}% → {preview.plan.eirAfter.toFixed(2)}%
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Gain / loss</span>
-                      <span className="tabular-nums">
-                        {preview.plan.gainLoss === 0 ? "—" : formatCurrency(preview.plan.gainLoss)}
-                      </span>
-                    </div>
-                    {preview.plan.testPct !== null ? (
-                      <div className="flex items-center justify-between gap-2 sm:col-span-2">
-                        <span className="text-muted-foreground">10% test</span>
-                        <span className="tabular-nums">
-                          {preview.plan.testPct.toFixed(2)}% · {preview.plan.substantial ? "substantial" : "not substantial"}
-                        </span>
-                      </div>
-                    ) : null}
-                    <div className="flex items-center justify-between gap-2 sm:col-span-2">
-                      <span className="text-muted-foreground">Journal entry</span>
-                      <span className="tabular-nums">
-                        {preview.plan.journalLines.length === 0
-                          ? "none — no money moves and no gain or loss"
-                          : `${preview.plan.journalLines.length} lines, ${formatCurrency(
-                              preview.plan.journalLines.reduce((sum, line) => sum + line.debit, 0),
-                            )} debit against ${formatCurrency(preview.plan.journalLines.reduce((sum, line) => sum + line.credit, 0))} credit`}
-                      </span>
-                    </div>
-                  </div>
-                  {preview.plan.notices.map((notice) => (
-                    <p key={notice} className="mt-2 text-xs text-muted-foreground">
+              </dl>
+              {plan.notices.length > 0 ? (
+                <div className="space-y-1 border-t border-border/60 px-4 py-2">
+                  {plan.notices.map((notice) => (
+                    <p key={notice} className="text-xs text-muted-foreground">
                       {notice}
                     </p>
                   ))}
                 </div>
-              ) : (
-                <Notice tone="warning">{preview.error}</Notice>
-              )
-            ) : null}
-          </div>
-
-          <DialogFooter className="border-t border-border bg-muted/20 px-6 py-4">
-            <DialogClose asChild>
-              <Button type="button" variant="outline" disabled={isSaving}>
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button
-              type="button"
-              onClick={() => void submit()}
-              disabled={!canSubmit}
-              title={canSubmit ? undefined : submitReason}
-              className="min-h-11 md:min-h-0"
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden />
-                  Recording
-                </>
-              ) : (
-                "Record change"
-              )}
-            </Button>
-          </DialogFooter>
+              ) : null}
+            </section>
+          ) : preview?.error ? (
+            <Notice tone="warning">{preview.error}</Notice>
+          ) : null}
         </div>
+
+        <DialogFooter className="border-t border-border bg-muted/20 px-6 py-4">
+          <DialogClose asChild>
+            <Button type="button" variant="outline" disabled={isSaving}>
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button type="button" onClick={() => void submit()} disabled={!canSubmit} title={canSubmit ? undefined : submitReason}>
+            {isSaving ? (
+              <>
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden />
+                Recording
+              </>
+            ) : (
+              "Record change"
+            )}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Tile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="truncate text-sm font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-border/60">
+      <div className="border-b border-border/60 bg-muted/20 px-4 py-2">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{title}</p>
+      </div>
+      <div className="grid gap-3 px-4 py-3 sm:grid-cols-2">{children}</div>
+    </section>
+  );
+}
+
+function Field({
+  label,
+  required,
+  error,
+  htmlFor,
+  span,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  error?: string;
+  htmlFor: string;
+  span?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={span ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
+      <Label htmlFor={htmlFor}>
+        {label} {required ? <span className="text-destructive">*</span> : null}
+      </Label>
+      {children}
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 px-4 py-2 text-sm">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 truncate text-right tabular-nums">{value}</dd>
+    </div>
   );
 }
