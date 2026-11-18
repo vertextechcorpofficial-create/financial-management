@@ -84,7 +84,7 @@ export function ReconciliationModule() {
                 <SelectTrigger className="h-8 w-[150px]" aria-label="Result filter">
                   <SelectValue placeholder="All results" />
                 </SelectTrigger>
-                <SelectContent className="max-h-60">
+                <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                   <SelectItem value="ALL">All results</SelectItem>
                   <SelectItem value="RECONCILED">Reconciled</SelectItem>
                   <SelectItem value="DIFFERENCE">Difference</SelectItem>

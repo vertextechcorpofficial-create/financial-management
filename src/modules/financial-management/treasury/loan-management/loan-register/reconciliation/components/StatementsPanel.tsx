@@ -59,7 +59,7 @@ export function StatementsPanel({ loans, today, statements }: Props) {
             <SelectTrigger className="h-8 w-[150px]" aria-label="Result filter">
               <SelectValue placeholder="All results" />
             </SelectTrigger>
-            <SelectContent className="max-h-60">
+            <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
               {RESULT_OPTIONS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}

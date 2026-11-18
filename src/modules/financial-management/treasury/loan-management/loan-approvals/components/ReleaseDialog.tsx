@@ -93,7 +93,7 @@ export function ReleaseDialog({
                 <SelectTrigger id="release-channel" className="h-9">
                   <SelectValue className="truncate" />
                 </SelectTrigger>
-                <SelectContent className="max-h-60">
+                <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                   {CHANNELS.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
                       {item.label}

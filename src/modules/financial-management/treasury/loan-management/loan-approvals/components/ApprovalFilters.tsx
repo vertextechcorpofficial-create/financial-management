@@ -47,7 +47,7 @@ export function ApprovalFilters({
         <SelectTrigger className="h-9 w-full sm:w-[200px]" aria-label="Status">
           <SelectValue className="truncate" placeholder="Everything waiting" />
         </SelectTrigger>
-        <SelectContent className="max-h-60">
+        <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
           {QUEUE_STATUS_CHOICES.map((choice) => (
             <SelectItem key={choice.value} value={choice.value}>
               {choice.label}
@@ -57,10 +57,10 @@ export function ApprovalFilters({
       </Select>
 
       <Select value={filters.lenderType} onValueChange={(value) => onChange({ lenderType: value })}>
-        <SelectTrigger className="h-9 w-full sm:w-[175px]" aria-label="Lender type">
+        <SelectTrigger className="h-9 w-full sm:w-[190px]" aria-label="Lender type">
           <SelectValue className="truncate" placeholder="All lenders" />
         </SelectTrigger>
-        <SelectContent className="max-h-60">
+        <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
           <SelectItem value="ALL">All lenders</SelectItem>
           {LENDER_TYPES.map((type) => (
             <SelectItem key={type} value={type}>

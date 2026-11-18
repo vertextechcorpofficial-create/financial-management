@@ -49,6 +49,13 @@ export function ApprovalDetailDialog({
   const canDecide = row.status === "PENDING_APPROVAL";
   const canRelease = row.status === "PENDING_RELEASE";
   const blocked = row.releaseBlockedReason;
+  // `releaseDate` is the drawdown date on the terms sheet, not the act of release; the act is
+  // `releasedAt`. Printing the date as "released" made a waiting loan read as already paid out.
+  const releaseLine = detail?.releasedAt
+    ? `released ${phtDisplayStamp(detail.releasedAt)}`
+    : canRelease
+      ? `release date ${row.releaseDate}, not released yet`
+      : `release date ${row.releaseDate}`;
 
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
@@ -68,9 +75,7 @@ export function ApprovalDetailDialog({
           <DialogDescription className="text-xs">
             {LENDER_TYPE_LABEL[row.lenderType]}
             {row.branch ? ` · ${row.branch}` : ""} ·{" "}
-            {row.status === "PENDING_RELEASE"
-              ? `release dated ${row.releaseDate}, not released yet`
-              : `released ${row.releaseDate}`}
+            {releaseLine}
           </DialogDescription>
         </DialogHeader>
 

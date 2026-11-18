@@ -95,7 +95,7 @@ export function HolidayDialog({
               <SelectTrigger id="holiday-kind">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="max-h-60">
+              <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                 {HOLIDAY_KINDS.map((value) => (
                   <SelectItem key={value} value={value}>
                     {HOLIDAY_KIND_LABEL[value]}

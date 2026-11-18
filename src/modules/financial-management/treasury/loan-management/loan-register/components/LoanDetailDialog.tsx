@@ -25,18 +25,22 @@ import {
   SECURITY_LABEL,
   toneClass,
 } from "../constants";
-import { phtDisplayStamp } from "../pht";
+import { phtDisplayStamp, phtToday } from "../pht";
 import type { LoanListRow } from "../types";
 
 function stamp(value: string | null): string {
   return value ? phtDisplayStamp(value) : "—";
 }
 
-/** A loan waiting on a decision or a release carries a release *date*, not a release: the date is
- *  what the desk plans around, so it is named as a plan and never as something that happened. */
+/** `release_date` is the drawdown date agreed on the terms sheet; the release itself is
+ *  `released_at` plus status CURRENT. Naming the date "released" made readers think it had
+ *  happened, so the line states which of the two it is. */
 function releaseLine(loan: LoanListRow): string {
   if (loan.released_at) return `Released ${phtDisplayStamp(loan.released_at)}`;
-  return `Release dated ${loan.release_date}, not released yet`;
+  const due = loan.release_date < phtToday();
+  return due
+    ? `Release date ${loan.release_date} has passed, still not released`
+    : `Release date ${loan.release_date}, not released yet`;
 }
 
 export function LoanDetailDialog({

@@ -60,7 +60,7 @@ export function JournalFilters({ filters, options, onChange, onClear }: Props) {
         <SelectTrigger className="h-9 w-full sm:w-[165px]" aria-label="Filter by entry type">
           <SelectValue className="truncate" placeholder="Every entry type" />
         </SelectTrigger>
-        <SelectContent className="max-h-60">
+        <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
           <SelectItem value="ALL">Every entry type</SelectItem>
           {ENTRY_TYPES.map((type) => (
             <SelectItem key={type} value={type}>

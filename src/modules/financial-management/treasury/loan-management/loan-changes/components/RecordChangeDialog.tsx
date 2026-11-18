@@ -268,7 +268,7 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
                   <SelectTrigger id="change-kind" className="h-9 w-full">
                     <SelectValue placeholder="Choose the kind" />
                   </SelectTrigger>
-                  <SelectContent className="max-h-60">
+                  <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {CHANGE_KINDS.map((kind) => (
                       <SelectItem key={kind} value={kind}>
                         {CHANGE_KIND_LABEL[kind]}
@@ -389,7 +389,7 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
                       <SelectTrigger id="change-option" className="h-9 w-full">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="max-h-60">
+                      <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                         {PREPAYMENT_OPTIONS.map((option) => (
                           <SelectItem key={option} value={option}>
                             {PREPAYMENT_OPTION_LABEL[option]}

@@ -22,7 +22,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { DateField } from "./DateField";
 import { OptionCombobox } from "./OptionCombobox";
 import { StatusBadge } from "./StatusBadge";
 import { TablePager, pageCountFor } from "./TablePager";
@@ -118,7 +117,7 @@ export function ScheduleTab({ schedules }: { schedules: ReturnType<typeof useSch
             >
               <SelectValue placeholder="Version" />
             </SelectTrigger>
-            <SelectContent className="max-h-60">
+            <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
               {versions.length === 0 ? (
                 <SelectItem value="1">No version yet</SelectItem>
               ) : (
@@ -136,7 +135,7 @@ export function ScheduleTab({ schedules }: { schedules: ReturnType<typeof useSch
             <SelectTrigger className="h-9 w-full sm:w-[170px]" aria-label="Installment status">
               <SelectValue className="truncate" placeholder="All statuses" />
             </SelectTrigger>
-            <SelectContent className="max-h-60">
+            <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
               <SelectItem value="ALL">All statuses</SelectItem>
               {INSTALLMENT_STATUSES.map((status) => (
                 <SelectItem key={status} value={status}>
@@ -145,16 +144,6 @@ export function ScheduleTab({ schedules }: { schedules: ReturnType<typeof useSch
               ))}
             </SelectContent>
           </Select>
-
-          <div className="w-[150px]">
-            <DateField
-              id="schedule-as-of"
-              value={filters.asOf}
-              onChange={(value) => updateFilters({ asOf: value })}
-              placeholder="As of date"
-              aria-label="As of date"
-            />
-          </div>
 
           {filters.status !== "ALL" || filters.version !== null ? (
             <Button

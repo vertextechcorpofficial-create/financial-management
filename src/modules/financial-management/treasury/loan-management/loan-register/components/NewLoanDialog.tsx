@@ -310,7 +310,7 @@ export function NewLoanDialog({
                   <SelectTrigger>
                     <SelectValue className="truncate" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {LENDER_TYPES.map((type) => (
                       <SelectItem key={type} value={type}>
                         {LENDER_TYPE_LABEL[type]}
@@ -364,7 +364,7 @@ export function NewLoanDialog({
                   <SelectTrigger>
                     <SelectValue className="truncate" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {RATE_TYPES.map((type) => (
                       <SelectItem key={type} value={type}>
                         {RATE_TYPE_LABEL[type]}
@@ -378,7 +378,7 @@ export function NewLoanDialog({
                   <SelectTrigger>
                     <SelectValue className="truncate" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {REPAYMENT_METHODS.map((method) => (
                       <SelectItem key={method} value={method}>
                         {REPAYMENT_METHOD_LABEL[method]}
@@ -392,7 +392,7 @@ export function NewLoanDialog({
                   <SelectTrigger>
                     <SelectValue className="truncate" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {PAYMENT_FREQUENCIES.map((frequency) => (
                       <SelectItem key={frequency} value={frequency}>
                         {PAYMENT_FREQUENCY_LABEL[frequency]}
@@ -429,7 +429,7 @@ export function NewLoanDialog({
                   <SelectTrigger>
                     <SelectValue className="truncate" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {FIRST_PERIOD_BASES.map((basis) => (
                       <SelectItem key={basis} value={basis}>
                         {FIRST_PERIOD_BASIS_LABEL[basis]}
@@ -446,7 +446,7 @@ export function NewLoanDialog({
                   >
                     <SelectValue className="truncate" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {BUSINESS_DAY_RULES.map((rule) => (
                       <SelectItem key={rule} value={rule}>
                         {BUSINESS_DAY_RULE_LABEL[rule]}
@@ -460,7 +460,7 @@ export function NewLoanDialog({
                   <SelectTrigger>
                     <SelectValue className="truncate" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {SECURITIES.map((security) => (
                       <SelectItem key={security} value={security}>
                         {SECURITY_LABEL[security]}
@@ -503,7 +503,7 @@ export function NewLoanDialog({
                   <SelectTrigger>
                     <SelectValue className="truncate" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {DST_TREATMENTS.map((treatment) => (
                       <SelectItem key={treatment} value={treatment}>
                         {DST_TREATMENT_LABEL[treatment]}
@@ -566,7 +566,7 @@ export function NewLoanDialog({
                       <SelectTrigger>
                         <SelectValue className="truncate" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                         <SelectItem value="SPECIFIC">Specific borrowing</SelectItem>
                         <SelectItem value="GENERAL">General borrowing</SelectItem>
                       </SelectContent>

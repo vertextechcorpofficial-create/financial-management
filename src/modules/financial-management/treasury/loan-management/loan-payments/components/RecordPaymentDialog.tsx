@@ -276,7 +276,7 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
                   <SelectTrigger id="payment-method" className="h-9 w-full">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {PAYMENT_METHODS.map((method) => (
                       <SelectItem key={method} value={method}>
                         {PAYMENT_METHOD_LABEL[method]}
@@ -321,7 +321,7 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
                   <SelectTrigger id="payment-kind" className="h-9 w-full">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                     {PAYMENT_KINDS.map((kind) => (
                       <SelectItem key={kind} value={kind}>
                         {PAYMENT_KIND_LABEL[kind]}
