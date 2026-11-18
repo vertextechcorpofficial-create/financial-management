@@ -1,5 +1,5 @@
 import { BANK_RECONCILIATION_ROOT } from "../workspaces";
-import type { BankReconciliationContext, BankReconciliationReferencePage, BankReconciliationReferenceQuery, BankReconciliationReferenceResource, BankReconciliationReferences } from "../reference-types";
+import type { BankBranchReference, BankReconciliationContext, BankReconciliationReferencePage, BankReconciliationReferenceQuery, BankReconciliationReferenceResource, BankReconciliationReferences } from "../reference-types";
 
 const BASE = `/api${BANK_RECONCILIATION_ROOT}`;
 
@@ -27,9 +27,17 @@ export function searchBankReconciliationReferences<K extends BankReconciliationR
   if (query.companyId !== undefined) params.set("companyId", String(query.companyId));
   if (query.bankName !== undefined) params.set("bankName", query.bankName);
   if (query.branch !== undefined) params.set("branch", query.branch);
+  if (query.normalSide !== undefined) params.set("normalSide", query.normalSide);
+  if (query.excludeAccountId !== undefined) params.set("excludeAccountId", String(query.excludeAccountId));
   return read<BankReconciliationReferencePage<BankReconciliationReferences[K]>>(`/lookups/${encodeURIComponent(resource)}?${params}`, signal);
 }
 
 export function getBankReconciliationReference<K extends BankReconciliationReferenceResource>(resource: K, id: number, signal?: AbortSignal) {
   return read<BankReconciliationReferences[K]>(`/lookups/${encodeURIComponent(resource)}/${encodeURIComponent(id)}`, signal);
+}
+
+
+export function getBankBranches(companyId: number, signal?: AbortSignal) {
+  const params = new URLSearchParams({ companyId: String(companyId) });
+  return read<{ items: BankBranchReference[] }>(`/lookups/bank-branches?${params}`, signal);
 }

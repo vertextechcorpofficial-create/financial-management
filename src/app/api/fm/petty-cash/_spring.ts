@@ -9,8 +9,9 @@ const messages: Record<number, string> = {
   413: "File size exceeds the 5 MB limit.", 415: "Choose a JPG, PNG, or PDF file.",
 };
 
-export async function readPettyCash(path: string, init?: RequestInit, tokenOverride?: string) {
-  const upstream = await proxySpring(`/api/petty-cash/${path}`, { ...init, cache: "no-store", signal: init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000) }, tokenOverride);
+export async function readPettyCash(path: string, init?: RequestInit, tokenOverride?: string, timeoutMs = 15_000) {
+  const timeout = () => AbortSignal.timeout(timeoutMs);
+  const upstream = await proxySpring(`/api/petty-cash/${path}`, { ...init, cache: "no-store", signal: init?.signal ? AbortSignal.any([init.signal, timeout()]) : timeout() }, tokenOverride, timeoutMs);
   let body: unknown;
   try { body = await upstream.json(); } catch { body = null; }
   let status = upstream.status;

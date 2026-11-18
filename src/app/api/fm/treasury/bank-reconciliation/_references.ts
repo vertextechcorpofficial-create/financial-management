@@ -121,6 +121,23 @@ function project(kind: BankReconciliationReferenceResource, row: Row): BankRecon
   };
 }
 
+export async function listBankBranches(params: URLSearchParams, onLookupTime: (ms: number) => void) {
+  const companyId = positiveInteger(params.get("companyId") ?? "", "company ID");
+  const started = performance.now();
+  const result = await readCollection("bank_accounts", query("bank_name,branch", {
+    is_active: { _eq: 1 },
+    account_status: { _eq: "ACTIVE" },
+    _or: [{ company_id: { _eq: companyId } }, { company_id: { _null: true } }],
+  })).finally(() => onLookupTime(performance.now() - started));
+  const groups = new Map<string, { bankName: string; branch: string }>();
+  for (const row of result.data) {
+    const bankName = rawText(row.bank_name), branch = rawText(row.branch);
+    if (bankName.trim()) groups.set(JSON.stringify([bankName, branch]), { bankName, branch });
+  }
+  return { items: [...groups.values()].sort((a, b) =>
+    a.bankName.localeCompare(b.bankName) || a.branch.localeCompare(b.branch)) };
+}
+
 export async function listReferences(kind: string, params: URLSearchParams) {
   const name = resource(kind), source = sources[name];
   const page = positiveInteger(params.get("page") ?? "1", "page");
@@ -132,6 +149,20 @@ export async function listReferences(kind: string, params: URLSearchParams) {
   const conditions: Row[] = [];
   if (name === "bank-accounts") Object.assign(filter, { is_active: { _eq: 1 }, account_status: { _eq: "ACTIVE" } });
   if (name === "accounts") filter.status = { _in: ["pending", "approved"] };
+  const normalSide = params.get("normalSide"), excluded = params.get("excludeAccountId");
+  if (normalSide !== null || excluded !== null) {
+    if (name !== "accounts" || (normalSide !== null && normalSide !== "DEBIT" && normalSide !== "CREDIT"))
+      throw new ReferenceError(400, "Invalid offset account filter.");
+    if (normalSide !== null) {
+      // Directus exposes balance_type on the COA as a scalar foreign key.
+      const types = await readCollection("balance_type", query("id,balance_name", {}));
+      const ids = types.data.filter(row => text(row.balance_name).toUpperCase() === normalSide)
+        .map(row => Number(row.id)).filter(id => Number.isSafeInteger(id) && id > 0);
+      if (!ids.length) return { items: [], total: 0, page, pageSize };
+      filter.balance_type = { _in: ids };
+    }
+    if (excluded !== null) filter.coa_id = { _neq: positiveInteger(excluded, "excluded account ID") };
+  }
   if (name === "bank-accounts" && params.has("companyId")) {
     const companyId = positiveInteger(params.get("companyId")!, "company ID");
     conditions.push({ _or: [{ company_id: { _eq: companyId } }, { company_id: { _null: true } }] });
