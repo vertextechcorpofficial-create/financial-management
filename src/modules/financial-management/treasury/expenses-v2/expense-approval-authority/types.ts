@@ -32,9 +32,7 @@ export type AuthorityPermission =
   | "expense_authority.policy.submit" | "expense_authority.policy.ratify" | "expense_authority.policy.publish"
   | "expense_authority.policy.revoke" | "expense_authority.delegation.manage"
   | "expense_authority.evaluation.run" | "expense_authority.evaluation.save"
-  | "expense_authority.exception.review" | "expense_authority.audit.read"
-  | "expense_authority.ui.overview" | "expense_authority.ui.authority-matrix" | "expense_authority.ui.delegations"
-  | "expense_authority.ui.evaluation" | "expense_authority.ui.exceptions" | "expense_authority.ui.audit-history";
+  | "expense_authority.exception.read" | "expense_authority.exception.review" | "expense_authority.audit.read";
 export interface AuthorityGrant { permission: AuthorityPermission; companyId: number | null }
 export interface AuthorityActor { id: number; name: string; email: string; companyId: number | null; admin: boolean; grants: AuthorityGrant[] }
 export interface AuthorityCheck {

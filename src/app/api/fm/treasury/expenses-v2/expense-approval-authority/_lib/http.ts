@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ZodError } from "zod";
 import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/authorityErrors";
-import { assertMutationOrigin, requireAuthorityAccess, requirePermission, requireUiAccess, hasAnyUiAccess } from "./auth";
-import { context, evaluate, mutate, publicEvent, references, readUiAccess, updateUiAccess } from "./service";
+import { assertMutationOrigin, requireAuthorityAccess, requirePermission } from "./auth";
+import { context, evaluate, mutate, publicEvent, references } from "./service";
 import { history } from "./repository";
 
 async function jsonBody(request: NextRequest) {
@@ -25,16 +25,13 @@ export async function handleAuthority(request: NextRequest, resource: string) {
     const actor = await requireAuthorityAccess(request);
     let data: unknown;
     if (request.method === "GET") {
-      if (resource === "access") data = await readUiAccess(actor);
-      else if (resource === "context" || ["policies", "delegations", "exceptions"].includes(resource)) {
-        if (resource === "context" && !hasAnyUiAccess(actor) && !actor.admin) throw new AuthorityError("FORBIDDEN", "No Expense Authority submodule access is assigned.", 403);
-        if (resource === "policies") { requireUiAccess(actor, "authority-matrix"); requirePermission(actor, "expense_authority.policy.read"); }
-        if (resource === "delegations") { requireUiAccess(actor, "delegations"); requirePermission(actor, "expense_authority.policy.read"); }
-        if (resource === "exceptions") { requireUiAccess(actor, "exceptions"); requirePermission(actor, "expense_authority.exception.review"); }
+      if (resource === "context" || ["policies", "delegations", "exceptions"].includes(resource)) {
+        if (resource === "policies") requirePermission(actor, "expense_authority.policy.read");
+        if (resource === "delegations") requirePermission(actor, "expense_authority.policy.read");
+        if (resource === "exceptions") requirePermission(actor, "expense_authority.exception.read");
         const state = await context(actor);
         data = resource === "context" ? state : { revision: state.revision, items: state.workspace[resource as "policies" | "delegations" | "exceptions"] };
       } else if (resource === "history") {
-        requireUiAccess(actor, "audit-history");
         requirePermission(actor, "expense_authority.audit.read");
         const params = new URL(request.url).searchParams;
         const page = Number(params.get("page") || 1), search = params.get("search") || "";
@@ -45,9 +42,8 @@ export async function handleAuthority(request: NextRequest, resource: string) {
       else throw new AuthorityError("NOT_FOUND", "Unknown authority endpoint.", 404);
     } else if (request.method === "POST") {
       assertMutationOrigin(request);
-      if (resource === "evaluate") { requireUiAccess(actor, "evaluation"); data = await evaluate(actor, await jsonBody(request)); }
+      if (resource === "evaluate") data = await evaluate(actor, await jsonBody(request));
       else if (resource === "commands") data = await mutate(actor, await jsonBody(request));
-      else if (resource === "access") data = await updateUiAccess(actor, await jsonBody(request));
       else throw new AuthorityError("METHOD_NOT_ALLOWED", "Use the commands endpoint for configuration changes.", 405);
     } else throw new AuthorityError("METHOD_NOT_ALLOWED", "Method not allowed.", 405);
     return NextResponse.json({ data }, { headers: { "Cache-Control": "no-store", Vary: "Cookie" } });

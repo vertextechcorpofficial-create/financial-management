@@ -3,8 +3,8 @@ import type { AuthorityActor, AuthorityContext, AuthorityRevision, AuthorityWork
 import { applyCommand, type WorkspaceCommand } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/workspace";
 import { evaluateAuthority, type EvaluationInput } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/evaluateAuthority";
 import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/authorityErrors";
-import { assertCompany, hasPermission, requirePermission, requireUiAccess, AUTHORITY_PATH } from "./auth";
-import { directus, enabled, readRows } from "./directus";
+import { assertCompany, hasPermission, requirePermission } from "./auth";
+import { enabled, readRows } from "./directus";
 import { appendRevision, loadWorkspace, priorRequest, requestHash } from "./repository";
 import { mutationSchema, evaluationSchema } from "./validation";
 
@@ -13,7 +13,7 @@ export function scopedWorkspace(workspace: AuthorityWorkspace, actor: AuthorityA
   return { schemaVersion: 1,
     policies: workspace.policies.filter(p => hasPermission(actor, "expense_authority.policy.read", p.companyId)),
     delegations: workspace.delegations.filter(d => hasPermission(actor, "expense_authority.policy.read", d.companyId) || hasPermission(actor, "expense_authority.delegation.manage", d.companyId)),
-    exceptions: workspace.exceptions.filter(e => hasPermission(actor, "expense_authority.exception.review", e.companyId)),
+    exceptions: workspace.exceptions.filter(e => hasPermission(actor, "expense_authority.exception.read", e.companyId) || hasPermission(actor, "expense_authority.exception.review", e.companyId)),
   };
 }
 export async function context(actor: AuthorityActor): Promise<AuthorityContext> {
@@ -72,7 +72,6 @@ export async function mutate(actor: AuthorityActor, body: unknown) {
     : command.action === "PUBLISH_POLICY" ? "expense_authority.policy.publish"
     : command.action === "REVOKE_POLICY" ? "expense_authority.policy.revoke"
     : command.action === "RESOLVE_EXCEPTION" ? "expense_authority.exception.review" : "expense_authority.delegation.manage";
-  requireUiAccess(actor, command.action === "CREATE_DELEGATION" || command.action === "REVOKE_DELEGATION" ? "delegations" : command.action === "RESOLVE_EXCEPTION" ? "exceptions" : "authority-matrix");
   const companyId = "companyId" in command ? command.companyId
     : command.action === "UPDATE_POLICY" || command.action === "SUBMIT_POLICY" || command.action === "PUBLISH_POLICY" || command.action === "REVOKE_POLICY"
       ? latest.workspace.policies.find(p => p.id === command.id)?.companyId
@@ -216,50 +215,4 @@ export async function references(actor: AuthorityActor, params: URLSearchParams)
 }
 export function publicEvent(row: Omit<AuthorityRevision, "workspace" | "request_hash">) {
   return { id: row.id, revision: row.revision, actor_id: row.actor_id, actor_name: row.actor_name, company_id: row.company_id, created_at: row.created_at, event: row.event };
-}
-
-const UI_ACCESS = {
-  overview: "expense_authority.ui.overview", "authority-matrix": "expense_authority.ui.authority-matrix", delegations: "expense_authority.ui.delegations",
-  evaluation: "expense_authority.ui.evaluation", exceptions: "expense_authority.ui.exceptions", "audit-history": "expense_authority.ui.audit-history",
-} as const;
-export async function readUiAccess(actor: AuthorityActor) {
-  if (!actor.admin) throw new AuthorityError("FORBIDDEN", "Verified ERP administrator access is required to configure submodule visibility.", 403);
-  const [users, grants] = await Promise.all([
-    readRows<{ user_id: number; user_fname: string; user_lname: string; user_email: string; company_id: number | null }>("user", "user_id,user_fname,user_lname,user_email,company_id", { is_deleted: { _eq: false }, is_blocked: { _eq: false } }, 500, { sort: "user_fname,user_id" }),
-    readRows<{ id: number; user_id: number; permission_key: string; status: string; starts_at: string | null; expires_at: string | null; granted_by: number; grant_reason: string }>(
-      "fm_expense_authority_permission_grants", "id,user_id,permission_key,status,starts_at,expires_at,granted_by,grant_reason", { permission_key: { _in: Object.values(UI_ACCESS) } }, 2000),
-  ]);
-  return { pages: Object.keys(UI_ACCESS), users: users.map(user => ({ id: user.user_id, name: [user.user_fname, user.user_lname].filter(Boolean).join(" ") || `User #${user.user_id}`, email: user.user_email || "", companyId: user.company_id })),
-    grants: grants.map(grant => ({ ...grant, page: Object.entries(UI_ACCESS).find(([, key]) => key === grant.permission_key)?.[0] || "" })) };
-}
-export async function updateUiAccess(actor: AuthorityActor, body: unknown) {
-  if (!actor.admin) throw new AuthorityError("FORBIDDEN", "Verified ERP administrator access is required to configure submodule visibility.", 403);
-  if (!body || typeof body !== "object") throw new AuthorityError("INVALID_ACCESS_GRANT", "Invalid access request.");
-  const input = body as Record<string, unknown>;
-  if (typeof input.reason !== "string" || input.reason.trim().length < 5 || input.reason.length > 1000) throw new AuthorityError("REASON_REQUIRED", "Provide an access-change reason of at least 5 characters.");
-  const collection = "fm_expense_authority_permission_grants";
-  if (input.action === "grant") {
-    const page = input.page as keyof typeof UI_ACCESS, userId = Number(input.userId);
-    if (!(page in UI_ACCESS) || !Number.isSafeInteger(userId) || userId <= 0) throw new AuthorityError("INVALID_ACCESS_GRANT", "Choose a valid user and submodule.");
-    const users = await readRows<{ user_id: number; is_deleted: unknown; is_blocked: unknown }>("user", "user_id,is_deleted,is_blocked", { user_id: { _eq: userId } }, 1);
-    if (!users[0] || enabled(users[0].is_deleted) || enabled(users[0].is_blocked)) throw new AuthorityError("INVALID_REFERENCE", "Choose an active, unblocked user.");
-    const moduleRows = await readRows("user_access_modules", "user_id", { user_id: { _eq: userId }, module_id: { base_path: { _eq: AUTHORITY_PATH }, status: { _eq: "active" } } }, 1);
-    if (!moduleRows.length) throw new AuthorityError("MODULE_ACCESS_REQUIRED", "The user must first receive the Expense Approval Authority module grant.", 409);
-    const permissionKey = UI_ACCESS[page];
-    const duplicate = await readRows<{ id: number }>(collection, "id", { user_id: { _eq: userId }, company_id: { _null: true }, permission_key: { _eq: permissionKey }, status: { _eq: "active" } }, 1);
-    if (duplicate.length) return { changed: false, message: "Access is already active." };
-    await directus(`items/${collection}`, { method: "POST", body: JSON.stringify({ user_id: userId, company_id: null, permission_key: permissionKey, status: "active", starts_at: new Date().toISOString(), expires_at: null, granted_by: actor.id, grant_reason: input.reason.trim() }) });
-    return { changed: true };
-  }
-  if (input.action === "revoke") {
-    const grantId = Number(input.grantId);
-    if (!Number.isSafeInteger(grantId) || grantId <= 0) throw new AuthorityError("INVALID_ACCESS_GRANT", "Invalid access grant.");
-    const rows = await readRows<{ id: number; status: string; permission_key: string }>(collection, "id,status,permission_key", { id: { _eq: grantId } }, 1);
-    const grant = rows[0];
-    if (!grant || !Object.values(UI_ACCESS).includes(grant.permission_key as typeof UI_ACCESS[keyof typeof UI_ACCESS])) throw new AuthorityError("NOT_FOUND", "Submodule access grant not found.", 404);
-    if (grant.status !== "active") return { changed: false, message: "Access is already inactive." };
-    await directus(`items/${collection}/${grantId}`, { method: "PATCH", body: JSON.stringify({ status: "revoked", expires_at: new Date().toISOString(), revoked_by: actor.id, revocation_reason: input.reason.trim() }) });
-    return { changed: true };
-  }
-  throw new AuthorityError("INVALID_ACCESS_GRANT", "Unknown access operation.");
 }

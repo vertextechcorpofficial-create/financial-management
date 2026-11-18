@@ -17,7 +17,6 @@ const pages: Record<string, { title: string; tab: string }> = {
   evaluation: { title: "Evaluate Policy", tab: "evaluation" },
   exceptions: { title: "Exceptions", tab: "exceptions" },
   "audit-history": { title: "Audit History", tab: "audit" },
-  "user-access": { title: "User Access", tab: "access" },
 };
 
 export default async function ExpenseAuthoritySubmodulePage({ params }: { params: Promise<{ submodule: string }> }) {
@@ -33,6 +32,6 @@ export default async function ExpenseAuthoritySubmodulePage({ params }: { params
         <Breadcrumb><BreadcrumbList><BreadcrumbItem className="hidden lg:block"><BreadcrumbLink href="/fm">FM</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator className="hidden lg:block" /><BreadcrumbItem className="hidden lg:block">Treasury</BreadcrumbItem><BreadcrumbSeparator className="hidden lg:block" /><BreadcrumbItem className="hidden md:block">Expenses V2</BreadcrumbItem><BreadcrumbSeparator className="hidden md:block" /><BreadcrumbItem><BreadcrumbLink href="/fm/treasury/expenses-v2/expense-approval-authority">Expense Approval Authority</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage>{page.title}</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb>
       </div><div className="shrink-0"><NavUser user={headerUser} /></div>
     </header>
-    <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5"><ExpenseApprovalAuthorityModule initialTab={page.tab} enforceInitialTab /></main>
+    <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5"><ExpenseApprovalAuthorityModule initialTab={page.tab} /></main>
   </div>;
 }

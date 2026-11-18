@@ -3,8 +3,20 @@ import type { AuthorityActor, AuthorityPermission } from "@/modules/financial-ma
 import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/authorityErrors";
 import { enabled, readRows } from "./directus";
 
-export const AUTHORITY_PATH = "/fm/treasury/expenses-v2/expense-approval-authority";
 export const GRANT_COLLECTION = "fm_expense_authority_permission_grants";
+export function standardAuthorityGrants(companyId: number | null): AuthorityActor["grants"] {
+  if (!companyId || !Number.isSafeInteger(companyId) || companyId <= 0) return [];
+  return [
+    { permission: "expense_authority.policy.read", companyId },
+    { permission: "expense_authority.policy.create", companyId },
+    { permission: "expense_authority.policy.edit_draft", companyId },
+    { permission: "expense_authority.policy.submit", companyId },
+    { permission: "expense_authority.evaluation.run", companyId },
+    { permission: "expense_authority.evaluation.save", companyId },
+    { permission: "expense_authority.exception.read", companyId },
+    { permission: "expense_authority.audit.read", companyId },
+  ];
+}
 export async function requireAuthorityAccess(request: NextRequest): Promise<AuthorityActor> {
   const token = request.cookies.get("vos_access_token")?.value;
   if (!token) throw new AuthorityError("UNAUTHENTICATED", "Please sign in to use Expense Approval Authority.", 401);
@@ -26,33 +38,32 @@ export async function requireAuthorityAccess(request: NextRequest): Promise<Auth
   const user = users[0];
   if (!user || enabled(user.is_deleted) || enabled(user.isDeleted) || enabled(user.is_blocked)) throw new AuthorityError("UNAUTHENTICATED", "An active ERP account is required.", 401);
   const admin = user.role === "ADMIN" || enabled(user.isAdmin);
-  {
-    const moduleGrants = await readRows<{ module_id: { base_path?: string; status?: string } | null }>("user_access_modules", "module_id.base_path,module_id.status", {
-      user_id: { _eq: id }, module_id: { base_path: { _eq: AUTHORITY_PATH }, status: { _eq: "active" } },
-    }, 1);
-    if (!moduleGrants.length) {
-      throw new AuthorityError("FORBIDDEN", "An explicit Expense Approval Authority module grant is required.", 403);
-    }
+  // The separate VOS access system/middleware owns module visibility. This API
+  // verifies identity and applies only feature-operation permissions below.
+  let grantRows: { permission_key: string; company_id: number | null; status: string; starts_at: string | null; expires_at: string | null }[] = [];
+  try {
+    grantRows = await readRows(GRANT_COLLECTION, "permission_key,company_id,status,starts_at,expires_at", { user_id: { _eq: id }, status: { _eq: "active" } }, 500);
+  } catch {
+    // Module access remains usable if the optional granular-grant store is not provisioned.
+    // This yields no elevated permissions; only the baseline below is implied.
+    grantRows = [];
   }
-  const grantRows = await readRows<{ permission_key: string; company_id: number | null; status: string; starts_at: string | null; expires_at: string | null }>(
-    GRANT_COLLECTION, "permission_key,company_id,status,starts_at,expires_at", { user_id: { _eq: id }, status: { _eq: "active" } }, 500);
   const known = new Set<AuthorityPermission>([
     "expense_authority.policy.read", "expense_authority.policy.create", "expense_authority.policy.edit_draft", "expense_authority.policy.submit",
     "expense_authority.policy.ratify", "expense_authority.policy.publish", "expense_authority.policy.revoke", "expense_authority.delegation.manage",
-    "expense_authority.evaluation.run", "expense_authority.evaluation.save", "expense_authority.exception.review", "expense_authority.audit.read",
-    "expense_authority.ui.overview", "expense_authority.ui.authority-matrix", "expense_authority.ui.delegations",
-    "expense_authority.ui.evaluation", "expense_authority.ui.exceptions", "expense_authority.ui.audit-history",
+    "expense_authority.evaluation.run", "expense_authority.evaluation.save", "expense_authority.exception.read", "expense_authority.exception.review", "expense_authority.audit.read",
   ]);
   const now = Date.now();
-  const grants = grantRows.flatMap(row => {
+  const companyId = user.company_id ? Number(user.company_id) : null;
+  const grants = [...standardAuthorityGrants(companyId), ...grantRows.flatMap(row => {
     if (!known.has(row.permission_key as AuthorityPermission) || row.status !== "active") return [];
     const start = row.starts_at ? Date.parse(row.starts_at) : Number.NEGATIVE_INFINITY;
     const end = row.expires_at ? Date.parse(row.expires_at) : Number.POSITIVE_INFINITY;
     const companyId = row.company_id === null ? null : Number(row.company_id);
     if (!Number.isFinite(start) && start !== Number.NEGATIVE_INFINITY || !Number.isFinite(end) && end !== Number.POSITIVE_INFINITY || start > now || end <= now || (companyId !== null && (!Number.isSafeInteger(companyId) || companyId <= 0))) return [];
     return [{ permission: row.permission_key as AuthorityPermission, companyId }];
-  });
-  return { id, admin, companyId: user.company_id ? Number(user.company_id) : null, grants,
+  })];
+  return { id, admin, companyId, grants,
     name: [user.user_fname, user.user_lname].filter(Boolean).join(" ") || `User #${id}`, email: user.user_email || "" };
 }
 export function assertCompany(actor: AuthorityActor, companyId: number) {
@@ -60,12 +71,6 @@ export function assertCompany(actor: AuthorityActor, companyId: number) {
 }
 export function hasPermission(actor: AuthorityActor, permission: AuthorityPermission, companyId?: number) {
   return actor.grants.some(grant => grant.permission === permission && (companyId === undefined || grant.companyId === null || grant.companyId === companyId));
-}
-export function requireUiAccess(actor: AuthorityActor, page: "overview" | "authority-matrix" | "delegations" | "evaluation" | "exceptions" | "audit-history") {
-  requirePermission(actor, `expense_authority.ui.${page}` as AuthorityPermission);
-}
-export function hasAnyUiAccess(actor: AuthorityActor) {
-  return actor.grants.some(grant => grant.permission.startsWith("expense_authority.ui."));
 }
 export function requirePermission(actor: AuthorityActor, permission: AuthorityPermission, companyId?: number) {
   if (!hasPermission(actor, permission, companyId)) throw new AuthorityError("FORBIDDEN", `Missing required permission: ${permission}.`, 403);
