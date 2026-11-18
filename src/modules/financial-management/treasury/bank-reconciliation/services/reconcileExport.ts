@@ -23,6 +23,12 @@ export function summaryRows(data: ReconcileExportData): { label: string; value: 
     { label: "Difference", value: r.difference, money: true },
     { label: "Status", value: r.statusLabel },
     { label: "Statement check", value: p.statementCheck.message },
+    ...(p.ledgerCheck ? [{ label: "Ledger completeness", value: p.ledgerCheck.message }] : []),
+    ...(p.ledgerCheck && p.ledgerCheck.state !== "NOT_AVAILABLE" ? [
+      { label: "Opening GL balance", value: p.ledgerCheck.openingBalance, money: true },
+      { label: "Period GL activity", value: p.ledgerCheck.movement, money: true },
+      { label: "Ledger feed difference", value: p.ledgerCheck.difference, money: true },
+    ] : []),
     ...[...p.ledgerBlockers, p.setupWarning].filter((value): value is string => Boolean(value)).map(value => ({ label: "Setup guidance", value })),
   ];
 }

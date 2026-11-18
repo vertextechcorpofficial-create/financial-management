@@ -43,11 +43,11 @@ export async function buildReconcilePdf(data: ReconcileExportData) {
     let amountWidth = bank ? 27 : 30;
     for (const value of [pane.net, ...pane.items.map(line => line.amount)]) amountWidth = Math.max(amountWidth, Math.ceil(doc.getStringUnitWidth(money(value), { font: registeredFont, fontSize: 7.5 }) * 7.5 / doc.internal.scaleFactor + 5));
     table(bank ? "Bank statement lines" : "Cash in Bank ledger lines", {
-      head: [bank ? ["Date", "Ref", "Description", "Amount", "Status", "Offset account", "JE #"] : ["Date", "Ref", "Description", "Amount", "Status"]],
-      body: pane.items.length ? pane.items.map(line => [line.date, supported(line.reference), supported(line.description), supported(money(line.amount)), supported(line.status), ...(bank ? [supported(line.offsetAccount), supported(line.jeNumber || "")] : [])]) : [["", "", "No transactions", "", "", ...(bank ? ["", ""] : [])]],
-      foot: [["", "", `${pane.total} lines; ${pane.matched} matched; ${pane.open} open. Net`, supported(money(pane.net)), "", ...(bank ? ["", ""] : [])]], showFoot: "lastPage", footStyles: { font: "Reconcile", fontStyle: "normal", fillColor: [243, 245, 247], textColor: [24, 35, 46] },
+      head: [["Date", "Ref", "Description", "Amount", "Status", "Offset account", "JE #"]],
+      body: pane.items.length ? pane.items.map(line => [line.date, supported(line.reference), supported(line.description), supported(money(line.amount)), supported(line.status), supported(line.offsetAccount), supported(line.jeNumber || "")]) : [["", "", "No transactions", "", "", "", ""]],
+      foot: [["", "", `${pane.total} lines; ${pane.matched} matched; ${pane.open} open. Net`, supported(money(pane.net)), "", "", ""]], showFoot: "lastPage", footStyles: { font: "Reconcile", fontStyle: "normal", fillColor: [243, 245, 247], textColor: [24, 35, 46] },
       didParseCell: cell => { if (cell.column.index === 3) cell.cell.styles.halign = "right"; },
-      columnStyles: bank ? { 0: { cellWidth: 23 }, 1: { cellWidth: 26 }, 2: { cellWidth: 92 - amountWidth }, 3: { cellWidth: amountWidth, halign: "right" }, 4: { cellWidth: 63 }, 5: { cellWidth: 42 }, 6: { cellWidth: 25 } } : { 0: { cellWidth: 25 }, 1: { cellWidth: 30 }, 2: { cellWidth: 135 - amountWidth }, 3: { cellWidth: amountWidth, halign: "right" }, 4: { cellWidth: 81 } },
+      columnStyles: { 0: { cellWidth: 23 }, 1: { cellWidth: 26 }, 2: { cellWidth: 92 - amountWidth }, 3: { cellWidth: amountWidth, halign: "right" }, 4: { cellWidth: 63 }, 5: { cellWidth: 42 }, 6: { cellWidth: 25 } },
     });
   }
   const pages = doc.getNumberOfPages();

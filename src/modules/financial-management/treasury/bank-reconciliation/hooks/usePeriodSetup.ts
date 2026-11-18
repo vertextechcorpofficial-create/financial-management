@@ -9,6 +9,7 @@ import { sameSetup } from "../utils/reconcileDrafts";
 
 export type SetupFields = { bankId: number; companyId: number | null; currency: string; periodEnd: string; statementOpening: string; statementEnding: string };
 type SetupScope = { lifetime: number; selection: number; pathname: string };
+type SetupRecovery = "retry-save" | "load-latest" | null;
 export function setupMoney(value: string): string | null {
   const cleaned = value.trim().replaceAll(",", "");
   if (!cleaned) return null;
@@ -25,6 +26,7 @@ function payload(draft: SetupFields): PeriodDraft {
 export function usePeriodSetup() {
   const [draft, setDraft] = useState<SetupFields | null>(null), [period, setPeriod] = useState<ReconciliationPeriod | null>(null), [bank, setBank] = useState<BankConfiguration | null>(null);
   const [loading, setLoading] = useState(false), [status, setStatus] = useState(""), [error, setError] = useState("");
+  const [recovery, setRecovery] = useState<SetupRecovery>(null);
   const [dirty, setDirty] = useState(false), [saving, setSaving] = useState(false), [autosavePaused, setPaused] = useState(false);
   const baseline = useRef<SetupFields | null>(null), submitted = useRef<SetupFields | null>(null), paused = useRef(false), failed = useRef(false);
   const autoRetry = useRef(true);
@@ -51,7 +53,7 @@ export function usePeriodSetup() {
   const change = useCallback((patch: Partial<SetupFields>) => {
     if (!owns(scope()) || !current.current || record.current?.status === "CLOSED") return;
     current.current = { ...current.current, ...patch }; setDraft(current.current);
-    autoRetry.current = true;
+    autoRetry.current = !conflict.current;
     const changed = failed.current || !record.current || !baseline.current || !sameSetup(current.current, baseline.current);
     setDirty(changed); setStatus(changed ? "Unsaved changes" : submitted.current ? "Saving…" : "Setup saved");
   }, [owns, scope]);
@@ -64,28 +66,57 @@ export function usePeriodSetup() {
     if (!owns(source)) return null;
     while (pending.current) { await pending.current; if (!owns(source)) return null; }
     if (!current.current || record.current?.status === "CLOSED") return record.current;
-    if (conflict.current) throw new Error("The period changed in another session. Reload the setup before saving.");
-    if (failed.current && record.current) {
-      const latest = await getSetupPeriod(record.current.id);
-      if (!owns(source)) return null;
-      if (latest.version !== record.current.version) throw new SetupError(409, "The saved setup changed. Reload and review it before saving again.");
-    }
+    if (conflict.current) throw new Error("The period changed. Load the latest setup before saving.");
     let body: PeriodDraft;
-    try { body = payload(current.current); } catch (e) { const message = e instanceof Error ? e.message : "Check the amounts."; setError(message); setStatus("Not saved"); throw e; }
+    try { body = payload(current.current); } catch (e) {
+      setError(e instanceof Error ? e.message : "Check the amounts.");
+      setRecovery(null);
+      setStatus("Not saved");
+      throw e;
+    }
     const signature = JSON.stringify(body);
-    if (signature === saved.current || record.current && baseline.current && sameSetup(current.current, baseline.current)) { failed.current = false; unconfirmed.current = null; setDirty(false); setError(""); setStatus("Setup saved"); return record.current; }
-    submitted.current = { ...current.current }; setSaving(true); setStatus("Saving…"); setError("");
-    const operation = saveSetupPeriod({ ...body, version: record.current?.version }, record.current?.id)
+    const unchanged = signature === saved.current || Boolean(record.current && baseline.current && sameSetup(current.current, baseline.current));
+    if (unchanged && !failed.current) {
+      setDirty(false); setError(""); setRecovery(null); setStatus("Setup saved");
+      return record.current;
+    }
+    const previous = record.current;
+    submitted.current = { ...current.current }; setSaving(true); setStatus("Saving…"); setError(""); setRecovery(null);
+    let sent = false;
+    const operation = (async () => {
+      if (failed.current && previous) {
+        const latest = await getSetupPeriod(previous.id);
+        if (!owns(source)) return null;
+        if (latest.version !== previous.version) throw new SetupError(409, "The saved setup changed. Load the latest setup before saving.");
+      }
+      if (unchanged) return previous;
+      sent = true;
+      return saveSetupPeriod({ ...body, version: previous?.version }, previous?.id);
+    })()
       .then(result => {
-        if (owns(source)) {
+        if (result && owns(source)) {
           accept(result, source); saved.current = signature; baseline.current = fields(result); failed.current = false; unconfirmed.current = null;
           const changed = Boolean(current.current && !sameSetup(current.current, baseline.current));
           setDirty(changed); setStatus(changed ? "Unsaved changes" : "Setup saved");
           periodUrl(source, result.id, result.lifecycle?.closureId);
-          if (options.autosave) toast.success("Setup autosaved", { id: "bank-rec-setup-save", description: "Your latest setup changes were saved automatically.", duration: 2000 });
+          if (options.autosave && sent) toast.success("Setup autosaved", { id: "bank-rec-setup-save", description: "Your latest setup changes were saved automatically.", duration: 2000 });
         }
         return result;
-      }).catch(e => { if (owns(source)) { unconfirmed.current = e instanceof SetupError && e.status < 500 ? null : submitted.current; failed.current = true; autoRetry.current = false; setDirty(true); conflict.current = e instanceof SetupError && e.status === 409; setError(e.message); setStatus("Not saved"); if (options.autosave) toast.error("Autosave failed", { id: "bank-rec-setup-save-error", description: e instanceof Error ? e.message : "The setup could not be saved automatically.", duration: 6000 }); } throw e; })
+      }).catch(e => {
+        if (owns(source)) {
+          if (sent) unconfirmed.current = e instanceof SetupError && e.status < 500 ? null : submitted.current;
+          failed.current = true;
+          autoRetry.current = false;
+          conflict.current = e instanceof SetupError && e.status === 409;
+          setDirty(true);
+          const message = e instanceof Error ? e.message : "The setup could not be saved.";
+          setError(message);
+          setRecovery(conflict.current ? "load-latest" : !(e instanceof SetupError) || e.status >= 500 || e.status === 429 ? "retry-save" : null);
+          setStatus("Not saved");
+          if (options.autosave) toast.error("Autosave failed", { id: "bank-rec-setup-save-error", description: message, duration: 6000 });
+        }
+        throw e;
+      })
       .finally(() => { if (pending.current === operation) { pending.current = null; submitted.current = null; if (owns(source)) setSaving(false); } });
     pending.current = operation;
     return operation;
@@ -98,7 +129,15 @@ export function usePeriodSetup() {
       if (!owns(source)) throw new DOMException("The reconciliation selection changed.", "AbortError");
       if (!latest) throw new Error("Select and save a bank account first.");
       const work = operation(latest).then(result => { accept(result.period, source); return result; })
-        .catch(e => { if (owns(source) && e instanceof SetupError && e.status === 409) conflict.current = true; throw e; });
+        .catch(e => {
+          if (owns(source) && e instanceof SetupError && e.status === 409) {
+            conflict.current = true;
+            autoRetry.current = false;
+            setError(e.message);
+            setRecovery("load-latest");
+          }
+          throw e;
+        });
       const waiting = work.then(result => result.period, () => null);
       pending.current = waiting;
       try { return await work; } finally { if (pending.current === waiting) pending.current = null; }
@@ -110,7 +149,7 @@ export function usePeriodSetup() {
     if (!owns(source)) return;
     owner.current.selection++; reading.current++;
     const next = fields(result); current.current = next; baseline.current = next; unconfirmed.current = null; setDraft(next); saved.current = JSON.stringify(payload(next)); conflict.current = false; failed.current = false; autoRetry.current = true; setDirty(false);
-    accept(result); setError(""); setStatus(result.status === "CLOSED" ? "Closed period" : "Setup saved");
+    accept(result); setError(""); setRecovery(null); setStatus(result.status === "CLOSED" ? "Closed period" : "Setup saved");
     setLoading(false); periodUrl(scope(), result.id, result.lifecycle?.closureId);
   }, [accept, owns, periodUrl, scope]);
   const selectBank = useCallback(async (id: number, companyId: number | null) => {
@@ -130,34 +169,33 @@ export function usePeriodSetup() {
         owner.current.selection++; reading.current++;
         record.current = null; setPeriod(null); setBank(configuration); saved.current = ""; conflict.current = false; failed.current = false; unconfirmed.current = null; autoRetry.current = true;
         current.current = { bankId: id, companyId: configuration.companyId ?? companyId, currency: configuration.currency, periodEnd: "", statementOpening: "", statementEnding: "" };
-        baseline.current = { ...current.current }; setDirty(true); setDraft(current.current); setStatus("Unsaved changes"); setLoading(false); periodUrl(scope(), null);
+        baseline.current = { ...current.current }; setDirty(true); setDraft(current.current); setRecovery(null); setStatus("Unsaved changes"); setLoading(false); periodUrl(scope(), null);
       }
     } catch (e) { if (ownsRead(source, request)) setError(e instanceof Error ? e.message : "Unable to load setup."); }
     finally { if (ownsRead(source, request)) setLoading(false); }
   }, [load, owns, ownsRead, periodUrl, save, scope]);
-  const reload = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
-    const source = scope(), selected = record.current;
-    if (!owns(source) || !selected) return { ok: false, error: "No saved setup is loaded." };
+  const reload = useCallback(async () => {
+    const source = scope(), selected = record.current, bankId = current.current?.bankId;
+    if (!owns(source) || (!selected && !bankId)) return;
     const request = ++reading.current;
     setLoading(true);
     try {
       if (pending.current) await pending.current.catch(() => null);
-      if (!ownsRead(source, request)) return { ok: false, error: "The setup changed before it could be reloaded." };
-      const result = await getSetupPeriod(selected.id, selected.lifecycle?.closureId);
-      if (!ownsRead(source, request)) return { ok: false, error: "The setup changed before it could be reloaded." };
+      if (!ownsRead(source, request)) return;
+      const result = selected ? await getSetupPeriod(selected.id, selected.lifecycle?.closureId) : (await getOpenPeriod(bankId!)).period;
+      if (!ownsRead(source, request)) return;
+      if (!result) throw new Error("No open period was found. Choose a period from the header.");
       load(result, source);
-      return { ok: true };
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to reload setup.";
       if (ownsRead(source, request)) setError(message);
-      return { ok: false, error: message };
     } finally { if (ownsRead(source, request)) setLoading(false); }
   }, [load, owns, ownsRead, scope]);
   const clear = useCallback(() => {
     if (!owns(scope())) return;
     owner.current.selection++; reading.current++;
     current.current = null; baseline.current = null; unconfirmed.current = null; record.current = null; saved.current = ""; conflict.current = false; failed.current = false;
-    setDirty(false); setDraft(null); setPeriod(null); setBank(null); setStatus(""); setError(""); setLoading(false);
+    setDirty(false); setDraft(null); setPeriod(null); setBank(null); setStatus(""); setError(""); setRecovery(null); setLoading(false);
     periodUrl(scope(), null);
   }, [owns, periodUrl, scope]);
   useEffect(() => {
@@ -197,5 +235,5 @@ export function usePeriodSetup() {
     if (!owns(source)) return;
     if (latest) load(latest, source); else clear();
   }, [clear, load, owns, scope]);
-  return { draft, period, bank, loading, status, error, dirty, saving, change, save, run, selectBank, selectPeriod, load, accept, reload, clear, discard, getSnapshot, setAutosavePaused, setBank, setError };
+  return { draft, period, bank, loading, status, error, recovery, dirty, saving, change, save, run, selectBank, selectPeriod, load, accept, reload, clear, discard, getSnapshot, setAutosavePaused, setError };
 }

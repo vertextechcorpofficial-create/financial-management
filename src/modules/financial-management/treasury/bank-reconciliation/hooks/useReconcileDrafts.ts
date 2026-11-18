@@ -58,7 +58,8 @@ export function useReconcileDrafts(actorId: number | null, setup: Setup, entries
     if (error) throw new Error(`${side === "BANK" ? "Bank" : "Ledger"} entry: ${error}`);
     entry.uncertain = true; entry.reviewed = false; publish(source);
     try {
-      await run(period => addTransaction(period, side, { ...entry.fields }));
+      const { offsetAccount, ...fields } = entry.fields;
+      await run(period => addTransaction(period, side, { ...fields, offsetAccountId: offsetAccount?.id }));
       if (!owns(source)) return;
       source.entries[side] = emptyEntry(getSnapshot().draft?.periodEnd || ""); publish(source);
     } catch (e) {

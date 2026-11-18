@@ -10,7 +10,12 @@ import type { ReconciliationPeriod } from "../setup-types";
 import { ChoiceListSkeleton } from "./BankReconciliationSkeletons";
 import { BankAccountLabel } from "./BankAccountLabel";
 
-export function PeriodHistoryChoice({ period, disabled, onSelect }: { period?: ReconciliationPeriod | null; disabled: boolean; onSelect: (id: number, closureId?: number) => Promise<void> }) {
+export function PeriodHistoryChoice({ period, disabled, onSelect, triggerLabel = "Saved periods" }: {
+  period?: ReconciliationPeriod | null;
+  disabled: boolean;
+  onSelect: (id: number, closureId?: number) => Promise<void>;
+  triggerLabel?: string;
+}) {
   const [open, setOpen] = useState(false), [search, setSearch] = useState(""), [page, setPage] = useState(1);
   const [items, setItems] = useState<PeriodHistory[]>([]), [total, setTotal] = useState(0), [loading, setLoading] = useState(false), [error, setError] = useState("");
   const [selecting, setSelecting] = useState(false);
@@ -45,7 +50,7 @@ export function PeriodHistoryChoice({ period, disabled, onSelect }: { period?: R
     catch (e) { if (mounted.current && token === generation.current) setError(e instanceof Error ? e.message : "Unable to open this period."); }
     finally { choosing.current = false; if (mounted.current) setSelecting(false); }
   }
-  return <Dialog open={open} onOpenChange={changeOpen}><DialogTrigger asChild><Button type="button" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal text-left" disabled={disabled || selecting}>Saved periods{period ? `: ${period.periodEnd || "Undated"}${period.status === "CLOSED" ? ` · revision ${period.lifecycle?.revision ?? "unavailable"}` : ""}` : ""}</Button></DialogTrigger>
+  return <Dialog open={open} onOpenChange={changeOpen}><DialogTrigger asChild><Button type="button" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal text-left" disabled={disabled || selecting}>{triggerLabel}{period ? `: ${period.periodEnd || "Undated"}${period.status === "CLOSED" ? ` · revision ${period.lifecycle?.revision ?? "unavailable"}` : ""}` : ""}</Button></DialogTrigger>
     <DialogContent className="sm:max-w-2xl" showCloseButton={false}><DialogHeader><DialogTitle>Saved reconciliation periods</DialogTitle><DialogDescription>Open a working period or view a preserved closure revision. History includes inactive bank accounts.</DialogDescription></DialogHeader>
       <Input aria-label="Search saved periods" placeholder="Search bank, entity, date, or status" value={search} disabled={disabled || selecting} onChange={e => changeSearch(e.target.value)} />
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

@@ -5,6 +5,9 @@ import type {
   RegisterAccountResult,
   UpdateAccountResult,
 } from "../types";
+import type { CompanyReference } from "@/modules/financial-management/treasury/bank-reconciliation/reference-types";
+import type { BankConfiguration } from "@/modules/financial-management/treasury/bank-reconciliation/setup-types";
+import { SetupError } from "@/modules/financial-management/treasury/bank-reconciliation/providers/bankReconciliationSetupApi";
 
 export type OnboardingApiError = Error & {
   fieldErrors?: Record<string, string[]>;
@@ -30,6 +33,29 @@ async function unwrap<T>(response: Response): Promise<T> {
 }
 
 const BASE = "/api/fm/treasury/bank-management-v2/bank-account-onboarding";
+
+type ReconciliationConfiguration = { bank: BankConfiguration; companies: CompanyReference[] };
+type ReconciliationMapping = { version: number; companyId: number; glCoaId: number };
+
+async function configurationRequest<T>(id: number, init: RequestInit): Promise<T> {
+  const response = await fetch(`${BASE}/${id}/configuration`, { ...init, cache: "no-store" });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new SetupError(response.status, data?.message || "Unable to access reconciliation settings.", data?.fieldErrors);
+  if (!data) throw new SetupError(503, "Reconciliation settings are unavailable. Please retry.");
+  return data as T;
+}
+
+export function getReconciliationConfiguration(id: number, signal: AbortSignal) {
+  return configurationRequest<ReconciliationConfiguration>(id, { signal });
+}
+
+export function saveReconciliationConfiguration(id: number, mapping: ReconciliationMapping) {
+  return configurationRequest<BankConfiguration>(id, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(mapping),
+  });
+}
 
 /** One round trip for the register page: rows, filters' options and pagination. */
 export async function fetchOnboarding(
@@ -71,7 +97,6 @@ export type UpdateAccountPayload = {
   accountName: string;
   branch: string;
   accountType: string;
-  glCoaId: number;
   /** Undoes a deactivation. Every other lifecycle move belongs to Dormancy & Account Closing. */
   reactivate: boolean;
   effectiveDate: string;
