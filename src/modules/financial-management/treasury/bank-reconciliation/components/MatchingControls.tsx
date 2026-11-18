@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { AccountReference, MemoOffsetSide } from "../reference-types";
 import type { ReconciliationPeriod } from "../setup-types";
-import type { LedgerTreatment, ReconciliationSummary, TransactionLine, TransactionResult, TransactionSide } from "../transaction-types";
-import { setBankOffset, setBankTreatment, setLedgerTreatment, setMatchOffset, unmatchTransactions } from "../providers/bankReconciliationTransactionsApi";
+import type { LedgerTreatment, LineTreatmentCode, ReconciliationSummary, TransactionLine, TransactionResult, TransactionSide } from "../transaction-types";
+import { setAdjustmentQueue, setLineTreatment, setMatchOffset, unmatchTransactions } from "../providers/bankReconciliationTransactionsApi";
 import { centsAmount, transactionCents, transactionMoney } from "../utils/transactionDisplay";
 import { ReferenceChoice } from "./ReferenceChoice";
 import { CreateReferenceDialog } from "./CreateReferenceDialog";
@@ -44,40 +44,53 @@ export function MatchSelection({ selected, period, busy, hidden, onClear, onMatc
     <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{both ? "Selection is kept across pages and filters." : "Select at least one unmatched line on each side."}</p><div className="flex gap-2"><Button type="button" size="sm" variant="outline" disabled={busy} onClick={onClear}>Clear selection</Button><Button type="button" size="sm" disabled={locked || !both || difference !== 0n && !(kind === "BANK_ERROR" || kind === "BOOK_ERROR" && account)} onClick={() => onMatch(difference === 0n ? null : kind, difference !== 0n && kind === "BOOK_ERROR" ? account?.id ?? null : null)}>Match</Button></div></div>
   </section>;
 }
-export function LedgerTreatmentChoice({ label, value, negative, disabled, onChange }: {
-  label: string; value: LedgerTreatment; negative: boolean; disabled: boolean; onChange: (value: LedgerTreatment) => void;
+export function LedgerTreatmentChoice({ label, value, negative, disabled, allowBookError = true, onChange }: {
+  label: string; value: LedgerTreatment | null; negative: boolean; disabled: boolean; allowBookError?: boolean; onChange: (value: LedgerTreatment | null) => void;
 }) {
   return <label className="space-y-1 text-xs"><span className="block">Treatment</span>
-    <select aria-label={label} value={value} disabled={disabled}
+    <select aria-label={label} value={value ?? ""} disabled={disabled}
       className="h-9 max-w-full rounded-md border bg-background px-2 text-sm"
-      onChange={event => onChange(event.target.value as LedgerTreatment)}>
+      onChange={event => onChange((event.target.value || null) as LedgerTreatment | null)}>
+      <option value="">Choose treatment</option>
       <option value="DEPOSIT_IN_TRANSIT" disabled={negative}>Deposit in transit</option>
       <option value="OUTSTANDING_CHECK" disabled={!negative}>Outstanding check</option>
-      <option value="BOOK_ERROR">Book error: record in books</option>
+      {allowBookError && <option value="BOOK_ERROR">Book error: record in books</option>}
     </select>
   </label>;
 }
 
-function ManualLedgerTreatment({ line, period, locked, apply }: {
-  line: TransactionLine; period: ReconciliationPeriod; locked: boolean;
+function TreatmentEditor({ line, side, period, locked, apply }: {
+  line: TransactionLine; side: TransactionSide; period: ReconciliationPeriod; locked: boolean;
   apply: (operation: (period: ReconciliationPeriod) => Promise<TransactionResult>) => Promise<void>;
 }) {
   const negative = transactionCents(line.amount) < 0n;
-  const initial = line.treatment === "BOOK_ERROR" ? "BOOK_ERROR" : negative ? "OUTSTANDING_CHECK" : "DEPOSIT_IN_TRANSIT";
-  const [treatment, setTreatment] = useState<LedgerTreatment>(initial);
+  const [treatment, setTreatment] = useState<LineTreatmentCode | null>(line.treatment);
   const [offset, setOffset] = useState(line.offsetAccountReference);
   const name = line.reference || line.id;
-  const dirty = treatment !== initial || offset?.id !== line.offsetAccountReference?.id;
+  const needsOffset = treatment === "BOOK_ERROR" || treatment === "RECORD_IN_BOOKS";
+  const dirty = treatment !== line.treatment || needsOffset && offset?.id !== line.offsetAccountReference?.id;
+  function choose(value: LineTreatmentCode | null) { setTreatment(value); if (value !== treatment) setOffset(null); }
   return <div className="mt-2 flex flex-wrap items-end gap-3">
-    <LedgerTreatmentChoice label={`Treatment for ${name}`} value={treatment} negative={negative} disabled={locked}
-      onChange={value => { setTreatment(value); if (value !== "BOOK_ERROR") setOffset(null); }} />
-    {treatment === "BOOK_ERROR" && <OffsetAccountChoice label={`Offset account for ${name}`} selected={offset}
+    {side === "LEDGER" ? <LedgerTreatmentChoice label={`Treatment for ${name}`} value={treatment as LedgerTreatment | null} negative={negative}
+      disabled={locked} allowBookError={line.canClassifyBookError} onChange={choose} /> :
+      <label className="space-y-1"><span className="block">Treatment</span>
+        <select aria-label={`Treatment for ${name}`} value={treatment ?? ""} disabled={locked}
+          className="h-9 max-w-full rounded-md border bg-background px-2 text-sm" onChange={event => choose((event.target.value || null) as LineTreatmentCode | null)}>
+          <option value="">Choose treatment</option>
+          <option value="RECORD_IN_BOOKS">{negative ? "Debit memo" : "Credit memo"}: record in books</option>
+          <option value="BANK_ERROR">Bank error, bank to correct</option>
+        </select>
+      </label>}
+    {needsOffset && <OffsetAccountChoice label={`Offset account for ${name}`} selected={offset}
       period={period} disabled={locked} normalSide={negative ? "DEBIT" : "CREDIT"} onChange={setOffset} />}
-    {line.needsAccount && treatment === "BOOK_ERROR" && <p className="text-destructive">Choose an eligible offset account before posting.</p>}
-    <Button type="button" size="sm" variant="outline" disabled={locked || !dirty || treatment === "BOOK_ERROR" && !offset}
-      onClick={() => { void apply(p => setLedgerTreatment(p, line.id, treatment, treatment === "BOOK_ERROR" ? offset?.id ?? null : null)); }}>
+    <Button type="button" size="sm" variant="outline" disabled={locked || !dirty || !treatment || needsOffset && !offset}
+      onClick={() => { void apply(p => setLineTreatment(p, side, line.id, treatment, needsOffset ? offset?.id ?? null : null)); }}>
       Save treatment
     </Button>
+    {line.canResetTreatment && <Button type="button" size="sm" variant="ghost" disabled={locked}
+      onClick={() => { void apply(p => setLineTreatment(p, side, line.id, null, null)); }}>Reset to Unmatched</Button>}
+    {line.canQueueAdjustment && <Button type="button" size="sm" variant="outline" disabled={locked || dirty}
+      onClick={() => { void apply(p => setAdjustmentQueue(p, side, line.id, true)); }}>Queue adjustment</Button>}
   </div>;
 }
 
@@ -88,14 +101,15 @@ export function LineTreatment({ line, side, period, busy, command, onError }: {
   async function apply(operation: (p: ReconciliationPeriod) => Promise<TransactionResult>) {
     onError("");try { await command(operation); } catch (e) { onError(e instanceof Error ? e.message : "Unable to update the transaction."); }
   }
-  if (side === "LEDGER" && line.canEditTreatment) {
-    return <ManualLedgerTreatment key={`${period.id}:${period.version}:${line.id}`} line={line} period={period} locked={locked} apply={apply} />;
+  if (line.canEditTreatment) {
+    return <TreatmentEditor key={`${period.id}:${period.version}:${line.id}`} line={line} side={side} period={period} locked={locked} apply={apply} />;
   }
   return <div className="mt-2 flex flex-wrap items-end gap-3">
-    {line.canEditTreatment && <label className="min-w-0 space-y-1"><span className="block text-xs text-muted-foreground">Treatment</span><select aria-label={`Treatment for ${name}`} value={line.treatment || "RECORD_IN_BOOKS"} disabled={locked} className="h-9 max-w-full rounded-md border bg-background px-2 text-sm" onChange={e => { const treatment = e.target.value; void apply(p => setBankTreatment(p, line.id, treatment)); }}><option value="RECORD_IN_BOOKS">{line.amount.startsWith("-") ? "Debit memo" : "Credit memo"}: record in books</option><option value="BANK_ERROR">Bank error, bank to correct</option></select></label>}
-    {line.canEditOffset && line.matchId == null && line.needsAccount && line.offsetAccountReference &&
-      <p className="text-xs text-destructive">Choose an eligible {transactionCents(line.amount) < 0n ? "debit" : "credit"} offset account before posting.</p>}
-    {line.canEditOffset && <div className="w-full max-w-sm"><OffsetAccountChoice label={`Offset account for ${line.matchLabel ? `${line.matchLabel} · ` : ""}${name}`} selected={line.offsetAccountReference} period={period} disabled={locked} normalSide={line.matchId == null ? (transactionCents(line.amount) < 0n ? "DEBIT" : "CREDIT") : undefined} clearable={line.matchId == null} onChange={account => { void apply(p => line.matchId == null ? setBankOffset(p, line.id, account?.id ?? null) : setMatchOffset(p, line.matchId, account?.id ?? null)); }} /></div>}
+    {line.canEditOffset && <div className="w-full max-w-sm"><OffsetAccountChoice label={`Offset account for ${line.matchLabel ? `${line.matchLabel} · ` : ""}${name}`} selected={line.offsetAccountReference} period={period} disabled={locked}
+      normalSide={line.matchId == null ? (transactionCents(line.amount) < 0n ? "DEBIT" : "CREDIT") : undefined}
+      onChange={account => { if (account) void apply(p => line.matchId == null ? setLineTreatment(p, side, line.id, line.treatment, account.id) : setMatchOffset(p, line.matchId, account.id)); }} /></div>}
     {line.canUnmatch && <Button type="button" size="sm" variant="outline" disabled={locked} aria-label={`Unmatch ${line.matchLabel} for ${side.toLowerCase()} line ${name}`} onClick={() => { void apply(p => unmatchTransactions(p, line.matchId!)); }}>Unmatch {line.matchLabel}</Button>}
+    {line.canUnqueueAdjustment && <Button type="button" size="sm" variant="outline" disabled={locked}
+      onClick={() => { void apply(p => setAdjustmentQueue(p, side, line.id, false)); }}>Unqueue adjustment</Button>}
   </div>;
 }
