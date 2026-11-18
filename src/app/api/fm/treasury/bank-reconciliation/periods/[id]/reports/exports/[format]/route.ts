@@ -3,7 +3,8 @@ import { proxySpring, refreshedAccessToken } from "@/app/api/fm/financial-statem
 import { buildReportsExcel } from "@/modules/financial-management/treasury/bank-reconciliation/services/reportsExcel";
 import { buildReportsPdf } from "@/modules/financial-management/treasury/bank-reconciliation/services/reportsPdf";
 import { ReconcileExportError } from "@/modules/financial-management/treasury/bank-reconciliation/services/reconcileExport";
-import type { ReportsExportData } from "@/modules/financial-management/treasury/bank-reconciliation/report-types";
+import type { ReportScope, ReportsExportData } from "@/modules/financial-management/treasury/bank-reconciliation/report-types";
+import { appendReportScope, filteredExport, validReportScope } from "@/modules/financial-management/treasury/bank-reconciliation/services/reportSelection";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,19 +29,34 @@ export async function POST(request: NextRequest, context: Context) {
   try {
     const { id, format } = await context.params;
     if (!/^[1-9]\d{0,17}$/.test(id) || (format !== "xlsx" && format !== "pdf")) return fail("Unknown Reports export.", 404);
-    const body = await request.json().catch(() => null) as { version?: unknown; bankVersion?: unknown; closureId?: unknown } | null;
+    const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     if (!Number.isSafeInteger(body?.version) || !Number.isSafeInteger(body?.bankVersion) || Number(body?.version) < 0 || Number(body?.bankVersion) < 0) return fail("Send the saved period and bank configuration versions.", 400);
     if (body?.closureId !== undefined && (!Number.isSafeInteger(body.closureId) || Number(body.closureId) < 1)) return fail("Choose a valid closure revision.", 400);
+    if (!body || !validReportScope(body)) return fail("Send a valid report, filters, and history boundary.", 400);
+    const scope = body.report ? body as ReportScope : undefined;
     request.signal.throwIfAborted();
     const query = new URLSearchParams({ version: String(body!.version), bankVersion: String(body!.bankVersion), format });
     if (body?.closureId !== undefined) query.set("closureId", String(body.closureId));
+    appendReportScope(query, scope);
     const source = await proxySpring(`${ROOT}/periods/${id}/reports/export-data?${query}`, { signal: request.signal }, undefined, 60000); sources.push(source);
     if (!source.ok) return upstream(source);
-    const data = await source.json() as ReportsExportData;
+    const snapshot = await source.json() as ReportsExportData;
+    if (snapshot.report !== scope?.report
+      || (snapshot.report === "audit" && snapshot.throughEventId !== scope?.throughEventId)
+      || (snapshot.report === "closedPeriods" && snapshot.throughClosureId !== scope?.throughClosureId)) {
+      throw new Error("The service returned a different report scope.");
+    }
+    const data = filteredExport(snapshot);
     if (!/^[A-Za-z0-9._-]{1,160}$/.test(data.filename) || !data.filename.endsWith(`.${format}`)) throw new Error("Invalid export filename.");
     const bytes = format === "xlsx" ? await buildReportsExcel(data) : await buildReportsPdf(data);
     request.signal.throwIfAborted();
-    const audit = await proxySpring(`${ROOT}/periods/${id}/reports/exports`, { method: "POST", body: JSON.stringify({ version: data.period.version, bankVersion: data.period.bank.version, format, filename: data.filename, generatedAt: data.generatedAt, throughEventId: data.throughEventId, throughClosureId: data.throughClosureId, ...(data.period.lifecycle?.closureId ? { closureId: data.period.lifecycle.closureId } : {}) }), signal: request.signal }, refreshedAccessToken(source), 60000); sources.push(audit);
+    const audit = await proxySpring(`${ROOT}/periods/${id}/reports/exports`, { method: "POST", body: JSON.stringify({
+      version: data.period.version, bankVersion: data.period.bank.version, format, filename: data.filename, generatedAt: data.generatedAt,
+      ...("throughEventId" in data ? { throughEventId: data.throughEventId } : {}),
+      ...("throughClosureId" in data ? { throughClosureId: data.throughClosureId } : {}),
+      ...(data.period.lifecycle?.closureId ? { closureId: data.period.lifecycle.closureId } : {}),
+      ...(data.report ? { report: data.report, filters: data.filters } : {}),
+    }), signal: request.signal }, refreshedAccessToken(source), 60000); sources.push(audit);
     if (!audit.ok) return upstream(audit);
     if ((await audit.json()).recorded !== true) throw new Error("Export audit was not confirmed.");
     request.signal.throwIfAborted();
