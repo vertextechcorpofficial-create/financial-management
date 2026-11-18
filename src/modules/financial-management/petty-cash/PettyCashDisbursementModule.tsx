@@ -72,6 +72,7 @@ function Disbursement({ actorName }: { actorName: string }) {
   if (dateFrom) registerParams.set("dateFrom", dateFrom);
   if (dateTo) registerParams.set("dateTo", dateTo);
   const register = useVoucherRead<Page<VoucherOperations>>(selected && !invalidRange ? `register?${registerParams}` : null, 250);
+  usePettyCashRefresh(funds.refresh, funds.loading || funds.refreshing);
   usePettyCashRefresh(register.refresh, register.loading || register.refreshing);
   function refresh() { funds.refresh(); register.refresh(); }
   function changed() { setEditor(null); setModal(null); setPage(1); refresh(); }

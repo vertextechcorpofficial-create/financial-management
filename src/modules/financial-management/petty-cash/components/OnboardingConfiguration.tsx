@@ -48,7 +48,7 @@ export function OnboardingConfiguration({ onChanged }: { onChanged: () => void }
     {data && <div className="grid gap-4 lg:grid-cols-3">
       <Block title="Company details" onEdit={() => setCompanyOpen(true)}>
         <Row label="Registered name" value={text(data.company?.name)} />
-        <Row label="TIN" value={text(data.company?.details.tin)} />
+        <Row label="TIN" value={text(data.company?.details?.tin)} />
         <Row label="Signatory (2307)" value={text([data.signatory?.name, data.signatoryTitle].filter(Boolean).join(", "))} />
         <Row label="Signatory TIN" value={text(data.signatoryTin)} />
       </Block>
