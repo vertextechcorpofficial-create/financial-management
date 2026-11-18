@@ -3,7 +3,7 @@ import type { ReconciliationPeriod } from "./setup-types";
 import type { ReconciliationSummary } from "./transaction-types";
 
 export type PostingEntry = {
-  key: string; sourceType: "BANK_LINE" | "MATCH" | "JOURNAL"; sourceId: number; sourceLabel: string; sourceDate: string | null;
+  key: string; sourceType: "BANK_LINE" | "LEDGER_LINE" | "MATCH" | "JOURNAL"; sourceId: number; sourceLabel: string; sourceDate: string | null;
   status: "NEEDS_ACCOUNT" | "READY" | "PENDING" | "EXPORTED" | "FAILED" | "POSTED" | "REVERSED" | "REVERSAL" | "WITHDRAWN" | "SUPERSEDED"; journalId: number | null; journalNumber: string | null;
   workbenchId?: number; workbenchNumber?: string; glStatus?: "PENDING" | "EXPORTED" | "FAILED" | "POSTED";
   importReference?: string; sourceHash?: string; reversesNumber?: string; reversedByNumber?: string; lastError?: string; stale?: boolean;

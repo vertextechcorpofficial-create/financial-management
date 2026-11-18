@@ -1,16 +1,18 @@
-import type { ReconciliationPeriod } from "./setup-types";
+import type { LedgerJournalReference, ReconciliationPeriod } from "./setup-types";
 import type { AccountReference } from "./reference-types";
 
+export type LedgerTreatment = "DEPOSIT_IN_TRANSIT" | "OUTSTANDING_CHECK" | "BOOK_ERROR";
 export type TransactionSide = "BANK" | "LEDGER";
 export type TransactionFilter = "ALL" | "TO_REVIEW" | "MATCHED";
 export type TransactionLine = {
   id: number; date: string; reference: string; description: string; amount: string;
   origin: "MANUAL" | "IMPORT" | "GL"; sourceKey: string | null; status: string;
+  sourceJournal?: LedgerJournalReference | null; sourceVoidReview?: boolean;
   carriedFromPeriodId?: number | null; carriedFromLineId?: number | null;
   matchId: number | null; workbenchPosted: boolean; stale: boolean; offsetAccount: string; canDelete: boolean;
   canMatch: boolean; canUnmatch: boolean; canEditTreatment: boolean; canEditOffset: boolean; needsAccount: boolean;
   matchLabel: string | null; matchDifference: string | null; matchClassification: "BOOK_ERROR" | "BANK_ERROR" | null;
-  treatment: "RECORD_IN_BOOKS" | "BANK_ERROR" | null; offsetAccountReference: AccountReference | null;
+  treatment: "RECORD_IN_BOOKS" | "BANK_ERROR" | LedgerTreatment | null; offsetAccountReference: AccountReference | null;
 };
 export type ReconciliationSummary = {
   adjustedBankBalance: string | null; adjustedBookBalance: string | null; difference: string | null;
