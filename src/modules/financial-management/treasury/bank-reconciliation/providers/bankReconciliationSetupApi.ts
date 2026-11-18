@@ -22,5 +22,4 @@ export const getSetupLedger = (id: number, page = 1) => setupRequest<LedgerPage>
 export const getSetupMasterOptions = () => setupRequest<MasterOptions>("master-options");
 export function createSetupMaster(kind: "companies", body: unknown): Promise<CompanyReference>;
 export function createSetupMaster(kind: "accounts", body: unknown): Promise<AccountReference>;
-export function createSetupMaster(kind: "bank-accounts", body: unknown): Promise<BankConfiguration>;
-export function createSetupMaster(kind: string, body: unknown) { return setupRequest(`masters/${kind}`, "POST", body); }
+export function createSetupMaster(kind: "companies" | "accounts", body: unknown) { return setupRequest(`masters/${kind}`, "POST", body); }

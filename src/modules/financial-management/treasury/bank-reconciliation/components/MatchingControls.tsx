@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { AccountReference } from "../reference-types";
+import type { AccountReference, MemoOffsetSide } from "../reference-types";
 import type { ReconciliationPeriod } from "../setup-types";
 import type { ReconciliationSummary, TransactionLine, TransactionResult, TransactionSide } from "../transaction-types";
 import { setBankOffset, setBankTreatment, setMatchOffset, unmatchTransactions } from "../providers/bankReconciliationTransactionsApi";
@@ -13,14 +13,14 @@ import { ProofSkeleton } from "./BankReconciliationSkeletons";
 
 export type Selection = { BANK: TransactionLine[]; LEDGER: TransactionLine[] };
 export type TransactionCommand = (operation: (period: ReconciliationPeriod) => Promise<TransactionResult>) => Promise<TransactionResult>;
-export function OffsetAccountChoice({ label, selected, period, disabled, onChange, clearable = false }: {
+export function OffsetAccountChoice({ label, selected, period, disabled, onChange, clearable = false, normalSide }: {
   label: string; selected: AccountReference | null; period: ReconciliationPeriod; disabled: boolean;
-  onChange: (account: AccountReference | null) => void; clearable?: boolean;
+  onChange: (account: AccountReference | null) => void; clearable?: boolean; normalSide?: MemoOffsetSide;
 }) {
   const [creating, setCreating] = useState(false);
   return <>
-    <ReferenceChoice label={label} resource="accounts" selected={selected} disabled={disabled} excludeIds={period.bank.glCoaId == null ? [] : [period.bank.glCoaId]} onSelect={item => onChange(item as AccountReference)} onAdd={() => setCreating(true)} onClear={clearable ? () => onChange(null) : undefined} />
-    <CreateReferenceDialog kind={creating ? "accounts" : null} company={period.bank.company} onClose={() => setCreating(false)} onCreated={(_kind, item) => { setCreating(false); onChange(item as AccountReference); }} />
+    <ReferenceChoice label={label} resource="accounts" selected={selected} disabled={disabled} normalSide={normalSide} excludeAccountId={normalSide ? period.bank.glCoaId ?? undefined : undefined} excludeIds={period.bank.glCoaId == null ? [] : [period.bank.glCoaId]} onSelect={item => onChange(item as AccountReference)} onAdd={normalSide ? undefined : () => setCreating(true)} onClear={clearable ? () => onChange(null) : undefined} />
+    <CreateReferenceDialog kind={creating ? "accounts" : null} onClose={() => setCreating(false)} onCreated={(_kind, item) => { setCreating(false); onChange(item as AccountReference); }} />
   </>;
 }
 export function ReconciliationProof({ summary, currency, readState }: { summary?: ReconciliationSummary; currency: string; readState?: "loading" | "error" }) {
@@ -53,7 +53,9 @@ export function LineTreatment({ line, side, period, busy, command, onError }: {
   }
   return <div className="mt-2 flex flex-wrap items-end gap-3">
     {line.canEditTreatment && <label className="min-w-0 space-y-1"><span className="block text-xs text-muted-foreground">Treatment</span><select aria-label={`Treatment for ${name}`} value={line.treatment || "RECORD_IN_BOOKS"} disabled={locked} className="h-9 max-w-full rounded-md border bg-background px-2 text-sm" onChange={e => { const treatment = e.target.value; void apply(p => setBankTreatment(p, line.id, treatment)); }}><option value="RECORD_IN_BOOKS">{line.amount.startsWith("-") ? "Debit memo" : "Credit memo"}: record in books</option><option value="BANK_ERROR">Bank error, bank to correct</option></select></label>}
-    {line.canEditOffset && <div className="w-full max-w-sm"><OffsetAccountChoice label={`Offset account for ${line.matchLabel ? `${line.matchLabel} · ` : ""}${name}`} selected={line.offsetAccountReference} period={period} disabled={locked} clearable={line.matchId == null} onChange={account => { void apply(p => line.matchId == null ? setBankOffset(p, line.id, account?.id ?? null) : setMatchOffset(p, line.matchId, account?.id ?? null)); }} /></div>}
+    {line.canEditOffset && line.matchId == null && line.needsAccount && line.offsetAccountReference &&
+      <p className="text-xs text-destructive">Choose an eligible {transactionCents(line.amount) < 0n ? "debit" : "credit"} offset account before posting.</p>}
+    {line.canEditOffset && <div className="w-full max-w-sm"><OffsetAccountChoice label={`Offset account for ${line.matchLabel ? `${line.matchLabel} · ` : ""}${name}`} selected={line.offsetAccountReference} period={period} disabled={locked} normalSide={line.matchId == null ? (transactionCents(line.amount) < 0n ? "DEBIT" : "CREDIT") : undefined} clearable={line.matchId == null} onChange={account => { void apply(p => line.matchId == null ? setBankOffset(p, line.id, account?.id ?? null) : setMatchOffset(p, line.matchId, account?.id ?? null)); }} /></div>}
     {line.canUnmatch && <Button type="button" size="sm" variant="outline" disabled={locked} aria-label={`Unmatch ${line.matchLabel} for ${side.toLowerCase()} line ${name}`} onClick={() => { void apply(p => unmatchTransactions(p, line.matchId!)); }}>Unmatch {line.matchLabel}</Button>}
   </div>;
 }

@@ -14,12 +14,13 @@ export function referenceLabel(item: Reference) {
   return "bankName" in item ? bankAccountLabel(item) : `${item.code} · ${item.name}`;
 }
 
-export function ReferenceChoice({ label, resource, selected, onSelect, disabled, companyId, bankGroup, currentAssets, onAdd, onClear, excludeIds }: {
+export function ReferenceChoice({ label, resource, selected, onSelect, disabled, companyId, bankGroup, currentAssets, onAdd, onClear, excludeIds, normalSide, excludeAccountId }: {
   label: string; resource: BankReconciliationReferenceResource; selected: Reference | null;
   onSelect: (item: Reference) => void; disabled?: boolean; companyId?: number; bankGroup?: BankBranchReference;
+  normalSide?: import("../reference-types").MemoOffsetSide; excludeAccountId?: number;
   currentAssets?: boolean; onAdd?: () => void; onClear?: () => void; excludeIds?: number[];
 }) {
-  const choices = useReferenceChoices(resource, { companyId, ...(resource === "bank-accounts" ? bankGroup : {}) });
+  const choices = useReferenceChoices(resource, { companyId, normalSide, excludeAccountId, ...(resource === "bank-accounts" ? bankGroup : {}) });
   const { open, search, page, items, total, loading, error } = choices;
   return <div className="min-w-0 space-y-2"><label className="text-sm font-medium">{label}</label>
     <Popover open={open} onOpenChange={choices.onOpenChange} modal>

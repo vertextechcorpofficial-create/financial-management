@@ -16,7 +16,7 @@ export async function GET(request: NextRequest, context: Context) {
     const headers = new Headers(source.headers); headers.set("Cache-Control", "private, no-store"); headers.set("X-Content-Type-Options", "nosniff"); return new NextResponse(source.body, { status: source.status, headers });
   }
   const print = path.startsWith("print/") || path.endsWith("/print"), sourcePath = path.startsWith("print/") ? path.replace(/^print\//, "print-data/") : path.replace(/\/print$/, "");
-  const source = await readPettyCash(`reports/${sourcePath}${tail}`, { signal: request.signal });
+  const source = await readPettyCash(`reports/${sourcePath}${tail}`, { signal: request.signal }, undefined, 60_000);
   if (!print || !source.ok) return source;
   try {
     const data = await source.json(), bytes = path.startsWith("print/") ? reportPdf(data) : certificatePdf(data), headers = new Headers(source.headers);
