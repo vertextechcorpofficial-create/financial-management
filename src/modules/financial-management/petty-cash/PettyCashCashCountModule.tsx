@@ -50,6 +50,7 @@ function CountHistory({ funds, refreshToken = 0 }: { funds?: FundInfo[]; refresh
 
 export default function PettyCashCashCountModule({ actorName }: { actorId: number; actorName: string }) {
   const funds = useFundRead<FundInfo[]>("cash-count/funds"), denominations = useFundRead<Denomination[]>("cash-count/denominations");
+  usePettyCashRefresh(funds.refresh, funds.loading || funds.refreshing);
   const [selected, setSelected] = useState<number | null>(null), [revision, setRevision] = useState(0), [historyRevision, setHistoryRevision] = useState(0);
   const fund = funds.data?.find(item => item.id === selected) ?? funds.data?.[0];
   function saved(count: CashCount) {
@@ -87,7 +88,7 @@ function CountEditor({ fund, denominations, actorName, onSaved, reloadFund }: { 
   const zeroError = attempted && valid && total === 0n ? !zero ? "Confirm there is zero physical cash." : !remarks.trim() ? "Enter remarks explaining the zero cash count." : undefined : onboardingFieldError(command.error, "zeroConfirmed");
   const remarksError = onboardingFieldError(command.error, "remarks") || (attempted && valid && total === 0n && !remarks.trim() ? "Remarks are required when counted cash is zero." : undefined);
   const previewPending = valid && !preview && !previewError;
-  function acknowledgeFund() { setBaselineVersion(fund.version); setConfirming(false); setReload(value => value + 1); reloadFund(); }
+  function acknowledgeFund() { setPresent(false); setBaselineVersion(fund.version); setConfirming(false); setReload(value => value + 1); reloadFund(); }
   function changeQuantity(denominationId: number, value: string) { setQuantities(current => ({ ...current, [denominationId]: value })); setConfirming(false); command.clearError(); }
   function clearQuantities() { setQuantities({}); setZero(false); setConfirming(false); command.clearError(); }
   function startSave() { setAttempted(true); command.clearError(); if (valid && witness && approver && present && (total !== 0n || zero && remarks.trim()) && preview?.ready && !stale && !locked) setConfirming(true); }
