@@ -40,10 +40,13 @@ export function LoanRegisterModule() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline" className="min-h-11 md:min-h-0">
-            <Link href="/fm/treasury/loan-management/loan-journal">Journal entries</Link>
+            <Link href="/fm/treasury/loan-management/loan-register/journal">Journal entries</Link>
           </Button>
           <Button asChild variant="outline" className="min-h-11 md:min-h-0">
-            <Link href="/fm/treasury/loan-management/loan-settings">
+            <Link href="/fm/treasury/loan-management/loan-register/reconciliation">Reconciliation</Link>
+          </Button>
+          <Button asChild variant="outline" className="min-h-11 md:min-h-0">
+            <Link href="/fm/treasury/loan-management/loan-register/settings">
               <Settings className="mr-2 h-4 w-4" aria-hidden />
               Settings
             </Link>
