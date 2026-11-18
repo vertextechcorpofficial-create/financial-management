@@ -16,6 +16,7 @@ import { fetchPaymentContext, recordPayment } from "../providers/paymentsApi";
 import { phtDate } from "../pht";
 import type { PaymentAccountRow, PaymentContext, PaymentMethod } from "../types";
 import { DateField } from "./DateField";
+import { Notice } from "./Notice";
 import { OptionCombobox } from "./OptionCombobox";
 
 interface Props {
@@ -50,6 +51,8 @@ const blank = (): FormState => ({
   lenderReceipt: "",
   remarks: "",
 });
+
+const money = (value: number) => formatCurrency(Math.abs(value) < 0.005 ? 0 : value);
 
 export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: Props) {
   const [form, setForm] = useState<FormState>(blank);
@@ -105,6 +108,10 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
     chosenAccount && chosenAccount.charge_pct > 0 && enteredAmount > 0
       ? Math.round(((enteredAmount * chosenAccount.charge_pct) / 100) * 100) / 100
       : 0;
+  const moneyOut = Math.round((enteredAmount + bankCharge) * 100) / 100;
+
+  const nextDue = context?.installments.find((row) => row.totalOutstanding > 0.005) ?? null;
+  const amountCovers = nextDue ? enteredAmount >= nextDue.totalOutstanding - 0.005 : false;
 
   // A submit button that rejects everything the desk types is worse than one that says what is missing.
   const missing = [
@@ -159,20 +166,48 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
     }
   }
 
+  const subtitle = context
+    ? `${context.loan.loan_no} · ${context.loan.lender_name} · installment ${money(context.loan.installment_amount)}`
+    : "Choose the loan this money is for.";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[720px]">
-        <div className="flex max-h-[85vh] flex-col overflow-hidden">
-          <DialogHeader className="border-b border-border px-6 py-4">
-            <DialogTitle>Record loan payment</DialogTitle>
-            <DialogDescription>
-              Penalties are covered first, then interest, then principal, oldest installment first.
-            </DialogDescription>
-          </DialogHeader>
+        <DialogHeader className="space-y-1 border-b border-border px-6 py-4">
+          <DialogTitle className="truncate">Record payment</DialogTitle>
+          <DialogDescription className="truncate">{subtitle}</DialogDescription>
+        </DialogHeader>
 
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="payment-loan">Loan <span className="text-destructive">*</span></Label>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Tile label="Amount" value={enteredAmount > 0 ? money(enteredAmount) : "—"} />
+            <Tile label="Bank charge" value={bankCharge > 0 ? money(bankCharge) : "—"} />
+            <Tile label="Money out" value={moneyOut > 0 ? money(moneyOut) : "—"} />
+            <Tile label="Next due" value={nextDue ? money(nextDue.totalOutstanding) : context ? "Nothing left" : "—"} />
+          </div>
+
+          {context ? (
+            <Notice
+              tone={amountCovers ? "info" : "warning"}
+              title={amountCovers ? "This covers the next installment" : "This does not cover the next installment"}
+            >
+              {nextDue
+                ? `${money(nextDue.totalOutstanding)} is due on ${nextDue.paymentDueDate}${nextDue.overdue ? ", already past its due date" : ""}. The oldest installment takes the money first, so this pays ${amountCovers ? "it in full" : "into it and leaves a balance"}${bankCharge > 0 && chosenAccount ? `; ${chosenAccount.name} adds ${money(bankCharge)} on top` : ""}.`
+                : "Every installment on this loan is settled, so anything recorded now is held as an advance."}
+            </Notice>
+          ) : null}
+
+          {contextError ? (
+            <Notice tone="danger" title="The loan could not be read">
+              {contextError}
+            </Notice>
+          ) : null}
+
+          <Group title="Payment">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="payment-loan">
+                Loan <span className="text-destructive">*</span>
+              </Label>
               <OptionCombobox
                 value={form.loanId ? String(form.loanId) : ""}
                 onChange={(value) => setForm((current) => ({ ...current, loanId: value ? Number(value) : null, amount: "" }))}
@@ -189,161 +224,116 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
               {errors.loanId ? <p className="text-xs text-destructive">{errors.loanId}</p> : null}
             </div>
 
-            {contextError ? <p className="text-sm text-destructive">{contextError}</p> : null}
+            <Field label="Payment date" required error={errors.paymentDate} htmlFor="payment-date">
+              <DateField
+                id="payment-date"
+                value={form.paymentDate}
+                onChange={(value) => setForm((current) => ({ ...current, paymentDate: value }))}
+                maxDate={phtDate()}
+                inDialog
+              />
+            </Field>
 
-            {context ? (
-              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Next due</span>
-                  <span className="tabular-nums">
-                    {context.suggested > 0 ? formatCurrency(context.suggested) : "Nothing left to pay"}
-                  </span>
-                </div>
-                <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Payoff today</span>
-                  <span className="tabular-nums">{formatCurrency(context.payoff)}</span>
-                </div>
-                {context.loan.advance_balance > 0 ? (
-                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Advance held</span>
-                    <span className="tabular-nums">{formatCurrency(context.loan.advance_balance)}</span>
-                  </div>
-                ) : null}
-                {context.notices.map((notice) => (
-                  <p key={notice} className="mt-2 text-xs text-muted-foreground">
-                    {notice}
-                  </p>
-                ))}
-              </div>
+            <Field label="Amount" required error={errors.amount} htmlFor="payment-amount">
+              <Input
+                id="payment-amount"
+                inputMode="decimal"
+                value={form.amount}
+                onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
+                aria-invalid={errors.amount ? true : undefined}
+                className="h-9 tabular-nums"
+              />
+            </Field>
+
+            <Field label="Paid from" required error={errors.accountId} htmlFor="payment-account">
+              <OptionCombobox
+                value={form.accountId ? String(form.accountId) : ""}
+                onChange={(value) => setForm((current) => ({ ...current, accountId: Number(value) }))}
+                placeholder="Choose an account"
+                searchPlaceholder="Search account"
+                emptyLabel="No payment account is set up."
+                className="h-9 w-full justify-between"
+                options={accounts.map((account) => ({
+                  value: String(account.id),
+                  label: account.name,
+                  description: account.charge_pct > 0 ? `${account.charge_pct}% charge` : undefined,
+                }))}
+              />
+            </Field>
+          </Group>
+
+          <Group title="Method and reference">
+            <Field label="Method" htmlFor="payment-method">
+              <Select
+                value={form.method}
+                onValueChange={(value) => setForm((current) => ({ ...current, method: value as PaymentMethod }))}
+              >
+                <SelectTrigger id="payment-method" className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
+                  {PAYMENT_METHODS.map((method) => (
+                    <SelectItem key={method} value={method}>
+                      {PAYMENT_METHOD_LABEL[method]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field label="Kind" htmlFor="payment-kind">
+              <Select
+                value={form.kind}
+                onValueChange={(value) => setForm((current) => ({ ...current, kind: value as "NORMAL" | "CATCH_UP" }))}
+              >
+                <SelectTrigger id="payment-kind" className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
+                  {PAYMENT_KINDS.map((kind) => (
+                    <SelectItem key={kind} value={kind}>
+                      {PAYMENT_KIND_LABEL[kind]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            {needsCheck ? (
+              <>
+                <Field label="Check number" required error={errors.checkNo} htmlFor="payment-check-no">
+                  <Input
+                    id="payment-check-no"
+                    value={form.checkNo}
+                    onChange={(event) => setForm((current) => ({ ...current, checkNo: event.target.value }))}
+                    aria-invalid={errors.checkNo ? true : undefined}
+                    className="h-9"
+                  />
+                </Field>
+                <Field label="Check date" required error={errors.checkDate} htmlFor="payment-check-date">
+                  <DateField
+                    id="payment-check-date"
+                    value={form.checkDate}
+                    onChange={(value) => setForm((current) => ({ ...current, checkDate: value }))}
+                    inDialog
+                  />
+                </Field>
+              </>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="payment-date">Payment date <span className="text-destructive">*</span></Label>
-                <DateField
-                  id="payment-date"
-                  value={form.paymentDate}
-                  onChange={(value) => setForm((current) => ({ ...current, paymentDate: value }))}
-                  maxDate={phtDate()}
-                  inDialog
-                />
-                {errors.paymentDate ? <p className="text-xs text-destructive">{errors.paymentDate}</p> : null}
-              </div>
+            <Field label="Lender receipt" htmlFor="payment-receipt">
+              <Input
+                id="payment-receipt"
+                value={form.lenderReceipt}
+                onChange={(event) => setForm((current) => ({ ...current, lenderReceipt: event.target.value }))}
+                placeholder="Optional"
+                className="h-9"
+              />
+            </Field>
+          </Group>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="payment-amount">Amount <span className="text-destructive">*</span></Label>
-                <Input
-                  id="payment-amount"
-                  inputMode="decimal"
-                  value={form.amount}
-                  onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
-                  aria-invalid={errors.amount ? true : undefined}
-                  className="h-9 tabular-nums"
-                />
-                {errors.amount ? <p className="text-xs text-destructive">{errors.amount}</p> : null}
-                {bankCharge > 0 && chosenAccount ? (
-                  <p className="text-[11px] leading-4 text-muted-foreground">
-                    {chosenAccount.name} charges {chosenAccount.charge_pct}% · {formatCurrency(bankCharge)} on top, so
-                    the money out is {formatCurrency(Math.round((enteredAmount + bankCharge) * 100) / 100)}.
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="payment-account">Paid from <span className="text-destructive">*</span></Label>
-                <OptionCombobox
-                  value={form.accountId ? String(form.accountId) : ""}
-                  onChange={(value) => setForm((current) => ({ ...current, accountId: Number(value) }))}
-                  placeholder="Choose an account"
-                  searchPlaceholder="Search account"
-                  emptyLabel="No payment account is set up."
-                  className="h-9 w-full justify-between"
-                  options={accounts.map((account) => ({
-                    value: String(account.id),
-                    label: account.name,
-                    description: account.charge_pct > 0 ? `${account.charge_pct}% charge` : undefined,
-                  }))}
-                />
-                {errors.accountId ? <p className="text-xs text-destructive">{errors.accountId}</p> : null}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="payment-method">Method</Label>
-                <Select
-                  value={form.method}
-                  onValueChange={(value) => setForm((current) => ({ ...current, method: value as PaymentMethod }))}
-                >
-                  <SelectTrigger id="payment-method" className="h-9 w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAYMENT_METHODS.map((method) => (
-                      <SelectItem key={method} value={method}>
-                        {PAYMENT_METHOD_LABEL[method]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {needsCheck ? (
-                <>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="payment-check-no">Check number</Label>
-                    <Input
-                      id="payment-check-no"
-                      value={form.checkNo}
-                      onChange={(event) => setForm((current) => ({ ...current, checkNo: event.target.value }))}
-                      aria-invalid={errors.checkNo ? true : undefined}
-                      className="h-9"
-                    />
-                    {errors.checkNo ? <p className="text-xs text-destructive">{errors.checkNo}</p> : null}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="payment-check-date">Check date</Label>
-                    <DateField
-                      id="payment-check-date"
-                      value={form.checkDate}
-                      onChange={(value) => setForm((current) => ({ ...current, checkDate: value }))}
-                      inDialog
-                    />
-                    {errors.checkDate ? <p className="text-xs text-destructive">{errors.checkDate}</p> : null}
-                  </div>
-                </>
-              ) : null}
-
-              <div className="space-y-1.5">
-                <Label htmlFor="payment-kind">Kind</Label>
-                <Select
-                  value={form.kind}
-                  onValueChange={(value) => setForm((current) => ({ ...current, kind: value as "NORMAL" | "CATCH_UP" }))}
-                >
-                  <SelectTrigger id="payment-kind" className="h-9 w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAYMENT_KINDS.map((kind) => (
-                      <SelectItem key={kind} value={kind}>
-                        {PAYMENT_KIND_LABEL[kind]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="payment-receipt">Lender receipt</Label>
-                <Input
-                  id="payment-receipt"
-                  value={form.lenderReceipt}
-                  onChange={(event) => setForm((current) => ({ ...current, lenderReceipt: event.target.value }))}
-                  placeholder="Optional"
-                  className="h-9"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
+          <Group title="Notes">
+            <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="payment-remarks">Remarks</Label>
               <Textarea
                 id="payment-remarks"
@@ -352,23 +342,67 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
                 rows={2}
               />
             </div>
-          </div>
-
-          <DialogFooter className="border-t border-border bg-muted/20 px-6 py-4">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
-              Close
-            </Button>
-            <Button
-              type="button"
-              onClick={() => void submit()}
-              disabled={isSaving || !canSubmit}
-              title={loans.length === 0 ? "No open loan can take a payment yet." : canSubmit ? undefined : `Still to do: ${missing.join(", ")}.`}
-            >
-              {isSaving ? "Recording…" : "Record payment"}
-            </Button>
-          </DialogFooter>
+          </Group>
         </div>
+
+        <DialogFooter className="border-t border-border bg-muted/20 px-6 py-4">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+            Close
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void submit()}
+            disabled={isSaving || !canSubmit}
+            title={loans.length === 0 ? "No open loan can take a payment yet." : canSubmit ? undefined : `Still to do: ${missing.join(", ")}.`}
+          >
+            {isSaving ? "Recording…" : "Record payment"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Tile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="truncate text-sm font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-border/60">
+      <div className="border-b border-border/60 bg-muted/20 px-4 py-2">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{title}</p>
+      </div>
+      <div className="grid gap-3 px-4 py-3 sm:grid-cols-2">{children}</div>
+    </section>
+  );
+}
+
+function Field({
+  label,
+  required,
+  error,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  error?: string;
+  htmlFor: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={htmlFor}>
+        {label} {required ? <span className="text-destructive">*</span> : null}
+      </Label>
+      {children}
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
   );
 }

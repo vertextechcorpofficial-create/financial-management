@@ -1,4 +1,8 @@
+import Link from "next/link";
+import { Fragment } from "react";
 import { cookies } from "next/headers";
+
+import { ArrowLeft } from "lucide-react";
 
 import {
   Breadcrumb,
@@ -52,7 +56,18 @@ function headerUserFromToken(token: string | null | undefined) {
  * Each loan module duplicates this file rather than importing across modules, which is the
  * house rule for this tree: a module carries the kernel it needs.
  */
-export async function PageShell({ title, children }: { title: string; children: React.ReactNode }) {
+export type PageParent = { label: string; href: string };
+
+export async function PageShell({
+  title,
+  parent,
+  children,
+}: {
+  title: string;
+  /** When set, the page is a view inside a module rather than a module of its own. */
+  parent?: PageParent;
+  children: React.ReactNode;
+}) {
   const cookieStore = await cookies();
   const user = headerUserFromToken(cookieStore.get(COOKIE_NAME)?.value);
 
@@ -74,9 +89,17 @@ export async function PageShell({ title, children }: { title: string; children: 
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden shrink-0 md:block" />
                 <BreadcrumbItem className="hidden shrink-0 md:block">
-                  <BreadcrumbLink href="/fm/treasury/loan-management">Loan Management</BreadcrumbLink>
+                  <BreadcrumbLink href="/fm/treasury/loan-management/loan-register">Loan Management</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden shrink-0 md:block" />
+                {parent ? (
+                  <Fragment>
+                    <BreadcrumbItem className="hidden shrink-0 md:block">
+                      <BreadcrumbLink href={parent.href}>{parent.label}</BreadcrumbLink>
+                    </BreadcrumbItem>
+                    <BreadcrumbSeparator className="hidden shrink-0 md:block" />
+                  </Fragment>
+                ) : null}
                 <BreadcrumbItem className="min-w-0 overflow-hidden">
                   <BreadcrumbPage className="max-w-[56vw] truncate sm:max-w-[60vw] md:max-w-none">{title}</BreadcrumbPage>
                 </BreadcrumbItem>
@@ -88,7 +111,18 @@ export async function PageShell({ title, children }: { title: string; children: 
           <NavUser user={user} />
         </div>
       </header>
-      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-4">{children}</main>
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-4">
+        {parent ? (
+          <Link
+            href={parent.href}
+            className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+            Back to {parent.label}
+          </Link>
+        ) : null}
+        {children}
+      </main>
     </div>
   );
 }

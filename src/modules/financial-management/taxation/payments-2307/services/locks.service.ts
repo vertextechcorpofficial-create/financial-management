@@ -156,6 +156,8 @@ export async function lockPeriod(input: LockInput, actor: Actor): Promise<{ id: 
     unlock_reason: null,
     unlocked_at: null,
     unlocked_by: null,
+    updated_at: stamp,
+    updated_by: actor.userId,
   };
 
   const saved = existing
@@ -165,6 +167,8 @@ export async function lockPeriod(input: LockInput, actor: Actor): Promise<{ id: 
         tax_year: input.taxYear,
         period_key: input.periodKey,
         ...payload,
+        created_at: stamp,
+        created_by: actor.userId,
       });
 
   const id = asNumber(saved.id);
@@ -195,6 +199,8 @@ export async function unlockPeriod(input: UnlockInput, actor: Actor): Promise<{ 
     unlock_reason: input.reason,
     unlocked_at: stamp,
     unlocked_by: actor.userId,
+    updated_at: stamp,
+    updated_by: actor.userId,
   });
 
   await appendChangeLog(

@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { formatCurrency, formatNumber } from "@/lib/utils";
+import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 
 import {
   APPROVAL_STATUS_LABEL,
@@ -25,11 +25,22 @@ import {
   SECURITY_LABEL,
   toneClass,
 } from "../constants";
-import { phtDisplayStamp } from "../pht";
+import { phtDisplayStamp, phtToday } from "../pht";
 import type { LoanListRow } from "../types";
 
 function stamp(value: string | null): string {
   return value ? phtDisplayStamp(value) : "—";
+}
+
+/** `release_date` is the drawdown date agreed on the terms sheet; the release itself is
+ *  `released_at` plus status CURRENT. Naming the date "released" made readers think it had
+ *  happened, so the line states which of the two it is. */
+function releaseLine(loan: LoanListRow): string {
+  if (loan.released_at) return `Released ${phtDisplayStamp(loan.released_at)}`;
+  const due = loan.release_date < phtToday();
+  return due
+    ? `Release date ${loan.release_date} has passed, still not released`
+    : `Release date ${loan.release_date}, not released yet`;
 }
 
 export function LoanDetailDialog({
@@ -41,127 +52,160 @@ export function LoanDetailDialog({
 }) {
   return (
     <Dialog open={loan !== null} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[820px]">
-        <div className="flex max-h-[85vh] flex-col overflow-hidden">
-          <DialogHeader className="border-b px-6 py-4">
-            <DialogTitle className="line-clamp-1">
-              {loan ? `${loan.loan_no} · ${loan.lender_name}` : "Loan"}
-            </DialogTitle>
+      <DialogContent
+        showCloseButton={false}
+        className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[860px]"
+      >
+        <DialogHeader className="space-y-2 border-b px-6 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <DialogTitle className="line-clamp-1">
+                {loan ? `${loan.loan_no} · ${loan.lender_name}` : "Loan"}
+              </DialogTitle>
+              {loan ? (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {LENDER_TYPE_LABEL[loan.lender_type]} · {PAYMENT_FREQUENCY_LABEL[loan.payment_frequency].toLowerCase()}{" "}
+                  × {formatNumber(loan.term_payments)} · {releaseLine(loan)}
+                </p>
+              ) : null}
+            </div>
             {loan ? (
-              <p className="text-xs text-muted-foreground">
-                {LENDER_TYPE_LABEL[loan.lender_type]} · released {loan.release_date} ·{" "}
-                {PAYMENT_FREQUENCY_LABEL[loan.payment_frequency].toLowerCase()} for{" "}
-                {formatNumber(loan.term_payments)} payments
-              </p>
-            ) : null}
-          </DialogHeader>
-
-          {loan ? (
-            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-4">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Badge variant="outline" className={toneClass(LOAN_STATUS_TONE[loan.status])}>
                   {LOAN_STATUS_LABEL[loan.status]}
                 </Badge>
-                <Badge variant="outline">{APPROVAL_STATUS_LABEL[loan.approval_status]}</Badge>
+                {loan.status === "PENDING_APPROVAL" || loan.status === "REJECTED" ? (
+                  <Badge variant="outline">{APPROVAL_STATUS_LABEL[loan.approval_status]}</Badge>
+                ) : null}
                 {loan.schedule_version > 1 ? (
-                  <Badge variant="outline">schedule v{loan.schedule_version}</Badge>
+                  <Badge variant="outline">Schedule v{loan.schedule_version}</Badge>
                 ) : null}
               </div>
+            ) : null}
+          </div>
+        </DialogHeader>
 
-              <Section title="Money">
-                <Detail label="Principal" value={formatCurrency(loan.principal)} />
-                <Detail label="Net proceeds" value={formatCurrency(loan.proceeds_net)} />
-                <Detail label="Installment" value={formatCurrency(loan.installment_amount)} />
-                <Detail label="Outstanding principal" value={formatCurrency(loan.outstandingPrincipal)} />
-                <Detail label="Paid to date" value={formatCurrency(loan.paidToDate)} />
-                <Detail label="Advance held" value={formatCurrency(loan.advance_balance)} />
-                <Detail
+        {loan ? (
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Tile label="Principal" value={formatCurrency(loan.principal)} />
+              <Tile label="Outstanding" value={formatCurrency(loan.outstandingPrincipal)} />
+              <Tile label="Installment" value={formatCurrency(loan.installment_amount)} />
+              <Tile label="Net proceeds" value={formatCurrency(loan.proceeds_net)} />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Group title="Terms">
+                <Row label="Repayment method" value={REPAYMENT_METHOD_LABEL[loan.repayment_method]} />
+                <Row label="First payment" value={loan.first_payment_date} />
+                <Row label="Maturity" value={loan.maturity_date ?? "—"} />
+                <Row label="First period interest" value={FIRST_PERIOD_BASIS_LABEL[loan.first_period_basis]} />
+                <Row label="Due date on a holiday" value={BUSINESS_DAY_RULE_LABEL[loan.business_day_rule]} />
+                <Row
+                  label="Security"
+                  value={
+                    loan.security === "NONE"
+                      ? "None"
+                      : `${SECURITY_LABEL[loan.security]}${
+                          loan.security_value === null ? "" : ` · ${formatCurrency(loan.security_value)}`
+                        }`
+                  }
+                />
+              </Group>
+
+              <Group title="Rate and charges">
+                <Row
                   label="Nominal rate a year"
                   value={`${formatNumber(loan.nominal_rate, "en-PH", 4)}% ${RATE_TYPE_LABEL[loan.rate_type].toLowerCase()}`}
+                  strong
                 />
-                <Detail
+                <Row
                   label="Effective rate a year"
                   value={`${formatNumber(loan.eir_rate * 100, "en-PH", 4)}%`}
+                  strong
                 />
-              </Section>
-
-              <Section title="Terms">
-                <Detail label="Repayment method" value={REPAYMENT_METHOD_LABEL[loan.repayment_method]} />
-                <Detail label="Release date" value={loan.release_date} />
-                <Detail label="First payment" value={loan.first_payment_date} />
-                <Detail label="Maturity" value={loan.maturity_date ?? "—"} />
-                <Detail label="First period interest" value={FIRST_PERIOD_BASIS_LABEL[loan.first_period_basis]} />
-                <Detail label="Holiday rule" value={BUSINESS_DAY_RULE_LABEL[loan.business_day_rule]} />
-                <Detail label="Security" value={SECURITY_LABEL[loan.security]} />
-                <Detail
-                  label="Security value"
-                  value={loan.security_value === null ? "—" : formatCurrency(loan.security_value)}
-                />
-              </Section>
-
-              <Section title="Costs">
-                <Detail label="Processing fee" value={formatCurrency(loan.processing_fee)} />
-                <Detail
-                  label="Stamp tax"
-                  value={`${formatCurrency(loan.dst_amount)} · ${DST_TREATMENT_LABEL[loan.dst_treatment].toLowerCase()}`}
-                />
-                <Detail label="Other costs" value={formatCurrency(loan.other_costs)} />
-                <Detail
+                <Row
                   label="Penalty"
                   value={`${formatNumber(loan.penalty_rate_monthly, "en-PH", 2)}% a month · ${formatNumber(loan.grace_days)} grace days`}
                 />
-                <Detail label="Proceeds account" value={loan.proceedsAccountLabel ?? "—"} />
-                <Detail
-                  label="PAS 23"
-                  value={
-                    Number(loan.pas23_applies) === 1
-                      ? `${loan.pas23_borrowing_type ?? "general"} · ${loan.pas23_asset ?? "asset not named"}`
-                      : "not applied"
-                  }
+                <Row label="Processing fee" value={formatCurrency(loan.processing_fee)} />
+                <Row
+                  label="Stamp tax"
+                  value={`${formatCurrency(loan.dst_amount)} · ${DST_TREATMENT_LABEL[loan.dst_treatment].toLowerCase()}`}
                 />
-              </Section>
+                <Row label="Other costs" value={formatCurrency(loan.other_costs)} />
+              </Group>
 
-              <Section title="Dates">
-                <Detail label="Submitted" value={stamp(loan.submitted_at)} />
-                <Detail label="Approved" value={stamp(loan.approved_at)} />
-                <Detail label="Released" value={stamp(loan.released_at)} />
-                <Detail label="Closed" value={stamp(loan.closed_at)} />
-              </Section>
+              <Group title="Money and holding">
+                <Row label="Paid to date" value={formatCurrency(loan.paidToDate)} />
+                <Row label="Advance held" value={formatCurrency(loan.advance_balance)} />
+                <Row label="Proceeds account" value={loan.proceedsAccountLabel ?? "—"} />
+                <Row label="Branch" value={loan.branch || "—"} />
+                <Row label="Account officer" value={loan.account_officer || "—"} />
+                <Row label="Account number" value={loan.account_no} />
+              </Group>
 
-              {loan.remarks ? (
-                <div className="space-y-1">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Remarks</p>
-                  <p className="text-sm">{loan.remarks}</p>
-                </div>
-              ) : null}
+              <Group title="Trail">
+                <Row label="Submitted" value={stamp(loan.submitted_at)} />
+                <Row label="Approved" value={stamp(loan.approved_at)} />
+                <Row label="Released" value={stamp(loan.released_at)} />
+                <Row label="Closed" value={stamp(loan.closed_at)} />
+                <Row label="PAS 23" value={Number(loan.pas23_applies) === 1 ? leaseWord(loan) : "Not applied"} />
+                <Row label="Purpose" value={loan.purpose || "—"} />
+              </Group>
             </div>
-          ) : null}
 
-          <DialogFooter className="border-t bg-muted/20 px-6 py-4">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </div>
+            {loan.remarks ? (
+              <div className="rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Remarks</p>
+                <p className="mt-1 text-sm">{loan.remarks}</p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <DialogFooter className="border-t bg-muted/20 px-6 py-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function leaseWord(loan: LoanListRow): string {
+  const type = loan.pas23_borrowing_type === "GENERAL" ? "General" : "Specific";
+  return `${type} · ${loan.pas23_asset || "asset not named"}`;
+}
+
+function Tile({ label, value }: { label: string; value: string }) {
   return (
-    <section className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-      <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">{children}</dl>
+    <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold tabular-nums" title={value}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-border/60">
+      <h3 className="border-b border-border/60 bg-muted/20 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h3>
+      <dl className="divide-y divide-border/50">{children}</dl>
     </section>
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="space-y-0.5">
-      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="truncate tabular-nums" title={value}>
+    <div className="flex items-baseline justify-between gap-4 px-4 py-2 text-sm">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className={cn("min-w-0 truncate text-right tabular-nums", strong && "font-semibold")} title={value}>
         {value}
       </dd>
     </div>

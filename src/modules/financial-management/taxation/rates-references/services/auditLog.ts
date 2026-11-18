@@ -66,7 +66,7 @@ export function diffValues(before: Record<string, unknown> | null, after: Record
 }
 
 /** The signed-in user, or an honest null rather than a fabricated name. */
-async function currentActor(): Promise<{ userId: number | null; userName: string | null }> {
+export async function currentActor(): Promise<{ userId: number | null; userName: string | null }> {
   const store = await cookies();
   const payload = decodeJwtPayload(store.get(COOKIE_NAME)?.value ?? "");
   if (!payload) return { userId: null, userName: null };
@@ -88,20 +88,25 @@ export async function appendRateAudit(entry: {
 }): Promise<void> {
   if (entry.changes.length === 0) return;
   const actor = await currentActor();
+  const stamp = phtStamp();
   try {
     for (const change of entry.changes) {
       await createItem("tax_change_log", {
         company_id: entry.companyId,
-        tax_year: new Date(phtStamp().slice(0, 4)).getFullYear(),
+        tax_year: new Date(stamp.slice(0, 4)).getFullYear(),
         actor_id: actor.userId,
         actor_name: actor.userName,
-        occurred_at: phtStamp(),
+        occurred_at: stamp,
         entity: entry.entity,
         entity_ref: clip(entry.entityRef),
         field: clip(change.field),
         before_value: clip(change.before),
         after_value: clip(change.after),
         reason: clip(entry.reason),
+        created_at: stamp,
+        created_by: actor.userId,
+        updated_at: stamp,
+        updated_by: actor.userId,
       });
     }
   } catch (error) {

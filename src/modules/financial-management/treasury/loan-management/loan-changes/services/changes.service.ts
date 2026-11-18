@@ -553,6 +553,9 @@ const EVENT_KIND: Record<ChangeKind, string> = {
   PAYOFF: "PAYOFF",
 };
 
+// A repricing moves no money, so a rate change never reaches the journal: `RATE_CHANGE` has no
+// entry type of its own in `loan_journal_entry` and the value below is only a placeholder for a
+// path that cannot run while `changePlan` returns no journal lines for it.
 const ENTRY_TYPE: Record<ChangeKind, string> = {
   PREPAYMENT: "PREPAYMENT",
   RATE_CHANGE: "PAYMENT",
@@ -583,7 +586,13 @@ function journalDrafts(
   });
 }
 
-function scheduleRowPayload(loanId: number, version: number, rows: readonly PlannedRow[]) {
+function scheduleRowPayload(
+  loanId: number,
+  version: number,
+  rows: readonly PlannedRow[],
+  now: string,
+  actorId: number | null,
+) {
   return rows.map((row) => ({
     loan_id: loanId,
     version,
@@ -605,6 +614,10 @@ function scheduleRowPayload(loanId: number, version: number, rows: readonly Plan
     paid_principal: row.paidPrincipal,
     status: row.status,
     is_restated: row.isRestated,
+    created_at: now,
+    created_by: actorId,
+    updated_at: now,
+    updated_by: actorId,
   }));
 }
 
@@ -703,7 +716,7 @@ export async function recordChange(body: RecordChangeInput, actorId: number | nu
     // The version is written first: a change row that points at a version which does not exist is
     // worse than a version nobody points at yet.
     if (plan.rows.length > 0) {
-      await createItems("loan_schedule", scheduleRowPayload(loan.id, version, plan.rows));
+      await createItems("loan_schedule", scheduleRowPayload(loan.id, version, plan.rows, now, actorId));
     }
 
     if (plan.journalLines.length > 0) {
@@ -969,7 +982,6 @@ export async function reverseChange(id: number, reason: string | null, actorId: 
   }
 
   const now = phtStamp();
-  let mirrorId: number | null = null;
 
   if (change.journalEntryId !== null) {
     const { rows: lines } = await listItems<{ coa_id: number; memo: string; debit: string | number; credit: string | number }>(
@@ -997,7 +1009,6 @@ export async function reverseChange(id: number, reason: string | null, actorId: 
       now,
       actorId,
     );
-    mirrorId = mirror.id;
 
     // The pair has to point at each other: the original entry names the entry that reversed it,
     // and the mirror names the entry it reverses. Writing the original's own number into its own
@@ -1035,9 +1046,11 @@ export async function reverseChange(id: number, reason: string | null, actorId: 
   }
   await updateItem("loan", loan.id, loanPatch);
 
+  // `reversed_by_id` refers to a change row; reversing posts a mirror entry rather than a second
+  // change, so the column stays empty and the entry pair carries the link.
   await updateItem("loan_change", change.id, {
     status: "REVERSED",
-    reversed_by_id: mirrorId,
+    reversed_by_id: null,
     notes: reason ? `${change.notes ? `${change.notes} · ` : ""}Reversed: ${reason}` : change.notes,
     updated_at: now,
     updated_by: actorId,

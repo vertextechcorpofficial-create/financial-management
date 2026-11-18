@@ -919,9 +919,11 @@ export async function reversePayment(id: number, actorId: number | null): Promis
     });
   }
 
+  // `reversed_by_id` refers to a payment row, and no payment row is created when one is reversed:
+  // the pair of journal entries carries the link (`reverses_entry_no` on both sides).
   await updateItem("loan_payment", payment.id, {
     status: "REVERSED",
-    reversed_by_id: entry.id,
+    reversed_by_id: null,
     updated_at: now,
     updated_by: actorId,
   });
@@ -948,7 +950,7 @@ export async function reversePayment(id: number, actorId: number | null): Promis
     updated_by: actorId,
   });
 
-  return { ...payment, status: "REVERSED", reversed_by_id: entry.id };
+  return { ...payment, status: "REVERSED", reversed_by_id: null };
 }
 
 export type { InstallmentRow };

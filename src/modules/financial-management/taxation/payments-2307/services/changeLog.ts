@@ -65,19 +65,24 @@ export function changedFields(
 }
 
 export async function appendChangeLog(entry: ChangeLogEntry, actor: Actor): Promise<boolean> {
+  const stamp = phtStamp();
   try {
     await createItem("tax_change_log", {
       company_id: entry.companyId,
       tax_year: entry.taxYear,
       actor_id: actor.userId,
       actor_name: actor.userName,
-      occurred_at: phtStamp(),
+      occurred_at: stamp,
       entity: entry.entity,
       entity_ref: clip(entry.entityRef),
       field: clip(entry.field),
       before_value: clip(entry.beforeValue),
       after_value: clip(entry.afterValue),
       reason: clip(entry.reason),
+      created_at: stamp,
+      created_by: actor.userId,
+      updated_at: stamp,
+      updated_by: actor.userId,
     });
     return true;
   } catch (error) {
