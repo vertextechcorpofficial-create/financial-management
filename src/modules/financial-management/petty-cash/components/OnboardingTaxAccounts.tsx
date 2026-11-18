@@ -24,7 +24,7 @@ export function OnboardingTaxAccounts({ onClose, onSaved }: { onClose: () => voi
   const read = useOnboardingRead<Settings>("settings"), [busy, setBusy] = useState(false);
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}><DialogContent showCloseButton={false} className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>Configure posting accounts</DialogTitle><DialogDescription>Select the shared accounts used for Input VAT, EWT Payable, custodian balances and Cash Over/Short.</DialogDescription></DialogHeader>
     {read.loading && <FormSkeleton label="Loading posting accounts" fields={5} />}<ErrorBox error={read.error} retry={read.refresh} title="Could not load posting account settings" />
-    {read.data ? <TaxAccountEditor key={read.data.version} settings={read.data} onClose={onClose} onSaved={onSaved} reload={read.refresh} onBusyChange={setBusy} /> : <div><Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button></div>}
+    {read.data ? <TaxAccountEditor key={read.updatedAt} settings={read.data} onClose={onClose} onSaved={onSaved} reload={read.refresh} onBusyChange={setBusy} /> : <div><Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button></div>}
   </DialogContent></Dialog>;
 }
 
@@ -39,12 +39,11 @@ function TaxAccountEditor({ settings, onClose, onSaved, reload, onBusyChange }: 
     event.preventDefault(); if (command.busy || conflict || unsuitable) return;
     onBusyChange(true);
     try {
-      const result = await command.run<Settings>("settings", "PUT", {
-        version: settings.version, companyId: settings.companyId, signatoryUserId: settings.signatoryUserId,
-        signatoryTitle: settings.signatoryTitle, signatoryTin: settings.signatoryTin,
-        usageWarning: settings.usageWarning, usageCritical: settings.usageCritical, staleDays: settings.staleDays,
-        accounts: { ...settings.accounts, INPUT_VAT: vat ? [vat.id] : [], EWT_PAYABLE: ewt ? [ewt.id] : [], CASH_OVER_SHORT: overShort ? [overShort.id] : [], DUE_FROM_CUSTODIAN: dueFrom ? [dueFrom.id] : [], DUE_TO_CUSTODIAN: dueTo ? [dueTo.id] : [] },
-      });
+      const choices = { INPUT_VAT: vat, EWT_PAYABLE: ewt, CASH_OVER_SHORT: overShort, DUE_FROM_CUSTODIAN: dueFrom, DUE_TO_CUSTODIAN: dueTo };
+      const accountUpdates = Object.fromEntries(Object.entries(choices)
+        .filter(([role, choice]) => (choice?.id ?? null) !== (settings.accounts[role as TaxRole]?.[0] ?? null))
+        .map(([role, choice]) => [role, choice ? [choice.id] : []]));
+      const result = await command.run<Settings>("settings", "PUT", { accountUpdates });
       if (result) { toast.success("Posting accounts updated. New previews will use these mappings."); onSaved(); }
     } finally { onBusyChange(false); }
   }

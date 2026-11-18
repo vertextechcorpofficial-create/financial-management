@@ -9,7 +9,7 @@ export const ACCOUNT_ROLES = {
 } as const;
 export type AccountRole = keyof typeof ACCOUNT_ROLES;
 export type Settings = {
-  version: number; companyId: number | null; signatoryUserId: number | null; signatoryTitle: string; signatoryTin: string;
+  companyId: number | null; signatoryUserId: number | null; signatoryTitle: string; signatoryTin: string;
   usageWarning: number; usageCritical: number; staleDays: number; accounts: Record<AccountRole, number[]>;
   resolvedAccounts: Record<AccountRole, Choice[]>; company: Choice | null; signatory: Choice | null; readiness: Record<string, Readiness>;
 };
