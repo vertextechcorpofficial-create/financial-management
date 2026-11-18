@@ -148,12 +148,15 @@ function writePayload(input: PaymentInput): Record<string, unknown> {
 
 export async function createPayment(input: PaymentInput, actor: Actor): Promise<{ id: number }> {
   await assertPeriodUnlocked(input.companyId, input.taxYear, input.periodKey);
+  const stamp = phtStamp();
   const created = await createItem<Record<string, unknown>>(COLLECTION, {
     company_id: input.companyId,
     tax_year: input.taxYear,
     ...writePayload(input),
-    created_at: phtStamp(),
+    created_at: stamp,
     created_by: actor.userId,
+    updated_at: stamp,
+    updated_by: actor.userId,
   });
   const id = asNumber(created.id);
 
@@ -188,7 +191,11 @@ export async function updatePayment(id: number, input: PaymentInput, actor: Acto
   await assertPeriodUnlocked(before.companyId, before.taxYear, before.periodKey);
   if (input.periodKey !== before.periodKey) await assertPeriodUnlocked(input.companyId, input.taxYear, input.periodKey);
 
-  await updateItem<Record<string, unknown>>(COLLECTION, id, writePayload(input));
+  await updateItem<Record<string, unknown>>(COLLECTION, id, {
+    ...writePayload(input),
+    updated_at: phtStamp(),
+    updated_by: actor.userId,
+  });
 
   const changes = changedFields(
     {
