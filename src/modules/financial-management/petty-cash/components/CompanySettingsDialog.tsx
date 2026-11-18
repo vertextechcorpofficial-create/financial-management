@@ -53,7 +53,7 @@ function CompanyEditor({ settings, onCancel, onSaved, reload, onBusyChange }: { 
     if (Object.keys(errors).length) { const first = Object.keys(errors)[0]; requestAnimationFrame(() => document.getElementById(companyFieldIds[first] || "company-error-summary")?.focus()); return; }
     onBusyChange(true);
     try {
-      const result = await command.run("company", "PUT", { version: settings.version, companyId: company?.id ?? null, registeredName: name, tin, address, postalCode: zip, signatoryUserId: signatory?.id ?? null, signatoryTitle: title, signatoryTin });
+      const result = await command.run("company", "PUT", { companyId: company?.id ?? null, registeredName: name, tin, address, postalCode: zip, signatoryUserId: signatory?.id ?? null, signatoryTitle: title, signatoryTin });
       if (result) onSaved();
     } finally { onBusyChange(false); }
   }

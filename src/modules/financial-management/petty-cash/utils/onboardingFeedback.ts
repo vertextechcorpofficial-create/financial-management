@@ -21,7 +21,6 @@ const FIELD_LABELS: Record<string, string> = {
     perVoucherLimit: "Per-voucher limit",
     approvalThreshold: "Approval threshold",
     version: "Record version",
-    policyVersion: "Policy settings",
     remarks: "Remarks",
     reason: "Reason",
     cashConfirmed: "Cash confirmation",
