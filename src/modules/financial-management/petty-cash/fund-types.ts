@@ -9,7 +9,7 @@ export type FundRecord = {
 };
 export type FundDetails = {
   fund: FundRecord; canDecide: boolean; decisionBlocker: string | null; canViewJournal: boolean;
-  preview: { accountingDate: string; policyVersion: number; digest: string; ready: boolean; lines: { account: FundReference; debit: string; credit: string }[]; blockers: { code: string; field: string; message: string }[] } | null;
+  preview: { accountingDate: string; digest: string; ready: boolean; lines: { account: FundReference; debit: string; credit: string }[]; blockers: { code: string; field: string; message: string }[] } | null;
   journal: FundJournal | null;
   custodianActiveFunds: { id: string; docNo: string; name: string }[];
   history: { action: string; reason: string | null; occurredAt: string; actorId: number; actorName: string }[];

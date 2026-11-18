@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import type { Choice, Fund, FundReference, Page, Settings } from "../onboarding-types";
 import { useOnboardingCommand, useOnboardingRead } from "../hooks/useOnboarding";
 import { usePettyCashRefresh } from "../hooks/usePettyCashRefresh";
-import { OnboardingError } from "../providers/onboarding.api";
 import { OnboardingChoice } from "./OnboardingChoice";
 import { ErrorBox, Field, NativeSelect, OnboardingFeedback, Paging } from "./OnboardingCommon";
 import { FundStatusBadge } from "./FundStatusBadge";
@@ -80,7 +79,6 @@ function FundRequestDialog({ initial, requesterName, onClose, onSaved }: { initi
   const [selectedAccount, setSelectedAccount] = useState<Choice | null | undefined>(() => initial ? choice(initial.fundAccount) : undefined);
   const account = selectedAccount === undefined ? policy.data?.resolvedAccounts.PETTY_CASH_FUND?.[0] || null : selectedAccount, funding = policy.data?.resolvedAccounts.FUNDING_CASH?.[0] || null;
   const setupError = account ? !account.eligible ? account.reason : funding?.id === account.id ? "Funding cash/bank and the fund account must differ." : funding && !funding.eligible ? funding.reason : null : "Select a Fund account (GL).";
-  const policyConflict = command.error instanceof OnboardingError && command.error.status === 409 && command.error.message.startsWith("Policy settings changed.");
   useEffect(() => {
     if (!command.error) return;
     const first = onboardingFieldErrors(command.error)[0];
@@ -104,7 +102,7 @@ function FundRequestDialog({ initial, requesterName, onClose, onSaved }: { initi
     const first = Object.keys(errors)[0];
     if (first) { requestAnimationFrame(() => document.getElementById(fundFieldIds[first] || "fund-error-summary")?.focus()); return; }
     if (!policy.data) return;
-    const result = await command.run<Fund>(initial ? `funds/${initial.id}` : "funds/submit", initial ? "PUT" : "POST", { version: initial?.version || 0, policyVersion: policy.data.version, name, departmentId: department?.id ?? null, custodianId: custodian?.id ?? null, fundAccountId: account?.id ?? null, imprestAmount: imprest.trim() || null, perVoucherLimit: limit.trim() || null, approvalThreshold: threshold.trim() || null });
+    const result = await command.run<Fund>(initial ? `funds/${initial.id}` : "funds/submit", initial ? "PUT" : "POST", { version: initial?.version || 0, name, departmentId: department?.id ?? null, custodianId: custodian?.id ?? null, fundAccountId: account?.id ?? null, imprestAmount: imprest.trim() || null, perVoucherLimit: limit.trim() || null, approvalThreshold: threshold.trim() || null });
     if (result) onSaved(result);
   }
   return <Dialog open onOpenChange={open => { if (!open && !command.busy) onClose(); }}><DialogContent showCloseButton={false} className="max-h-[90dvh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-4xl" onEscapeKeyDown={event => { if (command.busy) event.preventDefault(); }} onInteractOutside={event => { if (command.busy) event.preventDefault(); }}>
@@ -112,7 +110,7 @@ function FundRequestDialog({ initial, requesterName, onClose, onSaved }: { initi
     <form noValidate onSubmit={submit} onChange={clearFeedback} className="space-y-4"><fieldset disabled={command.busy} className="space-y-4">
       <div id="fund-error-summary" tabIndex={-1} className="space-y-3 outline-none">
         {Object.keys(validation).length > 0 && <OnboardingFeedback tone="error" title="Check the highlighted fields"><p>Review the highlighted fund request fields and try again.</p></OnboardingFeedback>}
-        <ErrorBox error={command.error} title={initial ? "Could not save fund request" : "Could not submit fund request"} showFields={false} action={policyConflict ? { label: "Reload policy", onClick: policy.refresh } : undefined} />
+        <ErrorBox error={command.error} title={initial ? "Could not save fund request" : "Could not submit fund request"} showFields={false} />
       </div>
       <div className="grid gap-3 md:grid-cols-3">
         <Field label="Fund name" id="fund-name" value={name} onChange={setName} maxLength={60} placeholder="e.g. Finance Office Fund" error={fieldError("name")} />

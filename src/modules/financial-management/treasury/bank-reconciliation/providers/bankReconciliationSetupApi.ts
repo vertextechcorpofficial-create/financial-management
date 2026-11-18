@@ -1,4 +1,4 @@
-import type { BankConfiguration, LedgerPage, MasterOptions, PeriodDraft, ReconciliationPeriod } from "../setup-types";
+import type { BankConfiguration, LedgerJournalDetails, LedgerPage, MasterOptions, PeriodDraft, ReconciliationPeriod } from "../setup-types";
 import type { AccountReference, CompanyReference } from "../reference-types";
 
 const BASE = "/api/fm/treasury/bank-reconciliation";
@@ -13,12 +13,13 @@ export async function setupRequest<T>(path: string, method = "GET", body?: unkno
   return data as T;
 }
 export const getBankConfiguration = (id: number) => setupRequest<BankConfiguration>(`banks/${id}/configuration`);
-export const saveBankConfiguration = (id: number, version: number, companyId: number | null, glCoaId: number | null) => setupRequest<BankConfiguration>(`banks/${id}/configuration`, "PUT", { version, companyId, glCoaId });
 export const getOpenPeriod = (bankId: number) => setupRequest<{ period: ReconciliationPeriod | null }>(`banks/${bankId}/open-period`);
 export const getSetupPeriod = (id: number, closureId?: number) => setupRequest<ReconciliationPeriod>(`periods/${id}${closureId ? `?closureId=${closureId}` : ""}`);
 export const saveSetupPeriod = (draft: PeriodDraft, id?: number) => setupRequest<ReconciliationPeriod>(id ? `periods/${id}` : "periods", id ? "PUT" : "POST", draft);
 export const refreshSetupLedger = (period: ReconciliationPeriod) => setupRequest<ReconciliationPeriod>(`periods/${period.id}/ledger/refresh`, "POST", { version: period.version });
 export const getSetupLedger = (id: number, page = 1) => setupRequest<LedgerPage>(`periods/${id}/ledger?page=${page}&pageSize=25`);
+export const getLedgerJournal = (periodId: number, lineId: number, closureId?: number, signal?: AbortSignal) =>
+  setupRequest<LedgerJournalDetails>(`periods/${periodId}/ledger/${lineId}/source${closureId ? `?closureId=${closureId}` : ""}`, "GET", undefined, signal);
 export const getSetupMasterOptions = () => setupRequest<MasterOptions>("master-options");
 export function createSetupMaster(kind: "companies", body: unknown): Promise<CompanyReference>;
 export function createSetupMaster(kind: "accounts", body: unknown): Promise<AccountReference>;

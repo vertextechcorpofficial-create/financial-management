@@ -1,6 +1,6 @@
 import { setupRequest, SetupError } from "./bankReconciliationSetupApi";
 import type { ReconciliationPeriod } from "../setup-types";
-import type { TransactionData, TransactionFilter, TransactionResult, TransactionSide } from "../transaction-types";
+import type { LedgerTreatment, TransactionData, TransactionFilter, TransactionResult, TransactionSide } from "../transaction-types";
 
 const BASE = "/api/fm/treasury/bank-reconciliation";
 export function getTransactions(id: number, filter: TransactionFilter, search: string, bankPage: number, ledgerPage: number, closureId?: number, signal?: AbortSignal) {
@@ -8,7 +8,7 @@ export function getTransactions(id: number, filter: TransactionFilter, search: s
   if (closureId) query.set("closureId", String(closureId));
   return setupRequest<TransactionData>(`periods/${id}/transactions?${query}`, "GET", undefined, signal);
 }
-export const addTransaction = (period: ReconciliationPeriod, side: TransactionSide, draft: { date: string; reference: string; description: string; amount: string }) => setupRequest<TransactionResult>(`periods/${period.id}/lines/${side}`, "POST", { ...draft, version: period.version });
+export const addTransaction = (period: ReconciliationPeriod, side: TransactionSide, draft: { date: string; reference: string; description: string; amount: string; treatment?: LedgerTreatment; offsetAccountId?: number }) => setupRequest<TransactionResult>(`periods/${period.id}/lines/${side}`, "POST", { ...draft, version: period.version });
 export const deleteTransaction = (period: ReconciliationPeriod, side: TransactionSide, id: number) => setupRequest<TransactionResult>(`periods/${period.id}/lines/${side}/${id}`, "DELETE", { version: period.version });
 export const matchTransactions = (period: ReconciliationPeriod, bankLineIds: number[], ledgerLineIds: number[], classification: string | null, offsetAccountId: number | null) => setupRequest<TransactionResult>(`periods/${period.id}/matches`, "POST", { version: period.version, bankLineIds, ledgerLineIds, classification, offsetAccountId });
 export const autoMatchTransactions = (period: ReconciliationPeriod) => setupRequest<TransactionResult>(`periods/${period.id}/matches/auto`, "POST", { version: period.version });
@@ -30,3 +30,6 @@ export async function downloadTransactionTemplate(side: TransactionSide) {
   if (!response.ok) { const data = await response.json().catch(() => null); throw new SetupError(response.status, data?.message || "Unable to download the template."); }
   return response.blob();
 }
+
+export const setLedgerTreatment = (period: ReconciliationPeriod, id: number, treatment: LedgerTreatment, offsetAccountId: number | null) =>
+  setupRequest<TransactionResult>(`periods/${period.id}/lines/LEDGER/${id}/treatment`, "PUT", { version: period.version, treatment, offsetAccountId });

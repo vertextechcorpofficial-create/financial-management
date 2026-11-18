@@ -95,7 +95,7 @@ function FundApprovalReview({ id, actorName, canDecide, onClose, onChanged }: { 
   async function decide(action: "approve" | "reject") {
     if (!fund) return;
     setDecision(action);
-    const payload = action === "approve" ? { version: fund.version, policyVersion: preview?.policyVersion, previewDigest: preview?.digest, fundingAccountId: funding?.id, cashConfirmed: confirmed, remarks } : { version: fund.version, reason: remarks };
+    const payload = action === "approve" ? { version: fund.version, previewDigest: preview?.digest, fundingAccountId: funding?.id, cashConfirmed: confirmed, remarks } : { version: fund.version, reason: remarks };
     const result = await command.run(`${root}/funds/${id}/${action}`, payload); if (result) onChanged(result);
   }
   return <Dialog open onOpenChange={open => { if (!open && !locked) onClose(); }}><DialogContent showCloseButton={!locked} className="flex max-h-[88dvh] flex-col overflow-hidden sm:max-w-[900px]" onEscapeKeyDown={event => { if (locked) event.preventDefault(); }} onInteractOutside={event => { if (locked) event.preventDefault(); }}><DialogHeader><DialogTitle>{fund ? `${fund.docNo} · New fund request` : "New fund request"}</DialogTitle><DialogDescription>Review the request and entry before approving and funding.</DialogDescription></DialogHeader>

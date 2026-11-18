@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
-import { useForm, useWatch, type Resolver } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,33 +15,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-import {
-  ACCOUNT_TYPE_OPTIONS,
-  GL_PICKER_EMPTY,
-  GL_PICKER_NON_CASH_BLOCKED,
-  GL_PICKER_PLACEHOLDER,
-  isCashAccountTitle,
-  statusLabel,
-} from "../constants";
+import { ACCOUNT_TYPE_OPTIONS, statusLabel } from "../constants";
 import { phtToday } from "../pht";
 import { updateAccountFormSchema, type UpdateAccountFormValues } from "../schemas";
 import type { UpdateAccountPayload } from "../providers/onboardingApi";
-import type { BankAccountV2, FormOutcome, OnboardingOptions } from "../types";
+import type { BankAccountV2, FormOutcome } from "../types";
 import { DateField } from "./DateField";
-import { OptionCombobox } from "./OptionCombobox";
 
 function defaults(account: BankAccountV2 | null): UpdateAccountFormValues {
   return {
     accountName: account?.accountName ?? "",
     branch: account?.branch ?? "",
     accountType: account?.accountType ?? "Savings",
-    glCoaId: account?.glCoaId === null || account?.glCoaId === undefined ? "" : String(account.glCoaId),
     reactivate: false,
     effectiveDate: account?.effectiveDate ?? phtToday(),
     remarks: account?.remarks ?? "",
@@ -52,7 +43,6 @@ type EditAccountDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   account: BankAccountV2 | null;
-  options: OnboardingOptions;
   isSaving: boolean;
   onSubmit: (id: number, payload: UpdateAccountPayload) => Promise<FormOutcome>;
 };
@@ -62,7 +52,6 @@ export function EditAccountDialog({
   open,
   onOpenChange,
   account,
-  options,
   isSaving,
   onSubmit,
 }: EditAccountDialogProps) {
@@ -75,33 +64,12 @@ export function EditAccountDialog({
     if (open) form.reset(defaults(account));
   }, [open, account, form]);
 
-  // The picker is cash-only now, but an older link (Land Bank → 4008) must still show
-  // its real GL instead of a blank field.
-  const linkedGl =
-    account?.glCoaId && account.glCode && account.glTitle && !options.cashAccounts.some((gl) => gl.coaId === account.glCoaId)
-      ? { coaId: account.glCoaId, glCode: account.glCode, accountTitle: account.glTitle }
-      : null;
-  const pickerAccounts = linkedGl ? [...options.cashAccounts, linkedGl] : options.cashAccounts;
-
-  const glOptions = pickerAccounts.map((glAccount) => ({
-    value: String(glAccount.coaId),
-    label: `${glAccount.glCode} · ${glAccount.accountTitle}`,
-    searchText: `${glAccount.glCode} ${glAccount.accountTitle}`,
-  }));
-
-  const glValue = useWatch({ control: form.control, name: "glCoaId" });
-  const selectedGl = pickerAccounts.find((glAccount) => String(glAccount.coaId) === glValue);
-  const nonCashSelected = selectedGl ? !isCashAccountTitle(selectedGl.accountTitle) : false;
-
   async function handleSubmit(values: UpdateAccountFormValues) {
     if (!account) return;
-    // P53: a row still pointing at a non-cash GL must be remapped, not saved as-is.
-    if (nonCashSelected) return;
     const outcome = await onSubmit(account.bankId, {
       accountName: values.accountName.trim(),
       branch: values.branch.trim(),
       accountType: values.accountType,
-      glCoaId: Number(values.glCoaId),
       reactivate: values.reactivate,
       effectiveDate: values.effectiveDate,
       remarks: values.remarks.trim() || undefined,
@@ -243,31 +211,14 @@ export function EditAccountDialog({
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="glCoaId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Linked GL <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <FormControl>
-                        <OptionCombobox
-                          options={glOptions}
-                          value={field.value}
-                          onChange={field.onChange}
-                          placeholder={GL_PICKER_PLACEHOLDER}
-                          searchPlaceholder="Search GL code or title"
-                          emptyLabel={GL_PICKER_EMPTY}
-                        />
-                      </FormControl>
-                      {nonCashSelected ? (
-                        <FormDescription className="text-destructive">{GL_PICKER_NON_CASH_BLOCKED}</FormDescription>
-                      ) : null}
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="space-y-2">
+                  <Label htmlFor="bank-edit-linked-gl">Linked GL</Label>
+                  <Input
+                    id="bank-edit-linked-gl"
+                    readOnly
+                    value={[account?.glCode, account?.glTitle].filter(Boolean).join(" · ") || "Not configured"}
+                  />
+                </div>
 
                 <FormField
                   control={form.control}
@@ -314,8 +265,7 @@ export function EditAccountDialog({
               </DialogClose>
               <Button
                 type="submit"
-                disabled={isSaving || nonCashSelected}
-                title={nonCashSelected ? GL_PICKER_NON_CASH_BLOCKED : undefined}
+                disabled={isSaving}
               >
                 {isSaving ? (
                   <>

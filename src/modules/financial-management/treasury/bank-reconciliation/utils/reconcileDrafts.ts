@@ -1,13 +1,14 @@
 import type { SetupFields } from "../hooks/usePeriodSetup";
-import type { TransactionSide } from "../transaction-types";
+import type { AccountReference } from "../reference-types";
+import type { LedgerTreatment, TransactionSide } from "../transaction-types";
 
-export type EntryFields = { date: string; reference: string; description: string; amount: string };
+export type EntryFields = { date: string; reference: string; description: string; amount: string; treatment?: LedgerTreatment; offsetAccount?: AccountReference | null };
 export type EntryDraft = { fields: EntryFields; initialDate: string; open: boolean; uncertain: boolean; reviewed: boolean };
 export type EntryDrafts = Record<TransactionSide, EntryDraft>;
 export const setupLabels = { companyId: "Entity", periodEnd: "Period ended", statementOpening: "Statement opening balance", statementEnding: "Statement ending balance" } as const;
 export function emptyEntry(date = ""): EntryDraft { return { fields: { date, reference: "", description: "", amount: "" }, initialDate: date, open: false, uncertain: false, reviewed: false }; }
 export function emptyEntries(date = ""): EntryDrafts { return { BANK: emptyEntry(date), LEDGER: emptyEntry(date) }; }
-export function entryDirty(entry: EntryDraft) { return entry.uncertain || entry.fields.date !== entry.initialDate || Boolean(entry.fields.reference || entry.fields.description || entry.fields.amount); }
+export function entryDirty(entry: EntryDraft) { return entry.uncertain || entry.fields.date !== entry.initialDate || Boolean(entry.fields.reference || entry.fields.description || entry.fields.amount || entry.fields.treatment || entry.fields.offsetAccount); }
 function amountKey(value: string) {
   const clean = value.trim().replaceAll(",", "");
   if (!clean) return "";
@@ -24,13 +25,16 @@ export function setupPatch(base: SetupFields, draft: SetupFields): Partial<Setup
   return patch;
 }
 export function sameSetup(a: SetupFields, b: SetupFields) { return a.bankId === b.bankId && a.currency === b.currency && Object.keys(setupPatch(a, b)).length === 0; }export function entryValidation(entry: EntryDraft): string | null {
-  const { date, amount, reference, description } = entry.fields;
+  const { date, amount, reference, description, treatment, offsetAccount } = entry.fields;
   if (entry.uncertain) return "The earlier add result is unconfirmed. Review saved lines before allowing a retry.";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number(date.slice(0, 4)) < 1000 || Number.isNaN(Date.parse(`${date}T00:00:00Z`)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) return "Enter a valid date.";
   if (!/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(amount.trim())) return "Enter a nonzero amount with at most two decimal places.";
   const raw = amount.trim().replaceAll(",", "").replace(/^\+/, ""), [whole, fraction = ""] = raw.replace(/^-/, "").split(".");
   const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
   if (!cents || cents > 999999999999999999n) return "Enter a nonzero amount within the supported range.";
+  if (treatment === "BOOK_ERROR" && !offsetAccount) return "Choose an offset account for the book error.";
+  if (treatment === "DEPOSIT_IN_TRANSIT" && raw.startsWith("-") || treatment === "OUTSTANDING_CHECK" && !raw.startsWith("-"))
+    return "Use a positive amount for Deposit in transit or a negative amount for Outstanding check.";
   if (reference.trim().length > 255 || description.trim().length > 1000) return "Reference allows 255 characters and description allows 1,000 characters.";
   return null;
 }

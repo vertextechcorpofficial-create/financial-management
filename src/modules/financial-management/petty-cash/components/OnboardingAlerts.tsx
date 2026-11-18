@@ -14,7 +14,7 @@ export function OnboardingAlerts({ onClose, onSaved }: { onClose: () => void; on
   const read = useOnboardingRead<Settings>("settings"), [busy, setBusy] = useState(false);
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}><DialogContent showCloseButton={false} className="max-h-[90dvh] overflow-y-auto sm:max-w-xl"><DialogHeader><DialogTitle>Configure alerts</DialogTitle><DialogDescription>Set the usage and stale-voucher alerts shared by all Petty Cash funds.</DialogDescription></DialogHeader>
     {read.loading && <FormSkeleton label="Loading alert settings" fields={3} />}<ErrorBox error={read.error} retry={read.refresh} title="Could not load alert settings" />
-    {read.data ? <AlertEditor key={read.data.version} settings={read.data} onClose={onClose} onSaved={onSaved} reload={read.refresh} onBusyChange={setBusy} /> : <Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button>}
+    {read.data ? <AlertEditor key={read.updatedAt} settings={read.data} onClose={onClose} onSaved={onSaved} reload={read.refresh} onBusyChange={setBusy} /> : <Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button>}
   </DialogContent></Dialog>;
 }
 function AlertEditor({ settings, onClose, onSaved, reload, onBusyChange }: { settings: Settings; onClose: () => void; onSaved: () => void; reload: () => void; onBusyChange: (busy: boolean) => void }) {
@@ -31,7 +31,7 @@ function AlertEditor({ settings, onClose, onSaved, reload, onBusyChange }: { set
     setErrors(invalid); if (Object.keys(invalid).length) return;
     onBusyChange(true);
     try {
-      const saved = await command.run<Settings>("alerts", "PUT", { version: settings.version, usageWarning: warning, usageCritical: critical, staleDays: days });
+      const saved = await command.run<Settings>("alerts", "PUT", { usageWarning: warning, usageCritical: critical, staleDays: days });
       if (saved) { toast.success("Alert settings updated. Refresh fund alerts to use the new values."); onSaved(); }
     } finally { onBusyChange(false); }
   }
