@@ -28,7 +28,7 @@ export function SchedulesModule() {
       ) : null}
 
       <Tabs defaultValue="schedule" className="space-y-4">
-        <TabsList className="h-auto flex-wrap justify-start gap-1 p-1">
+        <TabsList>
           <TabsTrigger value="schedule" className="min-h-11 md:min-h-0">
             Loan schedule
           </TabsTrigger>
@@ -37,11 +37,11 @@ export function SchedulesModule() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="schedule" className="mt-0">
+        <TabsContent value="schedule">
           <ScheduleTab schedules={schedules} />
         </TabsContent>
 
-        <TabsContent value="aging" className="mt-0">
+        <TabsContent value="aging">
           <AgingTab schedules={schedules} />
         </TabsContent>
       </Tabs>

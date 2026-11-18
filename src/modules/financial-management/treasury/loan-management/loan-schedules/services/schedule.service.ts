@@ -13,7 +13,7 @@ import { asBoolean, asNumber, asString, listItems, updateItem } from "./directus
 import { LoanNotFoundError } from "./errors";
 import { round2 } from "./loanEngine";
 import { planRefresh } from "./refreshPlan";
-import { phtToday } from "../pht";
+import { phtStamp, phtToday } from "../pht";
 import type {
   AgingBuckets,
   LoanAgingRow,
@@ -248,9 +248,6 @@ export async function loadSchedule(query: ScheduleQuery): Promise<SchedulePayloa
   const start = query.pageSize > 0 ? (Math.max(1, query.page) - 1) * query.pageSize : 0;
   const rows = query.pageSize > 0 ? filtered.slice(start, start + query.pageSize) : filtered;
   const loanAging = agingFromRows(all, asOf);
-  // A rewritten version starts from what was still owed after a prepayment, not from the original
-  // advance, so the tie is against this version's opening principal.
-  const openingPrincipal = all[0]?.opening_principal ?? loan.principal;
 
   return {
     loans,
@@ -259,7 +256,7 @@ export async function loadSchedule(query: ScheduleQuery): Promise<SchedulePayloa
     rows,
     total: filtered.length,
     totals,
-    tie: tieFor(totals, openingPrincipal),
+    tie: tieFor(all, loan.principal),
     currentPortion: currentPortionFromRows(all, asOf, loan.principal, totals.principal),
     agingRows: [
       {
@@ -303,7 +300,11 @@ export async function refreshStatuses(asOf: string, options: RefreshOptions): Pr
   let updated = 0;
   if (!options.dryRun) {
     for (const step of plan) {
-      await updateItem("loan_schedule", step.id, { status: step.to, updated_by: options.actorId });
+      await updateItem("loan_schedule", step.id, {
+        status: step.to,
+        updated_at: phtStamp(),
+        updated_by: options.actorId,
+      });
       updated += 1;
     }
   }

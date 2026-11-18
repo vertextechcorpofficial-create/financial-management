@@ -153,6 +153,19 @@ export async function listPaymentAccounts(): Promise<LoanPaymentAccountRow[]> {
   }));
 }
 
+/** The registry of lenders the bank onboarding already maintains, so a bank loan names a bank the
+ *  business has on file instead of a typed string that never matches twice. */
+export async function listBankNames(): Promise<Array<{ id: number; name: string }>> {
+  const { rows } = await listItems<Record<string, unknown>>("bank_names", {
+    fields: ["id", "bank_name"],
+    sort: "bank_name",
+    limit: 400,
+  });
+  return rows
+    .map((row) => ({ id: asNumber(row.id), name: asString(row.bank_name) }))
+    .filter((row) => row.name.length > 0);
+}
+
 /** Holidays in the booking table plus the built-in Philippine set is the calendar's job; this
  * only returns what accounting maintains, because a loan's due dates must follow the booked list. */
 export async function listHolidays(): Promise<string[]> {

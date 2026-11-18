@@ -133,13 +133,30 @@ export function currentPortionFromRows(
   };
 }
 
-/** The tie test the card prints when a schedule's installments do not add up to the loan. */
-export function tieFor(totals: ScheduleTotals, loanPrincipal: number): ScheduleTie {
-  const difference = round2(totals.principal - loanPrincipal);
+/**
+ * The tie test the card prints when a schedule's installments do not add up.
+ *
+ * A restructure may add overdue interest to principal (P137), so a later version legitimately
+ * schedules more principal than the loan was drawn for. What has to hold is the chain: every row
+ * runs on from the one before it and the last one clears the balance. A step between two rows is
+ * reported as capitalised principal rather than treated as a fault.
+ */
+export function tieFor(rows: readonly LoanScheduleRow[], loanPrincipal: number): ScheduleTie {
+  const ordered = [...rows].sort((a, b) => a.period_no - b.period_no);
+  const scheduled = round2(ordered.reduce((sum, row) => sum + row.principal, 0));
+  const opening = round2(ordered[0]?.opening_principal ?? loanPrincipal);
+  let capitalised = 0;
+  for (let index = 1; index < ordered.length; index += 1) {
+    const step = round2(ordered[index].opening_principal - ordered[index - 1].closing_principal);
+    if (Math.abs(step) >= 0.005) capitalised = round2(capitalised + step);
+  }
+  const leftOpen = round2(ordered[ordered.length - 1]?.closing_principal ?? 0);
   return {
-    schedulePrincipal: totals.principal,
+    schedulePrincipal: scheduled,
     loanPrincipal: round2(loanPrincipal),
-    difference,
-    ties: Math.abs(difference) < 0.005,
+    openingPrincipal: opening,
+    capitalised,
+    difference: leftOpen,
+    ties: Math.abs(leftOpen) < 0.005,
   };
 }

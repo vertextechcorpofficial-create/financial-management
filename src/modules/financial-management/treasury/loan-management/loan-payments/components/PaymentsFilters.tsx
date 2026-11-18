@@ -55,7 +55,7 @@ export function PaymentsFilters({ filters, loans, onChange }: Props) {
         <SelectTrigger className="h-9 w-full sm:w-[165px]" aria-label="Filter by method">
           <SelectValue className="truncate" placeholder="Every method" />
         </SelectTrigger>
-        <SelectContent className="max-h-60">
+        <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
           <SelectItem value="ALL">Every method</SelectItem>
           {PAYMENT_METHODS.map((method) => (
             <SelectItem key={method} value={method}>
@@ -69,7 +69,7 @@ export function PaymentsFilters({ filters, loans, onChange }: Props) {
         <SelectTrigger className="h-9 w-full sm:w-[165px]" aria-label="Filter by status">
           <SelectValue className="truncate" placeholder="Every status" />
         </SelectTrigger>
-        <SelectContent className="max-h-60">
+        <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
           <SelectItem value="ALL">Every status</SelectItem>
           <SelectItem value="POSTED">{PAYMENT_STATUS_LABEL.POSTED}</SelectItem>
           <SelectItem value="REVERSED">{PAYMENT_STATUS_LABEL.REVERSED}</SelectItem>

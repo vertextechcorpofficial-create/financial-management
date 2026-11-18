@@ -149,7 +149,7 @@ export function NewCheckDialog({ open, onOpenChange, accounts, isSaving, onIssue
             <TabsContent value="issue" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 py-4">
               <form id="issue-check-form" onSubmit={submitIssue} className="space-y-4">
                 {accountSelect(issue.bankAccountId, (next) => setIssue({ ...issue, bankAccountId: next }), "issue-account", "Account drawn on", issueErrors.bankAccountId)}
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid items-start gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="issue-date">
                       Check date <span className="text-destructive">*</span>
@@ -191,7 +191,7 @@ export function NewCheckDialog({ open, onOpenChange, accounts, isSaving, onIssue
                   />
                   {touched && issueErrors.payee && <p className="text-xs text-destructive">{issueErrors.payee}</p>}
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid items-start gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="issue-payable">
                       Payable account <span className="text-destructive">*</span>
@@ -228,7 +228,7 @@ export function NewCheckDialog({ open, onOpenChange, accounts, isSaving, onIssue
             <TabsContent value="receive" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 py-4">
               <form id="receive-check-form" onSubmit={submitReceive} className="space-y-4">
                 {accountSelect(receive.bankAccountId, (next) => setReceive({ ...receive, bankAccountId: next }), "receive-account", "Deposit account", receiveErrors.bankAccountId)}
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid items-start gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="receive-no">
                       Check number <span className="text-destructive">*</span>

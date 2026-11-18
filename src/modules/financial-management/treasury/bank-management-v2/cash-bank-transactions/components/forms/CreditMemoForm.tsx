@@ -96,7 +96,7 @@ export function CreditMemoForm({ formId, accounts, isSaving, onSubmit, onPosted 
           )}
         />
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid items-start gap-4 sm:grid-cols-2">
           <FormField
             control={form.control}
             name="valueDate"

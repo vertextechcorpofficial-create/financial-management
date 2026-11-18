@@ -41,7 +41,7 @@ export function RegisterFilters({
         <SelectTrigger className="h-9 w-full sm:w-[170px]" aria-label="Status">
           <SelectValue className="truncate" placeholder="All statuses" />
         </SelectTrigger>
-        <SelectContent className="max-h-60">
+        <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
           <SelectItem value="ALL">All statuses</SelectItem>
           {LOAN_STATUSES.map((status) => (
             <SelectItem key={status} value={status}>
@@ -52,10 +52,10 @@ export function RegisterFilters({
       </Select>
 
       <Select value={filters.lenderType} onValueChange={(value) => onChange({ lenderType: value })}>
-        <SelectTrigger className="h-9 w-full sm:w-[175px]" aria-label="Lender type">
+        <SelectTrigger className="h-9 w-full sm:w-[190px]" aria-label="Lender type">
           <SelectValue className="truncate" placeholder="All lenders" />
         </SelectTrigger>
-        <SelectContent className="max-h-60">
+        <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
           <SelectItem value="ALL">All lenders</SelectItem>
           {LENDER_TYPES.map((type) => (
             <SelectItem key={type} value={type}>

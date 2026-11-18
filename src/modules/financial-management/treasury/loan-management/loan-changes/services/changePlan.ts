@@ -13,10 +13,27 @@ import {
   amortizedCostSchedule,
   buildSchedule,
   daysBetween,
+  monthsPerPeriod,
   round2,
   solvePeriodicRate,
   type ScheduleRow,
 } from "./loanEngine";
+
+/**
+ * The first installment date on the loan's own grid that falls after `after`.
+ *
+ * Installments sit every `monthsStep` months from the first payment date, so a restructure dated
+ * between two installments starts at the next one rather than at a date already in the past.
+ */
+function firstGridAfter(firstPaymentDate: string, after: string, monthsStep: number): string {
+  let date = firstPaymentDate;
+  let index = 0;
+  while (date <= after && index < 1200) {
+    index += 1;
+    date = addMonths(firstPaymentDate, index * monthsStep);
+  }
+  return date;
+}
 
 /** A peso amount as a reader reads it: separators and two decimals. */
 function money(value: number): string {
@@ -136,6 +153,8 @@ interface RebuildInput {
   openingCarrying: number;
   /** When set, the installment is held at this figure and the final period takes the remainder. */
   installment?: number;
+  /** Months between installments, used when the installment is held rather than solved. */
+  monthsStep: number;
 }
 
 /**
@@ -148,6 +167,8 @@ function buildAtInstallment(input: {
   installment: number;
   firstPaymentDate: string;
   startPeriod: number;
+  /** Months between installments: three for a quarterly loan, twelve for an annual one. */
+  monthsStep: number;
 }): ScheduleRow[] {
   const rate = monthlyRate(input.annualRate);
   const rows: ScheduleRow[] = [];
@@ -159,7 +180,7 @@ function buildAtInstallment(input: {
     const payment = round2(Math.min(input.installment, opening + interest));
     const principal = round2(payment - interest);
     const closing = round2(opening - principal);
-    const dueDate = addMonths(input.firstPaymentDate, index);
+    const dueDate = addMonths(input.firstPaymentDate, index * input.monthsStep);
     rows.push({
       periodNo: input.startPeriod + index,
       dueDate,
@@ -192,6 +213,7 @@ function rebuild(input: RebuildInput): { rows: PlannedRow[]; eirAfter: number } 
           installment: input.installment,
           firstPaymentDate: input.firstPaymentDate,
           startPeriod: input.startPeriod,
+          monthsStep: input.monthsStep,
         })
       : buildSchedule({
           principal: input.principal,
@@ -308,8 +330,11 @@ export function planChange(input: ChangePlanInput): ChangePreview {
   const plan = emptyPlan(input);
   plan.outstandingBefore = outstanding;
   plan.overdueInterest = overdueInterest(open, effectiveDate);
+  // Installments sit on a grid that steps one period, not one month: a quarterly loan's third
+  // installment is six months after the first, not two.
+  const step = monthsPerPeriod(loan.paymentFrequency);
   const startPeriod = (settled[settled.length - 1]?.periodNo ?? 0) + 1;
-  const firstPaymentDate = addMonths(loan.firstPaymentDate, startPeriod - 1);
+  const firstPaymentDate = addMonths(loan.firstPaymentDate, (startPeriod - 1) * step);
   // The carrying amount a rebuild starts from is the one the last period before the change left
   // behind, whether that period was paid or restated by an earlier change.
   const carryingRow = schedule.filter((row) => row.periodNo === startPeriod - 1).pop() ?? lastSettled;
@@ -372,6 +397,7 @@ export function planChange(input: ChangePlanInput): ChangePreview {
         firstPaymentDate,
         effectiveDate,
         startPeriod,
+        monthsStep: step,
         // The principal just repaid leaves the carrying amount with it, so the effective rate is
         // measured on what is still owed rather than on the balance from before the prepayment.
         openingCarrying: carryingAfter,
@@ -425,6 +451,7 @@ export function planChange(input: ChangePlanInput): ChangePreview {
         firstPaymentDate,
         effectiveDate,
         startPeriod,
+        monthsStep: step,
         openingCarrying,
       });
 
@@ -456,14 +483,18 @@ export function planChange(input: ChangePlanInput): ChangePreview {
       // P137: overdue principal and interest join the new principal. Principal is already in the
       // balance; the interest that is due and unpaid is added here.
       const newPrincipal = round2(outstanding + plan.overdueInterest);
+      // A restructure is a fresh agreement dated today: the first installment falls on the first
+      // grid date after the effective date, never on a period that has already fallen due.
+      const restructureFirstDate = firstGridAfter(loan.firstPaymentDate, effectiveDate, step);
       const built = rebuild({
         loan,
         principal: rebuildBase(newPrincipal),
         annualRate: newRate,
         periods,
-        firstPaymentDate,
+        firstPaymentDate: restructureFirstDate,
         effectiveDate,
         startPeriod,
+        monthsStep: step,
         openingCarrying,
       });
 
@@ -498,9 +529,10 @@ export function planChange(input: ChangePlanInput): ChangePreview {
         principal: rebuildBase(newPrincipal),
         annualRate: newRate,
         periods,
-        firstPaymentDate,
+        firstPaymentDate: restructureFirstDate,
         effectiveDate,
         startPeriod,
+        monthsStep: step,
         openingCarrying: pvNew,
       });
       plan.rows = [...baseRows, ...restated.rows];

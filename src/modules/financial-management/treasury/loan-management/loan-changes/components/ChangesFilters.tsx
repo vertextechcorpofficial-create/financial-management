@@ -40,7 +40,7 @@ export function ChangesFilters({ filters, loans, onChange, onClear }: Props) {
         <SelectTrigger className="h-9 w-full sm:w-[185px]" aria-label="Filter by kind">
           <SelectValue className="truncate" placeholder="Every kind" />
         </SelectTrigger>
-        <SelectContent className="max-h-60">
+        <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
           <SelectItem value="ALL">Every kind</SelectItem>
           {CHANGE_KINDS.map((kind) => (
             <SelectItem key={kind} value={kind}>

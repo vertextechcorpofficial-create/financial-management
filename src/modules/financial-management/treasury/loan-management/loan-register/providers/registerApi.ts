@@ -42,6 +42,19 @@ export async function fetchRegister(query: RegisterQuery): Promise<RegisterPaylo
   return body.data;
 }
 
+export interface RegisterOptions {
+  banks: Array<{ id: number; name: string }>;
+}
+
+export async function fetchOptions(): Promise<RegisterOptions> {
+  const response = await fetch("/api/fm/treasury/loan-management/loan-register/options", {
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  const body = (await response.json()) as { data: RegisterOptions };
+  return body.data;
+}
+
 export interface CreateLoanPayload {
   lenderName: string;
   lenderType: string;

@@ -2,7 +2,8 @@ import "server-only";
 
 import { createItem, DirectusError, listItems, updateItem } from "./directus";
 import { listRegistryCompanies } from "./registry";
-import { appendRateAudit, diffValues, formatValues } from "./auditLog";
+import { appendRateAudit, currentActor, diffValues, formatValues } from "./auditLog";
+import { phtStamp } from "../pht";
 import type {
   RateConfig,
   RateConfigCompany,
@@ -163,10 +164,26 @@ export async function loadRateConfig(companyId: number | null): Promise<RateConf
 export async function saveRateSetting(companyId: number, row: RateSettingRow): Promise<RateSettingRow> {
   const payload = settingsPayload(companyId, row);
   const before = row.rateId == null ? null : await existingSetting(row.rateId);
+  const actor = await currentActor();
+  const stamp = phtStamp();
   const saved =
     row.rateId == null
-      ? settingsRow(await createItem<Record<string, unknown>>("tax_rate_settings", payload))
-      : settingsRow(await updateItem<Record<string, unknown>>("tax_rate_settings", row.rateId, payload));
+      ? settingsRow(
+          await createItem<Record<string, unknown>>("tax_rate_settings", {
+            ...payload,
+            created_at: stamp,
+            created_by: actor.userId,
+            updated_at: stamp,
+            updated_by: actor.userId,
+          }),
+        )
+      : settingsRow(
+          await updateItem<Record<string, unknown>>("tax_rate_settings", row.rateId, {
+            ...payload,
+            updated_at: stamp,
+            updated_by: actor.userId,
+          }),
+        );
 
   await appendRateAudit({
     companyId,
@@ -211,10 +228,26 @@ async function existingWithholding(rateId: number): Promise<Record<string, unkno
 export async function saveWithholdingRate(companyId: number, row: WithholdingRateRow): Promise<WithholdingRateRow> {
   const payload = withholdingPayload(companyId, row);
   const before = row.rateId == null ? null : await existingWithholding(row.rateId);
+  const actor = await currentActor();
+  const stamp = phtStamp();
   const saved =
     row.rateId == null
-      ? withholdingRow(await createItem<Record<string, unknown>>("tax_withholding_rates", payload))
-      : withholdingRow(await updateItem<Record<string, unknown>>("tax_withholding_rates", row.rateId, payload));
+      ? withholdingRow(
+          await createItem<Record<string, unknown>>("tax_withholding_rates", {
+            ...payload,
+            created_at: stamp,
+            created_by: actor.userId,
+            updated_at: stamp,
+            updated_by: actor.userId,
+          }),
+        )
+      : withholdingRow(
+          await updateItem<Record<string, unknown>>("tax_withholding_rates", row.rateId, {
+            ...payload,
+            updated_at: stamp,
+            updated_by: actor.userId,
+          }),
+        );
 
   await appendRateAudit({
     companyId,

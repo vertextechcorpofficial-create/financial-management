@@ -40,7 +40,7 @@ export const LOAN_PAGE_SIZE = 10;
 export const LENDER_TYPES: LenderType[] = ["BANK", "FINANCING", "GOVERNMENT", "RELATED_PARTY", "OTHER"];
 export const LENDER_TYPE_LABEL: Record<LenderType, string> = {
   BANK: "Bank",
-  FINANCING: "Financing or lending company",
+  FINANCING: "Lending company",
   GOVERNMENT: "Government lender",
   RELATED_PARTY: "Related party",
   OTHER: "Other",
@@ -100,7 +100,7 @@ export const FIRST_PERIOD_BASIS_LABEL: Record<FirstPeriodBasis, string> = {
 export const BUSINESS_DAY_RULES: BusinessDayRule[] = ["FOLLOWING", "FOLLOWING_SAME_MONTH", "NONE"];
 export const BUSINESS_DAY_RULE_LABEL: Record<BusinessDayRule, string> = {
   FOLLOWING: "Next business day",
-  FOLLOWING_SAME_MONTH: "Next business day in the same month",
+  FOLLOWING_SAME_MONTH: "Next business day, same month",
   NONE: "Keep the date",
 };
 export const BUSINESS_DAY_RULE_HINT: Record<BusinessDayRule, string> = {
@@ -128,7 +128,7 @@ export const LOAN_STATUSES: LoanStatus[] = [
 export const LOAN_STATUS_LABEL: Record<LoanStatus, string> = {
   PENDING_APPROVAL: "Pending approval",
   REJECTED: "Rejected",
-  PENDING_RELEASE: "Approved, not yet released",
+  PENDING_RELEASE: "Awaiting release",
   CURRENT: "Current",
   OVERDUE: "Overdue",
   PAID_OFF: "Paid off",

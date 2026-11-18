@@ -73,37 +73,66 @@ export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
         showCloseButton={false}
         className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[640px]"
       >
-        <div className="flex max-h-[85vh] flex-col overflow-hidden">
-          <DialogHeader className="border-b border-border px-6 py-4">
+        <DialogHeader className="gap-2 border-b border-border px-6 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
             <DialogTitle className="line-clamp-1">{change?.changeNo ?? "Change"}</DialogTitle>
-            <DialogDescription className="line-clamp-2 max-w-md">
-              {change
-                ? `${change.effectiveDate} · ${CHANGE_KIND_LABEL[change.kind]} · ${change.loanNo ?? "—"} · ${change.lenderName ?? "—"}`
-                : ""}
-            </DialogDescription>
-          </DialogHeader>
+            {change ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <StatusBadge tone={CHANGE_KIND_TONE[change.kind]}>{CHANGE_KIND_LABEL[change.kind]}</StatusBadge>
+                <StatusBadge tone={CHANGE_STATUS_TONE[change.status]}>{CHANGE_STATUS_LABEL[change.status]}</StatusBadge>
+                {change.scheduleVersion ? <StatusBadge tone="neutral">v{change.scheduleVersion}</StatusBadge> : null}
+                {change.entryNo ? <StatusBadge tone="neutral">{change.entryNo}</StatusBadge> : null}
+              </div>
+            ) : null}
+          </div>
+          <DialogDescription className="line-clamp-2 max-w-md">
+            {change
+              ? `${change.loanNo ?? "No loan"} · ${change.lenderName ?? "No lender"} · effective ${change.effectiveDate}`
+              : ""}
+          </DialogDescription>
+        </DialogHeader>
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4 text-sm">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4 text-sm">
             {change ? (
               <>
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge tone={CHANGE_KIND_TONE[change.kind]}>{CHANGE_KIND_LABEL[change.kind]}</StatusBadge>
-                  <StatusBadge tone={CHANGE_STATUS_TONE[change.status]}>{CHANGE_STATUS_LABEL[change.status]}</StatusBadge>
-                  {change.scheduleVersion ? (
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
-                      Schedule version {change.scheduleVersion}
-                    </span>
-                  ) : null}
-                  {change.entryNo ? (
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
-                      Entry {change.entryNo}
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">No journal entry</span>
-                  )}
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{change.kind === "PREPAYMENT" || change.kind === "PAYOFF" ? "Amount" : "New rate"}</p>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {change.kind === "PREPAYMENT" || change.kind === "PAYOFF"
+                        ? change.amount === null
+                          ? "—"
+                          : formatCurrency(change.amount)
+                        : change.newRate === null
+                          ? "—"
+                          : `${change.newRate}%`}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Penalty</p>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {change.penaltyAmount === 0 ? "—" : formatCurrency(change.penaltyAmount)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Gain / loss</p>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {change.gainLoss === 0 ? "—" : formatCurrency(change.gainLoss)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Installment after</p>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {change.newInstallment === null ? "—" : formatCurrency(change.newInstallment)}
+                    </p>
+                  </div>
                 </div>
 
-                <div>
+                <div className="overflow-hidden rounded-lg border border-border/60">
+                  <div className="border-b border-border/60 bg-muted/20 px-4 py-2">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Before and after</h3>
+                  </div>
+                  <div className="divide-y divide-border/50">
                   <Row label="Installment" value={`${change.oldInstallment === null ? "—" : formatCurrency(change.oldInstallment)} → ${change.newInstallment === null ? "—" : formatCurrency(change.newInstallment)}`} />
                   <Row label="Maturity" value={`${change.oldMaturity ?? "—"} → ${change.newMaturity ?? "—"}`} />
                   <Row label="Amount prepaid" value={change.amount === null ? "—" : formatCurrency(change.amount)} />
@@ -123,7 +152,8 @@ export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
                   ) : null}
                   <Row label="Gain / loss" value={change.gainLoss === 0 ? "—" : formatCurrency(change.gainLoss)} />
                   <Row label="Money account" value={change.accountLabel ?? "—"} />
-                  <Row label="Notes" value={change.notes ?? "—"} />
+                    <Row label="Notes" value={change.notes ?? "—"} />
+                  </div>
                 </div>
               </>
             ) : null}
@@ -152,7 +182,7 @@ export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
             ) : null}
           </div>
 
-          <DialogFooter className="border-t border-border bg-muted/20 px-6 py-4">
+        <DialogFooter className="border-t border-border bg-muted/20 px-6 py-4">
             <DialogClose asChild>
               <Button type="button" variant="outline" disabled={isReversing}>
                 Close
@@ -176,8 +206,7 @@ export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
                 </Button>
               )
             ) : null}
-          </DialogFooter>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
