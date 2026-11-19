@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TIERS } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/types";
+import { TIERS } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/types";
 
 const id = z.number().int().positive().safe();
 const key = z.string().uuid();

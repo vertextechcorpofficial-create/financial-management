@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAuthorityAccess } from "../../_lib/auth";
 import { context } from "../../_lib/service";
-import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/authorityErrors";
+import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/authorityErrors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ZodError } from "zod";
-import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/authorityErrors";
+import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/authorityErrors";
 import { assertMutationOrigin, requireAuthorityAccess, requirePermission } from "./auth";
 import { context, evaluate, mutate, publicEvent, references } from "./service";
 import { history } from "./repository";

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
-import type { AuthorityActor, AuthorityPermission } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/types";
-import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/authorityErrors";
+import type { AuthorityActor, AuthorityPermission } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/types";
+import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/authorityErrors";
 import { enabled, readRows } from "./directus";
 
 export const GRANT_COLLECTION = "fm_expense_authority_permission_grants";

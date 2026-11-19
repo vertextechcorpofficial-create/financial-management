@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import type { AuthorityActor, AuthorityRevision, AuthorityWorkspace, AuditEvent } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/types";
-import { emptyWorkspace } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/workspace";
-import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/authorityErrors";
+import type { AuthorityActor, AuthorityRevision, AuthorityWorkspace, AuditEvent } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/types";
+import { emptyWorkspace } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/workspace";
+import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/authorityErrors";
 import { COLLECTION, directus, readRows } from "./directus";
 
 export const requestHash = (body: unknown) => createHash("sha256").update(JSON.stringify(body)).digest("hex");

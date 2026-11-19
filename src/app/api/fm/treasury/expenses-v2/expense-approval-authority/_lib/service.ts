@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { AuthorityActor, AuthorityContext, AuthorityRevision, AuthorityWorkspace, EvaluationResult, ReferenceOption } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/types";
-import { applyCommand, type WorkspaceCommand } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/workspace";
-import { evaluateAuthority, type EvaluationInput } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/evaluateAuthority";
-import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/authorityErrors";
+import type { AuthorityActor, AuthorityContext, AuthorityRevision, AuthorityWorkspace, EvaluationResult, ReferenceOption } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/types";
+import { applyCommand, type WorkspaceCommand } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/workspace";
+import { evaluateAuthority, type EvaluationInput } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/evaluateAuthority";
+import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/authorityErrors";
 import { assertCompany, hasPermission, requirePermission } from "./auth";
 import { enabled, readRows } from "./directus";
 import { appendRevision, loadWorkspace, priorRequest, requestHash } from "./repository";

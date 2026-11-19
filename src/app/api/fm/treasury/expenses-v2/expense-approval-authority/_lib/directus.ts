@@ -1,4 +1,4 @@
-import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-authority/domain/authorityErrors";
+import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/authorityErrors";
 
 export const COLLECTION = "fm_expense_authority_revisions";
 export type Filter = Record<string, unknown>;
