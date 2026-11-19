@@ -36,7 +36,27 @@ export type AuditFilters = { search: string; action: string; actorId: string; fr
 export type AuditFilterOptions = { actions: { code: string; label: string }[]; actors: { id: number; name: string }[] };
 export type AuditHistoryPage = HistoryPage<AuditEvent> & { scopeTotal: number; filterOptions: AuditFilterOptions };
 export type ReportKey = "statement" | "aging" | "journal" | "audit" | "closedPeriods";
-export type ReportsExportData = FinancialReports & {
+export type ReportContext = Pick<FinancialReports, "period" | "entity">;
+export type ReportViewData = ReportContext & (
+  | (Pick<FinancialReports, "statement" | "reconciliation"> & { report: "statement" })
+  | (Pick<FinancialReports, "aging"> & { report: "aging" })
+  | (Pick<FinancialReports, "journal"> & { report: "journal" })
+  | { report: "audit" | "closedPeriods" }
+);
+
+export type ReportFilters = Partial<AuditFilters & { itemType: string; bucket: string; status: string; periodMonth: string }>;
+export type ReportScope = {
+  report: ReportKey; filters?: ReportFilters; throughEventId?: number; throughClosureId?: number;
+};
+type FullReportData = FinancialReports & {
+  report?: undefined;
   audit: AuditEvent[]; closedPeriods: ClosedPeriod[]; throughEventId: number; throughClosureId: number;
+};
+type ScopedExportData = ReportContext & { filters: ReportFilters } & (
+  | Extract<ReportViewData, { report: "statement" | "aging" | "journal" }>
+  | { report: "audit"; audit: AuditEvent[]; throughEventId: number }
+  | { report: "closedPeriods"; closedPeriods: ClosedPeriod[]; throughClosureId: number }
+);
+export type ReportsExportData = (FullReportData | ScopedExportData) & {
   filename: string; generatedAt: string; generatedBy: { id: number; name: string };
 };

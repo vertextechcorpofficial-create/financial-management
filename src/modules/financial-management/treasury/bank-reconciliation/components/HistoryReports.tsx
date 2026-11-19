@@ -1,13 +1,13 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { useHistoryReport } from "../hooks/useHistoryReport";
-import { getClosedPeriods } from "../providers/bankReconciliationReportsApi";
+import { Input } from "@/components/ui/input";
+import { useClosedPeriods } from "../hooks/useClosedPeriods";
 import { useAuditHistory } from "../hooks/useAuditHistory";
 import { AuditHistoryFilters } from "./AuditHistoryFilters";
 import { exportTime } from "../services/reconcileExport";
 import { transactionMoney } from "../utils/transactionDisplay";
-import type { HistoryPage } from "../report-types";
+import type { HistoryPage, ReportScope } from "../report-types";
 import type { ReactNode } from "react";
 import { HistorySkeleton } from "./BankReconciliationSkeletons";
 
@@ -25,12 +25,20 @@ function recordedValue(value: string | null, type: "money" | "text") {
   return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction === undefined ? "" : `.${fraction}`}`;
 }
 
-export function AuditTrailReport({ periodId, copyButton }: { periodId: number; copyButton?: ReactNode }) {
-  const report = useAuditHistory(periodId), { data, loading, error } = report;
-  return <section id="r-audit" aria-labelledby="audit-title" aria-busy={loading} className="scroll-mt-4 space-y-4 rounded-lg border bg-card p-4">
-    <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="audit-title" className="text-lg font-semibold">Audit trail</h2><div className="flex flex-wrap gap-2">{copyButton}<Button type="button" variant="outline" disabled={loading || Boolean(report.validation)} onClick={report.refresh}>Refresh audit trail</Button></div></div>
+type HistoryReportProps = {
+  periodId: number; active: boolean;
+  actions: (scope: ReportScope, disabled: boolean, refresh: () => void) => ReactNode;
+  refreshContext: () => void;
+};
+
+export function AuditTrailReport({ periodId, active, actions, refreshContext }: HistoryReportProps) {
+  const report = useAuditHistory(periodId, active), { data, loading, error } = report;
+  if (!active) return null;
+  const refresh = () => { report.refresh(); refreshContext(); };
+  return <section id="r-audit" aria-labelledby="audit-title" aria-busy={loading} className="min-w-0 space-y-4 rounded-lg border bg-card p-4">
+    <div className="flex flex-wrap items-start justify-between gap-3"><h2 id="audit-title" className="text-lg font-semibold">Audit trail</h2><div className="flex flex-wrap gap-2">{actions({ report: "audit", filters: report.filters, throughEventId: data?.throughEventId }, data?.throughEventId === undefined || Boolean(report.validation), refresh)}<Button type="button" variant="outline" disabled={loading || Boolean(report.validation)} onClick={refresh}>Refresh audit trail</Button></div></div>
     <p className="text-sm text-muted-foreground">Full activity for the selected period, newest first, including bank setup and later reopening or next-period activity. Financial results for a closed revision remain preserved. Refresh to include newer events.</p>
-    <p className="text-xs text-muted-foreground">Screen filters affect this table only. Copy, Excel, and PDF include the full report history and may include events newer than your last audit refresh.</p>
+    <p className="text-xs text-muted-foreground">Copy and downloads include all matches through the last audit refresh.</p>
     <AuditHistoryFilters report={report} />
     {data && <p role="status" className="text-sm text-muted-foreground">{data.total} of {data.scopeTotal ?? data.total} events match{report.active ? " these filters" : " · All activity"}.</p>}
     {error && <ErrorNotice error={error} retry={report.retry} />}{loading && <HistorySkeleton label="Loading audit trail" columns={4} rows={4} />}
@@ -44,16 +52,23 @@ export function AuditTrailReport({ periodId, copyButton }: { periodId: number; c
   </section>;
 }
 
-export function ClosedPeriodsReport({ periodId, onView, copyButton }: { periodId: number; onView: (id: number, closureId: number) => void; copyButton?: ReactNode }) {
-  const report = useHistoryReport(periodId, getClosedPeriods), { data, loading, error } = report;
+export function ClosedPeriodsReport({ periodId, active, onView, actions, refreshContext }: HistoryReportProps & { onView: (id: number, closureId: number) => void }) {
+  const report = useClosedPeriods(periodId, active), { data, loading, error } = report;
+  if (!active) return null;
   const money = (value: string | null, currency: string | null) => value == null ? "Unavailable" : transactionMoney(value, currency || "PHP");
-  return <section id="r-closed" aria-labelledby="closed-title" aria-busy={loading} className="scroll-mt-4 space-y-4 rounded-lg border bg-card p-4">
-    <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="closed-title" className="text-lg font-semibold">Closed periods</h2><div className="flex flex-wrap gap-2">{copyButton}<Button type="button" variant="outline" disabled={loading} onClick={report.refresh}>Refresh closed periods</Button></div></div>
+  const refresh = () => { report.refresh(); refreshContext(); };
+  return <section id="r-closed" aria-labelledby="closed-title" aria-busy={loading} className="min-w-0 space-y-4 rounded-lg border bg-card p-4">
+    <div className="flex flex-wrap items-start justify-between gap-3"><h2 id="closed-title" className="text-lg font-semibold">Closed periods</h2><div className="flex flex-wrap gap-2">{actions({ report: "closedPeriods", filters: { periodMonth: report.periodMonth }, throughClosureId: data?.throughClosureId }, data?.throughClosureId === undefined || Boolean(report.validation), refresh)}<Button type="button" variant="outline" disabled={loading || Boolean(report.validation)} onClick={refresh}>Refresh closed periods</Button></div></div>
     <p className="text-sm text-muted-foreground">Preserved closure revisions for the selected bank account, including revisions of reopened periods. Balances, closure identity and confirmed GL entries come from each saved snapshot.</p>
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="space-y-2"><label htmlFor="closed-period-month" className="block text-sm font-medium">Period ended month</label><Input id="closed-period-month" type="month" min="0001-01" max="9999-12" value={report.periodMonth} aria-invalid={Boolean(report.validation)} aria-describedby={report.validation ? "closed-month-error" : undefined} onChange={e => report.changeMonth(e.target.value, e.target.validity.badInput)} onInput={e => { if (!e.currentTarget.value) report.changeMonth("", e.currentTarget.validity.badInput); }} /></div>
+      <Button type="button" variant="outline" disabled={!report.periodMonth && !report.validation} onClick={() => report.changeMonth("")}>Clear month</Button>
+    </div>
+    {report.validation && <p id="closed-month-error" role="alert" className="text-sm text-destructive">{report.validation}</p>}
     {error && <ErrorNotice error={error} retry={report.retry} />}{loading && <HistorySkeleton label="Loading closed periods" columns={7} rows={3} />}
     {data && <><div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-sm"><thead><tr className="border-b text-left">{["Period ended", "Closed", "Closed by", "Adjusted bank", "Adjusted book", "Entries", "Journal entries"].map((label, index) => <th key={label} className={`p-2 ${index >= 3 && index <= 5 ? "text-right" : ""}`}>{label}</th>)}</tr></thead><tbody>{data.items.length ? data.items.map(row => <tr key={row.closureId} className="border-b align-top">
       <td className="whitespace-nowrap p-2"><p>{row.periodEnd || "Unavailable"}</p><p className="mt-1 text-xs text-muted-foreground">Revision {row.revision} · Closure #{row.closureId}</p><Button type="button" size="sm" variant="outline" className="mt-2" disabled={!row.available} aria-label={`View revision ${row.revision}, closure ${row.closureId}`} onClick={() => onView(row.periodId, row.closureId)}>View revision</Button>{row.notice && <p className="mt-2 max-w-52 whitespace-normal text-xs text-amber-700 dark:text-amber-400">{row.notice}</p>}</td>
       <td className="whitespace-nowrap p-2">{exportTime(row.closedAt)}</td><td className="max-w-48 break-words p-2">{row.closedBy.name || `User #${row.closedBy.id}`}</td><td className="whitespace-nowrap p-2 text-right tabular-nums">{money(row.adjustedBankBalance, row.currency)}</td><td className="whitespace-nowrap p-2 text-right tabular-nums">{money(row.adjustedBookBalance, row.currency)}</td><td className="p-2 text-right tabular-nums">{row.entryCount ?? "Unavailable"}</td><td className="min-w-48 p-2">{row.journals.length ? <ul className="space-y-1">{row.journals.map(journal => <li key={journal.glId}>{journal.workbenchNumber || "Workbench number unavailable"}<span className="block text-xs text-muted-foreground">GL: {journal.glNumber || `#${journal.glId}`}</span></li>)}</ul> : row.available ? "None" : "Unavailable"}</td>
-    </tr>) : <tr><td colSpan={7} className="p-4 text-muted-foreground">No closed periods for this bank account.</td></tr>}</tbody></table></div><Pagination data={data} loading={loading} onPage={report.loadPage} /></>}
+    </tr>) : <tr><td colSpan={7} className="p-4 text-muted-foreground">{report.periodMonth ? "No closed periods match this month." : "No closed periods for this bank account."}</td></tr>}</tbody></table></div><Pagination data={data} loading={loading} onPage={report.loadPage} /></>}
   </section>;
 }

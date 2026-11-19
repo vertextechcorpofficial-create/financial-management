@@ -1,10 +1,12 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ReconciliationPeriod } from "../setup-types";
-import { IMPORT_LAYOUTS, type ImportReport, type TransactionData, type TransactionFilter, type TransactionPane, type TransactionResult, type TransactionLine, type TransactionSide } from "../transaction-types";
+import { IMPORT_LAYOUTS, LINE_STATUS_LABELS, type ImportReport, type TransactionData, type TransactionFilter, type TransactionPane, type TransactionResult, type TransactionLine, type TransactionSide } from "../transaction-types";
 import { deleteTransaction, downloadTransactionTemplate, getTransactions, importTransactions } from "../providers/bankReconciliationTransactionsApi";
 import { refreshSetupLedger } from "../providers/bankReconciliationSetupApi";
 import { autoMatchTransactions, matchTransactions, undoTransactionMatches } from "../providers/bankReconciliationTransactionsApi";
@@ -38,13 +40,25 @@ type PaneProps = {
   readStatus: ReadStatus;
   drafts: Drafts; onSubmit: (side: TransactionSide) => Promise<void>;
   onPage: (page: number) => void; command: (operation: (p: ReconciliationPeriod) => Promise<TransactionResult>) => Promise<TransactionResult>;
+  onRefresh: () => void;
 };
-function Pane({ side, data, period, query, busy, readStatus, onPage, command, selected, onToggle, drafts, onSubmit }: PaneProps) {
+function LineStatus({ line, query }: { line: TransactionLine; query: string }) {
+  const label = line.lineState === "MATCHED" && line.matchLabel ? `Matched ${line.matchLabel}` : LINE_STATUS_LABELS[line.lineState];
+  if (!label) return <Highlight value={line.status} query={query} />;
+  const detail = line.status.startsWith(label) ? line.status.slice(label.length).replace(/^[ ·]+/, "") : line.status;
+  return <div className="flex flex-wrap items-center gap-2">
+    <Badge variant={line.lineState === "RECONCILED" ? "secondary" : "outline"}><Highlight value={label} query={query} /></Badge>
+    {detail && <span><Highlight value={detail} query={query} /></span>}
+  </div>;
+}
+function Pane({ side, data, period, query, busy, readStatus, onPage, command, selected, onToggle, drafts, onSubmit, onRefresh }: PaneProps) {
   const bank = side === "BANK", title = bank ? "Bank statement" : "Books: Cash in Bank ledger", prefix = bank ? "Bank" : "Ledger";
   const fileInput = useRef<HTMLInputElement>(null), upload = useRef<{ file: File; requestId: string } | null>(null);
   const entry = drafts.entries[side], adding = entry.open, draft = entry.fields;
   const [error, setError] = useState(""), [report, setReport] = useState<ImportReport | null>(null), [retry, setRetry] = useState(false);
+  const [deleteLine, setDeleteLine] = useState<TransactionLine | null>(null);
   const draftLocked = !period || period.status === "CLOSED" || busy, locked = draftLocked || readStatus !== "ready";
+  const canDelete = (line: TransactionLine) => period?.status === "OPEN" && line.lineState === "UNMATCHED" && line.canDelete;
   const ledgerCheck = period?.ledgerCheck;
   const checked = ledgerCheck && ledgerCheck.state !== "NOT_AVAILABLE" ? ledgerCheck : null;
   async function template() {
@@ -75,8 +89,15 @@ function Pane({ side, data, period, query, busy, readStatus, onPage, command, se
   }
   async function remove(id: number) {
     setError("");
-    try { await command(p => deleteTransaction(p, side, id)); toast.success("Line deleted", { id: "bank-rec-reconcile", description: `${bank ? "Bank" : "Ledger"} line removed.` }); }
-    catch (e) { const message = e instanceof Error ? e.message : "Unable to delete the line."; setError(message); toast.error("Could not delete line", { id: "bank-rec-reconcile-error", description: message, duration: 6000 }); }
+    try {
+      await command(p => deleteTransaction(p, side, id));
+      toast.success("Line deleted", { id: "bank-rec-reconcile", description: `${bank ? "Bank" : "Ledger"} line removed.` });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unable to delete the line.";
+      setError(`${message} Review the refreshed saved transactions before retrying.`);
+      onRefresh();
+      toast.error("Could not confirm deletion", { id: "bank-rec-reconcile-error", description: message, duration: 6000 });
+    }
   }
   async function refreshLedger() {
     setError("");
@@ -92,10 +113,10 @@ function Pane({ side, data, period, query, busy, readStatus, onPage, command, se
     }
   }
   const negativeDraft = draft.amount.trim().startsWith("-");
-  const ledgerTreatment = draft.treatment ?? (negativeDraft ? "OUTSTANDING_CHECK" : "DEPOSIT_IN_TRANSIT");
+  const ledgerTreatment = draft.treatment ?? null;
   const bookErrorDraft = !bank && ledgerTreatment === "BOOK_ERROR";
   return <section aria-label={`${prefix} transactions`} className="min-w-0 space-y-3 rounded-lg border bg-card p-4">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">{title}</h2>{data && <p className="mt-1 text-xs text-muted-foreground">Showing {data.filtered} of {data.total} · {data.total} lines · {data.matched} matched · {data.open} open · {transactionMoney(data.net, period?.currency || "PHP")} net</p>}</div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">{title}</h2>{data && <p className="mt-1 text-xs text-muted-foreground">Showing {data.filtered} of {data.total} lines · {transactionMoney(data.net, period?.currency || "PHP")} net</p>}</div>
       <div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" disabled={draftLocked} onClick={() => drafts.openEntry(side, !adding)}>{adding ? "Close entry" : "Add line"}</Button><Button type="button" size="sm" variant="outline" onClick={() => { void template(); }}>Template</Button><Button type="button" size="sm" variant="outline" disabled={locked} onClick={() => fileInput.current?.click()}>Import Excel</Button><input ref={fileInput} aria-label={`${prefix} Excel file`} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" disabled={locked} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) { upload.current = { file, requestId: bankReconciliationRequestId() }; void importFile(); } }} /></div>
     </div>
     {entryDirty(entry) && <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><p>{prefix} entry not added{!adding ? " · Reopen Add line to continue editing" : ""}.</p><Button type="button" size="sm" variant="ghost" disabled={draftLocked} aria-label={`Discard ${prefix.toLowerCase()} entry draft`} onClick={() => drafts.discardEntry(side)}>Discard draft</Button></div>}
@@ -112,7 +133,7 @@ function Pane({ side, data, period, query, busy, readStatus, onPage, command, se
         } else drafts.changeEntry(side, { [field]: value });
       }} /></label>)}
       {!bank && <LedgerTreatmentChoice label="Ledger line treatment" value={ledgerTreatment} negative={negativeDraft}
-        disabled={draftLocked || entry.uncertain} onChange={treatment => drafts.changeEntry(side, { treatment, offsetAccount: null })} />}
+        disabled={draftLocked || entry.uncertain} onChange={treatment => drafts.changeEntry(side, { treatment: treatment ?? undefined, offsetAccount: null })} />}
       {bookErrorDraft && period && <OffsetAccountChoice label="Ledger line offset account" selected={draft.offsetAccount ?? null}
         period={period} disabled={draftLocked || entry.uncertain} normalSide={negativeDraft ? "DEBIT" : "CREDIT"}
         onChange={offsetAccount => drafts.changeEntry(side, { offsetAccount })} />}
@@ -121,20 +142,35 @@ function Pane({ side, data, period, query, busy, readStatus, onPage, command, se
     {error && <div role="alert" className="space-y-2 rounded-md border border-destructive/40 p-3 text-sm text-destructive"><p>{error}</p>{retry && <Button type="button" size="sm" variant="outline" disabled={locked} onClick={() => { void importFile(); }}>Retry this upload</Button>}</div>}
     {report && <ImportResult key={report.id} report={report} />}
     {readStatus === "loading" && !data ? <HistorySkeleton label={`Loading ${prefix.toLowerCase()} transactions`} columns={6} rows={4} /> : data?.items.length ? <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="p-2"><span className="sr-only">Select</span></th><th className="p-2">Date</th><th className="p-2">Reference</th><th className="p-2">Description</th><th className="p-2 text-right">Amount</th><th className="p-2"><span className="sr-only">Actions</span></th></tr></thead><tbody>{data.items.map(line => <Fragment key={line.id}>
-      <tr className="align-top"><td className="p-2"><input type="checkbox" aria-label={`Select ${prefix.toLowerCase()} line ${line.reference || line.id}`} checked={selected.some(item => item.id === line.id)} disabled={locked || !(line.canMatch ?? line.canDelete)} onChange={() => onToggle(line)} /></td><td className="min-w-28 whitespace-nowrap p-2"><Highlight value={line.date} query={query} /></td><td className="max-w-40 break-words p-2"><Highlight value={line.reference} query={query} /></td><td className="min-w-36 max-w-72 break-words p-2"><Highlight value={line.description} query={query} /></td><td className={`whitespace-nowrap p-2 text-right tabular-nums ${line.amount.startsWith("-") ? "" : "text-emerald-700 dark:text-emerald-400"}`}><Highlight value={transactionMoney(line.amount, period?.currency || "PHP")} query={query} /></td><td className="p-2">{line.canDelete && <Button type="button" size="sm" variant="ghost" aria-label={`Delete ${prefix.toLowerCase()} line ${line.reference || line.id}`} disabled={locked} onClick={() => { void remove(line.id); }}>Delete</Button>}</td></tr>
+      <tr className="align-top"><td className="p-2"><input type="checkbox" aria-label={`Select ${prefix.toLowerCase()} line ${line.reference || line.id}`} checked={selected.some(item => item.id === line.id)} disabled={locked || !line.canMatch} onChange={() => onToggle(line)} /></td><td className="min-w-28 whitespace-nowrap p-2"><Highlight value={line.date} query={query} /></td><td className="max-w-40 break-words p-2"><Highlight value={line.reference} query={query} /></td><td className="min-w-36 max-w-72 break-words p-2"><Highlight value={line.description} query={query} /></td><td className={`whitespace-nowrap p-2 text-right tabular-nums ${line.amount.startsWith("-") ? "" : "text-emerald-700 dark:text-emerald-400"}`}><Highlight value={transactionMoney(line.amount, period?.currency || "PHP")} query={query} /></td><td className="p-2">{canDelete(line) && <Button type="button" size="sm" variant="ghost" aria-label={`Delete ${prefix.toLowerCase()} line ${line.reference || line.id}`} disabled={locked} onClick={() => setDeleteLine(line)}>Delete</Button>}</td></tr>
       <tr className="border-b"><td colSpan={6} className="px-2 pb-3 pt-1 text-xs">
-        <Highlight value={line.status} query={query} />
-        {line.offsetAccount && <p className="mt-1 text-muted-foreground"><Highlight value={line.offsetAccount} query={query} /></p>}
+        <LineStatus line={line} query={query} />
+        {line.offsetAccount && <p className="mt-1 text-muted-foreground">
+          {bank && line.matchId == null && line.treatment === "RECORD_IN_BOOKS" && line.needsAccount && "Saved offset (needs replacement) · "}
+          <Highlight value={line.offsetAccount} query={query} />
+        </p>}
         {!bank && <div className="mt-1 flex flex-wrap items-center gap-2 text-muted-foreground">
           <span>{line.carriedFromPeriodId ? "Carried forward" : line.sourceKey ? "This period's GL" : line.treatment === "BOOK_ERROR" ? "Book correction" : line.origin === "IMPORT" ? "Excel import" : "Manual entry"}</span>
           {line.sourceJournal?.journalNumber && <span>{line.sourceJournal.journalNumber}</span>}
           {period && line.sourceKey && <LedgerJournalDialog key={period.lifecycle?.closureId || "open"} period={period} line={line} />}
         </div>}
         {line.sourceVoidReview && <p className="mt-1 text-amber-700 dark:text-amber-400">Review void across period dates.</p>}
-        {period && <LineTreatment line={line} side={side} period={period} busy={busy} command={command} onError={setError} />}
+        {period && <LineTreatment line={line} side={side} period={period} busy={locked} command={command} onError={setError} />}
       </td></tr>
     </Fragment>)}</tbody></table></div> : <p className="py-5 text-sm text-muted-foreground">{!period ? "Select a bank account to begin." : readStatus === "error" ? `${prefix} transactions unavailable. Retry transactions above.` : query ? "No lines match this search." : data?.total ? "No lines in this view." : bank ? "Add or import the lines from your bank statement." : checked?.state === "AGREES" ? "No posted GL lines or carried items for this period." : "Refresh ledger to load posted cash lines. Use the Ledger Excel template if the feed is unavailable."}</p>}
     {data && data.filtered > 0 && <div className="flex items-center justify-end gap-2 text-xs"><Button type="button" size="sm" variant="outline" disabled={data.page === 1} onClick={() => onPage(data.page - 1)}>Previous</Button><span>Page {data.page} of {Math.max(1, Math.ceil(data.filtered / data.pageSize))}</span><Button type="button" size="sm" variant="outline" disabled={data.page * data.pageSize >= data.filtered} onClick={() => onPage(data.page + 1)}>Next</Button></div>}
+    <AlertDialog open={Boolean(deleteLine)} onOpenChange={open => { if (!open) setDeleteLine(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader><AlertDialogTitle>Delete {bank ? "bank" : "Books"} line?</AlertDialogTitle>
+          <AlertDialogDescription>{deleteLine && `${deleteLine.reference || `Line #${deleteLine.id}`} · ${transactionMoney(deleteLine.amount, period?.currency || "PHP")}. This permanently removes the staging line.`}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
+          <Button type="button" variant="destructive"
+            disabled={locked || !data?.items.some(line => line.id === deleteLine?.id && canDelete(line))}
+            onClick={() => { if (deleteLine) void remove(deleteLine.id); setDeleteLine(null); }}>Delete line</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </section>;
 }
 
@@ -142,6 +178,7 @@ export function TransactionWorkbench({ period, run, busy, setBusy, drafts, onRea
   const [filter, setFilter] = useState<TransactionFilter>("ALL"), [query, setQuery] = useState("");
   const [bankPage, setBankPage] = useState(1), [ledgerPage, setLedgerPage] = useState(1), [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0), [read, setRead] = useState<{ key: string; data: TransactionData | null; error: string } | null>(null);
+  const refreshTransactions = () => setAttempt(value => value + 1);
   const id = period?.id, version = period?.version, closureId = period?.lifecycle?.closureId;
   const readKey = JSON.stringify([id, version, closureId, filter, query, bankPage, ledgerPage, attempt]);
   const result = read?.key === readKey ? read : null, current = result?.data || null;
@@ -191,16 +228,34 @@ export function TransactionWorkbench({ period, run, busy, setBusy, drafts, onRea
     <ReconciliationProof summary={current?.reconciliation} currency={period?.currency || "PHP"} readState={readStatus === "loading" || readStatus === "error" ? readStatus : undefined} />
     <div className="space-y-1">
       <h2 className="font-semibold">Match transactions</h2>
-      <p id="matching-guidance" className="text-sm text-muted-foreground">Select corresponding unmatched lines on both sides, then choose Match. Unmatched ledger lines are timing items unless a manual line is classified as a book error for Posting. Unmatched bank lines are either marked record in books, which prepares an adjustment in Posting, or marked Bank error, bank to correct.</p>
+      <p id="matching-guidance" className="text-sm text-muted-foreground">Select corresponding lines on both sides and choose Match. For lines awaiting a counterpart, save a reconciling treatment. Queue a memo or book correction when it is ready for Posting.</p>
     </div>
-    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-2">{([['ALL', 'All', current?.counts.all], ['TO_REVIEW', 'To review', current?.counts.toReview], ['MATCHED', 'Matched', current?.counts.matched]] as const).map(([value, label, count]) => <Button key={value} type="button" size="sm" variant={filter === value ? "default" : "outline"} aria-pressed={filter === value} onClick={() => { setFilter(value); setBankPage(1); setLedgerPage(1); }}>{label} ({count ?? "—"})</Button>)}</div><Input aria-label="Search transactions" placeholder="Date, reference, description, status or amount…" className="w-full sm:max-w-md" maxLength={200} value={query} onChange={e => { setQuery(e.target.value); setBankPage(1); setLedgerPage(1); }} /></div>
-    <div className="flex flex-wrap gap-2"><Button type="button" disabled={!current || period?.status === "CLOSED" || busy} onClick={() => { void perform(autoMatchTransactions); }}>Auto-match</Button><Button type="button" variant="outline" disabled={!current || period?.status === "CLOSED" || busy || !current.counts.matched} onClick={() => { void perform(undoTransactionMatches); }}>Undo unposted matches</Button></div>
+    <div className="flex flex-wrap items-center gap-3">
+      <Input aria-label="Search transactions" placeholder="Date, reference, description, status or amount…"
+        className="w-full sm:max-w-sm" maxLength={200} value={query}
+        onChange={e => { setQuery(e.target.value); setBankPage(1); setLedgerPage(1); }} />
+      <div role="group" aria-label="Transaction status" className="flex flex-wrap items-center gap-2">
+        {([
+          ["ALL", "All", current?.counts.all],
+          ["UNMATCHED", "Unmatched", current?.statusCounts?.UNMATCHED],
+          ["CLASSIFIED", "Reconciling Items", current?.statusCounts?.CLASSIFIED],
+          ["MATCHED", "Matched", current?.statusCounts?.MATCHED],
+        ] as const).map(([value, label, count]) => (
+          <Button key={value} type="button" size="sm" variant={filter === value ? "default" : "outline"}
+            aria-pressed={filter === value} onClick={() => { setFilter(value); setBankPage(1); setLedgerPage(1); }}>
+            {label} ({count ?? "—"})
+          </Button>
+        ))}
+        {filter === "ALL" && Boolean(current?.statusCounts?.RECONCILED) && <Badge variant="secondary">Reconciled ({current?.statusCounts?.RECONCILED})</Badge>}
+      </div>
+    </div>
+    <div className="flex flex-wrap gap-2"><Button type="button" disabled={!current || period?.status === "CLOSED" || busy} onClick={() => { void perform(autoMatchTransactions); }}>Auto-match</Button><Button type="button" variant="outline" disabled={!current?.canUndoMatches || period?.status === "CLOSED" || busy} onClick={() => { void perform(undoTransactionMatches); }}>Undo unposted matches</Button></div>
     {loading && <p role="status" className="text-sm text-muted-foreground">Loading transactions…</p>}
-    {readStatus === "error" && <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 p-3 text-sm text-destructive"><span>{result?.error}</span><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAttempt(value => value + 1)}>Retry transactions</Button></div>}
+    {readStatus === "error" && <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 p-3 text-sm text-destructive"><span>{result?.error}</span><Button type="button" variant="outline" size="sm" disabled={busy} onClick={refreshTransactions}>Retry transactions</Button></div>}
     {message && <p className="rounded-md border bg-muted/20 p-3 text-sm" aria-live="polite">{message}</p>}
     {period?.status === "CLOSED" && <p className="text-sm text-muted-foreground">This period is closed. Transactions are read-only.</p>}
     {error && <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{error}</p>}
-    <div className="grid gap-4 xl:grid-cols-2"><Pane key={`bank-${period?.id || 0}`} side="BANK" data={current?.bank} period={period} query={query} busy={busy} readStatus={readStatus} onPage={setBankPage} command={command} selected={selection.BANK} onToggle={line => toggle("BANK", line)} drafts={drafts} onSubmit={submit} /><Pane key={`ledger-${period?.id || 0}`} side="LEDGER" data={current?.ledger} period={period} query={query} busy={busy} readStatus={readStatus} onPage={setLedgerPage} command={command} selected={selection.LEDGER} onToggle={line => toggle("LEDGER", line)} drafts={drafts} onSubmit={submit} /></div>
+    <div className="grid gap-4 xl:grid-cols-2"><Pane key={`bank-${period?.id || 0}`} side="BANK" data={current?.bank} period={period} query={query} busy={busy} readStatus={readStatus} onPage={setBankPage} command={command} selected={selection.BANK} onToggle={line => toggle("BANK", line)} drafts={drafts} onSubmit={submit} onRefresh={refreshTransactions} /><Pane key={`ledger-${period?.id || 0}`} side="LEDGER" data={current?.ledger} period={period} query={query} busy={busy} readStatus={readStatus} onPage={setLedgerPage} command={command} selected={selection.LEDGER} onToggle={line => toggle("LEDGER", line)} drafts={drafts} onSubmit={submit} onRefresh={refreshTransactions} /></div>
     {period && selection.BANK.length + selection.LEDGER.length > 0 && <MatchSelection key={`${selection.BANK.map(line => line.id).join(",")}|${selection.LEDGER.map(line => line.id).join(",")}`} selected={selection} period={period} busy={busy || !current} hidden={!current} onClear={() => setSelection({ BANK: [], LEDGER: [] })} onMatch={(kind, account) => { void perform(p => matchTransactions(p, selection.BANK.map(line => line.id), selection.LEDGER.map(line => line.id), kind, account)); }} />}
   </section>;
 }
