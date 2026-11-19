@@ -188,7 +188,7 @@ export default function CustomersMemoCreationModule() {
                         {isBalanced && (
                             <>
                                 <div className="absolute inset-0 bg-gradient-to-r from-blue-400 via-transparent to-indigo-400 opacity-0 group-hover:opacity-20 transition-opacity duration-500" />
-                                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-white/30 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left" />
+                                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-card/30 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left" />
                             </>
                         )}
                     </Button>
@@ -223,7 +223,7 @@ export default function CustomersMemoCreationModule() {
 
                 {/* Sidebar Summary Area */}
                 <div className="xl:col-span-4 sticky top-10 space-y-6">
-                    <div className="bg-white rounded-[2rem] p-8 shadow-2xl border-t-8 border-blue-600 relative overflow-hidden group">
+                    <div className="bg-card rounded-[2rem] p-8 shadow-2xl border-t-8 border-blue-600 relative overflow-hidden group">
                         <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-110 transition-transform duration-700">
                             <CreditCard className="h-24 w-24 text-blue-600" />
                         </div>
@@ -242,7 +242,7 @@ export default function CustomersMemoCreationModule() {
                             <div className="space-y-4 pt-6 border-t border-dashed">
                                 <div className="flex justify-between items-center text-xs">
                                     <span className="font-bold text-muted-foreground uppercase tracking-widest">Document ID</span>
-                                    <span className="font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{memoNumber}</span>
+                                    <span className="font-black text-blue-600 bg-blue-500/10 px-3 py-1 rounded-full">{memoNumber}</span>
                                 </div>
 
                                 {selectedSupplier && (
@@ -257,11 +257,11 @@ export default function CustomersMemoCreationModule() {
                                 <div className="pt-4">
                                     <div className={cn(
                                         "flex items-center gap-3 p-4 rounded-2xl transition-all duration-500",
-                                        isBalanced ? "bg-green-50 border border-green-100" : "bg-muted/30 border border-muted"
+                                        isBalanced ? "bg-green-500/10 border border-green-500/20" : "bg-muted/30 border border-muted"
                                     )}>
                                         <div className={cn(
                                             "h-3 w-3 rounded-full animate-pulse",
-                                            isBalanced ? "bg-green-500 shadow-[0_0_12px_rgba(34,197,94,0.4)]" : "bg-muted-foreground/30"
+                                            isBalanced ? "bg-green-500/100 shadow-[0_0_12px_rgba(34,197,94,0.4)]" : "bg-muted-foreground/30"
                                         )} />
                                         <span className={cn(
                                             "text-[10px] font-black uppercase tracking-widest",
@@ -278,7 +278,7 @@ export default function CustomersMemoCreationModule() {
                     <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-[2rem] p-8 text-white shadow-2xl relative overflow-hidden">
                         <div className="relative z-10 space-y-2">
                             <h3 className="text-lg font-black tracking-tighter">Draft Submission</h3>
-                            <p className="text-xs text-slate-400 font-bold leading-relaxed italic opacity-80 uppercase tracking-widest">
+                            <p className="text-xs text-muted-foreground font-bold leading-relaxed italic opacity-80 uppercase tracking-widest">
                                 Transaction will be moved to the approval queue upon submission.
                             </p>
                         </div>
@@ -291,3 +291,4 @@ export default function CustomersMemoCreationModule() {
         </div>
     );
 }
+

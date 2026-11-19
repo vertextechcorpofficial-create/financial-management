@@ -180,7 +180,7 @@ export default function CustomersMemoApprovalModule() {
 
     if (loading && memos.length === 0) {
         return (
-            <div className="p-8 space-y-6 min-h-screen bg-slate-50">
+            <div className="p-8 space-y-6 min-h-screen bg-muted">
                 <Skeleton className="h-20 w-1/2 rounded-full mb-10" />
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                     <Skeleton className="h-32 rounded-3xl" />
@@ -202,14 +202,14 @@ export default function CustomersMemoApprovalModule() {
                         </div>
                         <div>
                             <div className="flex items-center gap-3">
-                                <h1 className="text-4xl lg:text-5xl font-black tracking-tighter text-slate-900">
+                                <h1 className="text-4xl lg:text-5xl font-black tracking-tighter text-foreground">
                                     Memo Approvals
                                 </h1>
-                                <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-200 border-none px-3 font-black text-[10px] uppercase tracking-widest h-6 rounded-full animate-pulse shadow-sm shadow-amber-500/10">
+                                <Badge className="bg-amber-500/15 text-amber-700 hover:bg-amber-500/100/25 border-none px-3 font-black text-[10px] uppercase tracking-widest h-6 rounded-full animate-pulse shadow-sm shadow-amber-500/10">
                                     Queue
                                 </Badge>
                             </div>
-                            <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.25em] mt-1.5 opacity-80 flex items-center gap-2">
+                            <p className="text-muted-foreground font-bold text-xs uppercase tracking-[0.25em] mt-1.5 opacity-80 flex items-center gap-2">
                                 <Clock className="h-3 w-3" />
                                 Pending Authorization Backlog
                             </p>
@@ -217,7 +217,7 @@ export default function CustomersMemoApprovalModule() {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3 bg-white p-2 rounded-[2rem] shadow-xl shadow-slate-200/40 border border-slate-100 ring-4 ring-slate-50">
+                <div className="flex items-center gap-3 bg-card p-2 rounded-[2rem] shadow-xl shadow-slate-200/40 border border-border ring-4 ring-border/30">
                     {selectedIds.size > 0 && (
                         <Button
                             onClick={() => setShowBulkConfirm(true)}
@@ -240,7 +240,7 @@ export default function CustomersMemoApprovalModule() {
                             placeholder="Memo, customer, CP#, or invoice no."
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
-                            className="pl-12 h-14 w-[350px] rounded-[1.5rem] border-none bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-amber-500/20 transition-all font-bold text-sm text-slate-700"
+                            className="pl-12 h-14 w-[350px] rounded-[1.5rem] border-none bg-muted/50 focus:bg-card focus:ring-2 focus:ring-amber-500/20 transition-all font-bold text-sm text-foreground"
                         />
                     </div>
                     <Button
@@ -256,37 +256,37 @@ export default function CustomersMemoApprovalModule() {
             </div>
 
             {/* Type Tabs */}
-            <div className="flex bg-slate-200/50 p-1.5 rounded-[1.25rem] w-fit border border-slate-200 shadow-inner">
+            <div className="flex bg-muted/50 p-1.5 rounded-[1.25rem] w-fit border border-border shadow-inner">
                 <Button
                     variant="ghost"
                     onClick={() => setActiveTab("all")}
-                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "all" ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-900 hover:bg-white/50")}
+                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "all" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-card/50")}
                 >
                     All Memos
                 </Button>
                 <Button
                     variant="ghost"
                     onClick={() => setActiveTab("credit")}
-                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "credit" ? "bg-white shadow-sm text-blue-700" : "text-slate-500 hover:text-slate-900 hover:bg-white/50")}
+                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "credit" ? "bg-card shadow-sm text-blue-700" : "text-muted-foreground hover:text-foreground hover:bg-card/50")}
                 >
                     Credit Memos
                 </Button>
                 <Button
                     variant="ghost"
                     onClick={() => setActiveTab("debit")}
-                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "debit" ? "bg-white shadow-sm text-red-700" : "text-slate-500 hover:text-slate-900 hover:bg-white/50")}
+                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "debit" ? "bg-card shadow-sm text-red-700" : "text-muted-foreground hover:text-foreground hover:bg-card/50")}
                 >
                     Debit Memos
                 </Button>
             </div>
 
             {/* Filtering Bar */}
-            <div className="bg-white p-5 rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 flex flex-wrap items-center gap-6">
-                <div className="flex items-center gap-3 pr-4 border-r border-slate-100">
+            <div className="bg-card p-5 rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-border flex flex-wrap items-center gap-6">
+                <div className="flex items-center gap-3 pr-4 border-r border-border">
                     <div className="h-9 w-9 bg-slate-950 rounded-xl flex items-center justify-center text-amber-500 shadow-lg">
                         <Filter className="h-4 w-4" />
                     </div>
-                    <span className="text-xs font-black uppercase tracking-widest text-slate-400">Filters</span>
+                    <span className="text-xs font-black uppercase tracking-widest text-muted-foreground">Filters</span>
                 </div>
 
                 <div className="flex-1 min-w-[200px]">
@@ -336,7 +336,7 @@ export default function CustomersMemoApprovalModule() {
                 <Button
                     variant="ghost"
                     onClick={resetFilters}
-                    className="h-12 rounded-xl px-4 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                    className="h-12 rounded-xl px-4 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest text-muted-foreground hover:text-red-500 hover:bg-red-500/100/25 transition-all"
                 >
                     <FilterX className="h-4 w-4" />
                     Reset
@@ -376,49 +376,49 @@ export default function CustomersMemoApprovalModule() {
             </div>
 
             {/* Main Listing Area */}
-            <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-slate-300/40 border border-slate-100 overflow-hidden flex flex-col">
-                <div className="p-6 px-10 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">
+            <div className="bg-card rounded-[2.5rem] shadow-2xl shadow-slate-300/40 border border-border overflow-hidden flex flex-col">
+                <div className="p-6 px-10 border-b border-border flex items-center justify-between bg-card sticky top-0 z-10">
                     <div className="flex items-center gap-4">
-                        <div className="h-10 w-10 bg-amber-50 rounded-2xl flex items-center justify-center border border-amber-100 shadow-sm shadow-amber-500/5">
+                        <div className="h-10 w-10 bg-amber-500/10 rounded-2xl flex items-center justify-center border border-amber-500/20 shadow-sm shadow-amber-500/5">
                             <Search className="h-5 w-5 text-amber-600" />
                         </div>
                         <div>
                             <div className="flex items-center gap-3">
-                                <h2 className="text-sm font-black uppercase tracking-widest text-slate-800">
+                                <h2 className="text-sm font-black uppercase tracking-widest text-foreground">
                                     Authorization Discovery
                                 </h2>
                                 {selectedIds.size > 0 && (
-                                    <Badge className="bg-amber-100 text-amber-700 border-none font-black text-[9px] uppercase px-2">
+                                    <Badge className="bg-amber-500/15 text-amber-700 border-none font-black text-[9px] uppercase px-2">
                                         {selectedIds.size} SELECTED
                                     </Badge>
                                 )}
                             </div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 italic">Real-time Synchronization</p>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5 italic">Real-time Synchronization</p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <div className="flex items-center gap-2 text-[10px] font-black text-muted-foreground uppercase tracking-widest">
                         Page {currentPage} of {Math.max(1, totalPages)}
                     </div>
                 </div>
 
                 <div className="flex-1 overflow-x-auto overflow-y-visible">
                     {paginatedMemos.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-40 text-center px-10 bg-slate-50/20">
-                            <div className="h-32 w-32 bg-white rounded-[2.5rem] flex items-center justify-center mb-10 border shadow-2xl shadow-slate-200 ring-8 ring-slate-50">
+                        <div className="flex flex-col items-center justify-center py-40 text-center px-10 bg-muted/20">
+                            <div className="h-32 w-32 bg-card rounded-[2.5rem] flex items-center justify-center mb-10 border shadow-2xl shadow-slate-200 ring-8 ring-border/30">
                                 <CheckCircle2 className="h-14 w-14 text-green-500 animate-bounce" />
                             </div>
-                            <h3 className="text-3xl font-black tracking-tighter text-slate-900 mb-2 uppercase italic">
+                            <h3 className="text-3xl font-black tracking-tighter text-foreground mb-2 uppercase italic">
                                 No Records Found
                             </h3>
-                            <p className="text-slate-400 text-xs font-black max-w-[350px] leading-relaxed uppercase tracking-[0.2em] opacity-60">
+                            <p className="text-muted-foreground text-xs font-black max-w-[350px] leading-relaxed uppercase tracking-[0.2em] opacity-60">
                                 Adjust your filters or synchronization settings.
                             </p>
                         </div>
                     ) : (
                         <Table>
-                            <TableHeader className="bg-slate-50/50">
-                                <TableRow className="hover:bg-transparent border-b border-slate-100">
+                            <TableHeader className="bg-muted/50">
+                                <TableRow className="hover:bg-transparent border-b border-border">
                                     <TableHead className="w-10 py-8 pl-10 min-w-[48px]">
                                         <Checkbox
                                             checked={selectedIds.size === paginatedMemos.length && paginatedMemos.length > 0}
@@ -426,16 +426,16 @@ export default function CustomersMemoApprovalModule() {
                                             className="h-5 w-5 rounded-lg"
                                         />
                                     </TableHead>
-                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] py-8 text-slate-400/80 min-w-[130px]">Memo #</TableHead>
-                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400/80 min-w-[220px]">Customer & Salesman Representative</TableHead>
-                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400/80 min-w-[200px]">COA & Remarks</TableHead>
-                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400/80 min-w-[160px]">Memo Amount</TableHead>
-                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400/80 text-right pr-12 min-w-[160px]">Decision</TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] py-8 text-muted-foreground/80 min-w-[130px]">Memo #</TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/80 min-w-[220px]">Customer & Salesman Representative</TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/80 min-w-[200px]">COA & Remarks</TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/80 min-w-[160px]">Memo Amount</TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/80 text-right pr-12 min-w-[160px]">Decision</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {paginatedMemos.map(memo => (
-                                    <TableRow key={memo.id} className={`group hover:bg-amber-50/30 transition-all duration-500 border-b border-slate-50 ${selectedIds.has(memo.id) ? 'bg-amber-50/50' : ''}`}>
+                                    <TableRow key={memo.id} className={`group hover:bg-amber-500/10 transition-all duration-500 border-b border-slate-50 ${selectedIds.has(memo.id) ? 'bg-amber-500/10' : ''}`}>
                                         <TableCell className="py-7 pl-10">
                                             <Checkbox
                                                 checked={selectedIds.has(memo.id)}
@@ -445,18 +445,18 @@ export default function CustomersMemoApprovalModule() {
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex flex-col gap-1.5">
-                                                <span className="text-lg font-black text-slate-900 tracking-tighter group-hover:text-amber-600 transition-colors">
+                                                <span className="text-lg font-black text-foreground tracking-tighter group-hover:text-amber-600 transition-colors">
                                                     {memo.memo_number}
                                                 </span>
                                                 <div className="flex items-center gap-2">
-                                                    <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest border-slate-200 text-slate-500 bg-white">
+                                                    <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest border-border text-muted-foreground bg-card">
                                                         {new Date(memo.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                                                     </Badge>
                                                     <Badge variant="secondary" className={cn(
                                                         "text-[9px] font-black uppercase tracking-widest",
-                                                        memo.type === 1 ? "bg-indigo-100 text-indigo-700" : 
-                                                        memo.type === 2 ? "bg-rose-100 text-rose-700" :
-                                                        "bg-slate-100 text-slate-700"
+                                                        memo.type === 1 ? "bg-indigo-500/15 text-indigo-700" : 
+                                                        memo.type === 2 ? "bg-rose-500/15 text-rose-700" :
+                                                        "bg-muted text-foreground"
                                                     )}>
                                                         {memo.type === 1 ? "CREDIT" : memo.type === 2 ? "DEBIT" : "UNKNOWN"}
                                                     </Badge>
@@ -466,35 +466,35 @@ export default function CustomersMemoApprovalModule() {
                                         <TableCell>
                                             <div className="flex flex-col gap-1.5">
                                                 <div className="flex items-center gap-3">
-                                                    <div className="h-6 w-6 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700 shadow-sm border border-blue-200">
+                                                    <div className="h-6 w-6 rounded-lg bg-blue-500/15 flex items-center justify-center text-blue-700 shadow-sm border border-blue-500/30">
                                                         <User className="h-3 w-3" />
                                                     </div>
-                                                    <p className="text-base font-black text-slate-800 break-words tracking-tight">
+                                                    <p className="text-base font-black text-foreground break-words tracking-tight">
                                                         {memo.customer_id.customer_name}
                                                     </p>
                                                 </div>
-                                                <p className="text-[10px] font-black text-slate-400 ml-9 uppercase tracking-widest opacity-70 italic leading-none">
+                                                <p className="text-[10px] font-black text-muted-foreground ml-9 uppercase tracking-widest opacity-70 italic leading-none">
                                                     Rep: {memo.salesman_id.salesman_code} - {memo.salesman_id.salesman_name}
                                                 </p>
                                             </div>
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex flex-col gap-1.5">
-                                                <p className="text-sm font-black text-slate-800 tracking-tight leading-none">
+                                                <p className="text-sm font-black text-foreground tracking-tight leading-none">
                                                     {memo.chart_of_account.account_title}
                                                 </p>
-                                                <p className="text-[10px] font-bold text-slate-400 break-words uppercase tracking-widest italic opacity-80">
+                                                <p className="text-[10px] font-bold text-muted-foreground break-words uppercase tracking-widest italic opacity-80">
                                                     {memo.reason || "No reason specified"}
                                                 </p>
                                             </div>
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex flex-col gap-1">
-                                                <span className="text-2xl font-black text-slate-900 tabular-nums tracking-tighter">
+                                                <span className="text-2xl font-black text-foreground tabular-nums tracking-tighter">
                                                     {formatCurrency(memo.amount)}
                                                 </span>
                                                 <div className="flex items-center gap-1.5">
-                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100 text-[9px] font-black px-2 py-0.5 rounded-lg border shadow-sm shadow-blue-500/5">
+                                                    <Badge variant="outline" className="bg-blue-500/10 text-blue-700 border-blue-500/20 text-[9px] font-black px-2 py-0.5 rounded-lg border shadow-sm shadow-blue-500/5">
                                                         APPLIED: {formatCurrency(memo.applied_amount || 0)}
                                                     </Badge>
                                                 </div>
@@ -506,7 +506,7 @@ export default function CustomersMemoApprovalModule() {
                                                     setSelectedMemoId(memo.id);
                                                     setDetailOpen(true);
                                                 }}
-                                                className="bg-white border-2 border-slate-100 hover:border-amber-500 hover:bg-amber-500 hover:text-white rounded-[1.25rem] h-14 px-8 font-black text-xs uppercase tracking-[0.2em] text-slate-600 shadow-sm transition-all duration-500 group/btn active:scale-90 flex items-center gap-3"
+                                                className="bg-card border-2 border-border hover:border-amber-500 hover:bg-amber-500/100/250 hover:text-white rounded-[1.25rem] h-14 px-8 font-black text-xs uppercase tracking-[0.2em] text-muted-foreground shadow-sm transition-all duration-500 group/btn active:scale-90 flex items-center gap-3"
                                             >
                                                 Verify & Post
                                                 <ArrowUpRight className="h-4 w-4 group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-all duration-500" />
@@ -521,15 +521,15 @@ export default function CustomersMemoApprovalModule() {
 
                 {/* Pagination Sidebar Footer */}
                 {totalPages > 1 && (
-                    <div className="py-8 border-t border-slate-100 bg-slate-50/30 flex items-center justify-center">
+                    <div className="py-8 border-t border-border bg-muted/30 flex items-center justify-center">
                         <Pagination>
                             <PaginationContent className="gap-2">
                                 <PaginationItem>
                                     <PaginationPrevious
                                         onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                                         className={cn(
-                                            "h-12 w-auto px-5 rounded-xl bg-white border shadow-sm transition-all active:scale-90 font-black text-xs uppercase tracking-widest",
-                                            currentPage === 1 ? "opacity-30 pointer-events-none" : "hover:bg-slate-50 cursor-pointer"
+                                            "h-12 w-auto px-5 rounded-xl bg-card border shadow-sm transition-all active:scale-90 font-black text-xs uppercase tracking-widest",
+                                            currentPage === 1 ? "opacity-30 pointer-events-none" : "hover:bg-muted cursor-pointer"
                                         )}
                                     />
                                 </PaginationItem>
@@ -551,7 +551,7 @@ export default function CustomersMemoApprovalModule() {
                                                         "h-12 w-12 rounded-xl transition-all font-black text-sm active:scale-90 cursor-pointer",
                                                         currentPage === page
                                                             ? "bg-slate-900 shadow-xl shadow-slate-900/10 text-white hover:bg-slate-900"
-                                                            : "bg-white border text-slate-600 hover:bg-slate-50"
+                                                            : "bg-card border text-muted-foreground hover:bg-muted"
                                                     )}
                                                 >
                                                     {page}
@@ -575,8 +575,8 @@ export default function CustomersMemoApprovalModule() {
                                     <PaginationNext
                                         onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                                         className={cn(
-                                            "h-12 w-auto px-5 rounded-xl bg-white border shadow-sm transition-all active:scale-90 font-black text-xs uppercase tracking-widest",
-                                            currentPage === totalPages ? "opacity-30 pointer-events-none" : "hover:bg-slate-50 cursor-pointer"
+                                            "h-12 w-auto px-5 rounded-xl bg-card border shadow-sm transition-all active:scale-90 font-black text-xs uppercase tracking-widest",
+                                            currentPage === totalPages ? "opacity-30 pointer-events-none" : "hover:bg-muted cursor-pointer"
                                         )}
                                     />
                                 </PaginationItem>
@@ -598,7 +598,7 @@ export default function CustomersMemoApprovalModule() {
                 <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-10 duration-500">
                     <div className="bg-slate-900 text-white rounded-3xl p-3 pl-8 shadow-2xl shadow-slate-900/40 border border-slate-800 flex items-center gap-8 ring-8 ring-slate-950/5 backdrop-blur-xl">
                         <div className="flex flex-col">
-                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Selection active</span>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Selection active</span>
                             <div className="flex items-center gap-2">
                                 <span className="text-xl font-black tabular-nums text-amber-500">{selectedIds.size}</span>
                                 <span className="text-xs font-bold text-slate-200">Memos Ready</span>
@@ -618,7 +618,7 @@ export default function CustomersMemoApprovalModule() {
                             <Button
                                 onClick={() => setShowBulkConfirm(true)}
                                 disabled={bulkApproving}
-                                className="h-12 rounded-2xl px-8 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs uppercase tracking-widest shadow-xl shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-3 border-none"
+                                className="h-12 rounded-2xl px-8 bg-amber-500/100 hover:bg-amber-600 text-foreground font-black text-xs uppercase tracking-widest shadow-xl shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-3 border-none"
                             >
                                 {bulkApproving ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -637,7 +637,7 @@ export default function CustomersMemoApprovalModule() {
                     <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-8 text-white relative">
                         <DialogHeader>
                             <div className="flex items-center gap-4 mb-2">
-                                <div className="h-12 w-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
+                                <div className="h-12 w-12 bg-card/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
                                     <FileCheck className="h-6 w-6 text-white" />
                                 </div>
                                 <div>
@@ -652,20 +652,20 @@ export default function CustomersMemoApprovalModule() {
                         </DialogHeader>
                     </div>
 
-                    <div className="p-8 max-h-[50vh] overflow-y-auto bg-slate-50 space-y-4">
-                        <p className="text-sm font-black text-slate-600 mb-2">
+                    <div className="p-8 max-h-[50vh] overflow-y-auto bg-muted space-y-4">
+                        <p className="text-sm font-black text-muted-foreground mb-2">
                             You are about to authorize {selectedIds.size} memos.
                         </p>
                         <div className="space-y-3">
                             {memos.filter(m => selectedIds.has(m.id)).map(memo => (
-                                <div key={memo.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center">
+                                <div key={memo.id} className="bg-card p-4 rounded-2xl border border-border shadow-sm flex justify-between items-center">
                                     <div>
-                                        <p className="font-black text-slate-900">{memo.memo_number}</p>
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">
+                                        <p className="font-black text-foreground">{memo.memo_number}</p>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-1">
                                             {memo.customer_id.customer_name}
                                         </p>
                                     </div>
-                                    <p className="font-black tabular-nums text-slate-700">
+                                    <p className="font-black tabular-nums text-foreground">
                                         {formatCurrency(memo.amount)}
                                     </p>
                                 </div>
@@ -673,12 +673,12 @@ export default function CustomersMemoApprovalModule() {
                         </div>
                     </div>
 
-                    <DialogFooter className="p-6 bg-white border-t border-slate-100 flex justify-end gap-3">
+                    <DialogFooter className="p-6 bg-card border-t border-border flex justify-end gap-3">
                         <Button
                             variant="ghost"
                             onClick={() => setShowBulkConfirm(false)}
                             disabled={bulkApproving}
-                            className="rounded-xl font-bold text-slate-500 hover:text-slate-900"
+                            className="rounded-xl font-bold text-muted-foreground hover:text-foreground"
                         >
                             Cancel
                         </Button>
@@ -713,16 +713,16 @@ interface StatsCardProps {
 
 function StatsCard({ label, value, icon: Icon, color, trend }: StatsCardProps) {
     const colorStyles = {
-        amber: "from-amber-400 to-orange-500 text-amber-600 bg-amber-50 shadow-amber-500/10 ring-amber-100",
-        blue: "from-blue-500 to-indigo-600 text-blue-600 bg-blue-50 shadow-blue-200/50 ring-blue-100",
-        green: "from-emerald-400 to-green-500 text-emerald-600 bg-emerald-50 shadow-emerald-500/10 ring-emerald-100"
+        amber: "from-amber-400 to-orange-500 text-amber-600 bg-amber-500/10 shadow-amber-500/10 ring-amber-500/25",
+        blue: "from-blue-500 to-indigo-600 text-blue-600 bg-blue-500/10 shadow-blue-200/50 ring-blue-500/25",
+        green: "from-emerald-400 to-green-500 text-emerald-600 bg-emerald-500/10 shadow-emerald-500/10 ring-emerald-500/25"
     };
 
     return (
-        <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl shadow-slate-200/80 border border-slate-100 relative overflow-hidden group hover:scale-[1.02] transition-all duration-700">
+        <div className="bg-card rounded-[2.5rem] p-8 shadow-2xl shadow-slate-200/80 border border-border relative overflow-hidden group hover:scale-[1.02] transition-all duration-700">
             {/* Background Icon Detail */}
             <div className="absolute -top-6 -right-6 opacity-[0.08] group-hover:opacity-[0.15] group-hover:rotate-12 group-hover:scale-125 transition-all duration-700 pointer-events-none">
-                <Icon className="h-48 w-48 text-slate-900" />
+                <Icon className="h-48 w-48 text-foreground" />
             </div>
 
             <div className="relative z-10 space-y-8">
@@ -731,17 +731,18 @@ function StatsCard({ label, value, icon: Icon, color, trend }: StatsCardProps) {
                 </div>
 
                 <div className="space-y-1.5 pt-2">
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 opacity-80">{label}</p>
-                    <h2 className="text-2xl lg:text-3xl font-black tracking-tighter text-slate-900 tabular-nums break-all leading-tight">
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-80">{label}</p>
+                    <h2 className="text-2xl lg:text-3xl font-black tracking-tighter text-foreground tabular-nums break-all leading-tight">
                         {value}
                     </h2>
                 </div>
 
                 <div className="flex items-center gap-3 pt-4 border-t border-slate-50">
-                    <div className={`h-2.5 w-2.5 rounded-full animate-pulse shadow-sm transition-colors ${color === 'amber' ? 'bg-amber-500 shadow-amber-200' : color === 'blue' ? 'bg-blue-500 shadow-blue-200' : 'bg-emerald-500 shadow-emerald-200'}`} />
-                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 italic">{trend}</span>
+                    <div className={`h-2.5 w-2.5 rounded-full animate-pulse shadow-sm transition-colors ${color === 'amber' ? 'bg-amber-500/100 shadow-amber-200' : color === 'blue' ? 'bg-blue-500/100 shadow-blue-200' : 'bg-emerald-500/100 shadow-emerald-200'}`} />
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground italic">{trend}</span>
                 </div>
             </div>
         </div>
     );
 }
+
