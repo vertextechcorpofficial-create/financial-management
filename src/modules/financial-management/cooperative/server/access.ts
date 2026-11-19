@@ -45,7 +45,7 @@ const Grant = z.object({ module_id: ID });
 
 type AccessStatus = 401 | 403 | 503;
 type AccessResult =
-  | { ok: true; actorId: number; actorRole: string | null; workspaces: CooperativeWorkspace[]; setCookies: string[] }
+  | { ok: true; actorId: number; actorRole: string | null; actorName: string; workspaces: CooperativeWorkspace[]; setCookies: string[] }
   | { ok: false; status: AccessStatus; message: string; setCookies: string[] };
 
 const messages: Record<AccessStatus, string> = {
@@ -104,12 +104,10 @@ export async function getCooperativeAccess(): Promise<AccessResult> {
 
     const isAdmin = user.role === "ADMIN" || user.isAdmin;
     // Only use the subsystem claim after VOS accepts the token. The actor comes from /auth/me.
-    if (!isAdmin) {
-      const verifiedToken = refreshedAccessToken(session) ?? token;
-      const claims = verifiedToken ? decodeJwtPayload(verifiedToken) : null;
-      if (!Array.isArray(claims?.subsystems) || !claims.subsystems.includes("fm")) {
-        return denied(403, setCookies);
-      }
+    const verifiedToken = refreshedAccessToken(session) ?? token;
+    const claims = verifiedToken ? decodeJwtPayload(verifiedToken) : null;
+    if (!isAdmin && (!Array.isArray(claims?.subsystems) || !claims.subsystems.includes("fm"))) {
+      return denied(403, setCookies);
     }
 
     const entries = [COOPERATIVE_PARENT, ...COOPERATIVE_WORKSPACES];
@@ -137,9 +135,10 @@ export async function getCooperativeAccess(): Promise<AccessResult> {
       .filter(({ id }) => allowedIds === null || allowedIds.has(id))
       .map(({ workspace: { key, title, path } }) => ({ key, title, path }));
 
-    return workspaces.length
-      ? { ok: true, actorId, actorRole: user.role ?? (isAdmin ? "ADMIN" : null), workspaces, setCookies }
-      : denied(403, setCookies);
+    if (!workspaces.length) return denied(403, setCookies);
+    const actorName = [claims?.FirstName, claims?.LastName].filter((part): part is string => typeof part === "string")
+      .map(part => part.trim()).filter(Boolean).join(" ") || `User ${actorId}`;
+    return { ok: true, actorId, actorRole: user.role ?? (isAdmin ? "ADMIN" : null), actorName, workspaces, setCookies };
   } catch {
     return denied(503, setCookies);
   }
