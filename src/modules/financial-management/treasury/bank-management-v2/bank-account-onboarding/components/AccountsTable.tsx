@@ -33,6 +33,7 @@ type AccountsTableProps = {
   page: number;
   pageSize: number;
   onEdit: (account: BankAccountV2) => void;
+  onReconciliationSettings: (account: BankAccountV2) => void;
   onPostOpeningBalance: (account: BankAccountV2) => void;
   isSaving: boolean;
   onPageChange: (page: number) => void;
@@ -59,7 +60,7 @@ function missingFields(account: BankAccountV2): string[] {
   return missing;
 }
 
-/** A row can still carry a pre-existing non-cash link; saving it again is refused until remapped. */
+/** A row can still carry a pre-existing non-cash link that needs remapping. */
 function hasNonCashLink(account: BankAccountV2): boolean {
   return Boolean(account.glTitle) && !isCashAccountTitle(account.glTitle ?? "");
 }
@@ -83,6 +84,7 @@ export function AccountsTable({
   page,
   pageSize,
   onEdit,
+  onReconciliationSettings,
   onPostOpeningBalance,
   isSaving,
   onPageChange,
@@ -230,6 +232,9 @@ export function AccountsTable({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-52">
                           <DropdownMenuItem onSelect={() => onEdit(account)}>Edit account</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => onReconciliationSettings(account)}>
+                            Reconciliation settings
+                          </DropdownMenuItem>
                           {canRetryPosting(account) ? (
                             <DropdownMenuItem
                               disabled={isSaving}
@@ -314,6 +319,9 @@ export function AccountsTable({
                 </div>
               </dl>
               <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => onReconciliationSettings(account)}>
+                  Reconciliation settings
+                </Button>
                 {canRetryPosting(account) ? (
                   <Button
                     type="button"

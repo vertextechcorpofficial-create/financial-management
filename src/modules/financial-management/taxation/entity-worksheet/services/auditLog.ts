@@ -57,19 +57,24 @@ export interface AuditEntry {
 }
 
 export async function appendAudit(entry: AuditEntry): Promise<void> {
+  const stamp = phtStamp();
   try {
     await createItem("tax_change_log", {
       company_id: entry.companyId,
       tax_year: entry.taxYear,
       actor_id: entry.actor.userId,
       actor_name: entry.actor.userName,
-      occurred_at: phtStamp(),
+      occurred_at: stamp,
       entity: entry.entity,
       entity_ref: clip(entry.entityRef),
       field: clip(entry.field),
       before_value: clip(entry.beforeValue),
       after_value: clip(entry.afterValue),
       reason: clip(entry.reason ?? null),
+      created_at: stamp,
+      created_by: entry.actor.userId,
+      updated_at: stamp,
+      updated_by: entry.actor.userId,
     });
   } catch (error) {
     // The save it describes already landed; failing the response would make the user

@@ -109,11 +109,9 @@ async function assertUniqueAccountNumber(bankName: string, normalized: string): 
   if (taken) throw duplicateError();
 }
 
-async function assertLinkedGl(glCoaId: number, bankId?: number): Promise<void> {
-  // No grandfather clause: a row already pointing at a non-cash GL (Land Bank → 4008) must be
-  // remapped before it can be saved again, which is what P53 asks for.
+async function assertLinkedGl(glCoaId: number): Promise<void> {
   const assigned = await listItems<RawRow>("bank_accounts", {
-    fields: ["bank_id"], filter: { gl_coa_id: { _eq: glCoaId }, ...(bankId ? { bank_id: { _neq: bankId } } : {}) }, limit: 1,
+    fields: ["bank_id"], filter: { gl_coa_id: { _eq: glCoaId } }, limit: 1,
   });
   if (assigned.rows.length) throw new OnboardingValidationError("This GL account is already assigned to another bank account.", {
     glCoaId: ["Use a dedicated GL account for each bank account."],
@@ -275,7 +273,6 @@ export async function updateAccount(id: number, body: UpdateAccountBody): Promis
   const existing = await readAccountById(id);
   if (!existing) throw new OnboardingNotFoundError("That account no longer exists.");
 
-  await assertLinkedGl(body.glCoaId, id);
 
   const current = await mapAccountWithLookups(existing);
   if (body.reactivate && current.status !== "INACTIVE") {
@@ -289,7 +286,6 @@ export async function updateAccount(id: number, body: UpdateAccountBody): Promis
     branch: body.branch.trim(),
     account_type: body.accountType,
     currency: body.accountType === "FCA" ? "USD" : "PHP",
-    gl_coa_id: body.glCoaId,
     effective_date: body.effectiveDate,
     ...(body.reactivate ? { account_status: "ACTIVE", is_active: true } : {}),
     ...(body.remarks !== undefined ? { bank_description: body.remarks.trim() } : {}),

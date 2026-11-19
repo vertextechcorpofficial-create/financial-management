@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { createItem, getItem, listItems, updateItem } from "./directus";
 import { appendAudit } from "./auditLog";
@@ -269,6 +269,7 @@ function validate(input: CarryoverLotInput): number {
 
 export async function recordCarryoverLot(input: CarryoverLotInput, actor: Actor): Promise<CarryoverLotDetail> {
   const years = validate(input);
+  const stamp = phtStamp();
   const created = await createItem<LotRow>(LOTS, {
     company_id: input.companyId,
     tax_year: input.taxYear,
@@ -278,8 +279,10 @@ export async function recordCarryoverLot(input: CarryoverLotInput, actor: Actor)
     amount_used: money(input.amountUsed),
     expires_after_year: years,
     // The column carries no database default, so a row without it is refused.
-    created_at: phtStamp(),
+    created_at: stamp,
     created_by: actor.userId,
+    updated_at: stamp,
+    updated_by: actor.userId,
   });
 
   await appendAudit({
@@ -324,7 +327,11 @@ export async function updateCarryoverUsed(
 
   const before = money(number(row.amount_used));
   const after = money(amountUsed);
-  const updated = await updateItem<LotRow>(LOTS, id, { amount_used: after });
+  const updated = await updateItem<LotRow>(LOTS, id, {
+    amount_used: after,
+    updated_at: phtStamp(),
+    updated_by: actor.userId,
+  });
   if (before !== after) {
     await appendAudit({
       companyId: number(row.company_id),
@@ -390,7 +397,12 @@ export async function updateOpeningCarryovers(
     if (!lot) continue;
     // The opening is the prior closing; what this year already used stays, clamped to the opening.
     const amountUsed = Math.min(lot.used, stale.closing);
-    await updateItem(LOTS, lot.id, { amount: stale.closing, amount_used: amountUsed });
+    await updateItem(LOTS, lot.id, {
+      amount: stale.closing,
+      amount_used: amountUsed,
+      updated_at: phtStamp(),
+      updated_by: actor.userId,
+    });
     await appendAudit({
       companyId,
       taxYear,

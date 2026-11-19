@@ -13,6 +13,7 @@ import { AccountsTable } from "./components/AccountsTable";
 import { EditAccountDialog } from "./components/EditAccountDialog";
 import { OnboardingFilters } from "./components/OnboardingFilters";
 import { PostingSetupDialog } from "./components/PostingSetupDialog";
+import { ReconciliationSettingsDialog } from "./components/ReconciliationSettingsDialog";
 import { RegisterAccountDialog } from "./components/RegisterAccountDialog";
 
 /** Register of every bank account, with the FSD 1.1 create and edit flows. */
@@ -45,6 +46,7 @@ export function OnboardingModule() {
 
   const [registerOpen, setRegisterOpen] = useState(false);
   const [editing, setEditing] = useState<BankAccountV2 | null>(null);
+  const [reconciliationBank, setReconciliationBank] = useState<BankAccountV2 | null>(null);
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
@@ -125,6 +127,7 @@ export function OnboardingModule() {
         page={page}
         pageSize={pageSize}
         onEdit={setEditing}
+        onReconciliationSettings={setReconciliationBank}
         onPostOpeningBalance={(account) => void retryOpeningBalance(account.bankId)}
         isSaving={isSaving}
         onPageChange={setPage}
@@ -145,10 +148,20 @@ export function OnboardingModule() {
           if (!open) setEditing(null);
         }}
         account={editing}
-        options={options}
         isSaving={isSaving}
         onSubmit={saveAccount}
       />
+
+      {reconciliationBank && <ReconciliationSettingsDialog
+        key={reconciliationBank.bankId}
+        account={reconciliationBank}
+        cashAccounts={options.cashAccounts}
+        onClose={() => setReconciliationBank(null)}
+        onSaved={() => {
+          setReconciliationBank(null);
+          void refetch();
+        }}
+      />}
     </div>
   );
 }

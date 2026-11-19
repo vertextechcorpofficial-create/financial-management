@@ -17,6 +17,7 @@ const payeeFieldIds: Record<string, string> = {
   vatRegistered: "payee-vat", payeeKind: "payee-kind", defaultExpenseCoaId: "payee-account",
   taxAddress: "payee-address", postalCode: "payee-postal",
 };
+const PAYEE_HEADERS = ["Payee", "TIN", "Type", "Tax status", "Default account", ""];
 
 export function OnboardingPayees({ links }: { links: MasterLinks | null }) {
   const [page, setPage] = useState(1), [editor, setEditor] = useState<Profile | "new" | null>(null), [editorTitle, setEditorTitle] = useState("Add payee"), [saving, setSaving] = useState(false);
@@ -37,8 +38,8 @@ export function OnboardingPayees({ links }: { links: MasterLinks | null }) {
       <div className="w-full sm:w-64"><NativeSelect label="Default account" id="payee-account" value={defaultExpense} onChange={value => changeFilter(setDefaultExpense, value)}><option value="ALL">All accounts</option><option value="NONE">Not selected</option>{accountOptions.data?.map(account => <option key={account.id} value={String(account.id)}>{account.code} · {account.name}</option>)}</NativeSelect></div>
       {filtersActive && <Button type="button" variant="ghost" onClick={clearFilters}>Clear filters</Button>}
     </div>
-    <ErrorBox error={error} retry={refresh} title="Could not load payees" />{loading && <TableSkeleton label="Loading payees" rows={5} columns={6} />}{refreshing && <p role="status" className="text-sm text-muted-foreground">Updating payees...</p>}
-    {data && <><div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="bg-muted/40"><tr>{["Payee", "TIN", "Type", "Tax status", "Default account", ""].map(label => <th key={label} className="p-3">{label}</th>)}</tr></thead><tbody>
+    <ErrorBox error={error} retry={refresh} title="Could not load payees" />{loading && <TableSkeleton label="Loading payees" rows={5} columns={PAYEE_HEADERS.length} />}{refreshing && <p role="status" className="text-sm text-muted-foreground">Updating payees...</p>}
+    {data && <><div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="bg-muted/40"><tr>{PAYEE_HEADERS.map(label => <th key={label} className="p-3">{label}</th>)}</tr></thead><tbody>
       {data.items.map(profile => <tr className="border-t" key={profile.id}><td className="p-3 font-medium">{profile.supplier?.name || `Supplier ${profile.supplierId}`}</td><td className="p-3">{String(profile.supplier?.details.tin || "Not supplied")}</td><td className="p-3">{profile.payeeKind === "INDIVIDUAL" ? "Individual" : "Corporation"}</td><td className="p-3">{profile.vatRegistered ? "VAT registered" : "Non-VAT"}</td><td className="p-3">{profile.defaultExpenseAccount ? `${profile.defaultExpenseAccount.code} · ${profile.defaultExpenseAccount.name}` : "Not selected"}</td><td className="p-3"><Button size="sm" variant="outline" onClick={() => { setEditorTitle("Edit payee"); setSaving(false); setEditor(profile); }}>Edit</Button></td></tr>)}
       {!data.items.length && <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">{filtersActive ? "No payees match these filters." : "No Petty Cash payees configured."}</td></tr>}
     </tbody></table></div>{data.total > data.pageSize && <Paging page={page} total={data.total} pageSize={data.pageSize} onChange={setPage} />}</>}
@@ -111,11 +112,11 @@ function ProfileForm({ profile, canRegister, onIdentityUpdated, onSaved, onBusyC
     </div>
     <div className="grid gap-3 sm:grid-cols-2">
       <Field label="Payee name" id="payee-name" list={profile ? undefined : "registered-petty-cash-payees"} value={name} disabled={Boolean(!profile && supplier)} required maxLength={255} error={fieldError("supplierName")} onChange={value => { setName(value); setUncertain(false); if (!profile) { const found = matches.data?.items.find(item => item.name === value); if (found) setTin(String(found.details.tin || "")); } }} />
-      <Field label="TIN" id="payee-tin" value={tin} onChange={setTin} maxLength={30} disabled={Boolean(!profile && supplier)} error={fieldError("tin")} />
+      <Field label="TIN" id="payee-tin" value={tin} onChange={setTin} maxLength={30} disabled={Boolean(!profile && supplier)} error={fieldError("tin")} inputMode="numeric" autoComplete="off" />
       <NativeSelect label="Tax status" id="payee-vat" value={vat ? "VAT" : "NON_VAT"} onChange={value => setVat(value === "VAT")} error={fieldError("vatRegistered")}><option value="NON_VAT">Non-VAT</option><option value="VAT">VAT-registered</option></NativeSelect>
       <NativeSelect label="Payee type (sets the ATC prefix)" id="payee-kind" value={kind} onChange={value => setKind(value as Profile["payeeKind"])} error={fieldError("payeeKind")}><option value="CORPORATION">Corporation</option><option value="INDIVIDUAL">Individual</option></NativeSelect>
       <OnboardingChoice label="Default expense account" id="payee-account" resource="accounts" role="EXPENSE" selected={account} onSelect={value => { setAccount(value); clearFeedback(); }} disabled={command.busy} error={fieldError("defaultExpenseCoaId")} />
-      <Field label="ZIP code" id="payee-postal" value={postal} onChange={setPostal} maxLength={20} error={fieldError("postalCode")} />
+      <Field label="ZIP code" id="payee-postal" value={postal} onChange={setPostal} maxLength={20} error={fieldError("postalCode")} inputMode="numeric" autoComplete="postal-code" />
     </div>
     {!profile && <datalist id="registered-petty-cash-payees">{matches.data?.items.map(item => <option key={item.id} value={item.name} />)}</datalist>}
     <Field label="Registered address (for BIR Form 2307)" id="payee-address" value={address} onChange={setAddress} maxLength={500} error={fieldError("taxAddress")} />

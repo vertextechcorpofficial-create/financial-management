@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useReferenceChoices } from "../hooks/useReferenceChoices";
-import type { BankBranchReference, BankReconciliationReferenceResource, BankReconciliationReferences } from "../reference-types";
+import type { BankBranchReference, BankReconciliationReferenceResource, BankReconciliationReferences, MemoOffsetSide } from "../reference-types";
 import { ChoiceListSkeleton } from "./BankReconciliationSkeletons";
 import { BankAccountLabel, bankAccountLabel } from "./BankAccountLabel";
 
@@ -14,12 +14,13 @@ export function referenceLabel(item: Reference) {
   return "bankName" in item ? bankAccountLabel(item) : `${item.code} · ${item.name}`;
 }
 
-export function ReferenceChoice({ label, resource, selected, onSelect, disabled, companyId, bankGroup, currentAssets, onAdd, onClear, excludeIds }: {
+export function ReferenceChoice({ label, resource, selected, onSelect, disabled, companyId, bankGroup, currentAssets, onAdd, onClear, excludeIds, normalSide, bankMemo, excludeAccountId }: {
   label: string; resource: BankReconciliationReferenceResource; selected: Reference | null;
   onSelect: (item: Reference) => void; disabled?: boolean; companyId?: number; bankGroup?: BankBranchReference;
+  normalSide?: MemoOffsetSide; bankMemo?: MemoOffsetSide; excludeAccountId?: number;
   currentAssets?: boolean; onAdd?: () => void; onClear?: () => void; excludeIds?: number[];
 }) {
-  const choices = useReferenceChoices(resource, { companyId, ...(resource === "bank-accounts" ? bankGroup : {}) });
+  const choices = useReferenceChoices(resource, { companyId, normalSide, bankMemo, excludeAccountId, ...(resource === "bank-accounts" ? bankGroup : {}) });
   const { open, search, page, items, total, loading, error } = choices;
   return <div className="min-w-0 space-y-2"><label className="text-sm font-medium">{label}</label>
     <Popover open={open} onOpenChange={choices.onOpenChange} modal>

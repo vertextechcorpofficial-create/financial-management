@@ -11,9 +11,9 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ ope
   const { operation } = await params;
   const path = operation.join("/");
   const method = request.method;
-  const allowed = method === "GET" && (path === "master-options" || path === "periods" || new RegExp(`^banks/${id}/(configuration|open-period|posting-period)$|^periods/${id}(/ledger|/transactions|/posting|/reports)?$|^periods/${id}/reports/(audit|closed-periods|export-data)$|^periods/${id}/(posting-requests|lifecycle-requests)/[0-9a-f-]{36}$|^periods/${id}/journals/${id}/gl-candidates$`).test(path))
-    || method === "PUT" && new RegExp(`^banks/${id}/configuration$|^periods/${id}$|^periods/${id}/(posting-date|matches/${id}/offset-account|lines/BANK/${id}/(treatment|offset-account))$`).test(path)
-    || method === "POST" && (path === "periods" || /^masters\/(companies|accounts|bank-accounts)$/.test(path) || new RegExp(`^periods/${id}/(close|reopen|next-period|ledger/refresh|lines/(BANK|LEDGER)|matches(/auto|/undo)?|posting/(post|reverse|retry|prepare-export|verify-import|withdraw))$`).test(path))
+  const allowed = method === "GET" && (path === "master-options" || path === "periods" || new RegExp(`^banks/${id}/(configuration|open-period|posting-period)$|^periods/${id}(/ledger|/transactions|/posting|/reports)?$|^periods/${id}/ledger/${id}/source$|^periods/${id}/reports/(audit|closed-periods|export-data)$|^periods/${id}/(posting-requests|lifecycle-requests)/[0-9a-f-]{36}$|^periods/${id}/journals/${id}/gl-candidates$`).test(path))
+    || method === "PUT" && new RegExp(`^periods/${id}$|^periods/${id}/(posting-date|matches/${id}/offset-account|lines/BANK/${id}/offset-account|lines/(BANK|LEDGER)/${id}/(treatment|adjustment-queue))$`).test(path)
+    || method === "POST" && (path === "periods" || /^masters\/(companies|accounts)$/.test(path) || new RegExp(`^periods/${id}/(close|reopen|next-period|ledger/refresh|lines/(BANK|LEDGER)|matches(/auto|/undo)?|posting/(post|reverse|retry|prepare-export|verify-import|withdraw))$`).test(path))
     || method === "DELETE" && new RegExp(`^periods/${id}/(lines/(BANK|LEDGER)/${id}|matches/${id})$`).test(path);
   if (!allowed) return NextResponse.json({ message: "Unknown Bank Reconciliation operation." }, { status: 404 });
   const query = request.nextUrl.searchParams.toString();

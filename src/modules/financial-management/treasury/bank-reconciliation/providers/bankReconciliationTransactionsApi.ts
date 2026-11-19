@@ -1,6 +1,6 @@
 import { setupRequest, SetupError } from "./bankReconciliationSetupApi";
 import type { ReconciliationPeriod } from "../setup-types";
-import type { TransactionData, TransactionFilter, TransactionResult, TransactionSide } from "../transaction-types";
+import type { LedgerTreatment, LineTreatmentCode, TransactionData, TransactionFilter, TransactionResult, TransactionSide } from "../transaction-types";
 
 const BASE = "/api/fm/treasury/bank-reconciliation";
 export function getTransactions(id: number, filter: TransactionFilter, search: string, bankPage: number, ledgerPage: number, closureId?: number, signal?: AbortSignal) {
@@ -8,14 +8,22 @@ export function getTransactions(id: number, filter: TransactionFilter, search: s
   if (closureId) query.set("closureId", String(closureId));
   return setupRequest<TransactionData>(`periods/${id}/transactions?${query}`, "GET", undefined, signal);
 }
-export const addTransaction = (period: ReconciliationPeriod, side: TransactionSide, draft: { date: string; reference: string; description: string; amount: string }) => setupRequest<TransactionResult>(`periods/${period.id}/lines/${side}`, "POST", { ...draft, version: period.version });
-export const deleteTransaction = (period: ReconciliationPeriod, side: TransactionSide, id: number) => setupRequest<TransactionResult>(`periods/${period.id}/lines/${side}/${id}`, "DELETE", { version: period.version });
+export const addTransaction = (period: ReconciliationPeriod, side: TransactionSide, draft: { date: string; reference: string; description: string; amount: string; treatment?: LedgerTreatment; offsetAccountId?: number }) => setupRequest<TransactionResult>(`periods/${period.id}/lines/${side}`, "POST", { ...draft, version: period.version });
+export async function deleteTransaction(period: ReconciliationPeriod, side: TransactionSide, id: number): Promise<TransactionResult> {
+  const result = await setupRequest<TransactionResult>(`periods/${period.id}/lines/${side}/${id}`, "DELETE", { version: period.version });
+  if (result.deletedLineId !== id || result.side !== side || result.period?.id !== period.id || !(result.period.version > period.version)) {
+    throw new SetupError(502, "The server did not confirm the deletion.");
+  }
+  return result;
+}
 export const matchTransactions = (period: ReconciliationPeriod, bankLineIds: number[], ledgerLineIds: number[], classification: string | null, offsetAccountId: number | null) => setupRequest<TransactionResult>(`periods/${period.id}/matches`, "POST", { version: period.version, bankLineIds, ledgerLineIds, classification, offsetAccountId });
 export const autoMatchTransactions = (period: ReconciliationPeriod) => setupRequest<TransactionResult>(`periods/${period.id}/matches/auto`, "POST", { version: period.version });
 export const undoTransactionMatches = (period: ReconciliationPeriod) => setupRequest<TransactionResult>(`periods/${period.id}/matches/undo`, "POST", { version: period.version });
 export const unmatchTransactions = (period: ReconciliationPeriod, id: number) => setupRequest<TransactionResult>(`periods/${period.id}/matches/${id}`, "DELETE", { version: period.version });
-export const setBankTreatment = (period: ReconciliationPeriod, id: number, treatment: string) => setupRequest<TransactionResult>(`periods/${period.id}/lines/BANK/${id}/treatment`, "PUT", { version: period.version, treatment });
-export const setBankOffset = (period: ReconciliationPeriod, id: number, offsetAccountId: number | null) => setupRequest<TransactionResult>(`periods/${period.id}/lines/BANK/${id}/offset-account`, "PUT", { version: period.version, offsetAccountId });
+export const setLineTreatment = (period: ReconciliationPeriod, side: TransactionSide, id: number, treatment: LineTreatmentCode | null, offsetAccountId: number | null) =>
+  setupRequest<TransactionResult>(`periods/${period.id}/lines/${side}/${id}/treatment`, "PUT", { version: period.version, treatment, offsetAccountId });
+export const setAdjustmentQueue = (period: ReconciliationPeriod, side: TransactionSide, id: number, queued: boolean) =>
+  setupRequest<TransactionResult>(`periods/${period.id}/lines/${side}/${id}/adjustment-queue`, "PUT", { version: period.version, queued });
 export const setMatchOffset = (period: ReconciliationPeriod, id: number, offsetAccountId: number | null) => setupRequest<TransactionResult>(`periods/${period.id}/matches/${id}/offset-account`, "PUT", { version: period.version, offsetAccountId });
 export async function importTransactions(period: ReconciliationPeriod, side: TransactionSide, file: File, requestId: string): Promise<TransactionResult> {
   const body = new FormData(); body.set("file", file); body.set("version", String(period.version)); body.set("requestId", requestId);

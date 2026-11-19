@@ -349,14 +349,17 @@ function writePayload(input: CertificateInput): Record<string, unknown> {
 
 export async function createCertificate(input: CertificateInput, actor: Actor): Promise<{ id: number }> {
   await assertPeriodUnlocked(input.companyId, input.taxYear, input.periodKey);
+  const stamp = phtStamp();
   const created = await createItem<Record<string, unknown>>(COLLECTION, {
     company_id: input.companyId,
     tax_year: input.taxYear,
     ...writePayload(input),
     source: "MANUAL",
     source_ref: null,
-    created_at: phtStamp(),
+    created_at: stamp,
     created_by: actor.userId,
+    updated_at: stamp,
+    updated_by: actor.userId,
   });
 
   const id = asNumber(created.id);
@@ -395,7 +398,11 @@ export async function updateCertificate(
   await assertPeriodUnlocked(before.companyId, before.taxYear, before.periodKey);
   if (input.periodKey !== before.periodKey) await assertPeriodUnlocked(input.companyId, input.taxYear, input.periodKey);
 
-  await updateItem<Record<string, unknown>>(COLLECTION, id, writePayload(input));
+  await updateItem<Record<string, unknown>>(COLLECTION, id, {
+    ...writePayload(input),
+    updated_at: phtStamp(),
+    updated_by: actor.userId,
+  });
 
   const beforeValues: Record<string, unknown> = {
     period_key: before.periodKey,
@@ -679,6 +686,7 @@ export async function prefillCertificates(
     try {
       // A prefilled certificate is a write like any other: a locked quarter must refuse it.
       await assertPeriodUnlocked(company.companyId, taxYear, draft.periodKey);
+      const stamp = phtStamp();
       const saved = await createItem<Record<string, unknown>>(COLLECTION, {
         company_id: company.companyId,
         tax_year: taxYear,
@@ -695,8 +703,10 @@ export async function prefillCertificates(
         source,
         source_ref: `${taxYear} ${draft.periodKey}`,
         remarks: "Prefilled from the ledger; confirm the income type and the certificate date.",
-        created_at: phtStamp(),
+        created_at: stamp,
         created_by: actor.userId,
+        updated_at: stamp,
+        updated_by: actor.userId,
       });
       created += 1;
       taken.add(key);

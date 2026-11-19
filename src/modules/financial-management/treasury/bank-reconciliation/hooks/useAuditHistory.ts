@@ -13,29 +13,33 @@ function dateError(filters: AuditFilters, bad: BadDates) {
 }
 
 /** Mounted per period; closure revisions keep the same full-period activity and boundary. */
-export function useAuditHistory(periodId: number) {
+export function useAuditHistory(periodId: number, enabled: boolean) {
   const [filters, setFilters] = useState<AuditFilters>(empty), [badDates, setBadDates] = useState<BadDates>({ fromDate: false, toDate: false });
   const [data, setData] = useState<AuditHistoryPage | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState("");
   const [options, setOptions] = useState<AuditFilterOptions>({ actions: [], actors: [] });
   const request = useRef<AbortController | null>(null), generation = useRef(0), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const boundary = useRef<number | undefined>(undefined), target = useRef({ filters: empty, page: 1 });
+  const boundary = useRef<number | undefined>(undefined), target = useRef({ filters: empty, page: 1, valid: true }), settled = useRef(false);
   const cancel = useCallback(() => { ++generation.current; request.current?.abort(); clearTimeout(timer.current); }, []);
   const load = useCallback(async (query: AuditFilters, page: number) => {
     cancel(); const token = generation.current, controller = new AbortController(); request.current = controller;
-    target.current = { filters: query, page }; setData(null); setLoading(true); setError("");
+    target.current = { filters: query, page, valid: true }; settled.current = false; setData(null); setLoading(true); setError("");
     try {
       const result = await getAuditHistory(periodId, page, boundary.current, controller.signal, query);
       if (token !== generation.current) return;
       boundary.current = result.throughEventId; setData(result);
       setOptions(result.filterOptions || { actions: [], actors: [] });
     } catch (e) { if (!controller.signal.aborted && token === generation.current) setError(e instanceof Error ? e.message : "Unable to load audit trail."); }
-    finally { if (token === generation.current) setLoading(false); }
+    finally { if (token === generation.current) { settled.current = true; setLoading(false); } }
   }, [periodId, cancel]);
-  useEffect(() => { void load(empty, 1); return cancel; }, [load, cancel]);
   const validation = dateError(filters, badDates);
+  useEffect(() => {
+    if (!enabled) return;
+    if (!settled.current && target.current.valid) void load(target.current.filters, target.current.page);
+    return cancel;
+  }, [enabled, load, cancel]);
   function change(next: AuditFilters, bad = badDates, delay = false) {
-    cancel(); setFilters(next); setBadDates(bad); setData(null); setError(""); target.current = { filters: next, page: 1 };
     const invalid = dateError(next, bad); setLoading(!invalid);
+    cancel(); setFilters(next); setBadDates(bad); setData(null); setError(""); target.current = { filters: next, page: 1, valid: !invalid }; settled.current = false;
     if (!invalid) { if (delay) timer.current = setTimeout(() => void load(next, 1), 300); else void load(next, 1); }
   }
   return {

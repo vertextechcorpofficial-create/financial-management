@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { searchBankReconciliationReferences } from "../providers/bankReconciliationReferencesApi";
 import type { BankReconciliationReferenceQuery, BankReconciliationReferenceResource, BankReconciliationReferences } from "../reference-types";
 
-export function useReferenceChoices<K extends BankReconciliationReferenceResource>(resource: K, { companyId, bankName, branch }: Pick<BankReconciliationReferenceQuery, "companyId" | "bankName" | "branch"> = {}) {
+export function useReferenceChoices<K extends BankReconciliationReferenceResource>(resource: K, { companyId, bankName, branch, normalSide, bankMemo, excludeAccountId }: Pick<BankReconciliationReferenceQuery, "companyId" | "bankName" | "branch" | "normalSide" | "bankMemo" | "excludeAccountId"> = {}) {
   const [open, setOpen] = useState(false), [search, setSearch] = useState("");
-  const scope = JSON.stringify([resource, companyId, bankName, branch]);
+  const scope = JSON.stringify([resource, companyId, bankName, branch, normalSide, bankMemo, excludeAccountId]);
   const [position, setPosition] = useState({ scope, page: 1 });
   const page = position.scope === scope ? position.page : 1;
   const key = JSON.stringify([scope, search, page]);
@@ -17,12 +17,12 @@ export function useReferenceChoices<K extends BankReconciliationReferenceResourc
     if (!open) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      searchBankReconciliationReferences(resource, { search, page, pageSize: 25, companyId, bankName, branch }, controller.signal)
+      searchBankReconciliationReferences(resource, { search, page, pageSize: 25, companyId, bankName, branch, normalSide, bankMemo, excludeAccountId }, controller.signal)
         .then(data => { if (!controller.signal.aborted) setResult({ key, items: data.items, total: data.total, error: "" }); })
         .catch(e => { if (!controller.signal.aborted) setResult({ key, items: [], total: 0, error: e.message }); });
     }, 200);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [open, resource, search, page, companyId, bankName, branch, key]);
+  }, [open, resource, search, page, companyId, bankName, branch, normalSide, bankMemo, excludeAccountId, key]);
   function onOpenChange(value: boolean) {
     setOpen(value);
     if (value) { setSearch(""); setPosition({ scope, page: 1 }); setResult(null); }
