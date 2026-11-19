@@ -1,5 +1,7 @@
-import { CooperativeWorkspacePage } from "@/modules/financial-management/cooperative/components/CooperativeWorkspacePage";
+import PoliciesModule from "@/modules/financial-management/cooperative/policies/PoliciesModule";
+import { requireCooperativePage } from "@/modules/financial-management/cooperative/server/page-access";
 
-export default function PoliciesPage() {
-  return <CooperativeWorkspacePage workspace="policies" />;
+export default async function PoliciesPage() {
+  await requireCooperativePage("policies");
+  return <PoliciesModule />;
 }
