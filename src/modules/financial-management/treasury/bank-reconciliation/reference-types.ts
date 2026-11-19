@@ -32,4 +32,4 @@ export type BankReconciliationReferences = {
 export type BankReconciliationReferenceResource = keyof BankReconciliationReferences;
 export type BankReconciliationReferencePage<T> = { items: T[]; total: number; page: number; pageSize: number };
 export type MemoOffsetSide = "DEBIT" | "CREDIT";
-export type BankReconciliationReferenceQuery = { search?: string; page?: number; pageSize?: number; companyId?: number; bankName?: string; branch?: string; normalSide?: MemoOffsetSide; excludeAccountId?: number };
+export type BankReconciliationReferenceQuery = { search?: string; page?: number; pageSize?: number; companyId?: number; bankName?: string; branch?: string; normalSide?: MemoOffsetSide; bankMemo?: MemoOffsetSide; excludeAccountId?: number };
