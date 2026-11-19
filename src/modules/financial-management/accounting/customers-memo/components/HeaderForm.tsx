@@ -111,7 +111,7 @@ export const HeaderForm = React.memo(function HeaderForm({
                                 onBalanceTypeChange(1);
                                 onCOAChange("");
                             }}
-                            className={cn("flex-1 h-12 font-black rounded-xl transition-all", balanceType === 1 ? "bg-white shadow-md text-blue-700" : "text-muted-foreground hover:text-foreground hover:bg-white/50")}
+                            className={cn("flex-1 h-12 font-black rounded-xl transition-all", balanceType === 1 ? "bg-card shadow-md text-blue-700" : "text-muted-foreground hover:text-foreground hover:bg-card/50")}
                         >
                             Credit Memo
                         </Button>
@@ -122,13 +122,13 @@ export const HeaderForm = React.memo(function HeaderForm({
                                 onBalanceTypeChange(2);
                                 onCOAChange("");
                             }}
-                            className={cn("flex-1 h-12 font-black rounded-xl transition-all", balanceType === 2 ? "bg-white shadow-md text-red-700" : "text-muted-foreground hover:text-foreground hover:bg-white/50")}
+                            className={cn("flex-1 h-12 font-black rounded-xl transition-all", balanceType === 2 ? "bg-card shadow-md text-red-700" : "text-muted-foreground hover:text-foreground hover:bg-card/50")}
                         >
                             Debit Memo
                         </Button>
                     </div>
                     ) : (
-                        <div className="flex h-12 w-full max-w-sm items-center rounded-xl border border-blue-100 bg-blue-50 px-4 font-black text-blue-700">
+                        <div className="flex h-12 w-full max-w-sm items-center rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 font-black text-blue-700">
                             Credit Memo
                         </div>
                     )}
@@ -216,3 +216,4 @@ export const HeaderForm = React.memo(function HeaderForm({
         </Card>
     );
 });
+

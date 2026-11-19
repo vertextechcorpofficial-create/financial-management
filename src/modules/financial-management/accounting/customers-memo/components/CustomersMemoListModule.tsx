@@ -179,7 +179,7 @@ export default function CustomersMemoListModule() {
 
     if (loading && memos.length === 0) {
         return (
-            <div className="p-8 space-y-6 min-h-screen bg-slate-50">
+            <div className="p-8 space-y-6 min-h-screen bg-muted">
                 <Skeleton className="h-20 w-1/2 rounded-full mb-10" />
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                     <Skeleton className="h-32 rounded-3xl" />
@@ -201,14 +201,14 @@ export default function CustomersMemoListModule() {
                         </div>
                         <div>
                             <div className="flex items-center gap-3">
-                                <h1 className="text-4xl lg:text-5xl font-black tracking-tighter text-slate-900">
+                                <h1 className="text-4xl lg:text-5xl font-black tracking-tighter text-foreground">
                                     Customer Memos
                                 </h1>
-                                <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-200 border-none px-3 font-black text-[10px] uppercase tracking-widest h-6 rounded-full shadow-sm shadow-blue-500/10">
+                                <Badge className="bg-blue-500/15 text-blue-700 hover:bg-blue-500/100/25 border-none px-3 font-black text-[10px] uppercase tracking-widest h-6 rounded-full shadow-sm shadow-blue-500/10">
                                     Master List
                                 </Badge>
                             </div>
-                            <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.25em] mt-1.5 opacity-80 flex items-center gap-2">
+                            <p className="text-muted-foreground font-bold text-xs uppercase tracking-[0.25em] mt-1.5 opacity-80 flex items-center gap-2">
                                 <Layers className="h-3 w-3" />
                                 Comprehensive Memo Directory
                             </p>
@@ -216,7 +216,7 @@ export default function CustomersMemoListModule() {
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-[2rem] shadow-xl shadow-slate-200/40 border border-slate-100 ring-4 ring-slate-50">
+                <div className="flex flex-wrap items-center gap-3 bg-card p-2 rounded-[2rem] shadow-xl shadow-slate-200/40 border border-border ring-4 ring-border/30">
                     <Button variant="outline" onClick={handleSummaryExport} disabled={loading || !filteredMemos.length || exporting !== null} className="h-14 rounded-[1.5rem]">
                         {exporting === "summary" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4" />}
                         {exporting === "summary" ? "Exporting summary..." : "Export Excel Summary"}
@@ -228,7 +228,7 @@ export default function CustomersMemoListModule() {
                             placeholder="Memo, customer, CP#, or invoice no."
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
-                            className="pl-12 h-14 w-[350px] rounded-[1.5rem] border-none bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 transition-all font-bold text-sm text-slate-700"
+                            className="pl-12 h-14 w-[350px] rounded-[1.5rem] border-none bg-muted/50 focus:bg-card focus:ring-2 focus:ring-blue-500/20 transition-all font-bold text-sm text-foreground"
                         />
                     </div>
                     <Button
@@ -244,37 +244,37 @@ export default function CustomersMemoListModule() {
             </div>
 
             {/* Type Tabs */}
-            <div className="flex bg-slate-200/50 p-1.5 rounded-[1.25rem] w-fit border border-slate-200 shadow-inner">
+            <div className="flex bg-muted/50 p-1.5 rounded-[1.25rem] w-fit border border-border shadow-inner">
                 <Button
                     variant="ghost"
                     onClick={() => setActiveTab("all")}
-                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "all" ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-900 hover:bg-white/50")}
+                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "all" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-card/50")}
                 >
                     All Memos
                 </Button>
                 <Button
                     variant="ghost"
                     onClick={() => setActiveTab("credit")}
-                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "credit" ? "bg-white shadow-sm text-blue-700" : "text-slate-500 hover:text-slate-900 hover:bg-white/50")}
+                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "credit" ? "bg-card shadow-sm text-blue-700" : "text-muted-foreground hover:text-foreground hover:bg-card/50")}
                 >
                     Credit Memos
                 </Button>
                 <Button
                     variant="ghost"
                     onClick={() => setActiveTab("debit")}
-                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "debit" ? "bg-white shadow-sm text-red-700" : "text-slate-500 hover:text-slate-900 hover:bg-white/50")}
+                    className={cn("h-10 px-8 rounded-xl font-black text-xs transition-all", activeTab === "debit" ? "bg-card shadow-sm text-red-700" : "text-muted-foreground hover:text-foreground hover:bg-card/50")}
                 >
                     Debit Memos
                 </Button>
             </div>
 
             {/* Filtering Bar */}
-            <div className="bg-white p-5 rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 flex flex-wrap items-center gap-6">
-                <div className="flex items-center gap-3 pr-4 border-r border-slate-100">
+            <div className="bg-card p-5 rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-border flex flex-wrap items-center gap-6">
+                <div className="flex items-center gap-3 pr-4 border-r border-border">
                     <div className="h-9 w-9 bg-slate-950 rounded-xl flex items-center justify-center text-blue-500 shadow-lg">
                         <Filter className="h-4 w-4" />
                     </div>
-                    <span className="text-xs font-black uppercase tracking-widest text-slate-400">Filters</span>
+                    <span className="text-xs font-black uppercase tracking-widest text-muted-foreground">Filters</span>
                 </div>
 
                 <div className="flex-1 min-w-[180px]">
@@ -339,21 +339,21 @@ export default function CustomersMemoListModule() {
                     />
                 </div>
 
-                <div className="flex items-center gap-3 bg-slate-50/50 p-1 rounded-2xl border border-slate-100">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 pl-3">Date Range</span>
+                <div className="flex items-center gap-3 bg-muted/50 p-1 rounded-2xl border border-border">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground pl-3">Date Range</span>
                     <div className="flex items-center gap-1">
                         <Input
                             type="date"
                             value={filterDateFrom}
                             onChange={e => setFilterDateFrom(e.target.value)}
-                            className="h-10 text-xs text-slate-500 font-bold w-[130px] rounded-xl border-none shadow-none bg-transparent hover:bg-white focus:bg-white transition-all"
+                            className="h-10 text-xs text-muted-foreground font-bold w-[130px] rounded-xl border-none shadow-none bg-transparent hover:bg-card focus:bg-card transition-all"
                         />
                         <span className="text-slate-300 font-bold">-</span>
                         <Input
                             type="date"
                             value={filterDateTo}
                             onChange={e => setFilterDateTo(e.target.value)}
-                            className="h-10 text-xs text-slate-500 font-bold w-[130px] rounded-xl border-none shadow-none bg-transparent hover:bg-white focus:bg-white transition-all"
+                            className="h-10 text-xs text-muted-foreground font-bold w-[130px] rounded-xl border-none shadow-none bg-transparent hover:bg-card focus:bg-card transition-all"
                         />
                     </div>
                 </div>
@@ -361,7 +361,7 @@ export default function CustomersMemoListModule() {
                 <Button
                     variant="ghost"
                     onClick={resetFilters}
-                    className="h-12 rounded-xl px-4 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                    className="h-12 rounded-xl px-4 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest text-muted-foreground hover:text-red-500 hover:bg-red-500/100/25 transition-all"
                 >
                     <FilterX className="h-4 w-4" />
                     Reset
@@ -401,78 +401,78 @@ export default function CustomersMemoListModule() {
             </div>
 
             {/* Main Listing Area */}
-            <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-slate-300/40 border border-slate-100 overflow-hidden flex flex-col">
-                <div className="p-6 px-10 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">
+            <div className="bg-card rounded-[2.5rem] shadow-2xl shadow-slate-300/40 border border-border overflow-hidden flex flex-col">
+                <div className="p-6 px-10 border-b border-border flex items-center justify-between bg-card sticky top-0 z-10">
                     <div className="flex items-center gap-4">
-                        <div className="h-10 w-10 bg-blue-50 rounded-2xl flex items-center justify-center border border-blue-100 shadow-sm shadow-blue-500/5">
+                        <div className="h-10 w-10 bg-blue-500/10 rounded-2xl flex items-center justify-center border border-blue-500/20 shadow-sm shadow-blue-500/5">
                             <Search className="h-5 w-5 text-blue-600" />
                         </div>
                         <div>
                             <div className="flex items-center gap-3">
-                                <h2 className="text-sm font-black uppercase tracking-widest text-slate-800">
+                                <h2 className="text-sm font-black uppercase tracking-widest text-foreground">
                                     Memo Directory
                                 </h2>
                             </div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 italic">Real-time Synchronization</p>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5 italic">Real-time Synchronization</p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <div className="flex items-center gap-2 text-[10px] font-black text-muted-foreground uppercase tracking-widest">
                         Page {currentPage} of {Math.max(1, totalPages)}
                     </div>
                 </div>
 
                 <div className="flex-1 overflow-x-auto overflow-y-visible">
                     {paginatedMemos.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-40 text-center px-10 bg-slate-50/20">
-                            <div className="h-32 w-32 bg-white rounded-[2.5rem] flex items-center justify-center mb-10 border shadow-2xl shadow-slate-200 ring-8 ring-slate-50">
+                        <div className="flex flex-col items-center justify-center py-40 text-center px-10 bg-muted/20">
+                            <div className="h-32 w-32 bg-card rounded-[2.5rem] flex items-center justify-center mb-10 border shadow-2xl shadow-slate-200 ring-8 ring-border/30">
                                 <CheckCircle2 className="h-14 w-14 text-green-500 animate-bounce" />
                             </div>
-                            <h3 className="text-3xl font-black tracking-tighter text-slate-900 mb-2 uppercase italic">
+                            <h3 className="text-3xl font-black tracking-tighter text-foreground mb-2 uppercase italic">
                                 No Records Found
                             </h3>
-                            <p className="text-slate-400 text-xs font-black max-w-[350px] leading-relaxed uppercase tracking-[0.2em] opacity-60">
+                            <p className="text-muted-foreground text-xs font-black max-w-[350px] leading-relaxed uppercase tracking-[0.2em] opacity-60">
                                 Adjust your filters or synchronization settings.
                             </p>
                         </div>
                     ) : (
                         <Table>
-                            <TableHeader className="bg-slate-50/50">
-                                <TableRow className="hover:bg-transparent border-b border-slate-100">
-                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] py-8 pl-10 text-slate-400/80 min-w-[150px]">Memo # & Status</TableHead>
-                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400/80 min-w-[220px]">Customer & Salesman Representative</TableHead>
-                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400/80 min-w-[200px]">COA & Remarks</TableHead>
-                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400/80 min-w-[160px]">Memo Amount</TableHead>
-                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400/80 text-right pr-12 min-w-[230px]">Action</TableHead>
+                            <TableHeader className="bg-muted/50">
+                                <TableRow className="hover:bg-transparent border-b border-border">
+                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] py-8 pl-10 text-muted-foreground/80 min-w-[150px]">Memo # & Status</TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/80 min-w-[220px]">Customer & Salesman Representative</TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/80 min-w-[200px]">COA & Remarks</TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/80 min-w-[160px]">Memo Amount</TableHead>
+                                    <TableHead className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/80 text-right pr-12 min-w-[230px]">Action</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {paginatedMemos.map(memo => (
-                                    <TableRow key={memo.id} className="group hover:bg-blue-50/30 transition-all duration-500 border-b border-slate-50">
+                                    <TableRow key={memo.id} className="group hover:bg-blue-500/10 transition-all duration-500 border-b border-slate-50">
                                         <TableCell className="py-7 pl-10">
                                             <div className="flex flex-col gap-2 items-start">
-                                                <span className="text-lg font-black text-slate-900 tracking-tighter group-hover:text-blue-600 transition-colors">
+                                                <span className="text-lg font-black text-foreground tracking-tighter group-hover:text-blue-600 transition-colors">
                                                     {memo.memo_number}
                                                 </span>
                                                 <div className="flex items-center gap-2">
                                                     <Badge className={cn(
                                                         "text-[9px] font-black uppercase tracking-widest border-none px-2 shadow-sm",
-                                                        memo.status === "APPROVED" ? "bg-green-100 text-green-700 hover:bg-green-200" :
-                                                        memo.status === "FOR APPROVAL" ? "bg-amber-100 text-amber-700 hover:bg-amber-200" :
-                                                        memo.status === "APPLIED" ? "bg-blue-100 text-blue-700 hover:bg-blue-200" :
-                                                        memo.status === "REJECTED" ? "bg-rose-100 text-rose-700 hover:bg-rose-200" :
-                                                        "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                                        memo.status === "APPROVED" ? "bg-green-500/15 text-green-700 hover:bg-green-500/100/25" :
+                                                        memo.status === "FOR APPROVAL" ? "bg-amber-500/15 text-amber-700 hover:bg-amber-500/100/25" :
+                                                        memo.status === "APPLIED" ? "bg-blue-500/15 text-blue-700 hover:bg-blue-500/100/25" :
+                                                        memo.status === "REJECTED" ? "bg-rose-500/15 text-rose-700 hover:bg-rose-500/100/25" :
+                                                        "bg-muted text-foreground hover:bg-accent"
                                                     )}>
                                                         {memo.status}
                                                     </Badge>
-                                                    <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest border-slate-200 text-slate-500 bg-white shadow-sm">
+                                                    <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest border-border text-muted-foreground bg-card shadow-sm">
                                                         {new Date(memo.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                                                     </Badge>
                                                     <Badge variant="secondary" className={cn(
                                                         "text-[9px] font-black uppercase tracking-widest",
-                                                        memo.type === 1 ? "bg-indigo-100 text-indigo-700" : 
-                                                        memo.type === 2 ? "bg-rose-100 text-rose-700" :
-                                                        "bg-slate-100 text-slate-700"
+                                                        memo.type === 1 ? "bg-indigo-500/15 text-indigo-700" : 
+                                                        memo.type === 2 ? "bg-rose-500/15 text-rose-700" :
+                                                        "bg-muted text-foreground"
                                                     )}>
                                                         {memo.type === 1 ? "CREDIT" : memo.type === 2 ? "DEBIT" : "UNKNOWN"}
                                                     </Badge>
@@ -482,10 +482,10 @@ export default function CustomersMemoListModule() {
                                         <TableCell>
                                             <div className="flex flex-col gap-1.5">
                                                 <div className="flex items-center gap-3">
-                                                    <div className="h-6 w-6 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-700 shadow-sm border border-indigo-200">
+                                                    <div className="h-6 w-6 rounded-lg bg-indigo-500/15 flex items-center justify-center text-indigo-700 shadow-sm border border-indigo-500/30">
                                                         <User className="h-3 w-3" />
                                                     </div>
-                                                    <p className="text-base font-black text-slate-800 break-words tracking-tight">
+                                                    <p className="text-base font-black text-foreground break-words tracking-tight">
                                                         {memo.customer_id.customer_name}
                                                     </p>
                                                 </div>
@@ -494,28 +494,28 @@ export default function CustomersMemoListModule() {
                                                         {memo.customer_id.store_name}
                                                     </p>
                                                 )}
-                                                <p className="text-[10px] font-black text-slate-400 ml-9 uppercase tracking-widest opacity-70 italic leading-none">
+                                                <p className="text-[10px] font-black text-muted-foreground ml-9 uppercase tracking-widest opacity-70 italic leading-none">
                                                     Rep: {memo.salesman_id.salesman_code} - {memo.salesman_id.salesman_name}
                                                 </p>
                                             </div>
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex flex-col gap-1.5">
-                                                <p className="text-sm font-black text-slate-800 tracking-tight leading-none">
+                                                <p className="text-sm font-black text-foreground tracking-tight leading-none">
                                                     {memo.chart_of_account.account_title}
                                                 </p>
-                                                <p className="text-[10px] font-bold text-slate-400 break-words uppercase tracking-widest italic opacity-80">
+                                                <p className="text-[10px] font-bold text-muted-foreground break-words uppercase tracking-widest italic opacity-80">
                                                     {memo.reason || "No reason specified"}
                                                 </p>
                                             </div>
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex flex-col gap-1">
-                                                <span className="text-2xl font-black text-slate-900 tabular-nums tracking-tighter">
+                                                <span className="text-2xl font-black text-foreground tabular-nums tracking-tighter">
                                                     {formatCurrency(memo.amount)}
                                                 </span>
                                                 <div className="flex items-center gap-1.5">
-                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100 text-[9px] font-black px-2 py-0.5 rounded-lg border shadow-sm shadow-blue-500/5">
+                                                    <Badge variant="outline" className="bg-blue-500/10 text-blue-700 border-blue-500/20 text-[9px] font-black px-2 py-0.5 rounded-lg border shadow-sm shadow-blue-500/5">
                                                         APPLIED: {formatCurrency(memo.applied_amount || 0)}
                                                     </Badge>
                                                 </div>
@@ -527,7 +527,7 @@ export default function CustomersMemoListModule() {
                                                     <Button
                                                         variant="outline"
                                                         onClick={() => setEditingMemo(memo)}
-                                                        className="h-12 rounded-[1.25rem] border-2 border-amber-100 px-4 text-xs font-black uppercase tracking-[0.15em] text-amber-700 shadow-sm transition-all hover:border-amber-400 hover:bg-amber-50"
+                                                        className="h-12 rounded-[1.25rem] border-2 border-amber-500/20 px-4 text-xs font-black uppercase tracking-[0.15em] text-amber-700 shadow-sm transition-all hover:border-amber-400 hover:bg-amber-500/100/25"
                                                     >
                                                         <Pencil className="mr-2 h-4 w-4" />
                                                         Edit
@@ -538,7 +538,7 @@ export default function CustomersMemoListModule() {
                                                         setSelectedMemoId(memo.id);
                                                         setDetailOpen(true);
                                                     }}
-                                                    className="bg-white border-2 border-slate-100 hover:border-blue-500 hover:bg-blue-50 hover:text-blue-700 rounded-[1.25rem] h-12 px-6 font-black text-xs uppercase tracking-[0.2em] text-slate-600 shadow-sm transition-all duration-500 active:scale-90 flex items-center gap-2"
+                                                    className="bg-card border-2 border-border hover:border-blue-500 hover:bg-blue-500/100/25 hover:text-blue-700 rounded-[1.25rem] h-12 px-6 font-black text-xs uppercase tracking-[0.2em] text-muted-foreground shadow-sm transition-all duration-500 active:scale-90 flex items-center gap-2"
                                                 >
                                                     Details
                                                 </Button>
@@ -553,15 +553,15 @@ export default function CustomersMemoListModule() {
 
                 {/* Pagination Sidebar Footer */}
                 {totalPages > 1 && (
-                    <div className="py-8 border-t border-slate-100 bg-slate-50/30 flex items-center justify-center">
+                    <div className="py-8 border-t border-border bg-muted/30 flex items-center justify-center">
                         <Pagination>
                             <PaginationContent className="gap-2">
                                 <PaginationItem>
                                     <PaginationPrevious
                                         onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                                         className={cn(
-                                            "h-12 w-auto px-5 rounded-xl bg-white border shadow-sm transition-all active:scale-90 font-black text-xs uppercase tracking-widest",
-                                            currentPage === 1 ? "opacity-30 pointer-events-none" : "hover:bg-slate-50 cursor-pointer"
+                                            "h-12 w-auto px-5 rounded-xl bg-card border shadow-sm transition-all active:scale-90 font-black text-xs uppercase tracking-widest",
+                                            currentPage === 1 ? "opacity-30 pointer-events-none" : "hover:bg-muted cursor-pointer"
                                         )}
                                     />
                                 </PaginationItem>
@@ -583,7 +583,7 @@ export default function CustomersMemoListModule() {
                                                         "h-12 w-12 rounded-xl transition-all font-black text-sm active:scale-90 cursor-pointer",
                                                         currentPage === page
                                                             ? "bg-slate-900 shadow-xl shadow-slate-900/10 text-white hover:bg-slate-900"
-                                                            : "bg-white border text-slate-600 hover:bg-slate-50"
+                                                            : "bg-card border text-muted-foreground hover:bg-muted"
                                                     )}
                                                 >
                                                     {page}
@@ -607,8 +607,8 @@ export default function CustomersMemoListModule() {
                                     <PaginationNext
                                         onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                                         className={cn(
-                                            "h-12 w-auto px-5 rounded-xl bg-white border shadow-sm transition-all active:scale-90 font-black text-xs uppercase tracking-widest",
-                                            currentPage === totalPages ? "opacity-30 pointer-events-none" : "hover:bg-slate-50 cursor-pointer"
+                                            "h-12 w-auto px-5 rounded-xl bg-card border shadow-sm transition-all active:scale-90 font-black text-xs uppercase tracking-widest",
+                                            currentPage === totalPages ? "opacity-30 pointer-events-none" : "hover:bg-muted cursor-pointer"
                                         )}
                                     />
                                 </PaginationItem>
@@ -656,16 +656,16 @@ interface StatsCardProps {
 
 function StatsCard({ label, value, icon: Icon, color, trend }: StatsCardProps) {
     const colorStyles = {
-        amber: "from-amber-400 to-orange-500 text-amber-600 bg-amber-50 shadow-amber-500/10 ring-amber-100",
-        blue: "from-blue-500 to-indigo-600 text-blue-600 bg-blue-50 shadow-blue-200/50 ring-blue-100",
-        green: "from-emerald-400 to-green-500 text-emerald-600 bg-emerald-50 shadow-emerald-500/10 ring-emerald-100"
+        amber: "from-amber-400 to-orange-500 text-amber-600 bg-amber-500/10 shadow-amber-500/10 ring-amber-500/25",
+        blue: "from-blue-500 to-indigo-600 text-blue-600 bg-blue-500/10 shadow-blue-200/50 ring-blue-500/25",
+        green: "from-emerald-400 to-green-500 text-emerald-600 bg-emerald-500/10 shadow-emerald-500/10 ring-emerald-500/25"
     };
 
     return (
-        <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl shadow-slate-200/80 border border-slate-100 relative overflow-hidden group hover:scale-[1.02] transition-all duration-700">
+        <div className="bg-card rounded-[2.5rem] p-8 shadow-2xl shadow-slate-200/80 border border-border relative overflow-hidden group hover:scale-[1.02] transition-all duration-700">
             {/* Background Icon Detail */}
             <div className="absolute -top-6 -right-6 opacity-[0.08] group-hover:opacity-[0.15] group-hover:rotate-12 group-hover:scale-125 transition-all duration-700 pointer-events-none">
-                <Icon className="h-48 w-48 text-slate-900" />
+                <Icon className="h-48 w-48 text-foreground" />
             </div>
 
             <div className="relative z-10 space-y-8">
@@ -674,17 +674,18 @@ function StatsCard({ label, value, icon: Icon, color, trend }: StatsCardProps) {
                 </div>
 
                 <div className="space-y-1.5 pt-2">
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 opacity-80">{label}</p>
-                    <h2 className="text-2xl lg:text-3xl font-black tracking-tighter text-slate-900 tabular-nums break-all leading-tight">
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-80">{label}</p>
+                    <h2 className="text-2xl lg:text-3xl font-black tracking-tighter text-foreground tabular-nums break-all leading-tight">
                         {value}
                     </h2>
                 </div>
 
                 <div className="flex items-center gap-3 pt-4 border-t border-slate-50">
-                    <div className={`h-2.5 w-2.5 rounded-full animate-pulse shadow-sm transition-colors ${color === 'amber' ? 'bg-amber-500 shadow-amber-200' : color === 'blue' ? 'bg-blue-500 shadow-blue-200' : 'bg-emerald-500 shadow-emerald-200'}`} />
-                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 italic">{trend}</span>
+                    <div className={`h-2.5 w-2.5 rounded-full animate-pulse shadow-sm transition-colors ${color === 'amber' ? 'bg-amber-500/100 shadow-amber-200' : color === 'blue' ? 'bg-blue-500/100 shadow-blue-200' : 'bg-emerald-500/100 shadow-emerald-200'}`} />
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground italic">{trend}</span>
                 </div>
             </div>
         </div>
     );
 }
+
