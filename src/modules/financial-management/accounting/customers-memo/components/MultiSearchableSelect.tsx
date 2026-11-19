@@ -68,7 +68,7 @@ export function MultiSearchableSelect({
                                     <Badge
                                         key={v}
                                         variant="secondary"
-                                        className="bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200 px-1.5 py-0 rounded text-[10px]"
+                                        className="bg-muted text-foreground hover:bg-accent border border-border px-1.5 py-0 rounded text-[10px]"
                                     >
                                         {opt?.label || v}
                                     </Badge>
@@ -76,7 +76,7 @@ export function MultiSearchableSelect({
                             })
                         ) : (
                             <div className="flex items-center gap-2">
-                                <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-none px-1.5 py-0 rounded text-[10px] uppercase font-black">ALL</Badge>
+                                <Badge variant="secondary" className="bg-amber-500/15 text-amber-800 border-none px-1.5 py-0 rounded text-[10px] uppercase font-black">ALL</Badge>
                                 <span className="truncate text-xs text-muted-foreground">{placeholder}</span>
                             </div>
                         )}
@@ -139,3 +139,4 @@ export function MultiSearchableSelect({
         </Popover>
     );
 }
+

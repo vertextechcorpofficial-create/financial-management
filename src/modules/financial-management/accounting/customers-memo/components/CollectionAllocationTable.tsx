@@ -37,7 +37,7 @@ const CollectionRow = React.memo(function CollectionRow({
 
     return (
         <React.Fragment>
-            <TableRow className={`${isAllocated ? "bg-blue-50/50" : "hover:bg-muted/30"} transition-colors cursor-pointer group`} onClick={() => onToggleExpand(col.collectionId)}>
+            <TableRow className={`${isAllocated ? "bg-blue-500/10" : "hover:bg-muted/30"} transition-colors cursor-pointer group`} onClick={() => onToggleExpand(col.collectionId)}>
                 <TableCell className="w-[50px]">
                     <Button 
                         variant="ghost" 
@@ -71,7 +71,7 @@ const CollectionRow = React.memo(function CollectionRow({
                                     Invoice Availability for <span className="text-blue-600">#{col.collectionNo}</span>
                                 </h4>
                                 {isAllocated && (
-                                    <Badge variant="outline" className="text-[10px] font-bold border-blue-200 text-blue-700 bg-blue-50/50">
+                                    <Badge variant="outline" className="text-[10px] font-bold border-blue-500/30 text-blue-700 bg-blue-500/10">
                                         Total Linked: ₱{allocation.allocatedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                     </Badge>
                                 )}
@@ -86,8 +86,8 @@ const CollectionRow = React.memo(function CollectionRow({
                                             key={inv.collectionDetailId}
                                             className={`group relative p-4 rounded-2xl border-2 transition-all shadow-sm ${
                                                 isActive 
-                                                    ? "bg-white border-blue-600 ring-4 ring-blue-600/5 translate-y-[-2px]" 
-                                                    : "bg-white/50 border-muted hover:border-blue-300 hover:bg-white cursor-pointer"
+                                                    ? "bg-card border-blue-600 ring-4 ring-blue-600/5 translate-y-[-2px]" 
+                                                    : "bg-card/50 border-muted hover:border-blue-500/40 hover:bg-card cursor-pointer"
                                             }`}
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -118,7 +118,7 @@ const CollectionRow = React.memo(function CollectionRow({
                                                         <span className="absolute left-2.5 top-2 text-xs font-black text-blue-600 opacity-50">₱</span>
                                                         <Input 
                                                             type="number" 
-                                                            className="h-9 pl-6 text-sm font-black bg-blue-50/50 border-blue-100 focus:bg-white focus:ring-blue-600 transition-all rounded-lg"
+                                                            className="h-9 pl-6 text-sm font-black bg-blue-500/10 border-blue-500/20 focus:bg-background focus:ring-blue-600 transition-all rounded-lg"
                                                             value={invAlloc.appliedAmount}
                                                             onChange={e => onUpdateAmount(col.collectionId, inv.collectionDetailId, Number(e.target.value))}
                                                             autoFocus
@@ -164,7 +164,7 @@ export const CollectionAllocationTable = React.memo(function CollectionAllocatio
 
     return (
         <div className="flex flex-col gap-6">
-            <div className="bg-white rounded-3xl shadow-xl border border-muted/30 overflow-hidden">
+            <div className="bg-card rounded-3xl shadow-xl border border-muted/30 overflow-hidden">
                 <div className="p-4 px-6 bg-muted/20 border-b flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="h-8 w-8 rounded-xl bg-blue-600 flex items-center justify-center">
@@ -239,3 +239,4 @@ export const CollectionAllocationTable = React.memo(function CollectionAllocatio
         </div>
     );
 });
+
