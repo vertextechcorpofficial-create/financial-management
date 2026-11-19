@@ -145,7 +145,10 @@ function Pane({ side, data, period, query, busy, readStatus, onPage, command, se
       <tr className="align-top"><td className="p-2"><input type="checkbox" aria-label={`Select ${prefix.toLowerCase()} line ${line.reference || line.id}`} checked={selected.some(item => item.id === line.id)} disabled={locked || !line.canMatch} onChange={() => onToggle(line)} /></td><td className="min-w-28 whitespace-nowrap p-2"><Highlight value={line.date} query={query} /></td><td className="max-w-40 break-words p-2"><Highlight value={line.reference} query={query} /></td><td className="min-w-36 max-w-72 break-words p-2"><Highlight value={line.description} query={query} /></td><td className={`whitespace-nowrap p-2 text-right tabular-nums ${line.amount.startsWith("-") ? "" : "text-emerald-700 dark:text-emerald-400"}`}><Highlight value={transactionMoney(line.amount, period?.currency || "PHP")} query={query} /></td><td className="p-2">{canDelete(line) && <Button type="button" size="sm" variant="ghost" aria-label={`Delete ${prefix.toLowerCase()} line ${line.reference || line.id}`} disabled={locked} onClick={() => setDeleteLine(line)}>Delete</Button>}</td></tr>
       <tr className="border-b"><td colSpan={6} className="px-2 pb-3 pt-1 text-xs">
         <LineStatus line={line} query={query} />
-        {line.offsetAccount && <p className="mt-1 text-muted-foreground"><Highlight value={line.offsetAccount} query={query} /></p>}
+        {line.offsetAccount && <p className="mt-1 text-muted-foreground">
+          {bank && line.matchId == null && line.treatment === "RECORD_IN_BOOKS" && line.needsAccount && "Saved offset (needs replacement) · "}
+          <Highlight value={line.offsetAccount} query={query} />
+        </p>}
         {!bank && <div className="mt-1 flex flex-wrap items-center gap-2 text-muted-foreground">
           <span>{line.carriedFromPeriodId ? "Carried forward" : line.sourceKey ? "This period's GL" : line.treatment === "BOOK_ERROR" ? "Book correction" : line.origin === "IMPORT" ? "Excel import" : "Manual entry"}</span>
           {line.sourceJournal?.journalNumber && <span>{line.sourceJournal.journalNumber}</span>}

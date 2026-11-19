@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { proxySpring } from "@/app/api/fm/financial-statements/adjusting-journal-entries/_spring";
 import { BANK_RECONCILIATION_ROOT, BANK_RECONCILIATION_WORKSPACES } from "@/modules/financial-management/treasury/bank-reconciliation/workspaces";
-import type { BankReconciliationContext, BankReconciliationReferenceResource, BankReconciliationReferences } from "@/modules/financial-management/treasury/bank-reconciliation/reference-types";
+import type { BankReconciliationContext, BankReconciliationReferenceResource, BankReconciliationReferences, MemoOffsetSide } from "@/modules/financial-management/treasury/bank-reconciliation/reference-types";
 
 type Row = Record<string, unknown>;
 type Collection = { data: Row[]; meta?: { filter_count?: number | string } };
@@ -103,6 +103,45 @@ function positiveInteger(value: string, label: string) {
   return number;
 }
 
+function offsetSide(value: string | null): MemoOffsetSide | null {
+  if (value === null || value === "DEBIT" || value === "CREDIT") return value;
+  throw new ReferenceError(400, "Invalid offset account filter.");
+}
+
+function balanceTypeIds(types: Row[], side: MemoOffsetSide) {
+  return types.filter(row => text(row.balance_name).toUpperCase() === side)
+    .map(row => Number(row.id)).filter(id => Number.isSafeInteger(id) && id > 0);
+}
+
+// Keep memo eligibility in sync with ERP_SERVER's BankReconciliationState.
+function bankMemoAccountRules(side: MemoOffsetSide, types: Row[]): Row[] {
+  const credit = side === "CREDIT";
+  const incomeStatementTypes = credit
+    ? ["SALES", "REVENUE/SALES", "OTHER INCOME"]
+    : ["COST OF SALES", "COST OF SERVICE", "GENERAL AND ADMINISTRATIVE EXPENSES", "FINANCE COST"];
+  const normalIds = balanceTypeIds(types, side);
+  const receivableIds = credit ? balanceTypeIds(types, "DEBIT") : normalIds;
+  const receivable = credit ? "Notes Receivable" : "Accounts Receivable";
+  const rules: Row[] = [];
+
+  if (normalIds.length) rules.push({
+    bsis_code: { bsis_code: { _eq: "IS" } },
+    account_type: { account_name: { _in: incomeStatementTypes } },
+    balance_type: { _in: normalIds },
+  });
+  if (receivableIds.length) rules.push({
+    bsis_code: { bsis_code: { _eq: "BS" } },
+    account_type: { account_name: { _in: credit ? ["CURRENT ASSETS", "NON-CURRENT ASSETS"] : ["CURRENT ASSETS"] } },
+    balance_type: { _in: receivableIds },
+    _or: [
+      { account_title: { _eq: receivable } },
+      { account_title: { _istarts_with: receivable + " " } },
+      { account_title: { _istarts_with: receivable + "-" } },
+    ],
+  });
+  return rules;
+}
+
 function project(kind: BankReconciliationReferenceResource, row: Row): BankReconciliationReferences[BankReconciliationReferenceResource] {
   if (kind === "companies") return { id: Number(row.company_id), code: text(row.company_code), name: text(row.company_name) };
   if (kind === "bank-accounts") {
@@ -149,19 +188,25 @@ export async function listReferences(kind: string, params: URLSearchParams) {
   const conditions: Row[] = [];
   if (name === "bank-accounts") Object.assign(filter, { is_active: { _eq: 1 }, account_status: { _eq: "ACTIVE" } });
   if (name === "accounts") filter.status = { _in: ["pending", "approved"] };
-  const normalSide = params.get("normalSide"), excluded = params.get("excludeAccountId");
-  if (normalSide !== null || excluded !== null) {
-    if (name !== "accounts" || (normalSide !== null && normalSide !== "DEBIT" && normalSide !== "CREDIT"))
+  const normalSide = offsetSide(params.get("normalSide")), bankMemo = offsetSide(params.get("bankMemo"));
+  const excluded = params.get("excludeAccountId");
+  if (normalSide !== null || bankMemo !== null || excluded !== null) {
+    if (name !== "accounts" || (normalSide !== null && bankMemo !== null))
       throw new ReferenceError(400, "Invalid offset account filter.");
-    if (normalSide !== null) {
+    if (excluded !== null) filter.coa_id = { _neq: positiveInteger(excluded, "excluded account ID") };
+    if (normalSide || bankMemo) {
       // Directus exposes balance_type on the COA as a scalar foreign key.
       const types = await readCollection("balance_type", query("id,balance_name", {}));
-      const ids = types.data.filter(row => text(row.balance_name).toUpperCase() === normalSide)
-        .map(row => Number(row.id)).filter(id => Number.isSafeInteger(id) && id > 0);
-      if (!ids.length) return { items: [], total: 0, page, pageSize };
-      filter.balance_type = { _in: ids };
+      if (bankMemo) {
+        const rules = bankMemoAccountRules(bankMemo, types.data);
+        if (!rules.length) return { items: [], total: 0, page, pageSize };
+        conditions.push({ _or: rules });
+      } else if (normalSide) {
+        const ids = balanceTypeIds(types.data, normalSide);
+        if (!ids.length) return { items: [], total: 0, page, pageSize };
+        filter.balance_type = { _in: ids };
+      }
     }
-    if (excluded !== null) filter.coa_id = { _neq: positiveInteger(excluded, "excluded account ID") };
   }
   if (name === "bank-accounts" && params.has("companyId")) {
     const companyId = positiveInteger(params.get("companyId")!, "company ID");
