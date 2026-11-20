@@ -204,7 +204,7 @@ export default function CustomersMemoListModule() {
                                 <h1 className="text-4xl lg:text-5xl font-black tracking-tighter text-foreground">
                                     Customer Memos
                                 </h1>
-                                <Badge className="bg-blue-500/15 text-blue-700 hover:bg-blue-500/100/25 border-none px-3 font-black text-[10px] uppercase tracking-widest h-6 rounded-full shadow-sm shadow-blue-500/10">
+                                <Badge className="bg-blue-500/15 text-blue-700 hover:bg-blue-500/25 border-none px-3 font-black text-[10px] uppercase tracking-widest h-6 rounded-full shadow-sm shadow-blue-500/10">
                                     Master List
                                 </Badge>
                             </div>
@@ -216,7 +216,7 @@ export default function CustomersMemoListModule() {
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 bg-card p-2 rounded-[2rem] shadow-xl shadow-slate-200/40 border border-border ring-4 ring-border/30">
+                <div className="flex flex-wrap items-center gap-3 bg-card p-2 rounded-[2rem] shadow-xl shadow-black/10 dark:shadow-black/40 border border-border ring-4 ring-border/30">
                     <Button variant="outline" onClick={handleSummaryExport} disabled={loading || !filteredMemos.length || exporting !== null} className="h-14 rounded-[1.5rem]">
                         {exporting === "summary" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4" />}
                         {exporting === "summary" ? "Exporting summary..." : "Export Excel Summary"}
@@ -269,7 +269,7 @@ export default function CustomersMemoListModule() {
             </div>
 
             {/* Filtering Bar */}
-            <div className="bg-card p-5 rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-border flex flex-wrap items-center gap-6">
+            <div className="bg-card p-5 rounded-[2.5rem] shadow-2xl shadow-black/10 dark:shadow-black/40 border border-border flex flex-wrap items-center gap-6">
                 <div className="flex items-center gap-3 pr-4 border-r border-border">
                     <div className="h-9 w-9 bg-slate-950 rounded-xl flex items-center justify-center text-blue-500 shadow-lg">
                         <Filter className="h-4 w-4" />
@@ -346,14 +346,14 @@ export default function CustomersMemoListModule() {
                             type="date"
                             value={filterDateFrom}
                             onChange={e => setFilterDateFrom(e.target.value)}
-                            className="h-10 text-xs text-muted-foreground font-bold w-[130px] rounded-xl border-none shadow-none bg-transparent hover:bg-card focus:bg-card transition-all"
+                            className="h-10 text-xs text-muted-foreground font-bold w-[130px] rounded-xl border-none shadow-none bg-transparent hover:bg-card focus:bg-card transition-all dark:[color-scheme:dark]"
                         />
                         <span className="text-slate-300 font-bold">-</span>
                         <Input
                             type="date"
                             value={filterDateTo}
                             onChange={e => setFilterDateTo(e.target.value)}
-                            className="h-10 text-xs text-muted-foreground font-bold w-[130px] rounded-xl border-none shadow-none bg-transparent hover:bg-card focus:bg-card transition-all"
+                            className="h-10 text-xs text-muted-foreground font-bold w-[130px] rounded-xl border-none shadow-none bg-transparent hover:bg-card focus:bg-card transition-all dark:[color-scheme:dark]"
                         />
                     </div>
                 </div>
@@ -361,7 +361,7 @@ export default function CustomersMemoListModule() {
                 <Button
                     variant="ghost"
                     onClick={resetFilters}
-                    className="h-12 rounded-xl px-4 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest text-muted-foreground hover:text-red-500 hover:bg-red-500/100/25 transition-all"
+                    className="h-12 rounded-xl px-4 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest text-muted-foreground hover:text-red-500 hover:bg-red-500/25 transition-all"
                 >
                     <FilterX className="h-4 w-4" />
                     Reset
@@ -401,7 +401,7 @@ export default function CustomersMemoListModule() {
             </div>
 
             {/* Main Listing Area */}
-            <div className="bg-card rounded-[2.5rem] shadow-2xl shadow-slate-300/40 border border-border overflow-hidden flex flex-col">
+            <div className="bg-card rounded-[2.5rem] shadow-2xl shadow-black/10 dark:shadow-black/40 border border-border overflow-hidden flex flex-col">
                 <div className="p-6 px-10 border-b border-border flex items-center justify-between bg-card sticky top-0 z-10">
                     <div className="flex items-center gap-4">
                         <div className="h-10 w-10 bg-blue-500/10 rounded-2xl flex items-center justify-center border border-blue-500/20 shadow-sm shadow-blue-500/5">
@@ -425,7 +425,7 @@ export default function CustomersMemoListModule() {
                 <div className="flex-1 overflow-x-auto overflow-y-visible">
                     {paginatedMemos.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-40 text-center px-10 bg-muted/20">
-                            <div className="h-32 w-32 bg-card rounded-[2.5rem] flex items-center justify-center mb-10 border shadow-2xl shadow-slate-200 ring-8 ring-border/30">
+                            <div className="h-32 w-32 bg-card rounded-[2.5rem] flex items-center justify-center mb-10 border shadow-2xl shadow-black/10 dark:shadow-black/40 ring-8 ring-border/30">
                                 <CheckCircle2 className="h-14 w-14 text-green-500 animate-bounce" />
                             </div>
                             <h3 className="text-3xl font-black tracking-tighter text-foreground mb-2 uppercase italic">
@@ -457,10 +457,10 @@ export default function CustomersMemoListModule() {
                                                 <div className="flex items-center gap-2">
                                                     <Badge className={cn(
                                                         "text-[9px] font-black uppercase tracking-widest border-none px-2 shadow-sm",
-                                                        memo.status === "APPROVED" ? "bg-green-500/15 text-green-700 hover:bg-green-500/100/25" :
-                                                        memo.status === "FOR APPROVAL" ? "bg-amber-500/15 text-amber-700 hover:bg-amber-500/100/25" :
-                                                        memo.status === "APPLIED" ? "bg-blue-500/15 text-blue-700 hover:bg-blue-500/100/25" :
-                                                        memo.status === "REJECTED" ? "bg-rose-500/15 text-rose-700 hover:bg-rose-500/100/25" :
+                                                        memo.status === "APPROVED" ? "bg-green-500/15 text-green-700 hover:bg-green-500/25" :
+                                                        memo.status === "FOR APPROVAL" ? "bg-amber-500/15 text-amber-700 hover:bg-amber-500/25" :
+                                                        memo.status === "APPLIED" ? "bg-blue-500/15 text-blue-700 hover:bg-blue-500/25" :
+                                                        memo.status === "REJECTED" ? "bg-rose-500/15 text-rose-700 hover:bg-rose-500/25" :
                                                         "bg-muted text-foreground hover:bg-accent"
                                                     )}>
                                                         {memo.status}
@@ -527,7 +527,7 @@ export default function CustomersMemoListModule() {
                                                     <Button
                                                         variant="outline"
                                                         onClick={() => setEditingMemo(memo)}
-                                                        className="h-12 rounded-[1.25rem] border-2 border-amber-500/20 px-4 text-xs font-black uppercase tracking-[0.15em] text-amber-700 shadow-sm transition-all hover:border-amber-400 hover:bg-amber-500/100/25"
+                                                        className="h-12 rounded-[1.25rem] border-2 border-amber-500/20 px-4 text-xs font-black uppercase tracking-[0.15em] text-amber-700 shadow-sm transition-all hover:border-amber-400 hover:bg-amber-500/25"
                                                     >
                                                         <Pencil className="mr-2 h-4 w-4" />
                                                         Edit
@@ -538,7 +538,7 @@ export default function CustomersMemoListModule() {
                                                         setSelectedMemoId(memo.id);
                                                         setDetailOpen(true);
                                                     }}
-                                                    className="bg-card border-2 border-border hover:border-blue-500 hover:bg-blue-500/100/25 hover:text-blue-700 rounded-[1.25rem] h-12 px-6 font-black text-xs uppercase tracking-[0.2em] text-muted-foreground shadow-sm transition-all duration-500 active:scale-90 flex items-center gap-2"
+                                                    className="bg-card border-2 border-border hover:border-blue-500 hover:bg-blue-500/25 hover:text-blue-700 rounded-[1.25rem] h-12 px-6 font-black text-xs uppercase tracking-[0.2em] text-muted-foreground shadow-sm transition-all duration-500 active:scale-90 flex items-center gap-2"
                                                 >
                                                     Details
                                                 </Button>
@@ -662,7 +662,7 @@ function StatsCard({ label, value, icon: Icon, color, trend }: StatsCardProps) {
     };
 
     return (
-        <div className="bg-card rounded-[2.5rem] p-8 shadow-2xl shadow-slate-200/80 border border-border relative overflow-hidden group hover:scale-[1.02] transition-all duration-700">
+        <div className="bg-card rounded-[2.5rem] p-8 shadow-2xl shadow-black/10 dark:shadow-black/40 border border-border relative overflow-hidden group hover:scale-[1.02] transition-all duration-700">
             {/* Background Icon Detail */}
             <div className="absolute -top-6 -right-6 opacity-[0.08] group-hover:opacity-[0.15] group-hover:rotate-12 group-hover:scale-125 transition-all duration-700 pointer-events-none">
                 <Icon className="h-48 w-48 text-foreground" />
@@ -681,7 +681,7 @@ function StatsCard({ label, value, icon: Icon, color, trend }: StatsCardProps) {
                 </div>
 
                 <div className="flex items-center gap-3 pt-4 border-t border-slate-50">
-                    <div className={`h-2.5 w-2.5 rounded-full animate-pulse shadow-sm transition-colors ${color === 'amber' ? 'bg-amber-500/100 shadow-amber-200' : color === 'blue' ? 'bg-blue-500/100 shadow-blue-200' : 'bg-emerald-500/100 shadow-emerald-200'}`} />
+                    <div className={`h-2.5 w-2.5 rounded-full animate-pulse shadow-sm transition-colors ${color === 'amber' ? 'bg-amber-500 shadow-amber-200' : color === 'blue' ? 'bg-blue-500 shadow-blue-200' : 'bg-emerald-500 shadow-emerald-200'}`} />
                     <span className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground italic">{trend}</span>
                 </div>
             </div>
