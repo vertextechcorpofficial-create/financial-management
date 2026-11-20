@@ -16,7 +16,7 @@ import {
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 
 export function CFSAccountMappingTab() {
-  const { data, setSimulateUnmapped } = useCashFlowStudio();
+  const { data } = useCashFlowStudio();
   const unmapped = data.unmappedAccounts;
 
   return (
@@ -82,7 +82,7 @@ export function CFSAccountMappingTab() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => setSimulateUnmapped(false)}
+                        onClick={() => alert(`Map account ${acc.accountNumber} to ${acc.suggestedLineLabel}`)}
                         className="h-7 text-xs font-medium text-primary hover:bg-primary/10"
                       >
                         Use suggestion
