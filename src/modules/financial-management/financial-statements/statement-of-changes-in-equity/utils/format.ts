@@ -1,7 +1,7 @@
 /**
  * Format amounts according to Philippine PFRS statement specifications:
  * Positive: ₱15,075,000.00
- * Negative: -₱780,000.00
+ * Negative: -₱780,000.00 or (₱780,000.00)
  * Nil: — (em-dash)
  */
 export function formatCurrency(
@@ -10,6 +10,7 @@ export function formatCurrency(
     showCurrencySymbol?: boolean;
     omitDashForZero?: boolean;
     decimals?: number;
+    useParenthesesForNegative?: boolean;
   }
 ): string {
   if (val === null || val === undefined || isNaN(val)) {
@@ -34,6 +35,10 @@ export function formatCurrency(
   });
 
   if (isNegative) {
+    if (options?.useParenthesesForNegative) {
+      return `(${symbol}${formattedNum})`;
+    }
+    // Using standard hyphen directly attached without any breaking space
     return `-${symbol}${formattedNum}`;
   }
 
@@ -42,6 +47,6 @@ export function formatCurrency(
 
 export function formatPercent(val: number | null | undefined): string {
   if (val === null || val === undefined || isNaN(val)) return "0.0%";
-  const sign = val > 0 ? "+" : "";
-  return `${sign}${val.toFixed(1)}%`;
+  const sign = val > 0 ? "+" : val < 0 ? "-" : "";
+  return `${sign}${Math.abs(val).toFixed(1)}%`;
 }

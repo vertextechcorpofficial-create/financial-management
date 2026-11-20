@@ -47,12 +47,8 @@ export function classifyJournalLine(input: ClassifierInput): SCEMovementTag {
     return "dividends_stock";
   }
 
-  // 6. Share Capital Issuance (GL 3010, 3020, 3110, 3120)
-  if (
-    (glCode === "3010" || glCode === "3020" || glCode === "3110" || glCode === "3120") &&
-    credit > 0 &&
-    (text.includes("issuance") || text.includes("issued") || text.includes("capital"))
-  ) {
+  // 6. Share Capital Activity (GL 3010, 3020, 3110, 3120)
+  if (glCode === "3010" || glCode === "3020" || glCode === "3110" || glCode === "3120") {
     return "share_issuance";
   }
 

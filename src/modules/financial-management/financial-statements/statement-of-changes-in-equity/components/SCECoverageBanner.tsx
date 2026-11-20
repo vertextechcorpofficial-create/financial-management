@@ -4,9 +4,10 @@ import React from "react";
 import { useStatementOfChangesInEquity } from "../hooks/useStatementOfChangesInEquity";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 
 export function SCECoverageBanner() {
-  const { filters, setDivision, setDepartment, setBasis, data } = useStatementOfChangesInEquity();
+  const { filters, setDivision, setDepartment, setBasis, data, isLoading } = useStatementOfChangesInEquity();
 
   const divisionOptions = [
     { value: "all", label: "All Divisions" },
@@ -35,9 +36,16 @@ export function SCECoverageBanner() {
           <div className="hidden sm:inline text-muted-foreground/40">|</div>
           <div>
             <span className="font-semibold text-foreground">Status:</span>{" "}
-            <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300">
-              Posted ledger activity
-            </span>
+            {isLoading ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Updating ledger activity...
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300">
+                Posted ledger activity
+              </span>
+            )}
           </div>
         </div>
 
@@ -47,6 +55,7 @@ export function SCECoverageBanner() {
             <SearchableSelect
               options={divisionOptions}
               value={filters.divisionId}
+              disabled={isLoading}
               onValueChange={setDivision}
               placeholder="Select Division"
               className="h-8 text-xs"
@@ -56,6 +65,7 @@ export function SCECoverageBanner() {
             <SearchableSelect
               options={departmentOptions}
               value={filters.departmentId}
+              disabled={isLoading}
               onValueChange={setDepartment}
               placeholder="Select Department"
               className="h-8 text-xs"
@@ -80,6 +90,7 @@ export function SCECoverageBanner() {
               variant={filters.basis === "restated" ? "default" : "ghost"}
               size="sm"
               className="h-6 px-2 text-[11px] font-medium"
+              disabled={isLoading}
               onClick={() => setBasis("restated")}
             >
               Restated (PAS 8)
@@ -89,6 +100,7 @@ export function SCECoverageBanner() {
               variant={filters.basis === "reported" ? "default" : "ghost"}
               size="sm"
               className="h-6 px-2 text-[11px] font-medium"
+              disabled={isLoading}
               onClick={() => setBasis("reported")}
             >
               As previously reported

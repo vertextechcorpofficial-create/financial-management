@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   SCEFilterState,
   SCEStatementResponse,
@@ -75,16 +75,31 @@ export function StatementOfChangesInEquityProvider({ children }: { children: Rea
   // Statement Cell Drill-down state
   const [cellDrillDown, setCellDrillDown] = useState<CellDrillDownDetails | null>(null);
 
+  // Guard to abort outdated in-flight requests and prevent race conditions
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const loadData = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsLoading(true);
     setError(null);
     try {
       const response = await fetchSCEStatement(filters);
-      setData(response);
+      if (!controller.signal.aborted) {
+        setData(response);
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load SCE data");
+      if (!controller.signal.aborted) {
+        setError(err instanceof Error ? err.message : "Failed to load SCE data");
+      }
     } finally {
-      setIsLoading(false);
+      if (!controller.signal.aborted) {
+        setIsLoading(false);
+      }
     }
   }, [filters]);
 

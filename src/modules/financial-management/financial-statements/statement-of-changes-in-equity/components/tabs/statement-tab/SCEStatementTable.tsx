@@ -6,12 +6,14 @@ import { EQUITY_COLUMNS } from "../../../constants/components";
 import { SCEStatementRow, EquityComponentKey } from "../../../types";
 import { formatCurrency } from "../../../utils/format";
 import { Button } from "@/components/ui/button";
-import { ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 
 export function SCEStatementTable() {
-  const { data, filters, openCellDrillDown } = useStatementOfChangesInEquity();
+  const { data, filters, openCellDrillDown, isLoading } = useStatementOfChangesInEquity();
   const rows = data?.statementRows || [];
   const accounts = data?.accounts || [];
+  const hasComparison = !!filters.compare && !!data?.hasComparison;
+  const comparisonLabel = data?.comparisonLabel || "Comparison";
 
   // Collapsed group headers state (expanded by default)
   const [collapsedRows, setCollapsedRows] = useState<Record<string, boolean>>({});
@@ -75,7 +77,6 @@ export function SCEStatementTable() {
         return targetGlCodes.includes(acc.glCode);
       })
       .map((acc) => {
-        // Calculate appropriate amount depending on row category
         let accAmount = acc.endingBalance;
         if (row.tag === "beginning_balance" || row.tag === "balance_restated") {
           accAmount = acc.beginningBalance;
@@ -102,47 +103,30 @@ export function SCEStatementTable() {
     });
   };
 
+  // Recursive render of rows
   const renderRow = (row: SCEStatementRow, isChild = false) => {
+    const isCollapsed = collapsedRows[row.id] ?? false;
+    const hasChildren = row.hasChildren || (row.children && row.children.length > 0);
+    const visibleChildren = row.children || [];
+
     const isGroup = row.isGroupHeader;
     const isSubtotal = row.isSubtotal;
     const isEnding = row.isEnding;
 
-    // Filter children to omit nil / 0 lines per spec (Page 11: "nil child lines omitted")
-    const visibleChildren = (row.children || []).filter((child) => {
-      const hasAnyNonZero =
-        child.amounts.shareCapital !== 0 ||
-        child.amounts.apic !== 0 ||
-        child.amounts.reRetainedEarnings !== 0 ||
-        child.amounts.reAppropriated !== 0 ||
-        child.amounts.oci !== 0 ||
-        child.amounts.treasuryShares !== 0 ||
-        child.amounts.totalEquity !== 0;
-      return hasAnyNonZero;
-    });
+    const renderCell = (
+      colKey: EquityComponentKey,
+      colTitle: string,
+      amount: number,
+      isTotalCol = false
+    ) => {
+      if (amount === 0) {
+        return <span className="text-muted-foreground/60">—</span>;
+      }
 
-    const hasChildren = visibleChildren.length > 0 || (row.hasChildren && visibleChildren.length > 0);
-    const isCollapsed = collapsedRows[row.id];
-
-    // Summary / aggregate rows and unclosed child rows do not have drill-down
-    const isSummaryRow =
-      Boolean(row.isGroupHeader) ||
-      Boolean(row.isSubtotal) ||
-      Boolean(row.isEnding) ||
-      isChild ||
-      row.id === "group-beg" ||
-      row.id === "row-res" ||
-      row.id === "group-chg" ||
-      row.id === "row-tci" ||
-      row.id === "row-total-changes" ||
-      row.id === "group-ending" ||
-      row.id === "row-ending-balance" ||
-      row.id === "row-rev-unc" ||
-      row.id === "row-exp-unc";
-
-    const renderCell = (colKey: EquityComponentKey, colTitle: string, amount: number, isTotalCol = false) => {
-      if (isSummaryRow || amount === 0) {
+      // Summary, subtotal, and group rows are non-clickable plain text
+      if (isGroup || isSubtotal || isEnding) {
         return (
-          <span className={amount !== 0 && isTotalCol ? "font-bold text-foreground" : ""}>
+          <span className={`inline-block whitespace-nowrap ${isTotalCol ? "font-bold text-foreground" : "text-foreground"}`}>
             {formatCurrency(amount)}
           </span>
         );
@@ -152,12 +136,16 @@ export function SCEStatementTable() {
         <button
           type="button"
           onClick={() => handleCellClick(colKey, colTitle, row, amount)}
-          className="hover:underline text-primary cursor-pointer"
+          className="hover:underline text-primary cursor-pointer inline-block whitespace-nowrap"
         >
           {formatCurrency(amount)}
         </button>
       );
     };
+
+    // Render comparison cells
+    const compTotal = row.comparisonAmounts?.totalEquity ?? 0;
+    const compChange = row.comparisonAmounts?.change ?? 0;
 
     return (
       <React.Fragment key={row.id}>
@@ -176,7 +164,7 @@ export function SCEStatementTable() {
         >
           {/* Row Label & Chevron */}
           <td
-            className={`py-2 px-3 sticky left-0 bg-card/95 backdrop-blur-xs z-10 border-r flex items-center gap-1.5 ${
+            className={`py-2 px-3 sticky left-0 bg-card/95 backdrop-blur-xs z-10 border-r flex items-center gap-1.5 whitespace-nowrap ${
               row.indent === 2 ? "pl-11" : row.indent === 1 ? "pl-7" : ""
             }`}
           >
@@ -211,43 +199,54 @@ export function SCEStatementTable() {
             )}
           </td>
 
-          {/* Amounts across 7 columns */}
-          <td className="py-2 px-3 text-right font-mono">
-            {renderCell("shareCapital", "Share Capital", row.amounts.shareCapital)}
-          </td>
+          {/* Amounts across 7 defined columns */}
+          {EQUITY_COLUMNS.map((col) => {
+            const isTotal = col.key === "totalEquity";
+            const amt = row.amounts[col.key] || 0;
+            return (
+              <td
+                key={col.key}
+                className={`py-2 px-3 text-right font-mono whitespace-nowrap min-w-[140px] ${
+                  isTotal ? "font-bold bg-muted/20 border-l" : ""
+                }`}
+              >
+                {renderCell(col.key, col.header, amt, isTotal)}
+              </td>
+            );
+          })}
 
-          <td className="py-2 px-3 text-right font-mono">
-            {renderCell("apic", "Additional Paid-In Capital", row.amounts.apic)}
-          </td>
+          {/* Comparison Columns if Enabled */}
+          {hasComparison && (
+            <>
+              {/* Comparative Total Equity */}
+              <td className="py-2 px-3 text-right font-mono bg-blue-50/30 dark:bg-blue-950/20 text-muted-foreground border-l whitespace-nowrap min-w-[140px]">
+                {compTotal === 0 ? (
+                  <span className="text-muted-foreground/60">—</span>
+                ) : (
+                  <span className="inline-block whitespace-nowrap">
+                    {formatCurrency(compTotal)}
+                  </span>
+                )}
+              </td>
 
-          <td className="py-2 px-3 text-right font-mono">
-            {renderCell(
-              "reRetainedEarnings",
-              "Retained Earnings (Unappropriated)",
-              row.amounts.reRetainedEarnings
-            )}
-          </td>
-
-          <td className="py-2 px-3 text-right font-mono">
-            {renderCell(
-              "reAppropriated",
-              "Retained Earnings (Appropriated)",
-              row.amounts.reAppropriated
-            )}
-          </td>
-
-          <td className="py-2 px-3 text-right font-mono">
-            {renderCell("oci", "Other Comprehensive Income", row.amounts.oci)}
-          </td>
-
-          <td className="py-2 px-3 text-right font-mono">
-            {renderCell("treasuryShares", "Treasury Shares", row.amounts.treasuryShares)}
-          </td>
-
-          {/* Total Equity Column */}
-          <td className="py-2 px-3 text-right font-mono font-bold bg-muted/20 border-l">
-            {renderCell("totalEquity", "Total Corporate Equity", row.amounts.totalEquity, true)}
-          </td>
+              {/* Change vs Comparison Period */}
+              <td className="py-2 px-3 text-right font-mono font-medium border-l whitespace-nowrap min-w-[140px]">
+                {compChange === 0 ? (
+                  <span className="text-muted-foreground/60">—</span>
+                ) : (
+                  <span
+                    className={`inline-block whitespace-nowrap ${
+                      compChange > 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-rose-600 dark:text-rose-400"
+                    }`}
+                  >
+                    {compChange > 0 ? `+${formatCurrency(compChange)}` : formatCurrency(compChange)}
+                  </span>
+                )}
+              </td>
+            </>
+          )}
         </tr>
 
         {/* Render visible child rows if expanded */}
@@ -258,7 +257,17 @@ export function SCEStatementTable() {
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 shadow-sm sm:p-4 print:border-none print:shadow-none print:p-0">
+    <div className="relative flex flex-col gap-3 rounded-lg border bg-card p-3 shadow-sm sm:p-4 print:border-none print:shadow-none print:p-0">
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] flex items-center justify-center z-30 rounded-lg">
+          <div className="flex items-center gap-2 bg-card border shadow-lg px-4 py-2 rounded-lg text-xs font-medium">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <span>Recalculating equity roll-forward...</span>
+          </div>
+        </div>
+      )}
+
       {/* Table Top Controls (Hidden on print) */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3 print:hidden">
         <div className="flex flex-wrap items-center gap-2">
@@ -271,6 +280,11 @@ export function SCEStatementTable() {
           <span className="inline-flex items-center rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground font-medium">
             Amounts in Philippine Peso (₱)
           </span>
+          {hasComparison && (
+            <span className="inline-flex items-center rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700 font-medium border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300">
+              Compared to {comparisonLabel}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -295,18 +309,18 @@ export function SCEStatementTable() {
         </div>
       </div>
 
-      {/* Responsive Matrix Table Container */}
+      {/* Responsive Matrix Table Container with guaranteed minimum cell widths to prevent text wrap */}
       <div className="overflow-x-auto print:overflow-visible">
-        <table className="w-full min-w-[1000px] print:min-w-full border-collapse text-left text-xs">
+        <table className="w-full min-w-[1200px] print:min-w-full border-collapse text-left text-xs">
           <thead>
             <tr className="border-b bg-muted/30 print:bg-transparent print:border-b-2 print:border-black">
-              <th className="py-3 px-3 font-semibold text-muted-foreground uppercase tracking-wider w-[280px] sticky left-0 bg-card/95 backdrop-blur-xs z-10 border-r print:static print:bg-transparent print:text-black print:border-r">
+              <th className="py-3 px-3 font-semibold text-muted-foreground uppercase tracking-wider w-[280px] min-w-[280px] sticky left-0 bg-card/95 backdrop-blur-xs z-10 border-r print:static print:bg-transparent print:text-black print:border-r">
                 MOVEMENT / DESCRIPTION
               </th>
               {EQUITY_COLUMNS.map((col) => (
                 <th
                   key={col.key}
-                  className={`py-3 px-3 text-right font-semibold text-muted-foreground uppercase tracking-wider print:text-black ${
+                  className={`py-3 px-3 text-right font-semibold text-muted-foreground uppercase tracking-wider print:text-black min-w-[140px] whitespace-nowrap ${
                     col.key === "totalEquity"
                       ? "bg-muted/40 font-bold text-foreground border-l print:bg-transparent print:border-l print:border-black"
                       : ""
@@ -320,6 +334,24 @@ export function SCEStatementTable() {
                   )}
                 </th>
               ))}
+
+              {/* Comparison Column Headers */}
+              {hasComparison && (
+                <>
+                  <th className="py-3 px-3 text-right font-semibold text-muted-foreground uppercase tracking-wider border-l bg-blue-50/40 dark:bg-blue-950/30 min-w-[140px] whitespace-nowrap">
+                    <div>TOTAL EQUITY</div>
+                    <div className="text-[10px] font-normal normal-case text-muted-foreground">
+                      {comparisonLabel}
+                    </div>
+                  </th>
+                  <th className="py-3 px-3 text-right font-semibold text-muted-foreground uppercase tracking-wider border-l min-w-[140px] whitespace-nowrap">
+                    <div>CHANGE</div>
+                    <div className="text-[10px] font-normal normal-case text-muted-foreground">
+                      vs {comparisonLabel}
+                    </div>
+                  </th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-border print:divide-black/20">

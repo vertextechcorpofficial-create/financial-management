@@ -186,6 +186,8 @@ export const SCETrendPointSchema = z.object({
   endingEquity: z.number(),
   equityChangePercent: z.number(),
   isBalanced: z.boolean(),
+  comparisonEndingEquity: z.number().optional(),
+  comparisonProfit: z.number().optional(),
 });
 
 export type SCETrendPoint = z.infer<typeof SCETrendPointSchema>;
@@ -224,6 +226,8 @@ export const SCEStatementResponseSchema = z.object({
   accounts: z.array(SCEAccountBreakdownItemSchema),
   trend: z.array(SCETrendPointSchema),
   totalAccountsCount: z.number(),
+  hasComparison: z.boolean().optional(),
+  comparisonLabel: z.string().optional(),
 });
 
 export type SCEStatementResponse = z.infer<typeof SCEStatementResponseSchema>;

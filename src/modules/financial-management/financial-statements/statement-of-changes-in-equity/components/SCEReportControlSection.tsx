@@ -18,6 +18,7 @@ export function SCEReportControlSection() {
     stepNextPeriod,
     setCompare,
     setCompareMode,
+    isLoading,
   } = useStatementOfChangesInEquity();
 
   // Period options for SearchableSelect
@@ -70,7 +71,18 @@ export function SCEReportControlSection() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 shadow-sm sm:p-4">
+    <div
+      className={`relative overflow-hidden flex flex-col gap-3 rounded-lg border bg-card p-3 shadow-sm sm:p-4 transition-opacity ${
+        isLoading ? "opacity-75 pointer-events-none" : ""
+      }`}
+    >
+      {/* Top Animated Progress Bar on Filter Change / Loading */}
+      {isLoading && (
+        <div className="absolute top-0 left-0 right-0 h-1 bg-primary/20 overflow-hidden">
+          <div className="h-full bg-primary animate-pulse w-full" />
+        </div>
+      )}
+
       {/* Top filter row */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-end">
         {/* View by buttons */}
@@ -86,6 +98,7 @@ export function SCEReportControlSection() {
                 variant={filters.viewBy === v ? "default" : "ghost"}
                 size="sm"
                 className="flex-1 h-8 text-xs font-medium"
+                disabled={isLoading}
                 onClick={() => setViewBy(v)}
               >
                 {v}
@@ -105,6 +118,7 @@ export function SCEReportControlSection() {
               variant="outline"
               size="icon"
               className="h-9 w-9 shrink-0"
+              disabled={isLoading}
               onClick={stepPrevPeriod}
               title="Previous period"
             >
@@ -115,6 +129,7 @@ export function SCEReportControlSection() {
                 options={periodOptions}
                 value={filters.periodDate}
                 onValueChange={setPeriodDate}
+                disabled={isLoading}
                 placeholder="Select period..."
                 className="h-9 w-full text-xs"
               />
@@ -124,6 +139,7 @@ export function SCEReportControlSection() {
               variant="outline"
               size="icon"
               className="h-9 w-9 shrink-0"
+              disabled={isLoading}
               onClick={stepNextPeriod}
               title="Next period"
             >
@@ -160,6 +176,7 @@ export function SCEReportControlSection() {
               <Switch
                 id="compare-switch"
                 checked={filters.compare}
+                disabled={isLoading}
                 onCheckedChange={setCompare}
               />
               <Label htmlFor="compare-switch" className="text-xs font-medium cursor-pointer">
@@ -171,6 +188,7 @@ export function SCEReportControlSection() {
                 <SearchableSelect
                   options={compareModeOptions}
                   value={filters.compareMode}
+                  disabled={isLoading}
                   onValueChange={(v) => setCompareMode(v as SCECompareMode)}
                   placeholder="Select comparison..."
                   className="h-9 w-full text-xs"

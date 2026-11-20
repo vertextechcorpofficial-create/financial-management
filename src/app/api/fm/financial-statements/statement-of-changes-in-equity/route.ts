@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { aggregateLiveSCEData } from "@/modules/financial-management/financial-statements/statement-of-changes-in-equity/engine/live-aggregator";
-import { fetchAllEquityLedgerEntries } from "@/modules/financial-management/financial-statements/statement-of-changes-in-equity/services/sce-backend.service";
+import { fetchAllEquityLedgerEntries, MasterLedgerEntry } from "@/modules/financial-management/financial-statements/statement-of-changes-in-equity/services/sce-backend.service";
 import { SCEFilterState, SCEViewBy, SCEPriorPeriodBasis, SCECompareMode } from "@/modules/financial-management/financial-statements/statement-of-changes-in-equity/types";
-import { computeDateRange } from "@/modules/financial-management/financial-statements/statement-of-changes-in-equity/utils/periods";
+import { computeDateRange, getComparisonDateRange } from "@/modules/financial-management/financial-statements/statement-of-changes-in-equity/utils/periods";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,11 +41,63 @@ export async function GET(request: NextRequest) {
     const cookieStore = await cookies();
     const token = cookieStore.get(COOKIE_NAME)?.value;
 
-    // Fetch live entries from backend using process.env.SPRING_API_BASE_URL (http://goatedcodoer:8083)
-    const liveEntries = await fetchAllEquityLedgerEntries(range.startDate, range.endDate, token);
+    // Determine comparison date boundaries if compare is active
+    let compStartDate: string | undefined = undefined;
+    let compEndDate: string | undefined = undefined;
+    let comparisonLabel: string | undefined = undefined;
+
+    if (compare) {
+      const mode = compareMode === "same_period_last_year" ? "same_period_last_year" : "previous_period";
+      const compRange = getComparisonDateRange(range.startDate, range.endDate, mode);
+      compStartDate = compRange.startDate;
+      compEndDate = compRange.endDate;
+      const compDerived = computeDateRange(viewBy, compRange.endDate);
+      comparisonLabel = compDerived.label;
+    }
+
+    // ─── PERFORMANCE OPTIMIZATION: 1 SINGLE INCEPTION QUERY ───
+    // Instead of firing 4 separate queries across 26 years sequentially,
+    // determine the maximum end date and execute 1 single master query from 2000-01-01.
+    const maxEndDate = compEndDate && compEndDate > range.endDate ? compEndDate : range.endDate;
+    const allInceptionEntries = await fetchAllEquityLedgerEntries("2000-01-01", maxEndDate, token);
+
+    // In-memory partitioning (fast, sub-millisecond)
+    const getDate = (e: MasterLedgerEntry) => e.transactionDate || e.postingDate || "";
+
+    const livePeriodEntries = allInceptionEntries.filter((e) => {
+      const d = getDate(e);
+      return d >= range.startDate && d <= range.endDate;
+    });
+
+    const priorEntries = allInceptionEntries.filter((e) => {
+      const d = getDate(e);
+      return d < range.startDate;
+    });
+
+    let comparisonEntries: MasterLedgerEntry[] | undefined = undefined;
+    let comparisonPriorEntries: MasterLedgerEntry[] | undefined = undefined;
+
+    if (compare && compStartDate && compEndDate) {
+      comparisonEntries = allInceptionEntries.filter((e) => {
+        const d = getDate(e);
+        return d >= compStartDate! && d <= compEndDate!;
+      });
+      comparisonPriorEntries = allInceptionEntries.filter((e) => {
+        const d = getDate(e);
+        return d < compStartDate!;
+      });
+    }
 
     // Aggregate strictly live database records (returns clean 0 / — if no records exist)
-    const liveData = aggregateLiveSCEData(liveEntries || [], filters);
+    const liveData = aggregateLiveSCEData(
+      livePeriodEntries,
+      filters,
+      priorEntries,
+      comparisonEntries,
+      comparisonPriorEntries,
+      comparisonLabel
+    );
+
     return NextResponse.json(liveData);
   } catch (error: unknown) {
     console.error("[SCE API Route] Error:", error);
