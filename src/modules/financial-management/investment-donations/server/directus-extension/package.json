@@ -1,0 +1,11 @@
+{
+  "name": "directus-extension-capital-giving-ledger",
+  "version": "1.0.0",
+  "type": "module",
+  "directus:extension": {
+    "type": "endpoint",
+    "path": "dist/index.mjs",
+    "source": "index.mjs",
+    "host": "^11.0.0"
+  }
+}
