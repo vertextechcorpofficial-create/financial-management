@@ -1,8 +1,9 @@
 import "server-only";
 
 import { z } from "zod";
+import { maxFileSize } from "../document-limits";
 import { cooperativeDirectus } from "./directus";
-import { CooperativeDocumentError, maxFileSize } from "./document-input";
+import { CooperativeDocumentError } from "./document-input";
 
 function excludesFolder(rule: unknown, folder: string): boolean {
   const filter = z.record(z.string(), z.unknown()).safeParse(rule);
@@ -47,10 +48,11 @@ export async function privateCooperativeFolder() {
   throw new CooperativeDocumentError(503, "Private Cooperative document storage is unavailable.");
 }
 
-export async function uploadCooperativeAsset(id: string, folder: string, file: File, mime: string, extension: string) {
+export async function uploadCooperativeAsset(id: string, folder: string, file: File, mime: string, extension: string, description?: string) {
   const form = new FormData();
   form.append("id", id);
   form.append("folder", folder);
+  if (description) form.append("description", description);
   form.append("file", file.slice(0, file.size, mime), `${id}.${extension}`);
   const response = await cooperativeDirectus("/files", { method: "POST", body: form }, 60_000);
   const { data } = z.object({ data: z.object({ id: z.uuid(), folder: z.uuid() }) }).parse(await response.json());

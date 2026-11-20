@@ -1,3 +1,7 @@
+import type { LoanSource, LoanStatementActivity, LoanStatementTotals } from "../loans/loan-activity";
+import type { SalaryLoanRoom } from "../loans/loan-assessment";
+import type { WithdrawalBalance, WithdrawalSource } from "../server/withdrawal-balances";
+
 export type MemberRegisterStatus = "MEMBER" | "NON_MEMBER" | "SEPARATED";
 export type FeeChannel = "COUNTER" | "PAYROLL";
 export const MEMBERSHIP_TERMS_VERSION = "cooperative-membership-v1";
@@ -65,9 +69,9 @@ export type RegisterItem = {
   hasCurrent: boolean;
   activeEmployee: boolean;
   canEnroll: boolean;
-  loanBalance: null;
-  pastDue: null;
-  withdrawal: null;
+  loanBalance: string | null;
+  pastDue: string | null;
+  withdrawal: WithdrawalBalance | null;
 };
 
 export type RegisterResponse = {
@@ -77,14 +81,40 @@ export type RegisterResponse = {
   pageSize: number;
   departments: string[];
   counts: RegisterCounts;
+  loanSource: LoanSource<null>;
+  loanFilterUnavailable: boolean;
+  withdrawalSource: WithdrawalSource<null>;
+  withdrawalFilterUnavailable: boolean;
 };
+
+export const memberLoanAccountFilters = {
+  "with-loan-balance": "With loan balance",
+  "no-loan-balance": "No loan balance",
+  "past-due": "With past due",
+} as const;
+
+export type MemberLoanAccountFilter = keyof typeof memberLoanAccountFilters;
+export const memberWithdrawalAccountFilter = "with-withdrawal-request";
+
+export type MemberCandidateEligibility = "eligible" | "already_member" | "membership_closed" | "inactive"
+  | "no_posted_payroll" | "payroll_review" | "below_take_home_floor" | "unavailable";
 
 export type MemberCandidate = {
   userId: number;
   employeeNumber: string;
   employeeName: string;
   departmentName: string | null;
-  hasPostedPayroll: boolean;
+  eligibility: MemberCandidateEligibility;
+  reason: string;
+};
+
+export type MemberCandidatePage = {
+  items: MemberCandidate[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+  payrollUnavailable: boolean;
 };
 
 export type EnrollmentCheck = {
@@ -144,6 +174,13 @@ export type EnrollmentResult = {
   };
 };
 
+export type EnrollmentPreview = EnrollmentCheck & {
+  agreementNumberPreview: { number: string; state: "available" } | {
+    state: "invalid-date" | "unavailable" | "exhausted";
+    message: string;
+  };
+};
+
 export type CurrentMembership = {
   id: number;
   userId: number;
@@ -187,6 +224,39 @@ export type SavingsEntry = {
   postedAt: string;
 };
 
+export type StatementPeriod = { from: string; to: string };
+
+export type MemberStatement = StatementPeriod & {
+  generatedOn: string;
+  member: {
+    name: string;
+    employeeNumber: string;
+    department: string | null;
+    agreementNo: string | null;
+    status: CurrentMembership["status"];
+  };
+  openingBalance: string;
+  closingBalance: string;
+  deposits: string;
+  withdrawals: string;
+  entries: Array<Pick<SavingsEntry, "id" | "entryDate" | "kind" | "reference"> & {
+    deposit: string | null;
+    withdrawal: string | null;
+    runningBalance: string;
+  }>;
+  loans: LoanSource<{
+    entries: Array<LoanStatementTotals & { loanNo: string; productName: string; id: number }>;
+    totals: LoanStatementTotals;
+    activity: Array<LoanStatementActivity & { loanNo: string }>;
+  }>;
+};
+
+export type MemberDocumentList = {
+  items: MemberDocument[];
+  documentTypes: Array<{ id: number; name: string }>;
+  hasMore: boolean;
+};
+
 export type MemberDetail = {
   item: RegisterItem;
   current: CurrentMembership | null;
@@ -201,18 +271,36 @@ export type MemberDetail = {
     floor: string | null;
     savingsPerCutoff: string | null;
     payrollDeduction: string | null;
+    loanDeduction: string | null;
+    includedInNetPay: string | null;
+    assessmentCutoff: string | null;
     headroom: string | null;
-    loansUnavailable: true;
-    withdrawalsUnavailable: true;
+    headroomMessage: string | null;
+    withdrawalsUnavailable: boolean;
   };
-  loans: null;
-  withdrawals: null;
+  loans: LoanSource<{
+    penalties: string;
+    salaryRoom: SalaryLoanRoom;
+    items: MemberLoanSummary[];
+  }> | null;
+  withdrawals: WithdrawalSource<WithdrawalBalance> | null;
+};
+
+export type MemberLoanSummary = {
+  id: number;
+  loanNo: string;
+  productName: string;
+  status: string;
+  amountPerPayment: string | null;
+  balance: string | null;
+  requiredDocuments: number;
+  documentsMissing: number;
 };
 
 export type MemberPageQuery = {
   q?: string;
   department?: string;
   membership?: "" | MemberRegisterStatus;
-  account?: "" | "documents";
+  account?: "" | "documents" | MemberLoanAccountFilter | typeof memberWithdrawalAccountFilter;
   page?: number;
 };

@@ -1,21 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  AlertTriangle, CheckCircle2, ChevronRight, CircleDollarSign, Loader2, Receipt, Search, ShieldCheck, UserRound, Wallet, XCircle,
+  AlertTriangle, CheckCircle2, CircleDollarSign, Loader2, Receipt, ShieldCheck, UserRound, Wallet, XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
-import { ConsoleDialog, EmptyState, Kv, StatusChip } from "../console/components/ui";
-import { PersonAvatar, SectionHeading } from "./components";
+import { ConsoleDialog, Kv, StatusChip } from "../console/components/ui";
+import { SectionHeading } from "./components";
+import { MemberSelect } from "./MemberSelect";
 import { MemberApiError, memberFetch, newRequestKey } from "./client";
 import { date, feeChannelLabel, peso, todayManila } from "./format";
-import type { EnrollmentCheck, EnrollmentResult, MemberCandidate } from "./types";
-
-type CandidateResponse = { items: MemberCandidate[] };
+import type { EnrollmentPreview, EnrollmentResult, MemberCandidate } from "./types";
 
 function CheckLine({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
   const Icon = ok ? CheckCircle2 : XCircle;
@@ -35,32 +34,6 @@ function CheckLine({ ok, label, detail }: { ok: boolean; label: string; detail: 
   );
 }
 
-function PayrollBadge({ verified }: { verified: boolean }) {
-  return verified
-    ? <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">Payroll verified</Badge>
-    : <Badge variant="outline" className="border-amber-200 bg-amber-50 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">Payroll review</Badge>;
-}
-
-function CandidateRow({ candidate, onPick }: { candidate: MemberCandidate; onPick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onPick}
-      className="flex w-full items-center gap-3 border-b px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none"
-    >
-      <PersonAvatar name={candidate.employeeName} size="sm" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{candidate.employeeName}</span>
-        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-          {candidate.employeeNumber} <span className="mx-1 text-muted-foreground/50">/</span> {candidate.departmentName ?? "No department"}
-        </span>
-      </span>
-      <PayrollBadge verified={candidate.hasPostedPayroll} />
-      <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
-    </button>
-  );
-}
-
 export function AddMemberDialog({
   onClose,
   onEnrolled,
@@ -68,8 +41,6 @@ export function AddMemberDialog({
   onClose: () => void;
   onEnrolled: (result: EnrollmentResult) => void;
 }) {
-  const [search, setSearch] = useState("");
-  const [candidates, setCandidates] = useState<MemberCandidate[]>([]);
   const [selected, setSelected] = useState<MemberCandidate | null>(null);
   const [signedAt, setSignedAt] = useState(todayManila());
   const [savingsPerCutoff, setSavingsPerCutoff] = useState("");
@@ -77,73 +48,49 @@ export function AddMemberDialog({
   const [feeChannel, setFeeChannel] = useState("COUNTER");
   const [beneficiary, setBeneficiary] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [check, setCheck] = useState<EnrollmentCheck>();
-  const [checking, setChecking] = useState(false);
+  const [checked, setChecked] = useState<{ query: string; attempt: number; result?: EnrollmentPreview }>();
   const [checkAttempt, setCheckAttempt] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [submitErrors, setSubmitErrors] = useState<Record<string, string>>({});
   const [requestKey, setRequestKey] = useState(() => newRequestKey());
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      try {
-        const query = search.trim() ? `?q=${encodeURIComponent(search.trim())}` : "";
-        const payload = await memberFetch<CandidateResponse>(`/api/fm/cooperative/members/candidates${query}`, { signal: controller.signal });
-        if (!controller.signal.aborted) setCandidates(payload.items);
-      } catch (cause) {
-        if (!controller.signal.aborted && !(cause instanceof DOMException && cause.name === "AbortError")) {
-          setError(cause instanceof Error ? cause.message : "Unable to load employees.");
-        }
-      }
-    }, 200);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [search]);
+  const assessmentQuery = selected ? new URLSearchParams({
+    userId: String(selected.userId), signedAt, openingDeposit, feeChannel, beneficiary,
+    ...(savingsPerCutoff.trim() ? { savingsPerCutoff: savingsPerCutoff.trim() } : {}),
+  }).toString() : null;
+  const check = checked?.result;
+  const checking = assessmentQuery !== null && (checked?.query !== assessmentQuery || checked.attempt !== checkAttempt);
+  const agreementPreview = checking ? undefined : check?.agreementNumberPreview;
 
   useEffect(() => {
-    if (!selected) {
-      setCheck(undefined);
-      return;
-    }
+    if (!assessmentQuery) return;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      setChecking(true);
       setError("");
       try {
-        const params = new URLSearchParams({
-          userId: String(selected.userId), signedAt, openingDeposit, feeChannel, beneficiary,
-        });
-        if (savingsPerCutoff.trim()) params.set("savingsPerCutoff", savingsPerCutoff.trim());
-        const payload = await memberFetch<EnrollmentCheck>(`/api/fm/cooperative/members/enrollment?${params}`, { signal: controller.signal });
+        const payload = await memberFetch<EnrollmentPreview>("/api/fm/cooperative/members/enrollment?" + assessmentQuery, { signal: controller.signal });
         if (controller.signal.aborted) return;
-        setCheck(payload);
+        setChecked({ query: assessmentQuery, attempt: checkAttempt, result: payload });
         setSavingsPerCutoff(current => current || payload.inputs.savingsPerCutoff);
       } catch (cause) {
-        if (!controller.signal.aborted && !(cause instanceof DOMException && cause.name === "AbortError")) {
+        if (!controller.signal.aborted) {
+          setChecked({ query: assessmentQuery, attempt: checkAttempt });
           setError(cause instanceof Error ? cause.message : "Unable to check this employee.");
         }
-      } finally {
-        if (!controller.signal.aborted) setChecking(false);
       }
     }, 250);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [selected, signedAt, savingsPerCutoff, openingDeposit, feeChannel, beneficiary, checkAttempt]);
+  }, [assessmentQuery, checkAttempt]);
 
-  const options = useMemo(() => {
-    if (!selected || candidates.some(candidate => candidate.userId === selected.userId)) return candidates;
-    return [selected, ...candidates];
-  }, [selected, candidates]);
-  const fields = { ...check?.fieldErrors, ...submitErrors };
+  const fields = { ...(!checking ? check?.fieldErrors : undefined), ...submitErrors };
   const passed = check?.checks.filter(item => item.ok).length ?? 0;
   const totalChecks = check?.checks.length ?? 0;
-  const ready = Boolean(check?.canEnroll);
+  const ready = !checking && Boolean(check?.canEnroll) && agreementPreview?.state !== "exhausted";
+  const canSubmit = ready && termsAccepted && !submitting;
 
   function changed() {
     setSubmitErrors({});
@@ -152,20 +99,19 @@ export function AddMemberDialog({
     setRequestKey(newRequestKey());
   }
 
-  function pick(value: string) {
-    const candidate = options.find(item => String(item.userId) === value) ?? null;
+  function pick(candidate: MemberCandidate | null) {
     setSelected(candidate);
     setSavingsPerCutoff("");
     setOpeningDeposit("0.00");
     setBeneficiary("");
     setFeeChannel("COUNTER");
     setSignedAt(todayManila());
-    setCheck(undefined);
+    setChecked(undefined);
     changed();
   }
 
   async function submit() {
-    if (!selected || !check) return;
+    if (!selected || !check || !canSubmit) return;
     setSubmitting(true);
     setError("");
     setSubmitErrors({});
@@ -190,7 +136,7 @@ export function AddMemberDialog({
       setError(cause instanceof Error ? cause.message : "The member could not be enrolled.");
       if (cause instanceof MemberApiError) {
         setSubmitErrors(cause.payload?.fieldErrors ?? cause.payload?.details?.fieldErrors ?? {});
-        if (cause.payload?.code === "STALE_TERMS") {
+        if (["STALE_TERMS", "NOT_ELIGIBLE", "ALREADY_MEMBER"].includes(cause.payload?.code ?? "")) {
           setCheckAttempt(value => value + 1);
           setTermsAccepted(false);
         }
@@ -214,7 +160,7 @@ export function AddMemberDialog({
             Activation posts the agreement, opening savings, journal, and official receipt together.
           </p>
           <Button variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
-          <Button disabled={!check?.canEnroll || !termsAccepted || checking || submitting} onClick={() => void submit()}>
+          <Button disabled={!canSubmit} onClick={() => void submit()}>
             {submitting ? <Loader2 className="size-4 animate-spin" /> : <UserRound className="size-4" />}
             {submitting ? "Enrolling..." : "Enroll member"}
           </Button>
@@ -233,49 +179,9 @@ export function AddMemberDialog({
           <SectionHeading
             step="1"
             title={selected ? "Selected employee" : "Choose an employee"}
-            description={selected ? "Continue with the membership details below." : "Only active employees without a current Cooperative membership appear here."}
-            aside={selected ? <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => pick("")}>Change</Button> : undefined}
+            description={selected ? "Continue with the membership details below." : "Review each employee's eligibility before choosing."}
           />
-
-          {selected && (
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-muted/20 p-3">
-              <PersonAvatar name={selected.employeeName} size="lg" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold">{selected.employeeName}</p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {selected.employeeNumber} <span className="mx-1 text-muted-foreground/50">/</span> {selected.departmentName ?? "No department"}
-                </p>
-              </div>
-              <PayrollBadge verified={selected.hasPostedPayroll} />
-            </div>
-          )}
-
-          {!selected && (
-            <>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  autoFocus
-                  value={search}
-                  onChange={event => setSearch(event.target.value)}
-                  placeholder="Search by name, HR employee number, or department"
-                  className="h-10 pl-9"
-                />
-              </div>
-
-              <div className="max-h-60 overflow-y-auto rounded-xl border bg-card">
-                {options.length === 0
-                  ? <EmptyState>No active employees match this search.</EmptyState>
-                  : options.map(candidate => (
-                    <CandidateRow
-                      key={candidate.userId}
-                      candidate={candidate}
-                      onPick={() => pick(String(candidate.userId))}
-                    />
-                  ))}
-              </div>
-            </>
-          )}
+          <MemberSelect selected={selected} onSelect={pick} disabled={submitting} />
         </section>
 
         {selected && (
@@ -293,6 +199,27 @@ export function AddMemberDialog({
                   <Input type="date" value={signedAt} onChange={event => { setSignedAt(event.target.value); changed(); }} />
                   {fields.signedAt && <span className="block text-xs font-normal text-destructive">{fields.signedAt}</span>}
                 </label>
+                <div className="space-y-1.5">
+                  <label htmlFor="cooperative-agreement-preview" className="text-xs font-medium text-muted-foreground">Agreement no. (preview)</label>
+                  <Input
+                    id="cooperative-agreement-preview"
+                    className="font-mono"
+                    value={agreementPreview?.state === "available" ? agreementPreview.number : ""}
+                    placeholder={checking ? "Checking…" : "Unavailable"}
+                    aria-describedby="cooperative-agreement-preview-status"
+                    readOnly
+                  />
+                  <p id="cooperative-agreement-preview-status" aria-live="polite" className="text-xs text-muted-foreground">
+                    {agreementPreview && agreementPreview.state !== "available"
+                      ? agreementPreview.message
+                      : "The final number is assigned when you save."}
+                  </p>
+                  {!checking && (!check || agreementPreview?.state === "unavailable") && (
+                    <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setCheckAttempt(value => value + 1)}>
+                      Retry preview
+                    </Button>
+                  )}
+                </div>
                 <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
                   Savings per cutoff
                   <div className="relative">
@@ -446,7 +373,7 @@ export function AddMemberDialog({
                 </p>
                 <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/20">
                   <input
-                    type="checkbox" checked={termsAccepted}
+                    type="checkbox" checked={termsAccepted} disabled={checking || submitting}
                     onChange={event => setTermsAccepted(event.target.checked)}
                     className="mt-0.5 size-4 accent-emerald-600"
                   />

@@ -1,111 +1,136 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, Download, ExternalLink, FileText, FolderOpen, Loader2, Trash2, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { maxFiles, maxFileSize } from "../document-limits";
 import { EmptyState, Panel, StatusChip } from "../console/components/ui";
-import { MemberApiError, memberFetch, newRequestKey } from "./client";
+import { memberFetch, newRequestKey, uploadMemberDocuments } from "./client";
 import { dateTime, fileSize } from "./format";
-import type { DocumentRequirement, MemberDocument } from "./types";
+import type { DocumentRequirement, MemberDocument, MemberDocumentList } from "./types";
 
-type DocumentMetadata = {
-  id: string;
-  documentTypeId: number;
-  filename: string;
-  mimeType: string;
-  size: number;
-  uploadedAt: string;
-  removedAt: string | null;
-};
-
-type ListResponse = { items: DocumentMetadata[]; hasMore: boolean };
+type DocumentType = MemberDocumentList["documentTypes"][number];
 
 export function MemberDocuments({
   userId,
   required,
   storageReady,
-  initial,
   canEdit,
+  onChanged,
 }: {
   userId: number;
   required: DocumentRequirement[];
   storageReady: boolean;
-  initial: MemberDocument[];
   canEdit: boolean;
+  onChanged: () => void;
 }) {
-  const [documents, setDocuments] = useState<MemberDocument[]>(initial);
   const [documentTypeId, setDocumentTypeId] = useState(String(required[0]?.documentTypeId ?? ""));
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [uploadKey, setUploadKey] = useState(() => newRequestKey());
-  const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [filter, setFilter] = useState<DocumentType>();
+  const [page, setPage] = useState(1);
+  const [attempt, setAttempt] = useState(0);
+  const [loaded, setLoaded] = useState<{ query: string; attempt: number; result?: MemberDocumentList; error?: string }>();
+  const [onFile, setOnFile] = useState<DocumentType[]>();
+  const [busy, setBusy] = useState<"upload" | "remove">();
   const [error, setError] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const names = useMemo(() => new Map(required.map(row => [row.documentTypeId, row.name])), [required]);
-
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    try {
-      const payload = await memberFetch<ListResponse>(`/api/fm/cooperative/members/${userId}/documents`, { signal });
-      setDocuments(payload.items.map(row => ({
-        ...row,
-        documentTypeName: names.get(row.documentTypeId) ?? `Document type ${row.documentTypeId}`,
-      })));
-      setError("");
-    } catch (cause) {
-      if (!signal?.aborted) setError(cause instanceof Error ? cause.message : "Unable to load the documents.");
-    } finally {
-      if (!signal?.aborted) setLoading(false);
-    }
-  }, [userId, names]);
+  const [notice, setNotice] = useState("");
+  const endpoint = "/api/fm/cooperative/members/" + userId + "/documents";
+  const query = new URLSearchParams({
+    page: String(page), ...(filter ? { documentTypeId: String(filter.id) } : {}),
+  }).toString();
+  const current = loaded?.query === query && loaded.attempt === attempt ? loaded : undefined;
+  const documents = current?.result?.items ?? [];
+  const types = onFile ?? [];
+  const typeOptions = filter && !types.some(type => type.id === filter.id) ? [...types, filter] : types;
+  const uploadType = required.some(row => String(row.documentTypeId) === documentTypeId) ? documentTypeId : "";
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
+    memberFetch<MemberDocumentList>(endpoint + "?" + query, { signal: controller.signal })
+      .then(result => {
+        if (controller.signal.aborted) return;
+        setOnFile(result.documentTypes);
+        if (page > 1 && result.items.length === 0) setPage(page - 1);
+        else setLoaded({ query, attempt, result });
+      })
+      .catch(cause => {
+        if (!controller.signal.aborted) {
+          setLoaded({ query, attempt, error: cause instanceof Error ? cause.message : "Unable to load the documents." });
+        }
+      });
     return () => controller.abort();
-  }, [load]);
+  }, [endpoint, query, attempt, page]);
+
+  function setBatch(next: File[]) {
+    setFiles(next);
+    setUploadKey(newRequestKey());
+    setNotice("");
+    setError("");
+  }
+
+  function addFiles(selected: File[]) {
+    if (busy || !storageReady || !selected.length) return;
+    setNotice("");
+    if (files.length + selected.length > maxFiles) {
+      setError("Choose up to 10 files per batch.");
+      return;
+    }
+    const invalid = selected.find(file => !/\.(pdf|jpe?g|png)$/i.test(file.name) || file.size === 0 || file.size > maxFileSize);
+    if (invalid) {
+      setError(invalid.name + " must be a PDF, JPEG, or PNG file between 1 byte and 10 MB.");
+      return;
+    }
+    setBatch([...files, ...selected]);
+  }
+
+  function refreshAfterWrite(message: string) {
+    setNotice(message);
+    setAttempt(value => value + 1);
+    onChanged();
+  }
 
   async function upload() {
-    if (!file) return;
-    setUploading(true);
+    if (!canEdit || !storageReady || !files.length || !uploadType || busy) return;
+    setBusy("upload");
     setError("");
+    setNotice("");
     try {
-      const form = new FormData();
-      form.append("documentTypeId", documentTypeId);
-      form.append("uploadKey", uploadKey);
-      form.append("files", file);
-      await memberFetch(`/api/fm/cooperative/members/${userId}/documents`, { method: "POST", body: form });
-      setFile(null);
-      setUploadKey(newRequestKey());
-      if (inputRef.current) inputRef.current.value = "";
-      await load();
+      await uploadMemberDocuments(endpoint, uploadType, uploadKey, files);
+      setBatch([]);
+      refreshAfterWrite(files.length === 1 ? "Document uploaded." : files.length + " documents uploaded.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The document could not be uploaded.");
+      setError(cause instanceof Error ? cause.message : "The documents could not be uploaded.");
     } finally {
-      setUploading(false);
+      setBusy(undefined);
     }
   }
 
   async function remove(document: MemberDocument) {
+    if (!canEdit || busy) return;
     if (!window.confirm(`Remove ${document.filename}? The file will stay in the audit history.`)) return;
+    setBusy("remove");
     setError("");
+    setNotice("");
     try {
-      await memberFetch(`/api/fm/cooperative/members/${userId}/documents/${document.id}`, {
+      await memberFetch(endpoint + "/" + document.id, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: "Removed from the member record" }),
       });
-      await load();
+      refreshAfterWrite("Document removed.");
     } catch (cause) {
-      setError(cause instanceof MemberApiError ? cause.message : "The document could not be removed.");
+      setError(cause instanceof Error ? cause.message : "The document could not be removed.");
+    } finally {
+      setBusy(undefined);
     }
   }
 
-  const missing = required.filter(row => !documents.some(document => document.documentTypeId === row.documentTypeId));
+  const missing = required.filter(row => !types.some(type => type.id === row.documentTypeId));
   const complete = required.length - missing.length;
   const progress = required.length ? Math.round((complete / required.length) * 100) : 100;
 
@@ -127,6 +152,8 @@ export function MemberDocuments({
       <Panel title="Required documents" description="The document rules come from Policies.">
         {required.length === 0 ? (
           <EmptyState>Policies do not require a membership document.</EmptyState>
+        ) : !onFile ? (
+          <p className="text-sm text-muted-foreground">{current?.error ? "Document compliance is unavailable." : "Checking required documents…"}</p>
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-3">
@@ -160,43 +187,107 @@ export function MemberDocuments({
       </Panel>
 
       {canEdit && required.length > 0 && (
-        <Panel title="Upload a document" description="PDF, JPG, or PNG up to 10 MB.">
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-end">
-            <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
-              Document type
-              <NativeSelect value={documentTypeId} onChange={event => setDocumentTypeId(event.target.value)} className="h-9 w-full">
+        <Panel title="Upload documents" description="Choose one document type per batch. Add up to 10 PDF, JPEG, or PNG files, each up to 10 MB.">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:items-end">
+            <div className="space-y-1.5">
+              <label htmlFor="cooperative-upload-type" className="block text-xs font-medium text-muted-foreground">Document type</label>
+              <NativeSelect
+                id="cooperative-upload-type"
+                value={uploadType}
+                disabled={!storageReady || Boolean(busy)}
+                onChange={event => {
+                  setDocumentTypeId(event.target.value);
+                  setBatch(files);
+                }}
+                className="h-9 w-full"
+              >
+                <option value="" disabled>Choose a document type</option>
                 {required.map(row => <option key={row.documentTypeId} value={row.documentTypeId}>{row.name}</option>)}
               </NativeSelect>
-            </label>
-            <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
-              File
-              <div className="flex items-center gap-2 rounded-lg border border-dashed bg-muted/20 px-2 py-1.5">
+            </div>
+            <label
+              className="space-y-1.5 text-xs font-medium text-muted-foreground"
+              onDragOver={event => event.preventDefault()}
+              onDrop={event => {
+                event.preventDefault();
+                addFiles(Array.from(event.dataTransfer.files));
+              }}
+            >
+              Add files
+              <div className="flex min-w-0 items-center gap-2 rounded-lg border border-dashed bg-muted/20 px-2 py-1.5">
                 <UploadCloud className="size-4 shrink-0 text-muted-foreground" />
                 <Input
-                  ref={inputRef}
                   type="file"
+                  multiple
+                  aria-label="Choose files"
                   accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                  disabled={!storageReady || Boolean(busy)}
                   onChange={event => {
-                    setFile(event.target.files?.[0] ?? null);
-                    setUploadKey(newRequestKey());
+                    addFiles(Array.from(event.target.files ?? []));
+                    event.target.value = "";
                   }}
                   className="h-7 border-0 bg-transparent p-0 text-xs file:mr-2 file:rounded-md file:border-0 file:bg-background file:px-2 file:py-1 file:text-xs file:font-medium"
                 />
               </div>
+              <span className="block font-normal">You can also drop files here.</span>
             </label>
-            <Button type="button" size="sm" className="h-9" disabled={!storageReady || !file || uploading} onClick={upload}>
-              {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <UploadCloud className="size-3.5" />}
-              {uploading ? "Uploading..." : "Upload"}
-            </Button>
           </div>
-          {file && <p className="mt-2 text-xs text-muted-foreground">Selected: <span className="font-medium text-foreground">{file.name}</span> ({fileSize(file.size)})</p>}
+          {files.length > 0 && (
+            <ul aria-label="Files to upload" className="mt-3 divide-y rounded-lg border">
+              {files.map((file, index) => (
+                <li key={index} className="flex items-center gap-2 px-2 py-1 text-sm">
+                  <span className="min-w-0 flex-1 break-all">{file.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{fileSize(file.size)}</span>
+                  <Button
+                    type="button" variant="ghost" size="icon" className="size-8 shrink-0"
+                    aria-label={"Remove " + file.name + " from batch"} disabled={Boolean(busy)}
+                    onClick={() => setBatch(files.filter((_, fileIndex) => fileIndex !== index))}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Button type="button" size="sm" disabled={!storageReady || !files.length || !uploadType || Boolean(busy)} onClick={() => void upload()}>
+              {busy === "upload" ? <Loader2 className="size-3.5 animate-spin" /> : <UploadCloud className="size-3.5" />}
+              {busy === "upload" ? "Uploading…" : files.length ? "Upload " + files.length + (files.length === 1 ? " file" : " files") : "Upload"}
+            </Button>
+            {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
+          </div>
         </Panel>
       )}
 
       <Panel
         title="Documents on file"
-        description={loading ? "Refreshing documents..." : `${documents.length} document${documents.length === 1 ? "" : "s"}`}
       >
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <div className="space-y-1.5">
+            <label htmlFor="cooperative-document-filter" className="block text-xs font-medium text-muted-foreground">Filter by document type</label>
+            <NativeSelect
+              id="cooperative-document-filter"
+              className="h-9 w-full"
+              value={filter?.id ?? ""}
+              onChange={event => {
+                setFilter(typeOptions.find(type => String(type.id) === event.target.value));
+                setPage(1);
+              }}
+            >
+              <option value="">All document types</option>
+              {typeOptions.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}
+            </NativeSelect>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {current?.result && documents.length + (documents.length === 1 ? " document on this page" : " documents on this page")}
+          </span>
+        </div>
+        {current?.error && (
+          <div role="alert" className="mb-3 flex flex-wrap items-center gap-2 text-sm text-destructive">
+            <p>{current.error}</p>
+            <Button variant="outline" size="sm" onClick={() => setAttempt(value => value + 1)}>Retry</Button>
+          </div>
+        )}
         <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader className="bg-muted/40">
@@ -206,16 +297,15 @@ export function MemberDocuments({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading && documents.length === 0 && (
-                <TableRow><TableCell colSpan={4}><div className="h-12 animate-pulse rounded bg-muted/50" /></TableCell></TableRow>
+              {!current && (
+                <TableRow><TableCell colSpan={4}><p role="status" className="p-2 text-sm text-muted-foreground">Loading documents…</p></TableCell></TableRow>
               )}
-              {!loading && documents.length === 0 && (
+              {current?.result && documents.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={4}>
                     <div className="flex flex-col items-center gap-2 py-8 text-center">
                       <span className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground"><FolderOpen className="size-5" /></span>
-                      <p className="text-sm font-medium">No documents have been uploaded</p>
-                      <p className="text-xs text-muted-foreground">Use the upload panel above to add a required file.</p>
+                      <p className="text-sm font-medium">{filter ? "No documents match this type." : "No documents have been uploaded."}</p>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -242,7 +332,7 @@ export function MemberDocuments({
                         <a href={`/api/fm/cooperative/members/${userId}/documents/${document.id}?download=1`}><Download className="size-4" /></a>
                       </Button>
                       {canEdit && (
-                        <Button size="icon" variant="ghost" className="size-8 text-muted-foreground hover:text-destructive" title="Remove" aria-label={`Remove ${document.filename}`} onClick={() => void remove(document)}>
+                        <Button size="icon" variant="ghost" className="size-8 text-muted-foreground hover:text-destructive" title="Remove" aria-label={`Remove ${document.filename}`} disabled={Boolean(busy)} onClick={() => void remove(document)}>
                           <Trash2 className="size-4" />
                         </Button>
                       )}
@@ -253,6 +343,13 @@ export function MemberDocuments({
             </TableBody>
           </Table>
         </div>
+        {(page > 1 || current?.result?.hasMore) && (
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+            <span className="text-xs text-muted-foreground">Page {page}</span>
+            <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Previous page</Button>
+            <Button type="button" variant="outline" size="sm" disabled={!current?.result?.hasMore} onClick={() => setPage(value => value + 1)}>Next page</Button>
+          </div>
+        )}
       </Panel>
     </div>
   );

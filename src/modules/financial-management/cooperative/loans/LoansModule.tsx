@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ConsoleDialog, EmptyState, FilterBar, FilterField, Kv, Panel, Progress, StatusChip, Tile,
 } from "../console/components/ui";
+import { peso } from "../members/format";
 import { amountToCents, installmentStatus } from "./loan-schedule";
 
 type LoanRow = {
@@ -96,7 +97,7 @@ type Detail = {
   payments: Array<{
     id: number; officialReceiptNo: string | null; referenceNo: string | null;
     amount: string; principal: string; interest: string; penalty: string;
-    channel: string; receiptDate: string | null; postedAt: string | null; status: string;
+    channel: string; receiptDate: string | null; postedAt: string | null; status: string; journalNo: string | null;
   }>;
   documents: Array<{
     id: number; documentTypeId: number; fileName: string; mimeType: string;
@@ -105,8 +106,6 @@ type Detail = {
   history: Array<{ date: string; text: string; actor: string | null }>;
 };
 
-const php = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2 });
-const peso = (value: string | number | null | undefined) => php.format(Number(value ?? 0));
 const todayManila = () => new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
 }).format(new Date());
@@ -307,16 +306,21 @@ export default function LoansModule() {
   );
 }
 
-function LoanDialog({ id, onClose }: { id: number; onClose: () => void }) {
+export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, onClose }: {
+  id: number;
+  endpoint?: string;
+  onClose: () => void;
+}) {
   const [detail, setDetail] = useState<Detail>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    fetch(`/api/fm/cooperative/loans/${id}`, { cache: "no-store", signal: controller.signal })
+    fetch(endpoint, { cache: "no-store", signal: controller.signal })
       .then(async response => {
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload) throw new Error(payload?.message || "Unable to load this loan.");
@@ -326,7 +330,7 @@ function LoanDialog({ id, onClose }: { id: number; onClose: () => void }) {
       .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load this loan."); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [id]);
+  }, [endpoint, attempt]);
 
   const loan = detail?.loan;
   const docs = loan?.documents;
@@ -340,7 +344,12 @@ function LoanDialog({ id, onClose }: { id: number; onClose: () => void }) {
       wide
     >
       {loading && <p role="status" className="text-sm text-muted-foreground">Loading loan details…</p>}
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">
+          <p>{error}</p>
+          <Button variant="outline" size="sm" type="button" onClick={() => setAttempt(value => value + 1)}>Retry loan details</Button>
+        </div>
+      )}
       {detail && loan && (
         <Tabs defaultValue="summary">
           <TabsList className="flex h-auto flex-wrap justify-start">
@@ -425,8 +434,14 @@ function LoanDialog({ id, onClose }: { id: number; onClose: () => void }) {
                 {detail.payments.length === 0 && <TableRow><TableCell colSpan={7}><EmptyState>No payments posted yet.</EmptyState></TableCell></TableRow>}
                 {detail.payments.map(item => <TableRow key={item.id}>
                   <TableCell>{date(item.receiptDate)}</TableCell>
-                  <TableCell>{item.channel === "PAYROLL" ? "Payroll remittance" : "Over the counter"}</TableCell>
-                  <TableCell className="font-mono text-xs">{item.officialReceiptNo ?? item.referenceNo ?? "—"}</TableCell>
+                  <TableCell>
+                    {item.channel === "CLEARANCE" ? "Exit clearance" : item.channel === "PAYROLL" ? "Payroll remittance" : "Over the counter"}
+                    {item.status === "REVERSAL" && <div className="text-xs text-muted-foreground">Reversal</div>}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    <div>{item.officialReceiptNo ?? item.referenceNo ?? item.journalNo ?? "—"}</div>
+                    {item.journalNo && (item.officialReceiptNo || item.referenceNo) && <div className="text-muted-foreground">{item.journalNo}</div>}
+                  </TableCell>
                   <TableCell className="text-right font-mono">{peso(item.principal)}</TableCell>
                   <TableCell className="text-right font-mono">{peso(item.interest)}</TableCell>
                   <TableCell className="text-right font-mono">{peso(item.penalty)}</TableCell>
