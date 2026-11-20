@@ -2,11 +2,11 @@
 
 import React, { useState } from "react";
 import { useCashFlowStudio } from "../../../providers/CashFlowStudioProvider";
-import { CFSStatementLine } from "../../../types";
 import { formatPHP, formatPercent } from "../../../utils/cfs-format";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -22,6 +22,7 @@ export function CFSStatementTable() {
   const {
     data,
     filters,
+    isLoading,
     setShowChangeColumns,
     openAuditTrail,
   } = useCashFlowStudio();
@@ -242,7 +243,36 @@ export function CFSStatementTable() {
             </TableHeader>
 
             <TableBody>
-              {data.statementLines.map((line) => {
+              {isLoading ? (
+                Array.from({ length: 12 }).map((_, i) => (
+                  <TableRow key={`skeleton-row-${i}`} className="border-b border-border/30">
+                    <TableCell className="py-3 px-3">
+                      <div className="flex items-center gap-2">
+                        <Skeleton className={`h-4 ${i % 3 === 0 ? "w-48 font-bold" : i % 2 === 0 ? "w-64" : "w-56"}`} />
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-3 text-right">
+                      <Skeleton className="h-4 w-24 ml-auto" />
+                    </TableCell>
+                    {isComparisonOn && (
+                      <TableCell className="py-3 text-right">
+                        <Skeleton className="h-4 w-24 ml-auto" />
+                      </TableCell>
+                    )}
+                    {showChangeCols && (
+                      <>
+                        <TableCell className="py-3 text-right">
+                          <Skeleton className="h-4 w-20 ml-auto" />
+                        </TableCell>
+                        <TableCell className="py-3 text-right">
+                          <Skeleton className="h-4 w-14 ml-auto" />
+                        </TableCell>
+                      </>
+                    )}
+                  </TableRow>
+                ))
+              ) : (
+                data.statementLines.map((line) => {
                 const isSecHeader = line.type === "section_header";
                 const isSubtotal = line.type === "subtotal";
                 const isTotal = line.type === "total";
@@ -329,7 +359,8 @@ export function CFSStatementTable() {
                     )}
                   </TableRow>
                 );
-              })}
+              })
+              )}
             </TableBody>
           </Table>
         </div>

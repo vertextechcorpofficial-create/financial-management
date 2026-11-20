@@ -53,7 +53,7 @@ export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
     dataSourceMode: "live",
   });
 
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedLineForAudit, setSelectedLineForAudit] = useState<CFSStatementLine | null>(null);
   const [liveSummaryData, setLiveSummaryData] = useState<CFSSummaryResponse | null>(null);
   const [liveComparisonData, setLiveComparisonData] = useState<CFSSummaryResponse | null>(null);

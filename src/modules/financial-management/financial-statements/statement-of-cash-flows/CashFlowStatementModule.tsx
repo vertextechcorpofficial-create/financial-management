@@ -57,7 +57,7 @@ function CashFlowStudioInner() {
 
       {/* 5. Tabs Container */}
       <div className="print:hidden">
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "statement" | "trend" | "liabilities" | "mapping")} className="w-full">
           <TabsList className="bg-muted/40 p-1 border">
             <TabsTrigger value="statement" className="text-xs font-semibold">
               Statement

@@ -12,16 +12,16 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, ChevronRight, ChevronDown, Loader2, FileText, ArrowRight, ExternalLink } from "lucide-react";
+import { CheckCircle2, ChevronRight, ChevronDown, Loader2, FileText } from "lucide-react";
 import { getLiveCashFlowEntries, getLiveCashFlowTransactionDetails } from "../services/cash-flow-direct.service";
 import { CFSEntryItem, CFSJournalDetails } from "../types";
 
 export function CFSAuditTrailDrawer() {
-  const { selectedLineForAudit, closeAuditTrail, filters, data, liveSummaryData } = useCashFlowStudio();
+  const { selectedLineForAudit, closeAuditTrail, filters, liveSummaryData } = useCashFlowStudio();
   const [entries, setEntries] = useState<CFSEntryItem[]>([]);
   const [isLoadingEntries, setIsLoadingEntries] = useState(false);
   const [selectedJournal, setSelectedJournal] = useState<CFSJournalDetails | null>(null);
-  const [isLoadingJournal, setIsLoadingJournal] = useState(false);
+  const [loadingJournalId, setLoadingJournalId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
 
@@ -100,14 +100,14 @@ export function CFSAuditTrailDrawer() {
       return;
     }
 
-    setIsLoadingJournal(true);
+    setLoadingJournalId(entry.jeNo);
     try {
       const details = await getLiveCashFlowTransactionDetails(entry.jeNo, entry.sourceModule);
       setSelectedJournal(details);
     } catch {
       setSelectedJournal(null);
     } finally {
-      setIsLoadingJournal(false);
+      setLoadingJournalId(null);
     }
   };
 
@@ -233,11 +233,21 @@ export function CFSAuditTrailDrawer() {
                             {item.net >= 0 ? `+₱${formatPHP(item.net)}` : formatPHP(item.net)}
                           </div>
                           <span className="text-[10px] text-primary flex items-center justify-end gap-1 mt-1 font-medium">
-                            {isExpanded ? "Hide details" : "Inspect lines"}
-                            {isExpanded ? (
-                              <ChevronDown className="h-3 w-3" />
+                            {loadingJournalId === item.jeNo ? (
+                              <>
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Loading...
+                              </>
+                            ) : isExpanded ? (
+                              <>
+                                Hide details
+                                <ChevronDown className="h-3 w-3" />
+                              </>
                             ) : (
-                              <ChevronRight className="h-3 w-3" />
+                              <>
+                                Inspect lines
+                                <ChevronRight className="h-3 w-3" />
+                              </>
                             )}
                           </span>
                         </div>

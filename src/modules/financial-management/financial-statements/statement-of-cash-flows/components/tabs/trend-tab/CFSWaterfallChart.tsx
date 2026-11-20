@@ -3,15 +3,7 @@
 import React from "react";
 import { useCashFlowStudio } from "../../../providers/CashFlowStudioProvider";
 import { formatPHP } from "../../../utils/cfs-format";
-import { ArrowDownRight, ArrowUpRight, CheckCircle2, TrendingDown, TrendingUp, Wallet, ArrowRight } from "lucide-react";
-
-function formatCompact(val: number): string {
-  const abs = Math.abs(val);
-  const sign = val < 0 ? "−" : val > 0 ? "+" : "";
-  if (abs >= 1_000_000) return `${sign}₱${(abs / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000) return `${sign}₱${(abs / 1_000).toFixed(1)}K`;
-  return `${sign}₱${abs.toFixed(2)}`;
-}
+import { ArrowDownRight, ArrowUpRight, CheckCircle2, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 
 export function CFSWaterfallChart() {
   const { data, liveSummaryData } = useCashFlowStudio();

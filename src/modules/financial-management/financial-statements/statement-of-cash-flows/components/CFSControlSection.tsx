@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Calendar, Filter } from "lucide-react";
+import { Calendar, Filter } from "lucide-react";
 
 export function CFSControlSection() {
   const { filters, applyFilters, isLoading } = useCashFlowStudio();
@@ -176,15 +176,16 @@ export function CFSControlSection() {
           </Label>
           <div className="flex items-center gap-1">
             <Select
-              value={draftFilters.periodLabel}
+              value={draftFilters.periodLabel || undefined}
               onValueChange={handlePeriodChange}
             >
               <SelectTrigger className="h-9 flex-1 bg-background border-muted font-medium text-xs">
-                <SelectValue placeholder="Select period" />
+                <SelectValue placeholder={draftFilters.periodLabel || "Select period"} />
               </SelectTrigger>
               <SelectContent>
                 {draftFilters.viewBy === "Annually" && (
                   <>
+                    <SelectItem value="FY 2026 H1">FY 2026 H1</SelectItem>
                     <SelectItem value="FY 2026 YTD">FY 2026 YTD</SelectItem>
                     <SelectItem value="FY 2025">FY 2025</SelectItem>
                     <SelectItem value="FY 2024">FY 2024</SelectItem>
