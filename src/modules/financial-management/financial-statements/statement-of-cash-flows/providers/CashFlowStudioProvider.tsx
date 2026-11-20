@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useMemo, ReactNode } from "react";
+import React, { createContext, useContext, useState, useMemo, useEffect, ReactNode, useCallback } from "react";
 import {
   CFSFilterState,
   CFSData,
@@ -8,24 +8,28 @@ import {
   CFSViewBy,
   CFSCompareOption,
   CFSStatementLine,
+  CFSSummaryResponse,
 } from "../types";
-import { getSampleCFSData } from "../constants/sample-data";
+import { CFS_ENTITIES } from "../constants/sample-data";
+import { getLiveCashFlowSummary } from "../services/cash-flow-direct.service";
+import { transformSummaryToDirectCFSData, createEmptyCFSData } from "../utils/cfs-direct-transformer";
 
 interface CashFlowStudioContextType {
   filters: CFSFilterState;
   data: CFSData;
   isLoading: boolean;
   selectedLineForAudit: CFSStatementLine | null;
+  liveSummaryData: CFSSummaryResponse | null;
   setViewBy: (viewBy: CFSViewBy) => void;
   setPeriodDate: (date: string, label: string) => void;
   setCompare: (compare: boolean) => void;
   setCompareOption: (option: CFSCompareOption) => void;
   setEntity: (entity: CFSEntityCode) => void;
   setShowChangeColumns: (show: boolean) => void;
-  setSimulateUnmapped: (simulate: boolean) => void;
   openAuditTrail: (line: CFSStatementLine) => void;
   closeAuditTrail: () => void;
   refreshData: () => void;
+  applyFilters: (newFilters: Partial<CFSFilterState>) => void;
 }
 
 const CashFlowStudioContext = createContext<CashFlowStudioContextType | undefined>(undefined);
@@ -33,40 +37,106 @@ const CashFlowStudioContext = createContext<CashFlowStudioContextType | undefine
 export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
   const [filters, setFilters] = useState<CFSFilterState>({
     viewBy: "Annually",
-    periodDate: "2026-10-31",
-    periodLabel: "FY 2026 YTD",
-    dateRangeLabel: "Jan 1 – Oct 31, 2026 304 days · to date",
+    periodDate: "2026-06-30",
+    periodLabel: "FY 2026 H1",
+    dateRangeLabel: "Jan 1 – Jun 30, 2026",
     startDate: "2026-01-01",
-    endDate: "2026-10-31",
-    compare: false, // Default is OFF; toggled ON reveals comparison columns
+    endDate: "2026-06-30",
+    compare: false,
     compareOption: "previous_year",
-    comparePeriodLabel: "Previous year (FY 2025 YTD)",
+    comparePeriodLabel: "Previous year (FY 2025)",
+    compareStartDate: "2025-01-01",
+    compareEndDate: "2025-06-30",
     entity: "GRP",
     showChangeColumns: true,
     simulateUnmapped: false,
+    dataSourceMode: "live",
   });
 
   const [isLoading, setIsLoading] = useState(false);
   const [selectedLineForAudit, setSelectedLineForAudit] = useState<CFSStatementLine | null>(null);
+  const [liveSummaryData, setLiveSummaryData] = useState<CFSSummaryResponse | null>(null);
+  const [liveComparisonData, setLiveComparisonData] = useState<CFSSummaryResponse | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string>("—");
 
-  // Dynamic dataset computation based on entity and simulation toggle
-  const data = useMemo(() => {
-    return getSampleCFSData(filters.entity, filters.simulateUnmapped);
-  }, [filters.entity, filters.simulateUnmapped]);
+  const currentEntity = useMemo(() => {
+    return CFS_ENTITIES.find((e) => e.code === filters.entity) || CFS_ENTITIES[0];
+  }, [filters.entity]);
+
+  // Fetch live summary data from backend
+  const fetchLiveData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const summary = await getLiveCashFlowSummary({
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        groupBy: filters.viewBy === "Monthly" ? "month" : "month",
+      });
+
+      setLiveSummaryData(summary);
+      setLastUpdated(new Date().toLocaleTimeString("en-PH"));
+
+      if (filters.compare && filters.compareStartDate && filters.compareEndDate) {
+        try {
+          const compSummary = await getLiveCashFlowSummary({
+            startDate: filters.compareStartDate,
+            endDate: filters.compareEndDate,
+            groupBy: "month",
+          });
+          setLiveComparisonData(compSummary);
+        } catch {
+          setLiveComparisonData(null);
+        }
+      } else {
+        setLiveComparisonData(null);
+      }
+    } catch {
+      // Strictly set to null so the empty zero-state is displayed without mock fallback
+      setLiveSummaryData(null);
+      setLiveComparisonData(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters.startDate, filters.endDate, filters.viewBy, filters.compare, filters.compareStartDate, filters.compareEndDate]);
+
+  useEffect(() => {
+    fetchLiveData();
+  }, [fetchLiveData]);
+
+  // Compute Active Data (Strictly live data, or clean zero-state if empty/error)
+  const data: CFSData = useMemo(() => {
+    if (liveSummaryData && liveSummaryData.success) {
+      const live = transformSummaryToDirectCFSData(liveSummaryData, liveComparisonData, currentEntity);
+      return { ...live, lastUpdated };
+    }
+    return { ...createEmptyCFSData(currentEntity, filters.endDate), lastUpdated };
+  }, [liveSummaryData, liveComparisonData, currentEntity, filters.endDate, lastUpdated]);
 
   const setViewBy = (viewBy: CFSViewBy) => {
-    let periodLabel = "FY 2026 YTD";
-    let dateRangeLabel = "Jan 1 – Oct 31, 2026 304 days · to date";
-    let comparePeriodLabel = "Previous year (FY 2025 YTD)";
+    let periodLabel = "FY 2026 H1";
+    let dateRangeLabel = "Jan 1 – Jun 30, 2026";
+    let comparePeriodLabel = "Previous year (FY 2025)";
+    let startDate = "2026-01-01";
+    let endDate = "2026-06-30";
+    let compareStartDate = "2025-01-01";
+    let compareEndDate = "2025-06-30";
 
     if (viewBy === "Monthly") {
-      periodLabel = "Sep 2026";
-      dateRangeLabel = "Sep 1 – Sep 30, 2026 30 days";
-      comparePeriodLabel = "Previous period (Aug 2026)";
+      periodLabel = "May 2026";
+      dateRangeLabel = "May 1 – May 31, 2026";
+      comparePeriodLabel = "Previous month (Apr 2026)";
+      startDate = "2026-05-01";
+      endDate = "2026-05-31";
+      compareStartDate = "2026-04-01";
+      compareEndDate = "2026-04-30";
     } else if (viewBy === "Quarterly") {
-      periodLabel = "Q3 2026";
-      dateRangeLabel = "Jul 1 – Sep 30, 2026 92 days";
-      comparePeriodLabel = "Previous year (Q3 2025)";
+      periodLabel = "Q1 2026";
+      dateRangeLabel = "Jan 1 – Mar 31, 2026";
+      comparePeriodLabel = "Previous quarter (Q4 2025)";
+      startDate = "2026-01-01";
+      endDate = "2026-03-31";
+      compareStartDate = "2025-10-01";
+      compareEndDate = "2025-12-31";
     }
 
     setFilters((prev) => ({
@@ -75,6 +145,10 @@ export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
       periodLabel,
       dateRangeLabel,
       comparePeriodLabel,
+      startDate,
+      endDate,
+      compareStartDate,
+      compareEndDate,
     }));
   };
 
@@ -87,8 +161,8 @@ export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
   };
 
   const setCompareOption = (compareOption: CFSCompareOption) => {
-    let comparePeriodLabel = "Previous year (FY 2025 YTD)";
-    if (compareOption === "previous_period") comparePeriodLabel = "Previous period (FY 2025)";
+    let comparePeriodLabel = "Previous year (FY 2025)";
+    if (compareOption === "previous_period") comparePeriodLabel = "Previous period";
     if (compareOption === "custom") comparePeriodLabel = "Custom period";
     setFilters((prev) => ({ ...prev, compareOption, comparePeriodLabel }));
   };
@@ -101,10 +175,6 @@ export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
     setFilters((prev) => ({ ...prev, showChangeColumns }));
   };
 
-  const setSimulateUnmapped = (simulateUnmapped: boolean) => {
-    setFilters((prev) => ({ ...prev, simulateUnmapped }));
-  };
-
   const openAuditTrail = (line: CFSStatementLine) => {
     setSelectedLineForAudit(line);
   };
@@ -114,10 +184,11 @@ export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshData = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-    }, 400);
+    fetchLiveData();
+  };
+
+  const applyFilters = (newFilters: Partial<CFSFilterState>) => {
+    setFilters((prev) => ({ ...prev, ...newFilters }));
   };
 
   return (
@@ -127,16 +198,17 @@ export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
         data,
         isLoading,
         selectedLineForAudit,
+        liveSummaryData,
         setViewBy,
         setPeriodDate,
         setCompare,
         setCompareOption,
         setEntity,
         setShowChangeColumns,
-        setSimulateUnmapped,
         openAuditTrail,
         closeAuditTrail,
         refreshData,
+        applyFilters,
       }}
     >
       {children}

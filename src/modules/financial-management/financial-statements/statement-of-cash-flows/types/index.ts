@@ -20,9 +20,101 @@ export interface CFSFilterState {
   compare: boolean;
   compareOption: CFSCompareOption;
   comparePeriodLabel: string; // e.g. "Previous year (FY 2025 YTD)"
+  compareStartDate?: string;
+  compareEndDate?: string;
   entity: CFSEntityCode;
   showChangeColumns: boolean;
   simulateUnmapped: boolean;
+  dataSourceMode: "live" | "sample";
+}
+
+// Backend API Level 1: Summary Types
+export interface CFSSummaryAccountLine {
+  coaId: number | null;
+  glCode: string | null;
+  accountTitle: string;
+  inflow: number;
+  outflow: number;
+  net: number;
+}
+
+export interface CFSSummaryActivity {
+  code: "OPERATING" | "INVESTING" | "FINANCING" | "UNCLASSIFIED";
+  label: string;
+  inflow: number;
+  outflow: number;
+  net: number;
+  lines: CFSSummaryAccountLine[];
+}
+
+export interface CFSSummaryTrendPoint {
+  period: string; // "2026-01", "2026-01-15", etc.
+  operating: number;
+  investing: number;
+  financing: number;
+  unclassified: number;
+  net: number;
+}
+
+export interface CFSSummaryResponse {
+  success: boolean;
+  message?: string;
+  period: {
+    startDate: string;
+    endDate: string;
+  };
+  openingCash: number;
+  netChange: number;
+  closingCash: number;
+  activities: CFSSummaryActivity[];
+  unclassified: CFSSummaryActivity;
+  trend: CFSSummaryTrendPoint[];
+}
+
+// Backend API Level 2: Entries Types
+export interface CFSEntryItem {
+  jeNo: string;
+  transactionDate: string;
+  transactionRef: string;
+  sourceModule: string;
+  description: string;
+  cashFlowActivity: string;
+  coaId: number | null;
+  glCode: string | null;
+  accountTitle: string;
+  inflow: number;
+  outflow: number;
+  net: number;
+}
+
+export interface CFSEntriesResponse {
+  success: boolean;
+  page: number;
+  size: number;
+  totalItems: number;
+  totalPages: number;
+  items: CFSEntryItem[];
+}
+
+// Backend API Level 3: Journal Details
+export interface CFSJournalLine {
+  accountNumber: string;
+  accountTitle: string;
+  description: string;
+  debit: number;
+  credit: number;
+}
+
+export interface CFSJournalDetails {
+  journalEntryId: string;
+  sourceModule: string;
+  transactionRef: string;
+  transactionDate: string;
+  description: string;
+  status: string;
+  totalDebit: number;
+  totalCredit: number;
+  lines: CFSJournalLine[];
 }
 
 export type CFSRowType =
@@ -35,16 +127,18 @@ export type CFSRowType =
 
 export interface CFSStatementLine {
   id: string;
+  coaId?: number | null;
+  glCode?: string | null;
   label: string;
   type: CFSRowType;
   indent?: number; // 0, 1, 2
-  sectionKey?: "operating" | "investing" | "financing" | "summary" | "non_cash" | "components_of_cash";
+  sectionKey?: "operating" | "investing" | "financing" | "summary" | "non_cash" | "components_of_cash" | "unclassified";
   currentAmount?: number | null;
   comparisonAmount?: number | null;
   changeAmount?: number | null;
   changePercent?: number | null;
   isBold?: boolean;
-  isNegativeInFormat?: boolean; // display in parentheses when negative or by nature
+  isNegativeInFormat?: boolean;
   hasAuditTrail?: boolean;
   needsReview?: boolean;
 }
@@ -119,19 +213,6 @@ export interface CFSEliminationEntry {
   ref: string;
   description: string;
   linesAffected: string;
-}
-
-export interface CFSAuditTrailLevel {
-  level: number;
-  title: string;
-  statusText?: string;
-  isPassed: boolean;
-  difference?: number;
-  items: Array<{
-    label: string;
-    value: string | number;
-    subtext?: string;
-  }>;
 }
 
 export interface CFSData {
