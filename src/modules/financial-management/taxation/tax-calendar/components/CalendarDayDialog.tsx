@@ -32,7 +32,7 @@ export function CalendarDayDialog({
 
   return (
     <Dialog open={date !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] rounded-2xl p-0 sm:max-w-[720px]">
+      <DialogContent showCloseButton={false} className="w-[95vw] rounded-2xl p-0 sm:max-w-[720px]">
         <div className="flex max-h-[85vh] flex-col overflow-hidden">
           <DialogHeader className="border-b px-6 py-4">
             <DialogTitle className="tabular-nums">{date ? formatLongDate(date) : ""}</DialogTitle>

@@ -205,7 +205,7 @@ export default function CustomersMemoApprovalModule() {
                                 <h1 className="text-4xl lg:text-5xl font-black tracking-tighter text-foreground">
                                     Memo Approvals
                                 </h1>
-                                <Badge className="bg-amber-500/15 text-amber-700 hover:bg-amber-500/100/25 border-none px-3 font-black text-[10px] uppercase tracking-widest h-6 rounded-full animate-pulse shadow-sm shadow-amber-500/10">
+                                <Badge className="bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 border-none px-3 font-black text-[10px] uppercase tracking-widest h-6 rounded-full animate-pulse shadow-sm shadow-amber-500/10">
                                     Queue
                                 </Badge>
                             </div>
@@ -217,7 +217,7 @@ export default function CustomersMemoApprovalModule() {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3 bg-card p-2 rounded-[2rem] shadow-xl shadow-slate-200/40 border border-border ring-4 ring-border/30">
+                <div className="flex items-center gap-3 bg-card p-2 rounded-[2rem] shadow-xl shadow-black/10 dark:shadow-black/40 border border-border ring-4 ring-border/30">
                     {selectedIds.size > 0 && (
                         <Button
                             onClick={() => setShowBulkConfirm(true)}
@@ -281,7 +281,7 @@ export default function CustomersMemoApprovalModule() {
             </div>
 
             {/* Filtering Bar */}
-            <div className="bg-card p-5 rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-border flex flex-wrap items-center gap-6">
+            <div className="bg-card p-5 rounded-[2.5rem] shadow-2xl shadow-black/10 dark:shadow-black/40 border border-border flex flex-wrap items-center gap-6">
                 <div className="flex items-center gap-3 pr-4 border-r border-border">
                     <div className="h-9 w-9 bg-slate-950 rounded-xl flex items-center justify-center text-amber-500 shadow-lg">
                         <Filter className="h-4 w-4" />
@@ -336,7 +336,7 @@ export default function CustomersMemoApprovalModule() {
                 <Button
                     variant="ghost"
                     onClick={resetFilters}
-                    className="h-12 rounded-xl px-4 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest text-muted-foreground hover:text-red-500 hover:bg-red-500/100/25 transition-all"
+                    className="h-12 rounded-xl px-4 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest text-muted-foreground hover:text-red-500 hover:bg-red-500/25 transition-all"
                 >
                     <FilterX className="h-4 w-4" />
                     Reset
@@ -376,7 +376,7 @@ export default function CustomersMemoApprovalModule() {
             </div>
 
             {/* Main Listing Area */}
-            <div className="bg-card rounded-[2.5rem] shadow-2xl shadow-slate-300/40 border border-border overflow-hidden flex flex-col">
+            <div className="bg-card rounded-[2.5rem] shadow-2xl shadow-black/10 dark:shadow-black/40 border border-border overflow-hidden flex flex-col">
                 <div className="p-6 px-10 border-b border-border flex items-center justify-between bg-card sticky top-0 z-10">
                     <div className="flex items-center gap-4">
                         <div className="h-10 w-10 bg-amber-500/10 rounded-2xl flex items-center justify-center border border-amber-500/20 shadow-sm shadow-amber-500/5">
@@ -405,7 +405,7 @@ export default function CustomersMemoApprovalModule() {
                 <div className="flex-1 overflow-x-auto overflow-y-visible">
                     {paginatedMemos.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-40 text-center px-10 bg-muted/20">
-                            <div className="h-32 w-32 bg-card rounded-[2.5rem] flex items-center justify-center mb-10 border shadow-2xl shadow-slate-200 ring-8 ring-border/30">
+                            <div className="h-32 w-32 bg-card rounded-[2.5rem] flex items-center justify-center mb-10 border shadow-2xl shadow-black/10 dark:shadow-black/40 ring-8 ring-border/30">
                                 <CheckCircle2 className="h-14 w-14 text-green-500 animate-bounce" />
                             </div>
                             <h3 className="text-3xl font-black tracking-tighter text-foreground mb-2 uppercase italic">
@@ -506,7 +506,7 @@ export default function CustomersMemoApprovalModule() {
                                                     setSelectedMemoId(memo.id);
                                                     setDetailOpen(true);
                                                 }}
-                                                className="bg-card border-2 border-border hover:border-amber-500 hover:bg-amber-500/100/250 hover:text-white rounded-[1.25rem] h-14 px-8 font-black text-xs uppercase tracking-[0.2em] text-muted-foreground shadow-sm transition-all duration-500 group/btn active:scale-90 flex items-center gap-3"
+                                                className="bg-card border-2 border-border hover:border-amber-500 hover:bg-amber-500/250 hover:text-white rounded-[1.25rem] h-14 px-8 font-black text-xs uppercase tracking-[0.2em] text-muted-foreground shadow-sm transition-all duration-500 group/btn active:scale-90 flex items-center gap-3"
                                             >
                                                 Verify & Post
                                                 <ArrowUpRight className="h-4 w-4 group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-all duration-500" />
@@ -618,7 +618,7 @@ export default function CustomersMemoApprovalModule() {
                             <Button
                                 onClick={() => setShowBulkConfirm(true)}
                                 disabled={bulkApproving}
-                                className="h-12 rounded-2xl px-8 bg-amber-500/100 hover:bg-amber-600 text-foreground font-black text-xs uppercase tracking-widest shadow-xl shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-3 border-none"
+                                className="h-12 rounded-2xl px-8 bg-amber-500 hover:bg-amber-600 text-foreground font-black text-xs uppercase tracking-widest shadow-xl shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-3 border-none"
                             >
                                 {bulkApproving ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -719,7 +719,7 @@ function StatsCard({ label, value, icon: Icon, color, trend }: StatsCardProps) {
     };
 
     return (
-        <div className="bg-card rounded-[2.5rem] p-8 shadow-2xl shadow-slate-200/80 border border-border relative overflow-hidden group hover:scale-[1.02] transition-all duration-700">
+        <div className="bg-card rounded-[2.5rem] p-8 shadow-2xl shadow-black/10 dark:shadow-black/40 border border-border relative overflow-hidden group hover:scale-[1.02] transition-all duration-700">
             {/* Background Icon Detail */}
             <div className="absolute -top-6 -right-6 opacity-[0.08] group-hover:opacity-[0.15] group-hover:rotate-12 group-hover:scale-125 transition-all duration-700 pointer-events-none">
                 <Icon className="h-48 w-48 text-foreground" />
@@ -738,7 +738,7 @@ function StatsCard({ label, value, icon: Icon, color, trend }: StatsCardProps) {
                 </div>
 
                 <div className="flex items-center gap-3 pt-4 border-t border-slate-50">
-                    <div className={`h-2.5 w-2.5 rounded-full animate-pulse shadow-sm transition-colors ${color === 'amber' ? 'bg-amber-500/100 shadow-amber-200' : color === 'blue' ? 'bg-blue-500/100 shadow-blue-200' : 'bg-emerald-500/100 shadow-emerald-200'}`} />
+                    <div className={`h-2.5 w-2.5 rounded-full animate-pulse shadow-sm transition-colors ${color === 'amber' ? 'bg-amber-500 shadow-amber-200' : color === 'blue' ? 'bg-blue-500 shadow-blue-200' : 'bg-emerald-500 shadow-emerald-200'}`} />
                     <span className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground italic">{trend}</span>
                 </div>
             </div>

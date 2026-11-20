@@ -23,7 +23,7 @@ const COPY: Record<DecisionKind, { title: string; verb: string; hint: string }> 
   APPROVE: {
     title: "Approve this loan",
     verb: "Approve",
-    hint: "Approving moves the loan to “approved, not yet released”. Remarks are optional; they go into the approval trail.",
+    hint: "Approving moves the loan to awaiting release. Remarks are optional; they go into the approval trail.",
   },
   REJECT: {
     title: "Reject this loan",

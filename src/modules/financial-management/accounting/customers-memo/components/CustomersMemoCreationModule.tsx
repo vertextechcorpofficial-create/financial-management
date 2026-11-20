@@ -261,7 +261,7 @@ export default function CustomersMemoCreationModule() {
                                     )}>
                                         <div className={cn(
                                             "h-3 w-3 rounded-full animate-pulse",
-                                            isBalanced ? "bg-green-500/100 shadow-[0_0_12px_rgba(34,197,94,0.4)]" : "bg-muted-foreground/30"
+                                            isBalanced ? "bg-green-500 shadow-[0_0_12px_rgba(34,197,94,0.4)]" : "bg-muted-foreground/30"
                                         )} />
                                         <span className={cn(
                                             "text-[10px] font-black uppercase tracking-widest",

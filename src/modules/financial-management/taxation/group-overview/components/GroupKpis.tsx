@@ -74,7 +74,7 @@ export function GroupKpis({ totals }: { totals: GroupTotals }) {
         )}`}
       >
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Group net payable</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Group net payable</p>
           <p className="mt-1 text-4xl font-semibold tabular-nums tracking-tight">
             {formatCurrency(totals.netPayable)}
           </p>

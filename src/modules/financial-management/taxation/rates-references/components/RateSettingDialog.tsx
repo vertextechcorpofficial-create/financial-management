@@ -127,7 +127,7 @@ export function RateSettingDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] sm:max-w-[640px]">
+      <DialogContent showCloseButton={false} className="w-[95vw] sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle>{row?.rateId ? "Edit rate version" : "New rate version"}</DialogTitle>
           <DialogDescription>

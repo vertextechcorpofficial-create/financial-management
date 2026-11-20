@@ -66,7 +66,7 @@ export function UnlockDialog({ periodKey, isSaving, onClose, onSubmit }: UnlockD
         }
       }}
     >
-      <DialogContent className="flex max-h-[85vh] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[520px]">
+      <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[520px]">
         <DialogHeader className="border-b border-border/50 px-6 py-4">
           <DialogTitle>Unlock {periodKey ? PERIOD_LABELS[periodKey] : "the period"}</DialogTitle>
           <DialogDescription>
