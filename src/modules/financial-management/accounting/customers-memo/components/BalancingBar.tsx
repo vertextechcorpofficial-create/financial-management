@@ -21,13 +21,13 @@ export const BalancingBar = React.memo(function BalancingBar({
         <div className={cn(
             "relative overflow-hidden rounded-[2.5rem] border p-2 transition-all duration-700 shadow-2xl",
             isBalanced 
-                ? "bg-emerald-500/5 border-emerald-500/20 shadow-emerald-500/10" 
-                : "bg-amber-500/5 border-amber-500/20 shadow-amber-500/10"
+                ? "bg-emerald-500/100/5 border-emerald-500/20 shadow-emerald-500/10" 
+                : "bg-amber-500/100/5 border-amber-500/20 shadow-amber-500/10"
         )}>
             {/* Background Decorative Glow */}
             <div className={cn(
                 "absolute -right-24 -top-24 h-64 w-64 rounded-full blur-[100px] opacity-20 transition-colors duration-700",
-                isBalanced ? "bg-emerald-500" : "bg-amber-500"
+                isBalanced ? "bg-emerald-500/100" : "bg-amber-500/100"
             )} />
 
             <div className="relative flex flex-col xl:flex-row items-stretch xl:items-center gap-4">
@@ -35,10 +35,10 @@ export const BalancingBar = React.memo(function BalancingBar({
                 <div className={cn(
                     "flex items-center gap-6 px-6 md:px-10 py-6 rounded-[2rem] transition-all duration-700",
                     isBalanced 
-                        ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30" 
-                        : "bg-amber-500 text-white shadow-lg shadow-amber-500/30"
+                        ? "bg-emerald-500/100 text-white shadow-lg shadow-emerald-500/30" 
+                        : "bg-amber-500/100 text-white shadow-lg shadow-amber-500/30"
                 )}>
-                    <div className="flex-shrink-0 bg-white/20 p-3 rounded-2xl">
+                    <div className="flex-shrink-0 bg-card/20 p-3 rounded-2xl">
                         {isBalanced 
                             ? <CheckCircle2 className="h-10 w-10 animate-in zoom-in spin-in-90 duration-700" /> 
                             : <CircleAlert className="h-10 w-10 animate-pulse" />
@@ -57,8 +57,8 @@ export const BalancingBar = React.memo(function BalancingBar({
                 {/* Metrics Grid */}
                 <div className="flex-1 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-2">
                     {/* Memo Target */}
-                    <div className="group flex items-center gap-4 bg-white/60 dark:bg-white/5 border border-white/80 dark:border-white/10 px-6 py-5 rounded-[1.75rem] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-                        <div className="h-12 w-12 bg-blue-500/10 rounded-2xl flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
+                    <div className="group flex items-center gap-4 bg-card/60 dark:bg-card/5 border border-white/80 dark:border-white/10 px-6 py-5 rounded-[1.75rem] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+                        <div className="h-12 w-12 bg-blue-500/100/10 rounded-2xl flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
                             <Target className="h-6 w-6" />
                         </div>
                         <div className="flex flex-col">
@@ -70,8 +70,8 @@ export const BalancingBar = React.memo(function BalancingBar({
                     </div>
 
                     {/* Applied Total */}
-                    <div className="group flex items-center gap-4 bg-white/60 dark:bg-white/5 border border-white/80 dark:border-white/10 px-6 py-5 rounded-[1.75rem] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-                        <div className="h-12 w-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
+                    <div className="group flex items-center gap-4 bg-card/60 dark:bg-card/5 border border-white/80 dark:border-white/10 px-6 py-5 rounded-[1.75rem] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+                        <div className="h-12 w-12 bg-indigo-500/100/10 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
                             <Sigma className="h-6 w-6" />
                         </div>
                         <div className="flex flex-col">
@@ -86,12 +86,12 @@ export const BalancingBar = React.memo(function BalancingBar({
                     <div className={cn(
                         "group flex items-center gap-4 px-6 py-5 rounded-[1.75rem] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border",
                         isBalanced 
-                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700" 
-                            : "bg-orange-500/10 border-orange-500/20 text-orange-700"
+                            ? "bg-emerald-500/100/10 border-emerald-500/20 text-emerald-700" 
+                            : "bg-orange-500/100/10 border-orange-500/20 text-orange-700"
                     )}>
                         <div className={cn(
                             "h-12 w-12 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform",
-                            isBalanced ? "bg-emerald-500/20" : "bg-orange-500/20"
+                            isBalanced ? "bg-emerald-500/100/20" : "bg-orange-500/100/20"
                         )}>
                             <ArrowRightLeft className="h-6 w-6" />
                         </div>
@@ -107,4 +107,5 @@ export const BalancingBar = React.memo(function BalancingBar({
         </div>
     );
 });
+
 

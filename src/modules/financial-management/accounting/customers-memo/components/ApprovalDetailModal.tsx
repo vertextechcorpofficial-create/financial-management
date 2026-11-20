@@ -151,7 +151,7 @@ export function ApprovalDetailModal({ memoId, open, onOpenChange, onApproved, re
                     const referenceId = reference.id;
                     return (
                         <React.Fragment key={`${reference.type}-${reference.id ?? number}-${index}`}>
-                            {index > 0 && <span className="text-slate-400">,</span>}
+                            {index > 0 && <span className="text-muted-foreground">,</span>}
                             {canOpenRelatedDetails && referenceId !== null && referenceId > 0 ? (
                                 <Button
                                     type="button"
@@ -182,7 +182,7 @@ export function ApprovalDetailModal({ memoId, open, onOpenChange, onApproved, re
                 <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 text-white relative">
                     <DialogHeader>
                         <div className="flex items-center gap-4 mb-2">
-                            <div className="h-12 w-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
+                            <div className="h-12 w-12 bg-card/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
                                 <FileText className="h-6 w-6 text-white" />
                             </div>
                             <div>
@@ -200,7 +200,7 @@ export function ApprovalDetailModal({ memoId, open, onOpenChange, onApproved, re
                     </div>
                 </div>
 
-                <div className="p-8 max-h-[70vh] overflow-y-auto space-y-8 bg-slate-50/50">
+                <div className="p-8 max-h-[70vh] overflow-y-auto space-y-8 bg-muted/50">
                     {loading ? (
                         <div className="flex flex-col items-center justify-center py-20 gap-4">
                             <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
@@ -210,33 +210,33 @@ export function ApprovalDetailModal({ memoId, open, onOpenChange, onApproved, re
                         <>
                             {/* Summary Cards */}
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                                <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200/60 space-y-2">
+                                <div className="bg-card p-5 rounded-3xl shadow-sm border border-border/60 space-y-2">
                                     <div className="flex items-center gap-2 text-blue-600">
                                         <Receipt className="h-4 w-4 shrink-0" />
                                         <span className="text-[10px] font-black uppercase tracking-widest">Memo Number</span>
                                     </div>
-                                    <p className="text-xl font-black text-slate-900 tracking-tight">{details.header.memo_number}</p>
+                                    <p className="text-xl font-black text-foreground tracking-tight">{details.header.memo_number}</p>
                                 </div>
-                                <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200/60 space-y-2">
+                                <div className="bg-card p-5 rounded-3xl shadow-sm border border-border/60 space-y-2">
                                     <div className="flex items-center gap-2 text-indigo-600">
                                         <CreditCard className="h-4 w-4 shrink-0" />
                                         <span className="text-[10px] font-black uppercase tracking-widest">Total Value</span>
                                     </div>
-                                    <p className="text-xl font-black text-slate-900 tabular-nums">{formatCurrency(details.header.amount)}</p>
+                                    <p className="text-xl font-black text-foreground tabular-nums">{formatCurrency(details.header.amount)}</p>
                                 </div>
-                                <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200/60 space-y-2">
+                                <div className="bg-card p-5 rounded-3xl shadow-sm border border-border/60 space-y-2">
                                     <div className="flex items-center gap-2 text-blue-600">
                                         <Layers className="h-4 w-4 shrink-0" />
                                         <span className="text-[10px] font-black uppercase tracking-widest">Applied Value</span>
                                     </div>
-                                    <p className="text-xl font-black text-slate-900 tabular-nums">{formatCurrency(details.header.applied_amount || 0)}</p>
+                                    <p className="text-xl font-black text-foreground tabular-nums">{formatCurrency(details.header.applied_amount || 0)}</p>
                                 </div>
-                                <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200/60 space-y-2">
+                                <div className="bg-card p-5 rounded-3xl shadow-sm border border-border/60 space-y-2">
                                     <div className="flex items-center gap-2 text-amber-600">
                                         <User className="h-4 w-4 shrink-0" />
                                         <span className="text-[10px] font-black uppercase tracking-widest">Encoder</span>
                                     </div>
-                                    <p className="text-xl font-bold text-slate-900 tracking-tight">
+                                    <p className="text-xl font-bold text-foreground tracking-tight">
                                         {(() => {
                                             const enc = details.header.encoder_id;
                                             if (enc && typeof enc === 'object' && 'user_fname' in enc && enc.user_fname) {
@@ -249,9 +249,9 @@ export function ApprovalDetailModal({ memoId, open, onOpenChange, onApproved, re
                             </div>
 
                             {/* Detailed Info */}
-                            <div className="bg-white rounded-[2rem] border border-slate-200/60 shadow-sm overflow-hidden">
-                                <div className="p-6 bg-slate-50 border-b border-slate-100">
-                                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-500">Transaction Details</h3>
+                            <div className="bg-card rounded-[2rem] border border-border/60 shadow-sm overflow-hidden">
+                                <div className="p-6 bg-muted border-b border-border">
+                                    <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground">Transaction Details</h3>
                                 </div>
                                 <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                                     <div className="space-y-4">
@@ -287,11 +287,11 @@ export function ApprovalDetailModal({ memoId, open, onOpenChange, onApproved, re
                     ) : null}
                 </div>
 
-                <DialogFooter className="p-6 bg-white border-t border-slate-100 flex items-center justify-end gap-3">
+                <DialogFooter className="p-6 bg-card border-t border-border flex items-center justify-end gap-3">
                     <Button 
                         variant="ghost" 
                         onClick={() => onOpenChange(false)}
-                        className="rounded-xl font-bold text-slate-500 hover:text-slate-900"
+                        className="rounded-xl font-bold text-muted-foreground hover:text-foreground"
                     >
                         Close
                     </Button>
@@ -299,7 +299,7 @@ export function ApprovalDetailModal({ memoId, open, onOpenChange, onApproved, re
                         <Button
                             variant="outline"
                             onClick={() => setPrintSettingsOpen(true)}
-                            className="rounded-xl font-bold text-slate-700 hover:text-slate-900 border-slate-200 shadow-sm"
+                            className="rounded-xl font-bold text-foreground hover:text-foreground border-border shadow-sm"
                         >
                             <Printer className="h-4 w-4 mr-2" />
                             Print
@@ -362,7 +362,7 @@ export function ApprovalDetailModal({ memoId, open, onOpenChange, onApproved, re
                     <div className="bg-gradient-to-br from-rose-600 to-red-700 p-6 text-white relative">
                         <DialogHeader>
                             <div className="flex items-center gap-4">
-                                <div className="h-12 w-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
+                                <div className="h-12 w-12 bg-card/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
                                     <XCircle className="h-6 w-6 text-white" />
                                 </div>
                                 <div>
@@ -377,46 +377,46 @@ export function ApprovalDetailModal({ memoId, open, onOpenChange, onApproved, re
                         </DialogHeader>
                     </div>
 
-                    <div className="p-6 space-y-4 bg-slate-50">
+                    <div className="p-6 space-y-4 bg-muted">
                         {details?.header.reason && (
                             <div className="space-y-1">
-                                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                                     Original Reason
                                 </label>
-                                <div className="p-3 bg-white rounded-xl border border-slate-200 text-xs font-bold text-slate-700 break-words">
+                                <div className="p-3 bg-card rounded-xl border border-border text-xs font-bold text-foreground break-words">
                                     {details.header.reason}
                                 </div>
                             </div>
                         )}
 
                         <div className="space-y-2">
-                            <label className="text-xs font-black uppercase tracking-widest text-slate-500">
+                            <label className="text-xs font-black uppercase tracking-widest text-muted-foreground">
                                 Rejection Remarks <span className="text-rose-500">*</span>
                             </label>
                             <Textarea
                                 value={rejectionReason}
                                 onChange={e => setRejectionReason(e.target.value)}
                                 placeholder="Enter rejection reason..."
-                                className="min-h-[100px] rounded-2xl bg-white border-slate-200 focus:ring-2 focus:ring-rose-500/20 font-medium text-sm"
+                                className="min-h-[100px] rounded-2xl bg-card border-border focus:ring-2 focus:ring-rose-500/20 font-medium text-sm"
                             />
                         </div>
 
                         {rejectionReason.trim() && (
-                            <div className="p-3 bg-rose-50/60 rounded-xl border border-rose-100 space-y-1">
+                            <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20 space-y-1">
                                 <span className="text-[9px] font-black uppercase tracking-widest text-rose-600">Final Reason Output Preview</span>
-                                <p className="text-xs font-bold text-slate-800 break-words">
+                                <p className="text-xs font-bold text-foreground break-words">
                                     {details?.header.reason?.trim() ? `${details.header.reason.trim()} | ` : ""}{new Date().toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit" })} - {rejectionReason.trim()}
                                 </p>
                             </div>
                         )}
                     </div>
 
-                    <DialogFooter className="p-6 bg-white border-t border-slate-100 flex justify-end gap-3">
+                    <DialogFooter className="p-6 bg-card border-t border-border flex justify-end gap-3">
                         <Button
                             variant="ghost"
                             onClick={() => setRejectDialogOpen(false)}
                             disabled={rejecting}
-                            className="rounded-xl font-bold text-slate-500 hover:text-slate-900"
+                            className="rounded-xl font-bold text-muted-foreground hover:text-foreground"
                         >
                             Cancel
                         </Button>
@@ -444,8 +444,9 @@ export function ApprovalDetailModal({ memoId, open, onOpenChange, onApproved, re
 function DetailItem({ label, value }: { label: string; value: React.ReactNode }) {
     return (
         <div className="space-y-1">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{label}</p>
-            <p className="text-sm font-bold text-slate-800 leading-tight">{value}</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
+            <p className="text-sm font-bold text-foreground leading-tight">{value}</p>
         </div>
     );
 }
+
