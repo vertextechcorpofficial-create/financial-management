@@ -18,7 +18,7 @@ import type { ApprovalFilters as Filters } from "../hooks/useApprovals";
 const QUEUE_STATUS_CHOICES = [
   { value: "ALL", label: "Everything waiting" },
   { value: "PENDING_APPROVAL", label: "Pending approval" },
-  { value: "PENDING_RELEASE", label: "Approved, not yet released" },
+  { value: "PENDING_RELEASE", label: "Awaiting release" },
 ] as const;
 
 export function ApprovalFilters({

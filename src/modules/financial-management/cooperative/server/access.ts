@@ -45,7 +45,7 @@ const Grant = z.object({ module_id: ID });
 
 type AccessStatus = 401 | 403 | 503;
 type AccessResult =
-  | { ok: true; actorId: number; actorRole: string | null; actorName: string; workspaces: CooperativeWorkspace[]; setCookies: string[] }
+  | { ok: true; actorId: number; actorRole: string | null; actorName: string; actorEmail: string; workspaces: CooperativeWorkspace[]; setCookies: string[] }
   | { ok: false; status: AccessStatus; message: string; setCookies: string[] };
 
 const messages: Record<AccessStatus, string> = {
@@ -138,7 +138,8 @@ export async function getCooperativeAccess(): Promise<AccessResult> {
     if (!workspaces.length) return denied(403, setCookies);
     const actorName = [claims?.FirstName, claims?.LastName].filter((part): part is string => typeof part === "string")
       .map(part => part.trim()).filter(Boolean).join(" ") || `User ${actorId}`;
-    return { ok: true, actorId, actorRole: user.role ?? (isAdmin ? "ADMIN" : null), actorName, workspaces, setCookies };
+    const actorEmail = typeof claims?.email === "string" ? claims.email.trim() : "";
+    return { ok: true, actorId, actorRole: user.role ?? (isAdmin ? "ADMIN" : null), actorName, actorEmail, workspaces, setCookies };
   } catch {
     return denied(503, setCookies);
   }
