@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
-import { formatPHP } from "../../../utils/cfs-format";
+import React from "react";
 
 interface WaterfallItem {
   key: string;
@@ -16,8 +15,6 @@ interface WaterfallItem {
 }
 
 export function CFSWaterfallChart() {
-  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
-
   // Exact values from design:
   // Opening: 7.95M
   // Operating: +828.0K
@@ -131,8 +128,6 @@ export function CFSWaterfallChart() {
             <div
               key={item.key}
               className="flex-1 flex flex-col items-center justify-end h-full relative z-10 group"
-              onMouseEnter={() => setHoveredKey(item.key)}
-              onMouseLeave={() => setHoveredKey(null)}
             >
               {/* Value Pill Above Bar */}
               <div

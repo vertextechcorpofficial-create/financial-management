@@ -107,61 +107,85 @@ export function StatementOfChangesInEquityProvider({ children }: { children: Rea
     loadData();
   }, [loadData]);
 
-  const setViewBy = (viewBy: SCEViewBy) => {
-    const range = computeDateRange(viewBy, filters.periodDate);
-    setFilters((prev) => ({
-      ...prev,
-      viewBy,
-      periodLabel: range.label,
-      startDate: range.startDate,
-      endDate: range.endDate,
-      daysCount: range.daysCount,
-    }));
-  };
+  const setViewBy = useCallback((viewBy: SCEViewBy) => {
+    setFilters((prev) => {
+      const range = computeDateRange(viewBy, prev.periodDate);
+      return {
+        ...prev,
+        viewBy,
+        periodLabel: range.label,
+        startDate: range.startDate,
+        endDate: range.endDate,
+        daysCount: range.daysCount,
+      };
+    });
+  }, []);
 
-  const setPeriodDate = (periodDate: string) => {
-    const range = computeDateRange(filters.viewBy, periodDate);
-    setFilters((prev) => ({
-      ...prev,
-      periodDate,
-      periodLabel: range.label,
-      startDate: range.startDate,
-      endDate: range.endDate,
-      daysCount: range.daysCount,
-    }));
-  };
+  const setPeriodDate = useCallback((periodDate: string) => {
+    setFilters((prev) => {
+      const range = computeDateRange(prev.viewBy, periodDate);
+      return {
+        ...prev,
+        periodDate,
+        periodLabel: range.label,
+        startDate: range.startDate,
+        endDate: range.endDate,
+        daysCount: range.daysCount,
+      };
+    });
+  }, []);
 
-  const stepPrevPeriod = () => {
-    const nextDate = stepPeriod(filters.viewBy, filters.periodDate, "prev");
-    setPeriodDate(nextDate);
-  };
+  const stepPrevPeriod = useCallback(() => {
+    setFilters((prev) => {
+      const nextDate = stepPeriod(prev.viewBy, prev.periodDate, "prev");
+      const range = computeDateRange(prev.viewBy, nextDate);
+      return {
+        ...prev,
+        periodDate: nextDate,
+        periodLabel: range.label,
+        startDate: range.startDate,
+        endDate: range.endDate,
+        daysCount: range.daysCount,
+      };
+    });
+  }, []);
 
-  const stepNextPeriod = () => {
-    const nextDate = stepPeriod(filters.viewBy, filters.periodDate, "next");
-    setPeriodDate(nextDate);
-  };
+  const stepNextPeriod = useCallback(() => {
+    setFilters((prev) => {
+      const nextDate = stepPeriod(prev.viewBy, prev.periodDate, "next");
+      const range = computeDateRange(prev.viewBy, nextDate);
+      return {
+        ...prev,
+        periodDate: nextDate,
+        periodLabel: range.label,
+        startDate: range.startDate,
+        endDate: range.endDate,
+        daysCount: range.daysCount,
+      };
+    });
+  }, []);
 
-  const setDivision = (divisionId: string) => {
+  const setDivision = useCallback((divisionId: string) => {
     setFilters((prev) => ({ ...prev, divisionId }));
-  };
+  }, []);
 
-  const setDepartment = (departmentId: string) => {
+  const setDepartment = useCallback((departmentId: string) => {
     setFilters((prev) => ({ ...prev, departmentId }));
-  };
+  }, []);
 
-  const setBasis = (basis: SCEPriorPeriodBasis) => {
+  const setBasis = useCallback((basis: SCEPriorPeriodBasis) => {
     setFilters((prev) => ({ ...prev, basis }));
-  };
+  }, []);
 
-  const setCompare = (compare: boolean) => {
+  const setCompare = useCallback((compare: boolean) => {
     setFilters((prev) => ({ ...prev, compare }));
-  };
+  }, []);
 
-  const setCompareMode = (compareMode: SCECompareMode) => {
+  const setCompareMode = useCallback((compareMode: SCECompareMode) => {
     setFilters((prev) => ({ ...prev, compareMode }));
-  };
+  }, []);
 
-  const openDrillDown = async (glCode: string, title: string) => {
+  const openDrillDown = useCallback(async (glCode: string, title: string) => {
     setSelectedDrillDownAccount({ glCode, title });
     setIsDrillDownLoading(true);
     try {
@@ -173,20 +197,20 @@ export function StatementOfChangesInEquityProvider({ children }: { children: Rea
     } finally {
       setIsDrillDownLoading(false);
     }
-  };
+  }, [filters.startDate, filters.endDate]);
 
-  const closeDrillDown = () => {
+  const closeDrillDown = useCallback(() => {
     setSelectedDrillDownAccount(null);
     setDrillDownLines([]);
-  };
+  }, []);
 
-  const openCellDrillDown = (details: CellDrillDownDetails) => {
+  const openCellDrillDown = useCallback((details: CellDrillDownDetails) => {
     setCellDrillDown(details);
-  };
+  }, []);
 
-  const closeCellDrillDown = () => {
+  const closeCellDrillDown = useCallback(() => {
     setCellDrillDown(null);
-  };
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -231,6 +255,11 @@ export function StatementOfChangesInEquityProvider({ children }: { children: Rea
       setViewBy,
       stepNextPeriod,
       stepPrevPeriod,
+      setDivision,
+      setDepartment,
+      setBasis,
+      setCompare,
+      setCompareMode,
     ]
   );
 

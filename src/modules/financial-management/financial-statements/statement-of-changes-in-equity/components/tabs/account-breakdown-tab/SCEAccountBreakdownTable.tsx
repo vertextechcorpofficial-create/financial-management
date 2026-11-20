@@ -10,7 +10,7 @@ import { Search, ArrowUpDown, Loader2 } from "lucide-react";
 
 export function SCEAccountBreakdownTable() {
   const { data, openDrillDown, filters, isLoading } = useStatementOfChangesInEquity();
-  const accounts = data?.accounts || [];
+  const accounts = useMemo(() => data?.accounts || [], [data?.accounts]);
   const hasComparison = !!filters.compare && !!data?.hasComparison;
   const comparisonLabel = data?.comparisonLabel || "Comparison";
 

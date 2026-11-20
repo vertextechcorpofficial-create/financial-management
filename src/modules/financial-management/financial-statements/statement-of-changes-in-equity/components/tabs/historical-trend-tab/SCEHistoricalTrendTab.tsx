@@ -29,18 +29,12 @@ interface CustomTooltipProps {
   active?: boolean;
   payload?: TooltipPayloadItem[];
   label?: string;
-  metricTitle: string;
-  isComparisonActive?: boolean;
-  comparisonLabel?: string;
 }
 
 function TrendCustomTooltip({
   active,
   payload,
   label,
-  metricTitle,
-  isComparisonActive,
-  comparisonLabel,
 }: CustomTooltipProps) {
   if (!active || !payload || !payload.length) return null;
 
@@ -140,11 +134,7 @@ export function SCEHistoricalTrendTab() {
                 />
                 <Tooltip
                   content={
-                    <TrendCustomTooltip
-                      metricTitle="Ending Equity"
-                      isComparisonActive={hasComparison}
-                      comparisonLabel={comparisonLabel}
-                    />
+                    <TrendCustomTooltip />
                   }
                 />
                 <Legend
@@ -209,11 +199,7 @@ export function SCEHistoricalTrendTab() {
                 />
                 <Tooltip
                   content={
-                    <TrendCustomTooltip
-                      metricTitle="Profit / (Loss)"
-                      isComparisonActive={hasComparison}
-                      comparisonLabel={comparisonLabel}
-                    />
+                    <TrendCustomTooltip />
                   }
                 />
                 <Legend

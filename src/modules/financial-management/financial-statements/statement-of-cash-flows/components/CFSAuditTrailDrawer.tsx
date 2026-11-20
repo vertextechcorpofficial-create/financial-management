@@ -11,8 +11,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { CheckCircle2, ChevronRight, XCircle } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 
 export function CFSAuditTrailDrawer() {
   const { selectedLineForAudit, closeAuditTrail, filters, data } = useCashFlowStudio();

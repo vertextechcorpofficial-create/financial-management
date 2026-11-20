@@ -15,8 +15,10 @@ import { CFSAuditTrailDrawer } from "./components/CFSAuditTrailDrawer";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 
+type CFSTab = "statement" | "trend" | "liabilities" | "mapping";
+
 function CashFlowStudioInner() {
-  const [activeTab, setActiveTab] = useState<"statement" | "trend" | "liabilities" | "mapping">("statement");
+  const [activeTab, setActiveTab] = useState<CFSTab>("statement");
   const { data } = useCashFlowStudio();
 
   const unmappedCount = data.unmappedAccounts.length;
@@ -48,7 +50,7 @@ function CashFlowStudioInner() {
       <CFSSummaryCards onScrollToSection={scrollToSection} />
 
       {/* 5. Tabs Container */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as CFSTab)} className="w-full">
         <TabsList className="bg-muted/40 p-1 border">
           <TabsTrigger value="statement" className="text-xs font-semibold">
             Statement

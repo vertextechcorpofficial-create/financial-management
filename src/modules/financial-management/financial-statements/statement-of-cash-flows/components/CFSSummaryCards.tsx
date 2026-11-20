@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useCashFlowStudio } from "../providers/CashFlowStudioProvider";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { formatPHPWithSign, formatPercent } from "../utils/cfs-format";
 import { Activity, Building2, Landmark, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
 

@@ -3,10 +3,9 @@ import {
   SCEStatementResponse,
   SCEStatementRow,
   SCEAccountBreakdownItem,
-  EquityComponentKey,
   SCETrendPoint,
 } from "../types";
-import { EQUITY_GL_ACCOUNTS, EQUITY_COLUMNS } from "../constants/components";
+import { EQUITY_GL_ACCOUNTS } from "../constants/components";
 import { classifyJournalLine } from "./classifier";
 import { verifyEquityEquation } from "./reconciliation";
 import { MasterLedgerEntry } from "../services/sce-backend.service";

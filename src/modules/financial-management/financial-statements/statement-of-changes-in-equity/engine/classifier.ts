@@ -14,7 +14,7 @@ export interface ClassifierInput {
  * Deterministically classifies a posted GL line into an SCE movement tag
  */
 export function classifyJournalLine(input: ClassifierInput): SCEMovementTag {
-  const { glCode, debit, credit, description = "", memo = "" } = input;
+  const { glCode, debit, description = "", memo = "" } = input;
   const text = `${description} ${memo}`.toLowerCase();
 
   // 1. Year-end closing entry (closing GL 3900 / 3510 into 3210)

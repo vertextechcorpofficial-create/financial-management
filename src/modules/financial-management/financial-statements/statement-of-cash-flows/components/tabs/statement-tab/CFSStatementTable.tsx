@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import { useCashFlowStudio } from "../../../providers/CashFlowStudioProvider";
-import { CFSStatementLine } from "../../../types";
 import { formatPHP, formatPercent } from "../../../utils/cfs-format";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ChevronDown, ChevronRight, FileSpreadsheet, Printer, Copy, Check } from "lucide-react";
+import { ChevronDown, ChevronRight, FileSpreadsheet, Copy, Check } from "lucide-react";
 import { CFSConsolidationWorksheet } from "./CFSConsolidationWorksheet";
 import { CFSPolicyNote } from "./CFSPolicyNote";
 
