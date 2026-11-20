@@ -65,7 +65,7 @@ export function MonthlyWithholdingTable({ rows }: { rows: MonthlyWithholdingRow[
                       <span className="truncate font-medium" title={row.label}>
                         {row.label}
                       </span>
-                      <Badge variant="outline" className="shrink-0 text-[10px]">
+                      <Badge variant="outline" className="shrink-0 text-[11px]">
                         {row.quarter}
                       </Badge>
                     </span>
@@ -97,7 +97,7 @@ export function MonthlyWithholdingTable({ rows }: { rows: MonthlyWithholdingRow[
                 <p className="truncate text-sm font-medium" title={row.label}>
                   {row.label}
                 </p>
-                <Badge variant="outline" className="shrink-0 text-[10px]">
+                <Badge variant="outline" className="shrink-0 text-[11px]">
                   {row.quarter}
                   {row.quarterEnd ? " · quarter end" : ""}
                 </Badge>

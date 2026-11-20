@@ -158,7 +158,7 @@ export function AttentionPanel({ attention }: { attention: GroupAttentionItem[] 
           <li key={item.key} className="flex items-start gap-3 px-4 py-3">
             <Badge
               variant="outline"
-              className={cn("mt-0.5 shrink-0 text-[10px] font-semibold uppercase", toneClass(SEVERITY_TONE[item.severity]))}
+              className={cn("mt-0.5 shrink-0 text-[11px] font-semibold uppercase", toneClass(SEVERITY_TONE[item.severity]))}
             >
               {item.severity}
             </Badge>
