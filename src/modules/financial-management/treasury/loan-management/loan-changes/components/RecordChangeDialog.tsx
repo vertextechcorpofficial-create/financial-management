@@ -237,7 +237,7 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[760px]">
         <DialogHeader className="space-y-1 border-b border-border px-6 py-4">
-          <DialogTitle className="truncate">Record a change</DialogTitle>
+          <DialogTitle className="truncate">Record change</DialogTitle>
           <DialogDescription className="truncate">{subtitle}</DialogDescription>
         </DialogHeader>
 
@@ -340,7 +340,11 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
                       setForm((current) => ({ ...current, prepaymentOption: value as PrepaymentOption }))
                     }
                   >
-                    <SelectTrigger id="change-option" className="h-9 w-full">
+                    <SelectTrigger
+                      id="change-option"
+                      className="h-9 w-full [&>span]:min-w-0 [&>span]:truncate"
+                      title={PREPAYMENT_OPTION_LABEL[form.prepaymentOption]}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">

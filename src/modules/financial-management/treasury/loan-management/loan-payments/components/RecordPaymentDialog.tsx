@@ -251,7 +251,7 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
                 onChange={(value) => setForm((current) => ({ ...current, accountId: Number(value) }))}
                 placeholder="Choose an account"
                 searchPlaceholder="Search account"
-                emptyLabel="No payment account is set up."
+                emptyLabel={form.loanId ? "No payment account is active." : "Choose a loan first."}
                 className="h-9 w-full justify-between"
                 options={accounts.map((account) => ({
                   value: String(account.id),
