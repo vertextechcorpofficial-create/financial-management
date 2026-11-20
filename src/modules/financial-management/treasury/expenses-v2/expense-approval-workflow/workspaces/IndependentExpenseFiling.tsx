@@ -15,12 +15,11 @@ import { specialRuleProblems, PURCHASE_CATEGORIES } from "../domain/filingSpecia
 const ROOT = "/fm/treasury/expenses-v2/expense-approval-workflow";
 const API = "/api/fm/treasury/expenses-v2/expense-approval-workflow/requests";
 const blank = (): IndependentExpenseForm => ({ expenseDate: "", amount: "", category: "", purpose: "", payee: "", requestedCompany: "", department: "", attachments: [], specialDetails: {} });
-type Context = { actor: { id: number; name: string }; categories: { code: string; name: string }[]; items: IndependentExpenseEvent[]; dummyEnabled: boolean };
+type Context = { actor: { id: number; name: string }; organization: { companyId: number | null; companyName: string; departmentId: number | null; departmentName: string }; categories: { code: string; name: string }[]; items: IndependentExpenseEvent[]; dummyEnabled: boolean };
 const statusLabel = (status: IndependentExpenseEvent["snapshot"]["status"]) => status === "NEEDS_CORRECTION" ? "Returned" : status.replaceAll("_", " ");
 
 export function IndependentExpenseFiling({ showForm = true, embedded = false }: { showForm?: boolean; embedded?: boolean }) {
   const [context, setContext] = useState<Context | null>(null);
-  const [departments, setDepartments] = useState<{ departmentId: number; departmentName: string }[]>([]);
   const [form, setForm] = useState<IndependentExpenseForm>(blank);
   const [editing, setEditing] = useState<IndependentExpenseEvent | null>(null);
   const [error, setError] = useState("");
@@ -34,18 +33,9 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
   useEffect(() => {
     const controller = new AbortController();
     fetch(API, { cache: "no-store", signal: controller.signal }).then(async response => { const result = await response.json(); if (!response.ok) throw Error(result.error); return result.data as Context; })
-      .then(data => { if (!controller.signal.aborted) setContext(data); }).catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      .then(data => { if (!controller.signal.aborted) { setContext(data); setForm(current => ({ ...current, requestedCompany: data.organization.companyName, department: data.organization.departmentName })); } }).catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [version]);
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/fm/setup/departments", { cache: "no-store", signal: controller.signal }).then(async response => {
-      const result = await response.json();
-      if (!response.ok || !Array.isArray(result)) throw Error("Department list is unavailable.");
-      return result as { departmentId: number; departmentName: string }[];
-    }).then(setDepartments).catch(() => { if (!controller.signal.aborted) setDepartments([]); });
-    return () => controller.abort();
-  }, []);
   const refresh = () => { setLoading(true); setError(""); setVersion(v => v + 1); };
   const update = (key: "expenseDate" | "amount" | "category" | "purpose" | "payee" | "requestedCompany" | "department", value: string) => setForm(current => ({ ...current, [key]: value, ...(key === "category" ? { specialDetails: { purchase: PURCHASE_CATEGORIES.includes(value) ? "Yes" : "" } } : {}) }));
   const save = async (action: "SAVE_DRAFT" | "SUBMIT") => {
@@ -130,8 +120,8 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
       <label className="space-y-1 text-sm">Amount (PHP)<Input required inputMode="decimal" placeholder="0.00" value={form.amount} onChange={e => update("amount", e.target.value)} disabled={busy} /></label>
       <label className="space-y-1 text-sm">Category<select aria-label="Category" required className="h-10 w-full rounded-md border bg-background px-3" value={form.category} onChange={e => update("category", e.target.value)} disabled={busy}><option value="">Choose category</option>{context?.categories.map(category => <option key={category.code} value={category.code}>{category.name}</option>)}</select></label>
       <label className="space-y-1 text-sm">Payee Name<Input required maxLength={200} placeholder="Supplier or recipient name" value={form.payee} onChange={e => update("payee", e.target.value)} disabled={busy} /><span className="block text-xs text-muted-foreground">Enter the supplier, employee, or other recipient paid or to be reimbursed.</span></label>
-      <label className="space-y-1 text-sm">Company to be Charged<Input required maxLength={200} placeholder="Company or subsidiary name" value={form.requestedCompany} onChange={e => update("requestedCompany", e.target.value)} disabled={busy} /><span className="block text-xs text-muted-foreground">Select the company or subsidiary that incurred the expense, not the supplier.</span></label>
-      <label className="space-y-1 text-sm">Department<select required aria-label="Department" className="h-10 w-full rounded-md border bg-background px-3" value={form.department} onChange={e => update("department", e.target.value)} disabled={busy}><option value="">Select department</option>{departments.map(department => <option key={department.departmentId} value={department.departmentName}>{department.departmentName}</option>)}</select></label>
+      <label className="space-y-1 text-sm">Company to be Charged<Input required readOnly aria-label="Company to be charged" value={context?.organization.companyName || ""} className="bg-muted" /><span className="block text-xs text-muted-foreground">Detected from your account and cannot be changed.</span></label>
+      <label className="space-y-1 text-sm">Department<Input required readOnly aria-label="Department" value={context?.organization.departmentName || ""} className="bg-muted" /><span className="block text-xs text-muted-foreground">Detected from your account and cannot be changed.</span></label>
       <label className="space-y-1 text-sm sm:col-span-2">Business purpose<Textarea required minLength={10} maxLength={2000} rows={4} value={form.purpose} onChange={e => update("purpose", e.target.value)} disabled={busy} /></label>
       <SpecialExpenseFields category={form.category} value={form.specialDetails || {}} attachments={form.attachments} disabled={busy || uploading} onChange={specialDetails => setForm(current => ({ ...current, specialDetails }))} onUpload={uploadRequirement} />
       <section className="space-y-3 rounded-lg border p-4 sm:col-span-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Paperclip className="size-4" />Supporting documents</h2><p className="text-xs text-muted-foreground">PDF, JPEG, PNG or WebP · up to 10 files · 10 MB each. Upload category-specific documents above; add any other supporting documents here.</p><Input aria-label="Upload supporting documents" type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" disabled={disabled} onChange={e => { const files = e.target.files; void upload(files); e.target.value = ""; }} />{uploading && <p role="status" className="text-xs">Uploading…</p>}{form.attachments.map(file => <div key={file.id} className="flex items-center justify-between gap-3 text-sm"><span className="truncate">{file.name} · {(file.size / 1024).toFixed(0)} KB{Object.entries(form.specialDetails || {}).some(([, id]) => id === file.id) && <span className="ml-2 text-muted-foreground">({Object.entries(form.specialDetails || {}).filter(([, id]) => id === file.id).map(([key]) => key.replace(/([A-Z])/g, " $1").toLowerCase()).join(", ")})</span>}</span><Button variant="ghost" size="sm" type="button" disabled={busy || uploading} onClick={() => setForm(current => ({ ...current, attachments: current.attachments.filter(f => f.id !== file.id), specialDetails: Object.fromEntries(Object.entries(current.specialDetails || {}).filter(([, id]) => id !== file.id)) }))}>Remove</Button></div>)}<p className="text-xs text-muted-foreground">Removing a reference does not delete a storage file. Uploaded-but-unsaved documents may require administrator cleanup.</p></section>

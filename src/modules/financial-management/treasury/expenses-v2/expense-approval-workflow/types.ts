@@ -34,7 +34,7 @@ export type AuthorityPermission =
   | "expense_authority.evaluation.run" | "expense_authority.evaluation.save"
   | "expense_authority.exception.read" | "expense_authority.exception.review" | "expense_authority.audit.read";
 export interface AuthorityGrant { permission: AuthorityPermission; companyId: number | null }
-export interface AuthorityActor { id: number; name: string; email: string; companyId: number | null; admin: boolean; grants: AuthorityGrant[] }
+export interface AuthorityActor { id: number; name: string; email: string; position: string | null; companyId: number | null; departmentId: number | null; admin: boolean; grants: AuthorityGrant[] }
 export interface AuthorityCheck {
   code: string; status: "PASS" | "FAIL" | "UNKNOWN";
   severity: "INFO" | "REVIEW" | "BLOCK"; message: string;

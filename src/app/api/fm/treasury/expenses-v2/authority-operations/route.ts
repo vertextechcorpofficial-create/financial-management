@@ -18,6 +18,8 @@ function projection(event: IndependentExpenseEvent, actor: AuthorityActor, confi
   try { requireDummyConfig(config); dummyEnabled = true; } catch { /* Fail closed for decisions. */ }
   const tier = s.category && s.amount ? dummyTier(s.category, s.amount) : undefined;
   const own = actor.id === event.requester_id;
+  const assignedApproverId = config?.snapshot.companyId === event.company_id && tier ? config.snapshot.officers[tier] : null;
+  const assigned = !!dummyEnabled && !own && assignedApproverId === actor.id;
   return {
     source: "INDEPENDENT", id: event.case_id, doc_no: s.reference, status: s.status, amount: s.amount || "0", expense_date: s.expenseDate,
     division_id: null, department_id: null, coa_id: null, remarks: s.purpose,
@@ -25,11 +27,11 @@ function projection(event: IndependentExpenseEvent, actor: AuthorityActor, confi
     created_by: { user_id: event.requester_id, user_fname: s.requesterName || event.actor_name, company_id: event.company_id || null },
     departmentName: s.department || "Not specified", divisionName: "Not specified", coaName: category, categoryName: category,
     revision: event.revision, independentSnapshot: s,
-    requiredAuthority: tier,
+     requiredAuthority: tier, assignedApproverId,
     dummyActions: {
       finance: false,
-      decide: false,
-      blocker: !dummyEnabled ? "Dummy testing is not enabled." : own ? "Requesters cannot decide their own requests." : "Only the assigned approver may review and decide a pending request.",
+       decide: assigned,
+       blocker: !dummyEnabled ? "Dummy testing is not enabled." : own ? "Requesters cannot decide their own requests." : assigned ? "" : "Only the assigned approver may review and decide a pending request.",
     },
   };
 }
@@ -50,7 +52,9 @@ export async function GET(request: NextRequest) {
       const current = latestRequests(events)[0];
       const requesterOwns = current?.requester_id === actor.id;
       const actorRecordedDecision = current && (current.actor_id === actor.id || current.snapshot.dummyLastOfficerId === actor.id) && ["APPROVE", "REJECT", "RETURN"].includes(current.action);
-      if (!current || (!requesterOwns && !actorRecordedDecision)) throw new AuthorityError("NOT_FOUND", "Request not found in your scope.", 404);
+      const currentTier = current?.snapshot.category && current.snapshot.amount ? dummyTier(current.snapshot.category, current.snapshot.amount) : null;
+      const assigned = !!current && !!config && current.company_id === config.snapshot.companyId && currentTier !== null && config.snapshot.officers[currentTier] === actor.id && !requesterOwns;
+      if (!current || (!requesterOwns && !actorRecordedDecision && !assigned)) throw new AuthorityError("NOT_FOUND", "Request not found in your scope.", 404);
       const documentIndex = request.nextUrl.searchParams.get("documentIndex");
       if (documentIndex !== null) {
         const index = Number(documentIndex);
@@ -65,9 +69,15 @@ export async function GET(request: NextRequest) {
     if (![expensePage, page].every(value => Number.isSafeInteger(value) && value >= 1 && value <= 10000)) throw new AuthorityError("INVALID_PAGE", "Invalid page.", 400);
     const submittedScopeEvents = await requestEvents({ requester_id: { _eq: actor.id } });
     const employeeRequests = latestRequests(submittedScopeEvents).map(event => projection(event, actor, config));
-    // The independent ledger has no verified assigned_to_user field or delegation
-    // link. Do not approximate an assignment from tester configuration or amount tier.
-    const assignedExpenses: OperationsExpense[] = [];
+    const assignedScopeEvents = await requestEvents({ company_id: { _eq: actor.companyId } });
+    const assignedExpenses = latestRequests(assignedScopeEvents)
+      .filter(event => event.requester_id !== actor.id && ["AWAITING_DECISION", "ESCALATED", "NEEDS_FINANCE_REVIEW"].includes(event.snapshot.status))
+      .filter(event => {
+        if (!config || event.company_id !== config.snapshot.companyId || event.snapshot.executionMode !== "DUMMY") return false;
+        const tier = dummyTier(event.snapshot.category, event.snapshot.amount);
+        return config.snapshot.officers[tier] === actor.id;
+      })
+      .map(event => projection(event, actor, config));
     let decidedExpenses: OperationsExpense[] = [];
     let decisionHistoryAvailable = true;
     try {
@@ -82,13 +92,13 @@ export async function GET(request: NextRequest) {
     }
     const blockers = [
       "Filing and request tracking are independent of Expense Creation V2 and the legacy approval queue.",
-      "Requests are scoped to the authenticated requester. The ledger does not contain a verified assigned-to-user field.",
-      "Approval decisions and approver records remain unavailable until assignment, delegation and company ownership can be verified.",
+      "Pending requests are routed to the configured Dummy officer for their calculated authority tier and company.",
+      "Approval remains limited to the configured officer, the requester cannot self-approve, and company scope is verified.",
       ...(!decisionHistoryAvailable ? ["Decision history could not be loaded from the current ledger scope."] : []),
     ];
     const companyId = actor.companyId && Number.isSafeInteger(actor.companyId) && actor.companyId > 0 ? actor.companyId : null;
     return NextResponse.json({ data: {
-      actor: { id: actor.id, name: actor.name, companyId, authorities: config ? Object.entries(config.snapshot.officers).filter(([, id]) => id === actor.id).map(([tier]) => tier) : [] },
+      actor: { id: actor.id, name: actor.name, companyId, authorities: config && config.snapshot.companyId === companyId ? Object.entries(config.snapshot.officers).filter(([, id]) => id === actor.id).map(([tier]) => tier) : [] },
       capabilities: { finance: false, audit: false, settings: false, editPolicies: false, manageOfficers: false }, grantStoreAvailable: false, moduleAccess: true, section, page, audit: [], hasMore: false,
       revision: config?.revision || 0, expensePage, expenseHasMore: false, moduleExpenses: [], assignedExpenses, decidedExpenses, dummyEnabled,
       employeeRequests, decisionHistoryAvailable,

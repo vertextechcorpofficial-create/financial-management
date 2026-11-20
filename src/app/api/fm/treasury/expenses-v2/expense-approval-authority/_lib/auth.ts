@@ -33,8 +33,8 @@ export async function requireAuthorityAccess(request: NextRequest): Promise<Auth
   const id = Number(session.id);
   if (!Number.isSafeInteger(id) || id <= 0 || enabled(session.isDeleted)) throw new AuthorityError("UNAUTHENTICATED", "Invalid verified ERP identity.", 401);
   const users = await readRows<{ user_id: number; user_fname: string; user_lname: string; user_email: string;
-    company_id: number | null; role: string; isAdmin: boolean; is_deleted: boolean; isDeleted: boolean; is_blocked: boolean }>(
-    "user", "user_id,user_fname,user_lname,user_email,company_id,role,isAdmin,is_deleted,isDeleted,is_blocked", { user_id: { _eq: id } }, 1);
+    company_id: number | null; user_department: number | null; user_position: string | null; role: string; isAdmin: boolean; is_deleted: boolean; isDeleted: boolean; is_blocked: boolean }>(
+    "user", "user_id,user_fname,user_lname,user_email,company_id,user_department,user_position,role,isAdmin,is_deleted,isDeleted,is_blocked", { user_id: { _eq: id } }, 1);
   const user = users[0];
   if (!user || enabled(user.is_deleted) || enabled(user.isDeleted) || enabled(user.is_blocked)) throw new AuthorityError("UNAUTHENTICATED", "An active ERP account is required.", 401);
   const admin = user.role === "ADMIN" || enabled(user.isAdmin);
@@ -55,6 +55,7 @@ export async function requireAuthorityAccess(request: NextRequest): Promise<Auth
   ]);
   const now = Date.now();
   const companyId = user.company_id ? Number(user.company_id) : null;
+  const departmentId = user.user_department && Number.isSafeInteger(Number(user.user_department)) && Number(user.user_department) > 0 ? Number(user.user_department) : null;
   const grants = [...standardAuthorityGrants(companyId), ...grantRows.flatMap(row => {
     if (!known.has(row.permission_key as AuthorityPermission) || row.status !== "active") return [];
     const start = row.starts_at ? Date.parse(row.starts_at) : Number.NEGATIVE_INFINITY;
@@ -63,7 +64,7 @@ export async function requireAuthorityAccess(request: NextRequest): Promise<Auth
     if (!Number.isFinite(start) && start !== Number.NEGATIVE_INFINITY || !Number.isFinite(end) && end !== Number.POSITIVE_INFINITY || start > now || end <= now || (companyId !== null && (!Number.isSafeInteger(companyId) || companyId <= 0))) return [];
     return [{ permission: row.permission_key as AuthorityPermission, companyId }];
   })];
-  return { id, admin, companyId, grants,
+  return { id, admin, position: user.user_position || null, companyId, departmentId, grants,
     name: [user.user_fname, user.user_lname].filter(Boolean).join(" ") || `User #${id}`, email: user.user_email || "" };
 }
 export function assertCompany(actor: AuthorityActor, companyId: number) {

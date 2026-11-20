@@ -43,8 +43,11 @@ export function AuthorityOperations({ initialSection = "approvals" }: { initialS
   // Compatibility callers cannot re-enable removed Finance or administration screens.
   if (initialSection !== "approvals") return <p className="p-6">This workspace has been removed. <Link className="underline" href={`${ROOT}/my-approvals`}>Open My Approvals</Link></p>;
   const reload = () => { setData(null); setError(""); setVersion(value => value + 1); };
-  const rows = tab === "requests" ? data?.employeeRequests || [] : tab === "history" ? data?.decidedExpenses || [] : data?.assignedExpenses || [];
-  const viewTabs: Array<[string, string]> = [["requests", "My Requests"], ["approvals", "My Approvals"]];
+   const canApprove = !!data?.actor.authorities?.length;
+   const isCeo = data?.actor.authorities?.includes("CEO") || false;
+   const visibleTab = tab === "requests" && isCeo ? "pending" : tab;
+   const rows = visibleTab === "requests" ? data?.employeeRequests || [] : visibleTab === "history" ? data?.decidedExpenses || [] : data?.assignedExpenses || [];
+   const viewTabs: Array<[string, string]> = [...(!isCeo ? [["requests", "My Requests"] as [string, string]] : []), ...(canApprove ? [["approvals", "My Approvals"] as [string, string]] : [])];
   const approvalTabs: Array<[string, string]> = [["pending", `Pending Decision (${data?.assignedExpenses?.length || 0})`], ["history", `Decision History (${data?.decidedExpenses?.length || 0})`]];
   const columns = ["Request", "Requester", "Category", "Amount", "Authority", "Submitted", "Status", ""];
   const expense = detail?.expense;
@@ -59,8 +62,8 @@ export function AuthorityOperations({ initialSection = "approvals" }: { initialS
     {data && <>
       <p className="text-sm text-muted-foreground">{data.actor.name}</p>
       {data.decisionHistoryAvailable === false && <p role="status" className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">Decision history is temporarily unavailable. Your separate My Requests list is still loaded.</p>}
-      <nav aria-label="Expense views" className="flex flex-wrap gap-2">{viewTabs.map(([key, label]) => <Button key={key} variant={(key === "requests" && tab === "requests") || (key === "approvals" && tab !== "requests") ? "secondary" : "ghost"} aria-pressed={(key === "requests" && tab === "requests") || (key === "approvals" && tab !== "requests")} onClick={() => setTab(key === "requests" ? "requests" : data.assignedExpenses?.length ? "pending" : data.decidedExpenses?.length ? "history" : "pending")}>{label}</Button>)}{tab !== "requests" && approvalTabs.map(([key, label]) => <Button key={key} variant={tab === key ? "secondary" : "ghost"} aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</Button>)}</nav>
-      {tab === "requests" ? <IndependentExpenseFiling showForm={false} embedded /> : <div className="overflow-x-auto rounded-lg border"><table className="w-full min-w-[700px] text-left text-sm"><thead><tr>{columns.map((label, index) => <th key={index} className="p-3">{label}</th>)}</tr></thead><tbody>
+       <nav aria-label="Expense views" className="flex flex-wrap gap-2">{viewTabs.map(([key, label]) => <Button key={key} variant={(key === "requests" && visibleTab === "requests") || (key === "approvals" && visibleTab !== "requests") ? "secondary" : "ghost"} aria-pressed={(key === "requests" && visibleTab === "requests") || (key === "approvals" && visibleTab !== "requests")} onClick={() => setTab(key === "requests" ? "requests" : data.assignedExpenses?.length ? "pending" : data.decidedExpenses?.length ? "history" : "pending")}>{label}</Button>)}{visibleTab !== "requests" && canApprove && approvalTabs.map(([key, label]) => <Button key={key} variant={visibleTab === key ? "secondary" : "ghost"} aria-pressed={visibleTab === key} onClick={() => setTab(key)}>{label}</Button>)}</nav>
+       {visibleTab === "requests" && !isCeo ? <IndependentExpenseFiling showForm={false} embedded /> : <div className="overflow-x-auto rounded-lg border"><table className="w-full min-w-[700px] text-left text-sm"><thead><tr>{columns.map((label, index) => <th key={index} className="p-3">{label}</th>)}</tr></thead><tbody>
         {rows.map(row => <tr key={row.id} className="border-t"><td className="p-3">{row.doc_no}</td><td className="p-3">{requesterName(row)}</td><td className="p-3">{row.categoryName}</td><td className="p-3">PHP {row.amount}</td><td className="p-3">{row.requiredAuthority}</td><td className="p-3">{row.independentSnapshot?.expenseDate}</td><td className="p-3">{row.status === "NEEDS_CORRECTION" ? "Returned" : row.status}</td><td className="p-3"><Button variant="outline" onClick={() => { setDetail(null); setDetailError(""); setSelected(String(row.id)); }}>View details</Button></td></tr>)}
         {!rows.length && <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No requests have a verified assignment to you.</td></tr>}
       </tbody></table></div>}
