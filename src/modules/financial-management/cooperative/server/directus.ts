@@ -18,14 +18,30 @@ const foundationCollections = [
   "cooperative_audit_events",
 ] as const;
 
-type Collection = typeof foundationCollections[number] | "cooperative_documents" | "user" | "modules" | "user_access_modules";
+type Collection =
+  | typeof foundationCollections[number]
+  | "cooperative_documents"
+  | "cooperative_loans"
+  | "cooperative_loan_installments"
+  | "cooperative_loan_payments"
+  | "cooperative_loan_payment_allocations"
+  | "cooperative_memberships"
+  | "cooperative_membership_agreements"
+  | "cooperative_savings_entries"
+  | "cooperative_official_receipts"
+  | "payroll_run"
+  | "payroll_run_employee"
+  | "user"
+  | "department"
+  | "modules"
+  | "user_access_modules";
 
 const PrimaryKey = z.union([z.number().int().positive(), z.string().regex(/^[1-9]\d*$/)]);
 const Rows = z.object({ data: z.array(z.object({ id: PrimaryKey })).max(1) });
 const Settings = z.object({ data: z.object({ id: PrimaryKey.nullable() }).nullable() });
 
 export class CooperativeDirectusError extends Error {
-  constructor(readonly status: number) {
+  constructor(readonly status: number, readonly detail?: string) {
     super("The Cooperative data service could not complete the request.");
   }
 }
@@ -44,7 +60,11 @@ export async function cooperativeDirectus(path: string, init: RequestInit = {}, 
     redirect: "error",
     signal: AbortSignal.timeout(timeout),
   });
-  if (!response.ok) throw new CooperativeDirectusError(response.status);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { errors?: Array<{ message?: unknown }> } | null;
+    const detail = body?.errors?.find(error => typeof error?.message === "string")?.message;
+    throw new CooperativeDirectusError(response.status, typeof detail === "string" ? detail : undefined);
+  }
   return response;
 }
 
