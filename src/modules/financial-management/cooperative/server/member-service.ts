@@ -4,7 +4,10 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { readDirectusItems } from "./directus";
 import { MemberError } from "./member-errors";
-import { createMembershipActivation } from "./member-posting";
+import { createMembershipActivation, previewAgreementNumber } from "./member-posting";
+import { getLoanDetail, LoanError, readMemberLoans, type MemberLoanView } from "./loans";
+import { memberLoanAccount, memberLoanBalances, memberPayrollAssessment, readMemberLoanStatement } from "./member-loans";
+import { readWithdrawalBalances } from "./withdrawal-balances";
 import {
   amountToCents,
   centsToAmount,
@@ -14,8 +17,10 @@ import {
   latestPayrollReference,
   loadMemberDataset,
   percentOfCents,
+  readAgreementNumber,
   readPostedPayroll,
   readSavingsEntries,
+  readStatementMember,
   signedCentsToAmount,
   todayManila,
   type MemberDataset,
@@ -23,28 +28,27 @@ import {
 import { privateCooperativeFolder } from "./document-storage";
 import type {
   EnrollmentCheck,
+  EnrollmentPreview,
   FeeChannel,
   MemberCandidate,
+  MemberCandidatePage,
   MemberDetail,
   MemberDocument,
   MemberPolicy,
   MemberRegisterStatus,
+  MemberStatement,
+  PayrollReference,
   RegisterItem,
   RegisterResponse,
 } from "../members/types";
-import { MEMBERSHIP_TERMS_VERSION } from "../members/types";
+import { memberWithdrawalAccountFilter, MEMBERSHIP_TERMS_VERSION } from "../members/types";
+import { isCalendarDate, isSavingsOutflow } from "../members/format";
 
 const id = z.union([z.number(), z.string().regex(/^[1-9]\d*$/)]).transform(Number)
   .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER));
 const pageSize = 50;
-const dateText = /^\d{4}-\d{2}-\d{2}$/;
+const candidatePageSize = 10;
 const amountText = /^\d{1,10}(?:\.\d{1,2})?$/;
-
-function isRealDate(value: string) {
-  if (!dateText.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
-}
 
 function normalizeAmount(value: string, wholePesos = false) {
   const text = value.trim();
@@ -57,6 +61,30 @@ function normalizeAmount(value: string, wholePesos = false) {
 function floorCents(policy: MemberPolicy, grossPay: string) {
   if (policy.floorMode === "FIXED") return amountToCents(policy.floorFixedAmount ?? "0.00");
   return percentOfCents(grossPay, policy.floorPercent ?? "0.00");
+}
+
+function defaultSavingsPerCutoff(minimum: string) {
+  const wholePesos = (amountToCents(minimum) + 99n) / 100n;
+  return centsToAmount(wholePesos * 100n);
+}
+
+function enrollmentPay(
+  policy: MemberPolicy, payroll: PayrollReference, savingsPerCutoff: string | null, feeChannel: FeeChannel,
+): EnrollmentCheck["values"] {
+  const feeAmount = policy.membershipFee;
+  const payrollDeduction = savingsPerCutoff === null
+    ? null
+    : centsToAmount(amountToCents(savingsPerCutoff) + (feeChannel === "PAYROLL" ? amountToCents(feeAmount) : 0n));
+  if (payroll.state !== "verified") return { feeAmount, netPay: null, floor: null, payrollDeduction, headroom: null };
+
+  const floor = floorCents(policy, payroll.grossPay);
+  return {
+    feeAmount,
+    netPay: payroll.netPay,
+    floor: centsToAmount(floor),
+    payrollDeduction,
+    headroom: payrollDeduction === null ? null : signedCentsToAmount(amountToCents(payroll.netPay) - floor - amountToCents(payrollDeduction)),
+  };
 }
 
 function documentStatus(dataset: MemberDataset, membershipId: number) {
@@ -104,6 +132,10 @@ function countsFor(items: RegisterItem[]) {
   };
 }
 
+function membershipIds(items: RegisterItem[]) {
+  return items.flatMap(item => item.membershipId === null ? [] : [item.membershipId]);
+}
+
 export async function getMemberRegister(search: URLSearchParams): Promise<RegisterResponse> {
   const dataset = await loadMemberDataset();
   const all = dataset.employees.map(employee => itemForEmployee(dataset, employee.userId));
@@ -123,43 +155,130 @@ export async function getMemberRegister(search: URLSearchParams): Promise<Regist
   const requested = Number(search.get("page") ?? "1");
   const page = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
   const start = (page - 1) * pageSize;
+  const loanFilter = account === "with-loan-balance" || account === "no-loan-balance" || account === "past-due";
+  const withdrawalFilter = account === memberWithdrawalAccountFilter;
+  const withdrawalMatches = withdrawalFilter ? await readWithdrawalBalances(membershipIds(filtered)) : null;
+  const withdrawalFilterUnavailable = withdrawalMatches !== null && withdrawalMatches.state !== "ready";
+  let matches = filtered;
+  if (withdrawalMatches) {
+    matches = withdrawalMatches.state === "ready" ? filtered.filter(item =>
+      item.membershipId !== null && (withdrawalMatches.data.get(item.membershipId)?.pendingCount ?? 0) > 0,
+    ) : [];
+  }
+  const relevant = loanFilter ? matches : matches.slice(start, start + pageSize);
+  const ids = membershipIds(relevant);
+  const [loans, pageWithdrawals] = await Promise.all([
+    readMemberLoans(ids, todayManila()),
+    !loanFilter && !withdrawalFilter ? readWithdrawalBalances(ids) : null,
+  ]);
+  let items = relevant;
+  if (loans.state === "ready") {
+    const byMember = new Map<number, MemberLoanView[]>();
+    for (const view of loans.data) {
+      const { memberId } = view.loan;
+      const list = byMember.get(memberId);
+      if (list) list.push(view);
+      else byMember.set(memberId, [view]);
+    }
+    items = relevant.map(item => {
+      if (item.membershipId === null) return item;
+      const { loanBalance, pastDue } = memberLoanBalances(byMember.get(item.membershipId) ?? []);
+      return { ...item, loanBalance, pastDue };
+    });
+  }
+  const loanFilterUnavailable = loanFilter && loans.state !== "ready";
+  if (loanFilter) {
+    items = loanFilterUnavailable ? [] : items.filter(item => {
+      if (item.loanBalance === null || item.pastDue === null) return false;
+      if (account === "no-loan-balance") return item.membershipStatus === "MEMBER" && amountToCents(item.loanBalance) === 0n;
+      return amountToCents(account === "past-due" ? item.pastDue : item.loanBalance) > 0n;
+    });
+  }
+  const pageItems = loanFilter ? items.slice(start, start + pageSize) : items;
+  const withdrawals = withdrawalMatches ?? pageWithdrawals ?? await readWithdrawalBalances(membershipIds(pageItems));
   return {
-    items: filtered.slice(start, start + pageSize),
-    total: filtered.length,
+    items: withdrawals.state === "ready" ? pageItems.map(item => {
+      if (item.membershipId === null) return item;
+      const withdrawal = withdrawals.data.get(item.membershipId)!;
+      return { ...item, savingsBalance: withdrawal.postedSavings, withdrawal };
+    }) : pageItems,
+    total: loanFilter ? items.length : matches.length,
     page,
     pageSize,
     departments: [...new Set(all.map(item => item.departmentName).filter((name): name is string => Boolean(name)))].sort(),
     counts: countsFor(all),
+    loanSource: loans.state === "ready" ? { state: "ready", data: null } : loans,
+    loanFilterUnavailable,
+    withdrawalSource: withdrawals.state === "ready" ? { state: "ready", data: null } : withdrawals,
+    withdrawalFilterUnavailable,
   };
 }
 
-export async function getMemberCandidates(search: URLSearchParams): Promise<{ items: MemberCandidate[] }> {
+function candidateEligibility(active: boolean, payroll: PayrollReference | null | undefined, policy: MemberPolicy, savings: string | null):
+  Pick<MemberCandidate, "eligibility" | "reason"> {
+  if (!active) return { eligibility: "inactive", reason: "Enrollment requires an active VOS employee." };
+  if (savings === null) return { eligibility: "unavailable", reason: "Review the minimum savings configured in Policies." };
+  if (payroll === null) return { eligibility: "unavailable", reason: "Payroll eligibility could not be checked. Try again." };
+  if (!payroll) return { eligibility: "no_posted_payroll", reason: "A posted VOS payroll result is required for the signing date." };
+  if (payroll.state !== "verified") return { eligibility: "payroll_review", reason: payroll.message };
+
+  const { headroom } = enrollmentPay(policy, payroll, savings, "COUNTER");
+  if (headroom?.startsWith("-")) {
+    return { eligibility: "below_take_home_floor", reason: "Minimum savings would reduce take-home pay below the policy floor." };
+  }
+  return { eligibility: "eligible", reason: "Employment, posted payroll, and take-home pay checks passed." };
+}
+
+export async function getMemberCandidates(search: URLSearchParams): Promise<MemberCandidatePage> {
   const dataset = await loadMemberDataset();
   const query = (search.get("q") ?? "").trim().toLowerCase();
-  const items = dataset.employees.flatMap(employee => {
-    const item = itemForEmployee(dataset, employee.userId);
-    if (!item.canEnroll) return [];
-    if (query && ![item.employeeName, item.employeeNumber, item.departmentName]
-      .some(value => value?.toLowerCase().includes(query))) return [];
-    return [{
-      userId: item.userId,
-      employeeNumber: item.employeeNumber,
-      employeeName: item.employeeName,
-      departmentName: item.departmentName,
-    }];
-  });
-  const payroll = await readPostedPayroll(items.map(item => item.userId), todayManila());
-  const candidates = items.map(item => ({
-    ...item,
-    hasPostedPayroll: payroll.get(item.userId)?.state === "verified",
-  }));
+  const requestedPage = Number(search.get("page") ?? "1");
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const matches = (item: Pick<MemberCandidate, "employeeName" | "employeeNumber" | "departmentName">) =>
+    !query || [item.employeeName, item.employeeNumber, item.departmentName].some(value => value?.toLowerCase().includes(query));
+  const members = dataset.memberships.map<MemberCandidate>(member => {
+    const closed = member.status === "SEPARATED";
+    return {
+      userId: member.user_id,
+      employeeNumber: String(member.user_id),
+      employeeName: member.employee_name,
+      departmentName: member.department_name,
+      eligibility: closed ? "membership_closed" : "already_member",
+      reason: closed ? "This employee has a closed Cooperative membership." : "This employee has a Cooperative membership.",
+    };
+  }).filter(matches);
+  const employees = dataset.employees
+    .filter(employee => employee.isEmployee && !dataset.currentByUser.has(employee.userId))
+    .map(employee => ({
+      userId: employee.userId,
+      employeeNumber: employee.employeeNumber,
+      employeeName: employee.name,
+      departmentName: employee.departmentName,
+      active: employee.active,
+    }))
+    .filter(matches);
+  const savings = normalizeAmount(defaultSavingsPerCutoff(dataset.policy.minimumSavings), true);
+  const payrollIds = employees.filter(employee => employee.active).map(employee => employee.userId);
+  const payroll = await readPostedPayroll(payrollIds, todayManila()).catch(() => null);
+  const candidates = members.concat(employees.map(({ active, ...employee }) => ({
+    ...employee,
+    ...candidateEligibility(active, payroll === null ? null : payroll.get(employee.userId), dataset.policy, savings),
+  })));
   candidates.sort((left, right) =>
     Number(right.employeeNumber === query) - Number(left.employeeNumber === query) ||
-    Number(right.hasPostedPayroll) - Number(left.hasPostedPayroll) ||
+    Number(right.eligibility === "eligible") - Number(left.eligibility === "eligible") ||
     left.employeeName.localeCompare(right.employeeName) ||
     left.userId - right.userId,
   );
-  return { items: candidates.slice(0, pageSize) };
+  const start = (page - 1) * candidatePageSize;
+  return {
+    items: candidates.slice(start, start + candidatePageSize),
+    page,
+    pageSize: candidatePageSize,
+    total: candidates.length,
+    hasMore: start + candidatePageSize < candidates.length,
+    payrollUnavailable: payroll === null,
+  };
 }
 
 export type EnrollmentDraft = {
@@ -179,7 +298,7 @@ function draftFrom(search: URLSearchParams, dataset: MemberDataset): EnrollmentD
   return {
     userId: employeeId.data,
     signedAt: search.get("signedAt") ?? todayManila(),
-    savingsPerCutoff: search.get("savingsPerCutoff") ?? dataset.policy.minimumSavings,
+    savingsPerCutoff: search.get("savingsPerCutoff") ?? defaultSavingsPerCutoff(dataset.policy.minimumSavings),
     openingDeposit: search.get("openingDeposit") ?? "0.00",
     feeChannel: rawChannel === "PAYROLL" ? "PAYROLL" : rawChannel === "COUNTER" ? "COUNTER" : rawChannel as FeeChannel,
     beneficiary,
@@ -195,7 +314,7 @@ export async function buildEnrollmentCheck(draft: EnrollmentDraft, loadedDataset
   const fieldErrors: Record<string, string> = {};
 
   const signedAt = draft.signedAt.trim();
-  if (!isRealDate(signedAt)) fieldErrors.signedAt = "Enter a valid signing date.";
+  if (!isCalendarDate(signedAt)) fieldErrors.signedAt = "Enter a valid signing date.";
   else if (signedAt > todayManila()) fieldErrors.signedAt = "The signing date cannot be in the future.";
 
   const savingsPerCutoff = normalizeAmount(draft.savingsPerCutoff, true);
@@ -217,16 +336,8 @@ export async function buildEnrollmentCheck(draft: EnrollmentDraft, loadedDataset
   const payroll = fieldErrors.signedAt
     ? { state: "unavailable" as const, message: "Choose a valid signing date on or before today." }
     : await latestPayrollReference(draft.userId, signedAt);
-  const netPay = payroll.state === "verified" ? payroll.netPay : null;
-  const grossPay = payroll.state === "verified" ? payroll.grossPay : null;
-  const feeAmount = policy.membershipFee;
-  const payrollDeduction = savingsPerCutoff
-    ? centsToAmount(amountToCents(savingsPerCutoff) + (draft.feeChannel === "PAYROLL" ? amountToCents(feeAmount) : 0n))
-    : null;
-  const floor = grossPay && netPay ? centsToAmount(floorCents(policy, grossPay)) : null;
-  const headroom = netPay && floor && payrollDeduction
-    ? signedCentsToAmount(amountToCents(netPay) - amountToCents(floor) - amountToCents(payrollDeduction))
-    : null;
+  const values = enrollmentPay(policy, payroll, savingsPerCutoff, draft.feeChannel);
+  const { floor, headroom } = values;
   if (headroom && amountToCents(headroom) < 0n) {
     fieldErrors.savingsPerCutoff = "Savings and the payroll membership fee would take pay below the take-home floor.";
   }
@@ -284,7 +395,7 @@ export async function buildEnrollmentCheck(draft: EnrollmentDraft, loadedDataset
       feeChannel: draft.feeChannel,
       beneficiary,
     },
-    values: { feeAmount, netPay, floor, payrollDeduction, headroom },
+    values,
     checks,
     fieldErrors,
     canEnroll: checks.every(check => check.ok) && Object.keys(fieldErrors).length === 0,
@@ -292,9 +403,22 @@ export async function buildEnrollmentCheck(draft: EnrollmentDraft, loadedDataset
   };
 }
 
-export async function readEnrollmentCheck(search: URLSearchParams) {
+export async function readEnrollmentCheck(search: URLSearchParams): Promise<EnrollmentPreview> {
   const dataset = await loadMemberDataset();
-  return buildEnrollmentCheck(draftFrom(search, dataset), dataset);
+  const check = await buildEnrollmentCheck(draftFrom(search, dataset), dataset);
+  if (check.fieldErrors.signedAt) {
+    return { ...check, agreementNumberPreview: { state: "invalid-date", message: "Enter a valid signing date to preview the number." } };
+  }
+  try {
+    const number = await previewAgreementNumber(check.inputs.signedAt);
+    return { ...check, agreementNumberPreview: { state: "available", number } };
+  } catch (error) {
+    const exhausted = error instanceof MemberError && error.code === "SERIES_EXHAUSTED";
+    return { ...check, agreementNumberPreview: exhausted
+      ? { state: "exhausted", message: "All agreement numbers have been used for this signing year." }
+      : { state: "unavailable", message: "The agreement number preview is temporarily unavailable." },
+    };
+  }
 }
 
 const submitSchema = z.object({
@@ -359,9 +483,39 @@ export async function getMemberDetail(userId: number): Promise<MemberDetail> {
   const current = dataset.currentByUser.get(userId);
   const agreement = current ? dataset.agreementByMembership.get(current.id) : undefined;
   const documents: MemberDocument[] = current ? documentsToView(dataset, current.id) : [];
-  const payroll = await latestPayrollReference(userId, todayManila());
-  const savingsEntries = current ? await readSavingsEntries(current.id) : [];
-  const posting = await readPosting(current?.journal_id ?? null);
+  const asOf = todayManila();
+  const [payroll, savingsEntries, posting, loanViews, withdrawalSource] = await Promise.all([
+    latestPayrollReference(userId, asOf),
+    current ? readSavingsEntries(current.id) : [],
+    readPosting(current?.journal_id ?? null),
+    current ? readMemberLoans([current.id], asOf, true) : null,
+    current ? readWithdrawalBalances([current.id]) : null,
+  ]);
+  let withdrawals: MemberDetail["withdrawals"] = null;
+  if (current && withdrawalSource) {
+    if (withdrawalSource.state === "ready") {
+      const balance = withdrawalSource.data.get(current.id)!;
+      withdrawals = { state: "ready", data: balance };
+      item.savingsBalance = balance.postedSavings;
+      item.withdrawal = balance;
+    } else {
+      withdrawals = withdrawalSource;
+    }
+  }
+  let loans: MemberDetail["loans"] = null;
+  if (current && loanViews) {
+    if (loanViews.state === "ready") {
+      const { loanBalance, pastDue, penalties } = memberLoanBalances(loanViews.data);
+      item.loanBalance = loanBalance;
+      item.pastDue = pastDue;
+      loans = {
+        state: "ready",
+        data: { penalties, ...memberLoanAccount(loanViews.data, item.savingsBalance ?? current.savings_balance, dataset.salaryProduct, current.status === "ACTIVE") },
+      };
+    } else {
+      loans = loanViews;
+    }
+  }
   let documentStorageReady = false;
   try {
     await privateCooperativeFolder();
@@ -371,28 +525,24 @@ export async function getMemberDetail(userId: number): Promise<MemberDetail> {
   }
   let takeHome: MemberDetail["takeHome"] = {
     floor: null,
-    savingsPerCutoff: null,
+    savingsPerCutoff: current?.savings_per_cutoff ?? null,
     payrollDeduction: null,
+    loanDeduction: null,
+    includedInNetPay: null,
+    assessmentCutoff: null,
     headroom: null,
-    loansUnavailable: true,
+    headroomMessage: null,
     withdrawalsUnavailable: true,
   };
   if (current && payroll.state === "verified") {
-    const net = amountToCents(payroll.netPay);
     const floor = floorCents(dataset.policy, payroll.grossPay);
-    const savings = amountToCents(current.savings_per_cutoff);
-    takeHome = {
-      floor: centsToAmount(floor),
-      savingsPerCutoff: current.savings_per_cutoff,
-      payrollDeduction: current.savings_per_cutoff,
-      headroom: signedCentsToAmount(net - floor - savings),
-      loansUnavailable: true,
-      withdrawalsUnavailable: true,
-    };
+    takeHome = await memberPayrollAssessment({
+      userId, membershipId: current.id, savings: current.savings_per_cutoff, payroll, floor, loans, asOf,
+    }, loanViews?.state === "ready" ? loanViews.data : []);
   }
   return {
     item,
-    current: current ? currentMembershipToView(current, posting) : null,
+    current: current ? { ...currentMembershipToView(current, posting), savingsBalance: item.savingsBalance ?? current.savings_balance } : null,
     agreement: agreement ? {
       id: agreement.id,
       membershipId: agreement.membership_id,
@@ -408,10 +558,68 @@ export async function getMemberDetail(userId: number): Promise<MemberDetail> {
     requiredDocuments: dataset.policy.requiredDocuments,
     savingsEntries,
     payroll,
-    takeHome,
-    loans: null,
-    withdrawals: null,
+    takeHome: { ...takeHome, withdrawalsUnavailable: withdrawals?.state !== "ready" || withdrawals.data.availableSavings === null },
+    loans,
+    withdrawals,
   };
+}
+
+export async function getMemberStatement(userId: number, search: URLSearchParams): Promise<MemberStatement> {
+  const from = search.get("from") ?? "";
+  const to = search.get("to") ?? "";
+  if (!isCalendarDate(from) || !isCalendarDate(to)) {
+    throw new MemberError(422, "Enter valid From and To dates.");
+  }
+  if (from > to) throw new MemberError(422, "From must be on or before To.");
+
+  const member = await readStatementMember(userId);
+  if (!member) throw new MemberError(404, "The member is unavailable.");
+  const [agreementNo, savings, loans] = await Promise.all([
+    readAgreementNumber(member.id), readSavingsEntries(member.id, to), readMemberLoanStatement(member.id, from, to),
+  ]);
+  let opening = 0n;
+  let balance = 0n;
+  let deposits = 0n;
+  let withdrawals = 0n;
+  const entries: MemberStatement["entries"] = [];
+  for (const { id, entryDate, kind, reference, amount } of savings) {
+    const cents = amountToCents(amount);
+    const outflow = isSavingsOutflow(kind);
+    balance += outflow ? -cents : cents;
+    if (entryDate < from) {
+      opening = balance;
+      continue;
+    }
+    if (outflow) withdrawals += cents;
+    else deposits += cents;
+    entries.push({
+      id, entryDate, kind, reference,
+      deposit: outflow ? null : centsToAmount(cents),
+      withdrawal: outflow ? centsToAmount(cents) : null,
+      runningBalance: signedCentsToAmount(balance),
+    });
+  }
+  return {
+    from, to, generatedOn: todayManila(),
+    member: {
+      name: member.employee_name, employeeNumber: String(userId), department: member.department_name,
+      agreementNo, status: member.status,
+    },
+    openingBalance: signedCentsToAmount(opening), closingBalance: signedCentsToAmount(balance),
+    deposits: centsToAmount(deposits), withdrawals: centsToAmount(withdrawals), entries, loans,
+  };
+}
+
+export async function getMemberLoanDetail(userId: number, loanId: number) {
+  const member = await readStatementMember(userId);
+  try {
+    const loan = member ? await getLoanDetail(loanId, member.id) : null;
+    if (!loan) throw new MemberError(404, "The member's loan is unavailable.");
+    return loan;
+  } catch (error) {
+    if (error instanceof LoanError) throw new MemberError(error.status, error.message, error.code);
+    throw error;
+  }
 }
 
 export function memberDocumentScope(userId: number) {

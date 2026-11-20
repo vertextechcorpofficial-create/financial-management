@@ -2,12 +2,14 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { maxFileSize, maxFiles } from "../document-limits";
 import type { CooperativeWorkspaceKey } from "../workspaces";
 import { requireCooperativeWorkspace } from "./access";
 import { cooperativeAuditEvent, cooperativeAuditTime } from "./audit";
 import { cooperativeDirectus, CooperativeDirectusError, readDirectusItems } from "./directus";
-import { CooperativeDocumentError, documentDigest, maxFileSize, readCooperativeUpload } from "./document-input";
+import { CooperativeDocumentError, documentDigest, readCooperativeUpload } from "./document-input";
 import { privateCooperativeFolder, readCooperativeAsset, uploadCooperativeAsset } from "./document-storage";
+import { discardDocumentParts, readStagedDocumentUpload, stageDocumentPart } from "./document-upload-parts";
 
 type Operation = "read" | "upload" | "remove";
 type Owner = { type: "MEMBER" | "LOAN" | "CLEARANCE"; id: number };
@@ -87,14 +89,41 @@ async function withOwner(scope: Scope, operation: Operation, run: (owner: Owner,
   return response;
 }
 
-export async function listCooperativeDocuments(scope: Scope, page = 1) {
+async function readDocumentTypesOnFile(filter: object) {
+  const query = new URLSearchParams({
+    filter: JSON.stringify(filter), "groupBy[]": "document_type_id", "aggregate[count]": "*", limit: "-1",
+  });
+  const typeId = z.coerce.number().int().positive();
+  const groups = z.object({ data: z.array(z.object({ document_type_id: typeId })) }).parse(await readDirectusItems(collection, query)).data;
+  if (!groups.length) return [];
+  const ids = groups.map(group => group.document_type_id);
+  const typeQuery = new URLSearchParams({ fields: "id,name", limit: "-1", "filter[id][_in]": ids.join(",") });
+  const types = z.object({ data: z.array(z.object({ id: typeId, name: z.string() })) }).parse(
+    await readDirectusItems("cooperative_document_types", typeQuery),
+  ).data;
+  const names = new Map(types.map(type => [type.id, type.name]));
+  return ids.map(id => ({ id, name: names.get(id) ?? `Document type ${id}` })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function listCooperativeDocuments(scope: Scope, page = 1, documentTypeId?: number) {
   return withOwner(scope, "read", async owner => {
     const offset = (page - 1) * pageSize;
     if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(offset)) {
       throw new CooperativeDocumentError(400, "Choose a valid page.");
     }
-    const rows = await readDocuments({ ...ownerFilter(owner), removed_at: { _null: true } }, pageSize + 1, "-uploaded_at,-id", offset);
-    return Response.json({ items: rows.slice(0, pageSize).map(metadata), hasMore: rows.length > pageSize });
+    if (documentTypeId !== undefined && (!Number.isSafeInteger(documentTypeId) || documentTypeId < 1)) {
+      throw new CooperativeDocumentError(400, "Choose a valid document type.");
+    }
+    const all = { ...ownerFilter(owner), removed_at: { _null: true } };
+    const filtered = documentTypeId ? { ...all, document_type_id: { _eq: documentTypeId } } : all;
+    const [rows, documentTypes] = await Promise.all([
+      readDocuments(filtered, pageSize + 1, "-uploaded_at,-id", offset), readDocumentTypesOnFile(all),
+    ]);
+    const names = new Map(documentTypes.map(type => [type.id, type.name]));
+    const listed = rows.slice(0, pageSize).map(row => ({
+      ...metadata(row), documentTypeName: names.get(row.document_type_id) ?? `Document type ${row.document_type_id}`,
+    }));
+    return Response.json({ items: listed, hasMore: rows.length > pageSize, documentTypes });
   });
 }
 
@@ -139,15 +168,31 @@ function knownRollback(error: unknown) {
   return error instanceof CooperativeDirectusError && [400, 401, 403, 404, 409, 413, 415, 422].includes(error.status);
 }
 
+export async function stageCooperativeDocumentPart(scope: Scope, request: Request) {
+  return withOwner(scope, "upload", async (owner, actor) => {
+    await stageDocumentPart(request, await privateCooperativeFolder(), owner.type + ":" + owner.id, actor.actorId);
+    return new Response(null, { status: 204 });
+  });
+}
+
+export async function discardCooperativeDocumentParts(scope: Scope, request: Request) {
+  return withOwner(scope, "upload", async (owner, actor) => {
+    await discardDocumentParts(request, owner.type + ":" + owner.id, actor.actorId);
+    return new Response(null, { status: 204 });
+  });
+}
+
 export async function uploadCooperativeDocuments(scope: Scope, request: Request) {
   return withOwner(scope, "upload", async (owner, actor) => {
     const folder = await privateCooperativeFolder();
-    const upload = await readCooperativeUpload(request);
+    const upload = request.headers.get("Content-Type") === "application/json"
+      ? await readStagedDocumentUpload(request, owner.type + ":" + owner.id, actor.actorId)
+      : await readCooperativeUpload(request);
     const batchKey = documentDigest(JSON.stringify([owner.type, owner.id, actor.actorId, upload.key]));
     const digest = documentDigest(JSON.stringify([
       upload.documentTypeId, upload.files.map(file => [file.name, file.mime, file.digest]),
     ]));
-    const readBatch = () => readDocuments({ ...ownerFilter(owner), batch_key: { _eq: batchKey } }, 11, "batch_index");
+    const readBatch = () => readDocuments({ ...ownerFilter(owner), batch_key: { _eq: batchKey } }, maxFiles + 1, "batch_index");
     function replay(rows: DocumentRow[], status = 200) {
       if (rows.length !== upload.files.length || rows.some(row => row.request_hash !== digest)) {
         throw new CooperativeDocumentError(409, "This upload key already belongs to a different batch.");

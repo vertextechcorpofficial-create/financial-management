@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { readDirectusItems } from "./directus";
 import { getPolicies } from "./policies";
+import type { Product } from "../policies/policy-types";
 import { MemberError } from "./member-errors";
 import {
   type CurrentMembership,
@@ -118,6 +119,7 @@ export type EmployeeRecord = {
   lastName: string;
   departmentId: number | null;
   departmentName: string | null;
+  isEmployee: boolean;
   active: boolean;
   employeeNumber: string;
 };
@@ -130,6 +132,7 @@ export type MemberDataset = {
   agreements: AgreementRow[];
   agreementByMembership: Map<number, AgreementRow>;
   policy: MemberPolicy;
+  salaryProduct: Product | null;
   policyRevision: number;
   documentsByMembership: Map<number, DocumentRow[]>;
   latestTruncated?: boolean;
@@ -145,7 +148,7 @@ async function rows<T extends z.ZodType>(collection: Parameters<typeof readDirec
   return z.object({ data: z.array(schema) }).parse(await readDirectusItems(collection, params)).data;
 }
 
-export async function readPolicySnapshot(): Promise<{ policy: MemberPolicy; revision: number }> {
+export async function readPolicySnapshot() {
   let state;
   try {
     state = await getPolicies();
@@ -159,6 +162,7 @@ export async function readPolicySnapshot(): Promise<{ policy: MemberPolicy; revi
     .map(rule => ({ documentTypeId: rule.documentTypeId, name: documentTypes.get(rule.documentTypeId)!, enforcement: rule.enforcement }));
   return {
     revision: state.revision,
+    salaryProduct: state.products.find(product => product.code === "SL") ?? null,
     policy: {
       revision: state.revision,
       membershipFee: state.settings.membershipFee,
@@ -168,7 +172,7 @@ export async function readPolicySnapshot(): Promise<{ policy: MemberPolicy; revi
       floorFixedAmount: state.settings.floorFixedAmount,
       floorPercent: state.settings.floorPercent,
       requiredDocuments,
-    },
+    } satisfies MemberPolicy,
   };
 }
 
@@ -184,7 +188,8 @@ export async function loadMemberDataset(): Promise<MemberDataset> {
   const employeeRecords: EmployeeRecord[] = [];
   const byUserId = new Map<number, EmployeeRecord>();
   for (const employee of employees as EmployeeRow[]) {
-    const active = isFlag(employee.is_employee, true) && !isFlag(employee.is_deleted, true) &&
+    const isEmployee = isFlag(employee.is_employee, true);
+    const active = isEmployee && !isFlag(employee.is_deleted, true) &&
       !isFlag(employee.is_blocked, true) && !employee.separation_date;
     const first = employee.user_fname?.trim() ?? "";
     const last = employee.user_lname?.trim() ?? "";
@@ -195,6 +200,7 @@ export async function loadMemberDataset(): Promise<MemberDataset> {
       name: [first, last].filter(Boolean).join(" ") || `VOS user ${employee.user_id}`,
       departmentId: employee.user_department ? Number(employee.user_department) : null,
       departmentName: employee.user_department ? departmentNames.get(Number(employee.user_department)) ?? null : null,
+      isEmployee,
       active,
       employeeNumber: String(employee.user_id),
     };
@@ -224,6 +230,7 @@ export async function loadMemberDataset(): Promise<MemberDataset> {
     agreements,
     agreementByMembership,
     policy: policyState.policy,
+    salaryProduct: policyState.salaryProduct,
     policyRevision: policyState.revision,
     documentsByMembership,
   };
@@ -266,9 +273,24 @@ export function documentsToView(dataset: MemberDataset, membershipId: number): M
   }));
 }
 
-export async function readSavingsEntries(membershipId: number): Promise<SavingsEntry[]> {
+export async function readStatementMember(userId: number) {
+  const [member] = await rows("cooperative_memberships", "id,employee_name,department_name,status", membershipSchema.pick({
+    id: true, employee_name: true, department_name: true, status: true,
+  }), { filter: { user_id: { _eq: userId } }, limit: 1 });
+  return member;
+}
+
+export async function readAgreementNumber(membershipId: number) {
+  const [agreement] = await rows("cooperative_membership_agreements", "agreement_no", agreementSchema.pick({ agreement_no: true }), {
+    filter: { membership_id: { _eq: membershipId } }, limit: 1,
+  });
+  return agreement?.agreement_no ?? null;
+}
+
+export async function readSavingsEntries(membershipId: number, through?: string): Promise<SavingsEntry[]> {
   const entries = await rows("cooperative_savings_entries", "id,membership_id,entry_date,kind,amount,balance_after,journal_id,reference,posted_at", savingsSchema, {
-    filter: { membership_id: { _eq: membershipId } }, sort: "entry_date,id",
+    filter: { membership_id: { _eq: membershipId }, ...(through ? { entry_date: { _lte: through } } : {}) },
+    sort: "entry_date,id",
   });
   return entries.map(row => ({
     id: row.id,
@@ -358,6 +380,19 @@ export async function latestPayrollReference(userId: number, assessmentDate: str
     state: "unavailable",
     message: `No posted VOS payroll is available for employee ${userId} on or before ${assessmentDate}.`,
   };
+}
+
+export async function readCooperativePayrollDeductions(userId: number, reference: Extract<PayrollReference, { state: "verified" }>) {
+  const [row] = await rows("payroll_run_employee", "coop_savings,coop_loan,breakdown_json", z.object({
+    coop_savings: z.unknown(), coop_loan: z.unknown(), breakdown_json: z.unknown(),
+  }), {
+    filter: {
+      id: { _eq: reference.resultId }, user_id: { _eq: userId },
+      payroll_run_id: { _eq: reference.runId }, cutoff_end: { _eq: reference.cutoffDate },
+    },
+    limit: 1,
+  });
+  return row ?? null;
 }
 
 export function moneyValue(value: string) {

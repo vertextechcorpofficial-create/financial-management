@@ -12,6 +12,14 @@ import {
   type LoanInstallment,
   type LoanMethod,
 } from "../loans/loan-schedule";
+import { calculateLoanExample } from "../policies/loan-terms";
+import { isCalendarDate } from "../members/format";
+import { projectLoanLedger, type LoanLedger, type LoanMovement, type LoanSource } from "../loans/loan-activity";
+
+// Enable after the Loans release and repayment flows and the Transactions reversal flow pass posting QA.
+const loanPostingVerified: boolean = false;
+const pendingLoanPosting = "Member loan balances and activity will be available after Loans posting is verified.";
+const loanHistoryError = "Posted loan records could not be verified. Try again or ask the Cooperative office to review the postings.";
 
 export class LoanError extends Error {
   constructor(readonly status: number, message: string, readonly code?: string) {
@@ -24,6 +32,7 @@ type Collection = Parameters<typeof readDirectusItems>[0];
 const rowsSchema = z.object({ data: z.array(z.record(z.string(), z.unknown())) });
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
+const decimalText = (value: unknown) => (typeof value === "number" ? String(value) : text(value)) || "0.00";
 const number = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -75,6 +84,143 @@ async function readByIds(
     result.push(...await rows(collection, query));
   }
   return result;
+}
+
+function groupById(rows: Row[], key: string) {
+  const grouped = new Map<number, Row[]>();
+  for (const row of rows) {
+    const id = idOf(row[key]);
+    const group = grouped.get(id);
+    if (group) group.push(row);
+    else grouped.set(id, [row]);
+  }
+  return grouped;
+}
+
+function postedAmount(value: unknown) {
+  const amount = String(value ?? "");
+  if (!/^\d+(?:\.\d{1,2})?$/.test(amount)) throw new LoanError(503, loanHistoryError);
+  return centsToAmount(amountToCents(amount));
+}
+
+const installmentFields = "id,loan_id,installment_no,due_date,principal,interest,total,paid_total,paid_principal,paid_interest,penalty_assessed,penalty_paid,status";
+const paymentFields = "id,loan_id,member_id,official_receipt_no,reference_no,amount,principal_amount,interest_amount,penalty_amount,channel,receipt_date,posted_at,status,journal_id,reverses_payment_id";
+const journalFields = "id,journal_no,business_date,posted_at,command_type,source_id,reverses_journal_id";
+const documentFields = "id,owner_id,document_type_id,file_name,mime_type,size_bytes,uploaded_at,uploaded_by,removed_at";
+
+function postingReference(journal: Row | undefined) {
+  const date = dateText(journal?.business_date) ?? "";
+  const journalId = idOf(journal?.id);
+  const journalNo = text(journal?.journal_no);
+  const postedAt = text(journal?.posted_at).replace(" ", "T");
+  if (!journalId || !journalNo || !postedAt || !isCalendarDate(date)) throw new LoanError(503, loanHistoryError);
+  return { journalId, journalNo, date, postedAt };
+}
+
+function sumAmounts<T>(items: readonly T[], amount: (item: T) => string) {
+  return items.reduce((sum, item) => sum + amountToCents(amount(item)), 0n);
+}
+
+async function readLoanLedgerRows(loanIds: number[], payments: Row[]) {
+  const [releases, allocations, journals] = await Promise.all([
+    readByIds("cooperative_journals", "source_id", loanIds, journalFields, {
+      source_type: { _eq: "LOAN" }, command_type: { _eq: "LOAN_RELEASE" },
+    }),
+    readByIds("cooperative_loan_payment_allocations", "payment_id", payments.map(row => idOf(row.id)),
+      "payment_id,installment_id,principal,interest,penalty,total"),
+    readByIds("cooperative_journals", "id", payments.map(row => idOf(row.journal_id)), journalFields),
+  ]);
+  return {
+    releases: groupById(releases, "source_id"), payments: groupById(payments, "loan_id"),
+    allocations: groupById(allocations, "payment_id"), journals: new Map(journals.map(row => [idOf(row.id), row])),
+  };
+}
+
+function postedLoanLedger(row: Row, stored: Row[], records: Awaited<ReturnType<typeof readLoanLedgerRows>>): LoanLedger | null {
+  const loanId = idOf(row.id);
+  const releases = records.releases.get(loanId) ?? [];
+  const payments = records.payments.get(loanId) ?? [];
+  const releasedOn = dateText(row.released_on);
+  if (!releasedOn && !releases.length && !payments.length && ["PENDING", "APPROVED", "REJECTED"].includes(text(row.status))) return null;
+
+  const release = postingReference(releases[0]);
+  if (releases.length !== 1 || releases[0].reverses_journal_id != null || release.date !== releasedOn || !stored.length) {
+    throw new LoanError(503, loanHistoryError);
+  }
+  const installments = stored.map(item => ({
+    ...parseInstallment(item), id: idOf(item.id),
+    principal: postedAmount(item.principal), interest: postedAmount(item.interest), total: postedAmount(item.total),
+    penaltyAssessed: postedAmount(item.penalty_assessed),
+  })).sort((a, b) => a.no - b.no);
+  const installmentIds = new Set(installments.map(item => item.id));
+  if (installmentIds.size !== installments.length || installments.some((item, index) =>
+    !item.id || item.no !== index + 1 || !isCalendarDate(item.dueDate) || item.dueDate <= release.date ||
+    amountToCents(item.principal) + amountToCents(item.interest) !== amountToCents(item.total)) ||
+    sumAmounts(installments, item => item.principal) !== amountToCents(postedAmount(row.principal)) ||
+    sumAmounts(installments, item => item.total) !== amountToCents(postedAmount(row.total_payable))) {
+    throw new LoanError(503, loanHistoryError);
+  }
+
+  const originalById = new Map(payments.filter(payment => payment.reverses_payment_id == null)
+    .map(payment => [idOf(payment.id), payment]));
+  const movements = payments.map((payment): LoanMovement => {
+    const paymentId = idOf(payment.id);
+    if (!paymentId || idOf(payment.member_id) !== idOf(row.member_id) || !["POSTED", "REVERSED"].includes(text(payment.status))) {
+      throw new LoanError(503, loanHistoryError);
+    }
+    const journal = records.journals.get(idOf(payment.journal_id));
+    const reference = postingReference(journal);
+    const reversedId = idOf(payment.reverses_payment_id);
+    const original = reversedId ? originalById.get(reversedId) : payment;
+    if (!original || idOf(journal?.reverses_journal_id) !== (reversedId ? idOf(original.journal_id) : 0)) {
+      throw new LoanError(503, loanHistoryError);
+    }
+    const originalJournal = records.journals.get(idOf(original.journal_id));
+    const isOffset = ["CLEARANCE_SETTLEMENT", "LOAN_OFFSET"].includes(text(originalJournal?.command_type));
+    const channel = text(original.channel);
+    if (!isOffset && channel !== "OTC" && channel !== "PAYROLL") throw new LoanError(503, loanHistoryError);
+    const allocations = (records.allocations.get(idOf(original.id)) ?? []).map(allocation => {
+      const installmentId = idOf(allocation.installment_id);
+      const principal = postedAmount(allocation.principal);
+      const interest = postedAmount(allocation.interest);
+      const penalty = postedAmount(allocation.penalty);
+      if (!installmentIds.has(installmentId) ||
+        amountToCents(principal) + amountToCents(interest) + amountToCents(penalty) !== amountToCents(postedAmount(allocation.total))) {
+        throw new LoanError(503, loanHistoryError);
+      }
+      return { installmentId, principal, interest, penalty };
+    });
+    const principal = sumAmounts(allocations, item => item.principal);
+    const interest = sumAmounts(allocations, item => item.interest);
+    const penalty = sumAmounts(allocations, item => item.penalty);
+    if (!allocations.length || new Set(allocations.map(item => item.installmentId)).size !== allocations.length ||
+      principal !== amountToCents(postedAmount(payment.principal_amount)) || interest !== amountToCents(postedAmount(payment.interest_amount)) ||
+      penalty !== amountToCents(postedAmount(payment.penalty_amount)) ||
+      principal + interest + penalty !== amountToCents(postedAmount(payment.amount))) {
+      throw new LoanError(503, loanHistoryError);
+    }
+    return {
+      ...reference, id: paymentId, kind: isOffset ? "OFFSET" : "PAYMENT", channel: isOffset ? "CLEARANCE" : channel as "OTC" | "PAYROLL",
+      reference: text(payment.official_receipt_no) || text(payment.reference_no) || reference.journalNo,
+      reversesId: reversedId || null, allocations,
+    };
+  });
+  const reversed = new Set(movements.map(movement => movement.reversesId));
+  if (payments.some(payment => text(payment.status) === "REVERSED" && !reversed.has(idOf(payment.id)))) {
+    throw new LoanError(503, loanHistoryError);
+  }
+  const ledger = { release, installments, movements };
+  const lastPosting = movements.reduce((last, movement) => movement.date > last ? movement.date : last, release.date);
+  const storedById = new Map(stored.map(installment => [idOf(installment.id), installment]));
+  if (projectLoanLedger(ledger, lastPosting).installments.some(installment => {
+    const saved = storedById.get(installment.id)!;
+    return installment.paidPrincipal !== postedAmount(saved.paid_principal) ||
+      installment.paidInterest !== postedAmount(saved.paid_interest) ||
+      installment.paidTotal !== postedAmount(saved.paid_total) ||
+      installment.penaltyPaid !== postedAmount(saved.penalty_paid) ||
+      amountToCents(installment.penaltyPaid) > amountToCents(installment.penaltyAssessed);
+  })) throw new LoanError(503, loanHistoryError);
+  return ledger;
 }
 
 function parseInstallment(row: Row): LoanInstallment {
@@ -138,9 +284,9 @@ function frequencyOf(value: unknown): LoanFrequency {
   return text(value).toUpperCase() === "MONTHLY" ? "MONTHLY" : "CUTOFF";
 }
 
-function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[]) {
+function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[], asOf: string) {
   const snapshot = objectValue(row.terms_snapshot);
-  const totals = loanTotals(installments, today());
+  const totals = loanTotals(installments, asOf);
   const docs = documentStatus(snapshot, documents);
   const status = text(row.status).toUpperCase() || "PENDING";
   return {
@@ -157,9 +303,9 @@ function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[]) {
     productKind: text(row.product_kind).toUpperCase() === "GOODS" ? "GOODS" as const : "CASH" as const,
     itemName: text(row.item_name) || null,
     itemQuantity: Math.max(1, number(row.item_quantity) || 1),
-    principal: text(row.principal) || "0.00",
-    rate: text(row.rate) || "0.00",
-    markup: text(row.markup) || "0.00",
+    principal: decimalText(row.principal),
+    rate: decimalText(row.rate),
+    markup: decimalText(row.markup),
     method: methodOf(row.method),
     months: number(row.months),
     frequency: frequencyOf(row.frequency),
@@ -167,10 +313,10 @@ function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[]) {
     purpose: text(row.purpose) || null,
     status,
     releaseMethod: text(row.release_method).toUpperCase() || null,
-    processingFee: text(row.processing_fee) || "0.00",
-    penaltyPercent: text(row.penalty_percent) || "0.00",
+    processingFee: decimalText(row.processing_fee),
+    penaltyPercent: decimalText(row.penalty_percent),
     graceDays: number(row.grace_days),
-    totalPayable: text(row.total_payable) || "0.00",
+    totalPayable: decimalText(row.total_payable),
     appliedOn: dateText(row.applied_on),
     approvedOn: dateText(row.approved_on),
     releasedOn: dateText(row.released_on),
@@ -187,19 +333,73 @@ function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[]) {
   };
 }
 
-function payment(row: Row) {
+async function readLoanViews(loans: Row[], asOf: string, includeDocuments: boolean) {
+  const ids = loans.map(row => idOf(row.id));
+  const [installments, documents, payments] = await Promise.all([
+    readByIds("cooperative_loan_installments", "loan_id", ids, installmentFields),
+    includeDocuments ? readByIds("cooperative_documents", "owner_id", ids, documentFields, { owner_type: { _eq: "LOAN" } }) : [],
+    loanPostingVerified ? readByIds("cooperative_loan_payments", "loan_id", ids, paymentFields) : [],
+  ]);
+  const records = loanPostingVerified ? await readLoanLedgerRows(ids, payments) : null;
+  const installmentsByLoan = groupById(installments, "loan_id");
+  const documentsByLoan = groupById(documents, "owner_id");
+  return loans.map(row => {
+    const id = idOf(row.id);
+    const stored = installmentsByLoan.get(id) ?? [];
+    const files = documentsByLoan.get(id) ?? [];
+    const releasedLater = (dateText(row.released_on) ?? "") > asOf;
+    const ledger = records && !releasedLater ? postedLoanLedger(row, stored, records) : null;
+    const position = ledger ? projectLoanLedger(ledger, asOf) : null;
+    const schedule = position?.installments ?? (records ? [] : stored.map(parseInstallment).sort((a, b) => a.no - b.no));
+    return { loan: mapLoan(row, schedule, files, asOf), ledger, position, installments: schedule, files, paymentRows: records?.payments.get(id) };
+  });
+}
+
+export type MemberLoanView = Awaited<ReturnType<typeof readLoanViews>>[number];
+
+export async function readMemberLoans(memberIds: number[], asOf: string, includeDocuments = false): Promise<LoanSource<MemberLoanView[]>> {
+  if (!loanPostingVerified) return { state: "pending_rollout", message: pendingLoanPosting };
+  try {
+    const loans = await readByIds("cooperative_loans", "member_id", memberIds, "*");
+    return { state: "ready", data: await readLoanViews(loans, asOf, includeDocuments) };
+  } catch {
+    return { state: "unavailable", message: loanHistoryError };
+  }
+}
+
+export function loanInstallmentAmount(view: MemberLoanView) {
+  const { loan, installments } = view;
+  if (installments.length) return installments[0].total;
+  if (!["PENDING", "APPROVED", "REJECTED"].includes(loan.status) || !loan.agreementSigned || loan.months < 1 || loan.months > 120) return null;
+  const method = loan.method === "DIMINISHING" ? "diminishing" : loan.method === "FLAT" ? "flat" : "markup";
+  try {
+    if (amountToCents(loan.principal) > 0n) return calculateLoanExample(loan.principal, method === "markup" ? loan.markup : loan.rate, method,
+      loan.months, loan.frequency === "CUTOFF" ? "cutoff" : "monthly").regularPayment;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function payment(row: Row, movement?: LoanMovement) {
+  const signed = (value: unknown) => {
+    if (!movement) return decimalText(value);
+    const amount = amountToCents(postedAmount(value));
+    return centsToAmount(movement.reversesId ? -amount : amount);
+  };
   return {
     id: idOf(row.id),
     officialReceiptNo: text(row.official_receipt_no) || null,
     referenceNo: text(row.reference_no) || null,
-    amount: text(row.amount) || "0.00",
-    principal: text(row.principal_amount) || "0.00",
-    interest: text(row.interest_amount) || "0.00",
-    penalty: text(row.penalty_amount) || "0.00",
-    channel: text(row.channel).toUpperCase() === "PAYROLL" ? "PAYROLL" as const : "OTC" as const,
-    receiptDate: dateText(row.receipt_date),
+    amount: signed(row.amount),
+    principal: signed(row.principal_amount),
+    interest: signed(row.interest_amount),
+    penalty: signed(row.penalty_amount),
+    channel: movement?.channel ?? (text(row.channel).toUpperCase() === "PAYROLL" ? "PAYROLL" : "OTC"),
+    receiptDate: movement?.date ?? dateText(row.receipt_date),
     postedAt: text(row.posted_at) || null,
-    status: text(row.status).toUpperCase() || "POSTED",
+    status: movement?.reversesId ? "REVERSAL" : text(row.status).toUpperCase() || "POSTED",
+    journalNo: movement?.journalNo ?? null,
   };
 }
 
@@ -235,39 +435,14 @@ export async function getLoanRegister(params: URLSearchParams) {
   const loanRows = await rows("cooperative_loans", new URLSearchParams({
     fields: "*", limit: "-1", sort: "-applied_on,-id",
   }));
-  const loanIds = loanRows.map(row => idOf(row.id));
-  const [installmentRows, documentRows, productRows] = await Promise.all([
-    readByIds("cooperative_loan_installments", "loan_id", loanIds,
-      "id,loan_id,installment_no,due_date,principal,interest,total,paid_total,paid_principal,paid_interest,penalty_assessed,penalty_paid,status"),
-    readByIds("cooperative_documents", "owner_id", loanIds,
-      "id,owner_id,document_type_id,file_name,mime_type,size_bytes,uploaded_at,uploaded_by,removed_at",
-      { owner_type: { _eq: "LOAN" } }),
+  const [views, productRows] = await Promise.all([
+    readLoanViews(loanRows, today(), true),
     rows("cooperative_loan_products", new URLSearchParams({
       fields: "product_code,name,is_open", limit: "-1", sort: "name",
     })).catch(() => []),
   ]);
 
-  const installmentsByLoan = new Map<number, LoanInstallment[]>();
-  for (const row of installmentRows) {
-    const loanId = idOf(row.loan_id);
-    const list = installmentsByLoan.get(loanId) ?? [];
-    list.push(parseInstallment(row));
-    installmentsByLoan.set(loanId, list);
-  }
-  for (const list of installmentsByLoan.values()) list.sort((a, b) => a.no - b.no);
-
-  const documentsByLoan = new Map<number, Row[]>();
-  for (const row of documentRows) {
-    const loanId = idOf(row.owner_id);
-    const list = documentsByLoan.get(loanId) ?? [];
-    list.push(row);
-    documentsByLoan.set(loanId, list);
-  }
-
-  const mapped = loanRows.map(row => {
-    const id = idOf(row.id);
-    return mapLoan(row, installmentsByLoan.get(id) ?? [], documentsByLoan.get(id) ?? []);
-  });
+  const mapped = views.map(view => view.loan);
 
   const active = mapped.filter(loan => loan.status === "ACTIVE");
   const pending = mapped.filter(loan => loan.status === "PENDING");
@@ -318,27 +493,28 @@ export async function getLoanRegister(params: URLSearchParams) {
   };
 }
 
-export async function getLoanDetail(id: number) {
+export async function getLoanDetail(id: number, memberId?: number) {
   if (!Number.isSafeInteger(id) || id <= 0) throw new LoanError(400, "Choose a valid loan.");
   let row: Row | null = null;
-  try {
-    const response = await cooperativeDirectus(`/items/cooperative_loans/${id}?fields=*`);
-    const payload = await response.json() as { data?: Row | null };
-    row = payload.data ?? null;
-  } catch (error) {
-    if (error instanceof CooperativeDirectusError && error.status === 404) return null;
-    throw error;
+  if (memberId !== undefined) {
+    [row = null] = await readByIds("cooperative_loans", "id", [id], "*", { member_id: { _eq: memberId } });
+    if (!row || idOf(row.member_id) !== memberId || idOf(row.id) !== id) return null;
+    if (!loanPostingVerified) throw new LoanError(503, pendingLoanPosting, "PENDING_ROLLOUT");
+  } else {
+    try {
+      const response = await cooperativeDirectus(`/items/cooperative_loans/${id}?fields=*`);
+      const payload = await response.json() as { data?: Row | null };
+      row = payload.data ?? null;
+    } catch (error) {
+      if (error instanceof CooperativeDirectusError && error.status === 404) return null;
+      throw error;
+    }
   }
   if (!row) return null;
 
-  const [installmentRows, paymentRows, documentRows, auditRows] = await Promise.all([
-    readByIds("cooperative_loan_installments", "loan_id", [id],
-      "id,loan_id,installment_no,due_date,principal,interest,total,paid_total,paid_principal,paid_interest,penalty_assessed,penalty_paid,status"),
-    readByIds("cooperative_loan_payments", "loan_id", [id],
-      "id,official_receipt_no,reference_no,amount,principal_amount,interest_amount,penalty_amount,channel,receipt_date,posted_at,status"),
-    readByIds("cooperative_documents", "owner_id", [id],
-      "id,owner_id,document_type_id,file_name,mime_type,size_bytes,uploaded_at,uploaded_by,removed_at",
-      { owner_type: { _eq: "LOAN" } }),
+  const [[view], paymentsBeforeRollout, auditRows] = await Promise.all([
+    readLoanViews([row], today(), true),
+    loanPostingVerified ? [] : readByIds("cooperative_loan_payments", "loan_id", [id], paymentFields),
     rows("cooperative_audit_events", new URLSearchParams({
       fields: "id,action,occurred_at,actor_user_id,reason",
       "filter[entity_type][_eq]": "LOAN",
@@ -348,8 +524,7 @@ export async function getLoanDetail(id: number) {
     })).catch(() => []),
   ]);
 
-  const installments = installmentRows.map(parseInstallment).sort((a, b) => a.no - b.no);
-  const documents = documentRows.map(row => ({
+  const documents = view.files.map(row => ({
     id: idOf(row.id),
     documentTypeId: idOf(row.document_type_id),
     fileName: text(row.file_name),
@@ -359,11 +534,13 @@ export async function getLoanDetail(id: number) {
     uploadedBy: idOf(row.uploaded_by) || null,
     removedAt: text(row.removed_at) || null,
   }));
+  const movements = new Map(view.ledger?.movements.map(movement => [movement.id, movement]));
 
   return {
-    loan: mapLoan(row, installments, documentRows),
-    installments,
-    payments: paymentRows.map(payment).sort((a, b) => (b.receiptDate ?? "").localeCompare(a.receiptDate ?? "")),
+    loan: view.loan,
+    installments: view.installments,
+    payments: (view.paymentRows ?? paymentsBeforeRollout).map(row => payment(row, movements.get(idOf(row.id))))
+      .sort((a, b) => (b.receiptDate ?? "").localeCompare(a.receiptDate ?? "") || b.id - a.id),
     documents,
     history: history(row, auditRows),
   };

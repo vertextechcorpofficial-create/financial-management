@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, FileWarning, Plus, Search, SearchX, UserPlus, UsersRound, X,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -16,6 +15,7 @@ import { MemberDetailDialog } from "./MemberDetailDialog";
 import { MetricCard, PersonAvatar } from "./components";
 import { memberFetch } from "./client";
 import { date, MEMBER_STATUS_CHIP, MEMBER_STATUS_LABEL, peso } from "./format";
+import { memberLoanAccountFilters, memberWithdrawalAccountFilter } from "./types";
 import type { EnrollmentResult, MemberRegisterStatus, RegisterItem, RegisterResponse } from "./types";
 
 type Notice = {
@@ -53,14 +53,22 @@ export default function MembersModule() {
     setLoading(true);
     setError("");
     memberFetch<RegisterResponse>(`/api/fm/cooperative/members?${query}`, { signal })
-      .then(payload => { if (!signal.aborted) setData(payload); })
+      .then(payload => {
+        if (signal.aborted) return;
+        const lastPage = Math.max(1, Math.ceil(payload.total / payload.pageSize));
+        if (account === memberWithdrawalAccountFilter && payload.withdrawalSource.state === "ready" && payload.page > lastPage) {
+          setPage(lastPage);
+          return;
+        }
+        setData(payload);
+      })
       .catch(cause => {
         if (!signal.aborted && !(cause instanceof DOMException && cause.name === "AbortError")) {
           setError(cause instanceof Error ? cause.message : "Unable to load the member register.");
         }
       })
       .finally(() => { if (!signal.aborted) setLoading(false); });
-  }, [query]);
+  }, [query, account]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,6 +78,12 @@ export default function MembersModule() {
       controller.abort();
     };
   }, [load, attempt]);
+
+  useEffect(() => {
+    const refreshOnFocus = () => setAttempt(value => value + 1);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, []);
 
   function changeFilter(setter: (value: string) => void) {
     return (value: string) => {
@@ -109,6 +123,11 @@ export default function MembersModule() {
   const hasFilters = Boolean(search.trim() || department || membership || account);
   const from = data && data.total > 0 ? (data.page - 1) * data.pageSize + 1 : 0;
   const to = data ? Math.min(data.page * data.pageSize, data.total) : 0;
+  const loanSource = data?.loanSource;
+  const loanFilterUnavailable = data?.loanFilterUnavailable;
+  const withdrawalSource = data?.withdrawalSource;
+  const withdrawalFilterUnavailable = data?.withdrawalFilterUnavailable || Boolean(error && account === memberWithdrawalAccountFilter);
+  const filterUnavailable = loanFilterUnavailable || withdrawalFilterUnavailable;
 
   return (
     <main className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
@@ -120,12 +139,7 @@ export default function MembersModule() {
               <UsersRound className="size-5" />
             </span>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Cooperative</p>
-                <Badge variant="outline" className="gap-1.5 border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-                  <span className="size-1.5 rounded-full bg-emerald-500" /> Live register
-                </Badge>
-              </div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Cooperative</p>
               <h1 className="mt-1 text-2xl font-semibold tracking-tight">Members</h1>
               <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
                 Employee and membership register from VOS and Cooperative records. Open a row for the agreement, documents, savings, and take-home pay.
@@ -253,16 +267,23 @@ export default function MembersModule() {
                 ))}
               </NativeSelect>
             </label>
-            <label className="space-y-1.5 text-[11px] font-medium text-muted-foreground">
-              Account
-              <NativeSelect value={account} onChange={event => changeFilter(setAccount)(event.target.value)} className="h-9 w-full">
+            <div className="space-y-1.5">
+              <label htmlFor="cooperative-member-account" className="block text-[11px] font-medium text-muted-foreground">Account</label>
+              <NativeSelect id="cooperative-member-account" value={account} onChange={event => changeFilter(setAccount)(event.target.value)} className="h-9 w-full">
                 <option value="">Any</option>
+                {Object.entries(memberLoanAccountFilters).map(([value, label]) => (
+                  <option key={value} value={value} disabled={!loanSource || loanSource.state === "pending_rollout"}>{label}</option>
+                ))}
+                <option value={memberWithdrawalAccountFilter} disabled={!withdrawalSource || withdrawalSource.state === "pending_rollout"}>
+                  With withdrawal request
+                </option>
                 <option value="documents">Missing documents</option>
               </NativeSelect>
-            </label>
+            </div>
             <div className="flex items-end justify-between gap-2 sm:col-span-3">
               <p className="text-xs text-muted-foreground">
-                {loading ? "Updating register..." : `${data?.total ?? 0} employee${data?.total === 1 ? "" : "s"} match`}
+                {loading ? "Updating register..." : withdrawalFilterUnavailable ? "Withdrawal filter unavailable"
+                  : loanFilterUnavailable ? "Loan filter unavailable" : `${data?.total ?? 0} employee${data?.total === 1 ? "" : "s"} match`}
               </p>
               {hasFilters && (
                 <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={clearFilters}>
@@ -273,6 +294,22 @@ export default function MembersModule() {
           </div>
         </div>
 
+        {loanSource && loanSource.state !== "ready" && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <p role={loanSource.state === "unavailable" ? "alert" : "status"}>{loanSource.message}</p>
+            {loanSource.state === "unavailable" && (
+              <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => setAttempt(value => value + 1)}>Retry loan data</Button>
+            )}
+          </div>
+        )}
+        {withdrawalSource && withdrawalSource.state !== "ready" && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <p role={withdrawalSource.state === "unavailable" ? "alert" : "status"}>{withdrawalSource.message}</p>
+            {withdrawalSource.state === "unavailable" && (
+              <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => setAttempt(value => value + 1)}>Retry withdrawal data</Button>
+            )}
+          </div>
+        )}
         <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
           <Table className="min-w-[560px]">
             <TableHeader>
@@ -282,15 +319,16 @@ export default function MembersModule() {
                 <TableHead className="hidden xl:table-cell">Agreement</TableHead>
                 <TableHead className="hidden xl:table-cell">Documents</TableHead>
                 <TableHead className="text-right">Savings</TableHead>
-                <TableHead className="text-right">Loans &amp; withdrawals</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Loan balance</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Past due</TableHead>
                 <TableHead className="w-8" />
               </TableRow>
             </TableHeader>
             <TableBody className={cn("transition-opacity", loading && data && "opacity-60")}>
               {loading && !data && <RegisterSkeleton />}
-              {!loading && data?.items.length === 0 && (
+              {!loading && !filterUnavailable && data?.items.length === 0 && (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={8}>
                     <div className="flex flex-col items-center gap-2 py-10 text-center">
                       <span className="grid size-11 place-items-center rounded-full bg-muted text-muted-foreground"><SearchX className="size-5" /></span>
                       <p className="text-sm font-medium">No employees match these filters</p>
@@ -300,7 +338,7 @@ export default function MembersModule() {
                   </TableCell>
                 </TableRow>
               )}
-              {data?.items.map(item => (
+              {!withdrawalFilterUnavailable && data?.items.map(item => (
                 <MemberRow key={item.userId} item={item} onOpen={() => setSelectedUserId(item.userId)} />
               ))}
             </TableBody>
@@ -309,14 +347,14 @@ export default function MembersModule() {
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
           <span>
-            {data && data.total > 0 ? <>Showing <span className="font-medium text-foreground">{from}-{to}</span> of <span className="font-medium text-foreground">{data.total}</span></> : "No records"}
+            {!filterUnavailable && (data && data.total > 0 ? <>Showing <span className="font-medium text-foreground">{from}-{to}</span> of <span className="font-medium text-foreground">{data.total}</span></> : "No records")}
           </span>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" disabled={page <= 1 || loading} onClick={() => setPage(value => Math.max(1, value - 1))}>
               <ChevronLeft className="size-3.5" /> Previous
             </Button>
             <span className="min-w-14 text-center font-medium text-foreground">Page {data?.page ?? page}</span>
-            <Button size="sm" variant="outline" disabled={!hasMore || loading} onClick={() => setPage(value => value + 1)}>
+            <Button size="sm" variant="outline" disabled={!hasMore || loading || filterUnavailable} onClick={() => setPage(value => value + 1)}>
               Next <ChevronRight className="size-3.5" />
             </Button>
           </div>
@@ -324,7 +362,14 @@ export default function MembersModule() {
       </Panel>
 
       {adding && <AddMemberDialog onClose={() => setAdding(false)} onEnrolled={enrolled} />}
-      {selectedUserId !== null && <MemberDetailDialog userId={selectedUserId} onClose={() => setSelectedUserId(null)} />}
+      {selectedUserId !== null && (
+        <MemberDetailDialog
+          key={selectedUserId}
+          userId={selectedUserId}
+          onClose={() => setSelectedUserId(null)}
+          onDocumentsChanged={() => setAttempt(value => value + 1)}
+        />
+      )}
     </main>
   );
 }
@@ -348,6 +393,7 @@ function RegisterSkeleton() {
           <TableCell className="hidden xl:table-cell"><div className="h-5 w-20 animate-pulse rounded-full bg-muted" /></TableCell>
           <TableCell><div className="ml-auto h-4 w-20 animate-pulse rounded bg-muted" /></TableCell>
           <TableCell><div className="ml-auto h-4 w-24 animate-pulse rounded bg-muted" /></TableCell>
+          <TableCell><div className="ml-auto h-4 w-20 animate-pulse rounded bg-muted" /></TableCell>
           <TableCell />
         </TableRow>
       ))}
@@ -398,18 +444,23 @@ function MemberRow({ item, onOpen }: { item: RegisterItem; onOpen: () => void })
       </TableCell>
       <TableCell className="text-right font-mono font-medium tabular-nums">
         {item.savingsBalance ? peso(item.savingsBalance) : <span className="font-sans text-xs font-normal text-muted-foreground">-</span>}
+        {item.withdrawal && item.withdrawal.pendingCount > 0 && (
+          <span className="mt-1 block whitespace-nowrap font-sans text-xs font-normal text-muted-foreground">
+            {peso(item.withdrawal.pendingAmount)} pending withdrawal
+          </span>
+        )}
       </TableCell>
-      <TableCell className="text-right">
-        <span
-          className="inline-flex items-center rounded-full border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-          title="Loan balance and withdrawal figures are unavailable until their posting modules are live."
-        >
-          Unavailable
-        </span>
-      </TableCell>
+      <TableCell className="text-right font-mono tabular-nums"><LoanBalance item={item} amount={item.loanBalance} /></TableCell>
+      <TableCell className="text-right font-mono tabular-nums"><LoanBalance item={item} amount={item.pastDue} /></TableCell>
       <TableCell>
         <ChevronRight className="size-4 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
       </TableCell>
     </TableRow>
   );
+}
+
+function LoanBalance({ item, amount }: { item: RegisterItem; amount: string | null }) {
+  return amount === null
+    ? <span className="font-sans text-xs text-muted-foreground">{item.hasCurrent ? "Unavailable" : "—"}</span>
+    : peso(amount);
 }

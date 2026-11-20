@@ -65,6 +65,16 @@ function nextNumber(series: SeriesRow | undefined) {
   return next;
 }
 
+function agreementNumber(year: number, number: number) {
+  return `MA-${String(year).padStart(4, "0")}-${String(number).padStart(4, "0")}`;
+}
+
+export async function previewAgreementNumber(signedAt: string) {
+  const year = Number(signedAt.slice(0, 4));
+  const series = await readSeries(year, ["MA"]);
+  return agreementNumber(year, nextNumber(series.get("MA")));
+}
+
 function requestHash(input: { userId: number; signedAt: string; savingsPerCutoff: string; openingDeposit: string; feeChannel: string; beneficiary: string }) {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
@@ -95,7 +105,7 @@ function payload(check: EnrollmentCheck, key: string, hash: string, actor: { act
   const year = Number(check.inputs.signedAt.slice(0, 4));
   const maNumber = nextNumber(series.get("MA"));
   const jvNumber = nextNumber(series.get("JV"));
-  const agreementNo = `MA-${year}-${String(maNumber).padStart(4, "0")}`;
+  const agreementNo = agreementNumber(year, maNumber);
   const journalNo = `JV-${year}-${String(jvNumber).padStart(4, "0")}`;
   const fee = check.values.feeAmount;
   const deposit = check.inputs.openingDeposit;

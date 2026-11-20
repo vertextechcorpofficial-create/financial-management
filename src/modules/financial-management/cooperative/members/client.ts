@@ -41,3 +41,38 @@ export function newRequestKey() {
   const hex = [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
+import { uploadPartSize } from "../document-limits";
+
+
+export async function uploadMemberDocuments(endpoint: string, documentTypeId: string, uploadKey: string, files: File[]) {
+  const form = new FormData();
+  form.append("documentTypeId", documentTypeId);
+  form.append("uploadKey", uploadKey);
+  files.forEach(file => form.append("files", file));
+  if (files.reduce((total, file) => total + file.size, 0) < uploadPartSize) {
+    return memberFetch(endpoint, { method: "POST", body: form });
+  }
+
+  const encoded = new Response(form);
+  const contentType = encoded.headers.get("Content-Type");
+  const body = await encoded.blob();
+  if (body.size <= uploadPartSize) return memberFetch(endpoint, { method: "POST", body: form });
+  const attempt = newRequestKey();
+  const partUrl = endpoint + "?attempt=" + attempt;
+  const sizes: number[] = [];
+  try {
+    for (let offset = 0; offset < body.size; offset += uploadPartSize) {
+      const part = body.slice(offset, offset + uploadPartSize);
+      await memberFetch(partUrl + "&part=" + sizes.length, {
+        method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: part,
+      });
+      sizes.push(part.size);
+    }
+    return await memberFetch(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attempt, contentType, sizes }),
+    });
+  } catch (error) {
+    void memberFetch(partUrl, { method: "DELETE" }).catch(() => undefined);
+    throw error;
+  }
+}

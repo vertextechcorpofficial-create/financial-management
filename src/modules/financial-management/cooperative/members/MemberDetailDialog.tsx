@@ -2,42 +2,71 @@
 
 import { useEffect, useState } from "react";
 import {
-  AlertTriangle, Banknote, Calculator, FileText, FolderClosed, HandCoins, Landmark, LayoutDashboard, ReceiptText, Wallet,
+  AlertTriangle, Banknote, Calculator, FileText, FolderClosed, HandCoins, Landmark, LayoutDashboard, Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConsoleDialog, EmptyState, Kv, Panel, StatusChip } from "../console/components/ui";
 import { MemberDocuments } from "./MemberDocuments";
+import { MemberLoans } from "./MemberLoans";
+import { MemberStatement } from "./MemberStatement";
 import { MetricCard, PersonAvatar } from "./components";
 import { memberFetch } from "./client";
 import {
-  date, feeChannelLabel, MEMBER_STATUS_CHIP, MEMBER_STATUS_LABEL, peso, savingsKindLabel,
+  date, feeChannelLabel, isSavingsOutflow, MEMBER_STATUS_CHIP, MEMBER_STATUS_LABEL, peso, savingsKindLabel,
 } from "./format";
-import type { MemberDetail } from "./types";
+import type { MemberDetail, SavingsEntry } from "./types";
 
 const tabTriggerClass = "shrink-0 gap-1.5 whitespace-nowrap data-[state=active]:bg-background";
+const amountLabel = (value: string | null) => value === null ? "Unavailable" : peso(value);
 
-export function MemberDetailDialog({ userId, onClose }: { userId: number; onClose: () => void }) {
+export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
+  userId: number;
+  onClose: () => void;
+  onDocumentsChanged: () => void;
+}) {
   const [detail, setDetail] = useState<MemberDetail>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
+    const refreshOnFocus = () => setAttempt(value => value + 1);
+    window.addEventListener("focus", refreshOnFocus);
     memberFetch<MemberDetail>(`/api/fm/cooperative/members/${userId}`, { signal: controller.signal })
-      .then(payload => { if (!controller.signal.aborted) setDetail(payload); })
+      .then(payload => {
+        if (controller.signal.aborted) return;
+        setDetail(payload);
+        setError("");
+      })
       .catch(cause => {
         if (!controller.signal.aborted && !(cause instanceof DOMException && cause.name === "AbortError")) {
           setError(cause instanceof Error ? cause.message : "Unable to load this member.");
         }
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [userId]);
+    return () => {
+      window.removeEventListener("focus", refreshOnFocus);
+      controller.abort();
+    };
+  }, [userId, attempt]);
 
   const item = detail?.item;
   const current = detail?.current;
+  const loanAccount = detail?.loans?.state === "ready" ? detail.loans.data : null;
+  const withdrawals = detail?.withdrawals;
+  const withdrawalBalance = !error && withdrawals?.state === "ready" ? withdrawals.data : null;
+  const withdrawalPlaceholder = !current ? "—" : !error && withdrawals?.state === "pending_rollout" ? "Pending rollout" : "Unavailable";
+  const postedSavings = current ? peso(current.savingsBalance) : "—";
+  const maintainingBalance = current ? peso(withdrawalBalance?.maintainingBalance ?? detail.policy.maintainingBalance) : "—";
+  const pendingWithdrawals = withdrawalBalance ? peso(withdrawalBalance.pendingAmount) : withdrawalPlaceholder;
+  const availableSavings = current?.status === "SEPARATED" || withdrawalBalance?.availableSavings === null
+    ? "Closed"
+    : withdrawalBalance ? peso(withdrawalBalance.availableSavings) : withdrawalPlaceholder;
+  const retry = () => setAttempt(value => value + 1);
 
   return (
     <ConsoleDialog
@@ -64,9 +93,10 @@ export function MemberDetailDialog({ userId, onClose }: { userId: number; onClos
     >
       {loading && <DetailSkeleton />}
       {error && (
-        <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+        <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-          <p>{error}</p>
+          <p className="flex-1">{error}</p>
+          <Button type="button" variant="outline" size="sm" onClick={retry}>Retry member details</Button>
         </div>
       )}
       {detail && item && (
@@ -76,7 +106,7 @@ export function MemberDetailDialog({ userId, onClose }: { userId: number; onClos
             {current && <TabsTrigger value="statement" className={tabTriggerClass}><FileText className="size-3.5" /> Statement</TabsTrigger>}
             {current && <TabsTrigger value="savings" className={tabTriggerClass}><Wallet className="size-3.5" /> Savings</TabsTrigger>}
             {current && <TabsTrigger value="documents" className={tabTriggerClass}><FolderClosed className="size-3.5" /> Documents</TabsTrigger>}
-            <TabsTrigger value="loans" className={tabTriggerClass}><HandCoins className="size-3.5" /> Loans &amp; withdrawals</TabsTrigger>
+            <TabsTrigger value="loans" className={tabTriggerClass}><HandCoins className="size-3.5" /> Loans</TabsTrigger>
             {current && <TabsTrigger value="takehome" className={tabTriggerClass}><Calculator className="size-3.5" /> Take-home</TabsTrigger>}
           </TabsList>
 
@@ -84,14 +114,18 @@ export function MemberDetailDialog({ userId, onClose }: { userId: number; onClos
             <div className="grid gap-3 sm:grid-cols-3">
               <MetricCard
                 icon={Wallet}
-                label="Savings balance"
-                value={current ? peso(current.savingsBalance) : "-"}
+                label="Posted savings"
+                value={postedSavings}
                 detail={current ? `${peso(current.savingsPerCutoff)} per cutoff` : "No membership"}
                 tone="emerald"
               />
-              <MetricCard icon={Landmark} label="Loan balance" value="Unavailable" detail="Awaiting the Loans posting module" tone="slate" />
-              <MetricCard icon={Banknote} label="Withdrawals" value="Unavailable" detail="Awaiting the Withdraw Savings module" tone="slate" />
+              <MetricCard
+                icon={Landmark} label="Loan balance" value={current ? amountLabel(item.loanBalance) : "—"}
+                detail={item.pastDue === null ? undefined : peso(item.pastDue) + " past due"} tone="slate"
+              />
+              <MetricCard icon={Banknote} label="Available to withdraw" value={availableSavings} tone="slate" />
             </div>
+            {!error && <WithdrawalNotice source={withdrawals} onRetry={retry} />}
 
             <div className="grid gap-4 md:grid-cols-2">
               <Panel title="Membership agreement">
@@ -117,14 +151,19 @@ export function MemberDetailDialog({ userId, onClose }: { userId: number; onClos
                 <Kv rows={[
                   ["HR employee number", item.employeeNumber],
                   ["Department", item.departmentName ?? "No department"],
-                  ["Savings balance", current ? peso(current.savingsBalance) : "-"],
-                  ["Loan balance", "Unavailable"],
-                  ["Past due", "Unavailable"],
-                  ["Withdrawal availability", "Unavailable"],
+                  ["Posted savings", postedSavings],
+                  ["Maintaining balance", maintainingBalance],
+                  ["Pending withdrawals", pendingWithdrawals],
+                  ["Available to withdraw", availableSavings],
+                    ...(item.documents ? [["Required documents", item.documents.onFile + " of " + item.documents.required + " on file"] satisfies [string, string]] : []),
+                  ["Loan balance", current ? amountLabel(item.loanBalance) : "—"],
+                  ["Past due", current ? amountLabel(item.pastDue) : "—"],
+                  ["Penalties due", current ? amountLabel(loanAccount?.penalties ?? null) : "—"],
+                  ["Salary loan available", loanAccount?.salaryRoom.state === "ready" ? peso(loanAccount.salaryRoom.amount)
+                    : loanAccount?.salaryRoom.state === "unlimited" ? "No product limit"
+                      : loanAccount?.salaryRoom.message ?? (current ? "Unavailable" : "—")],
+                  ["Take-home headroom", current ? amountLabel(detail.takeHome.headroom) : "—"],
                 ]} />
-                <p className="mt-3 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
-                  Loan, past-due, and withdrawal figures stay unavailable until their posting modules are live.
-                </p>
               </Panel>
             </div>
 
@@ -157,35 +196,33 @@ export function MemberDetailDialog({ userId, onClose }: { userId: number; onClos
           </TabsContent>
 
           <TabsContent value="statement" className="mt-4">
-            <Panel title="Savings statement" description="New Cooperative savings entries only. Legacy history stays separate.">
-              {current ? <SavingsTable detail={detail} /> : <EmptyState>No savings statement exists for this employee.</EmptyState>}
-            </Panel>
+            {current && <MemberStatement userId={item.userId} />}
           </TabsContent>
 
           <TabsContent value="savings" className="mt-4 space-y-4">
             <Panel
               title="Savings ledger"
               description="Posted savings movement for this membership."
-              actions={<span className="font-mono text-lg font-semibold">{current ? peso(current.savingsBalance) : "-"}</span>}
+              actions={<span className="font-mono text-lg font-semibold">{postedSavings}</span>}
             >
-              {current ? <SavingsTable detail={detail} compact /> : <EmptyState>No new savings ledger exists for this employee.</EmptyState>}
+              {current && <SavingsLedger entries={detail.savingsEntries} />}
             </Panel>
             {current && (
               <Panel title="Savings policy">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-lg border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">Maintaining balance</p>
-                    <p className="mt-1 font-mono font-semibold">{peso(detail.policy.maintainingBalance)}</p>
-                  </div>
-                  <div className="rounded-lg border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">Minimum savings per cutoff</p>
-                    <p className="mt-1 font-mono font-semibold">{peso(detail.policy.minimumSavings)}</p>
-                  </div>
-                  <div className="rounded-lg border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">Withdrawal availability</p>
-                    <p className="mt-1 text-sm font-medium">Unavailable</p>
-                  </div>
-                </div>
+                <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    ["Maintaining balance", maintainingBalance],
+                    ["Minimum savings per cutoff", peso(detail.policy.minimumSavings)],
+                    ["Pending withdrawals", pendingWithdrawals],
+                    ["Available to withdraw", availableSavings],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-lg border bg-muted/20 p-3">
+                      <dt className="text-xs text-muted-foreground">{label}</dt>
+                      <dd className="mt-1 font-mono text-sm font-semibold">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {!error && <WithdrawalNotice source={withdrawals} onRetry={retry} />}
               </Panel>
             )}
           </TabsContent>
@@ -196,8 +233,11 @@ export function MemberDetailDialog({ userId, onClose }: { userId: number; onClos
                 userId={item.userId}
                 required={detail.requiredDocuments}
                 storageReady={detail.documentStorageReady}
-                initial={detail.documents}
                 canEdit={current.status === "ACTIVE"}
+                onChanged={() => {
+                  setAttempt(value => value + 1);
+                  onDocumentsChanged();
+                }}
               />
             ) : (
               <EmptyState>Documents apply to current memberships.</EmptyState>
@@ -205,16 +245,7 @@ export function MemberDetailDialog({ userId, onClose }: { userId: number; onClos
           </TabsContent>
 
           <TabsContent value="loans" className="mt-4">
-            <Panel title="Loans and withdrawals" description="These figures are intentionally unavailable in this release.">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <MetricCard icon={Landmark} label="Loan balance" value="Unavailable" detail="No loan posting source is live" tone="slate" />
-                <MetricCard icon={ReceiptText} label="Past due" value="Unavailable" detail="No installment schedule is live" tone="slate" />
-                <MetricCard icon={Banknote} label="Withdrawals" value="Unavailable" detail="No withdrawal posting source is live" tone="slate" />
-              </div>
-              <p className="mt-3 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
-                The register does not filter on loan balance, past due, or withdrawals. Only missing-document filtering is enabled.
-              </p>
-            </Panel>
+            <MemberLoans userId={userId} loans={detail.loans} onRetry={() => setAttempt(value => value + 1)} />
           </TabsContent>
 
           <TabsContent value="takehome" className="mt-4 space-y-4">
@@ -236,8 +267,8 @@ export function MemberDetailDialog({ userId, onClose }: { userId: number; onClos
               <MetricCard
                 icon={HandCoins}
                 label="Headroom"
-                value={detail.takeHome.headroom ? peso(detail.takeHome.headroom) : "Unavailable"}
-                detail="After savings and the pay floor"
+                value={amountLabel(detail.takeHome.headroom)}
+                detail={detail.takeHome.assessmentCutoff ? "For cutoff " + date(detail.takeHome.assessmentCutoff) : undefined}
                 tone={detail.takeHome.headroom?.startsWith("-") ? "rose" : "emerald"}
                 alert={Boolean(detail.takeHome.headroom?.startsWith("-"))}
               />
@@ -249,13 +280,16 @@ export function MemberDetailDialog({ userId, onClose }: { userId: number; onClos
                     ["Gross pay", peso(detail.payroll.grossPay)],
                     ["Total deductions", peso(detail.payroll.totalDeductions)],
                     ["Net pay", peso(detail.payroll.netPay)],
-                    ["Savings per cutoff", detail.takeHome.savingsPerCutoff ? peso(detail.takeHome.savingsPerCutoff) : "Unavailable"],
-                    ["Payroll deduction", detail.takeHome.payrollDeduction ? peso(detail.takeHome.payrollDeduction) : "Unavailable"],
-                    ["Headroom", detail.takeHome.headroom ? peso(detail.takeHome.headroom) : "Unavailable", "total"],
+                    ["Savings per cutoff", amountLabel(detail.takeHome.savingsPerCutoff)],
+                    ["Loan deductions", amountLabel(detail.takeHome.loanDeduction)],
+                    ["Total Cooperative commitments", amountLabel(detail.takeHome.payrollDeduction)],
+                    ["Already included in posted net pay", amountLabel(detail.takeHome.includedInNetPay)],
+                    ["Headroom", amountLabel(detail.takeHome.headroom), "total"],
                   ]} />
                   <p className="mt-3 text-xs text-muted-foreground">
-                    This assessment uses posted payroll for cutoff {date(detail.payroll.cutoffDate)} and the member’s savings per cutoff.
+                    Posted payroll reference {date(detail.payroll.cutoffDate)}
                   </p>
+                  {detail.takeHome.headroomMessage && <p role="status" className="mt-2 text-sm text-muted-foreground">{detail.takeHome.headroomMessage}</p>}
                 </>
               ) : (
                 <p className="text-sm text-amber-700 dark:text-amber-300">{detail.payroll.message}</p>
@@ -265,6 +299,21 @@ export function MemberDetailDialog({ userId, onClose }: { userId: number; onClos
         </Tabs>
       )}
     </ConsoleDialog>
+  );
+}
+
+function WithdrawalNotice({ source, onRetry }: {
+  source: MemberDetail["withdrawals"] | undefined;
+  onRetry: () => void;
+}) {
+  if (!source || source.state === "ready") return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <p role={source.state === "unavailable" ? "alert" : "status"}>{source.message}</p>
+      {source.state === "unavailable" && (
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>Retry withdrawal data</Button>
+      )}
+    </div>
   );
 }
 
@@ -282,35 +331,53 @@ function DetailSkeleton() {
   );
 }
 
-function SavingsTable({ detail, compact = false }: { detail: MemberDetail; compact?: boolean }) {
+function SavingsLedger({ entries }: { entries: SavingsEntry[] }) {
+  const [filter, setFilter] = useState("");
+  const matching = entries.filter(entry => filter === "DEPOSITS" ? !isSavingsOutflow(entry.kind) : !filter || entry.kind === filter);
+  const recent = matching.slice(-12).reverse();
   return (
-    <div className="max-h-[48dvh] overflow-auto rounded-lg border">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
-          <TableRow className="hover:bg-transparent">
-            <TableHead>Date</TableHead><TableHead>Entry</TableHead><TableHead>Reference</TableHead>
-            <TableHead className="text-right">Amount</TableHead><TableHead className="text-right">Balance</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {detail.savingsEntries.length === 0 && (
-            <TableRow><TableCell colSpan={5}><EmptyState>No new savings entries have been posted.</EmptyState></TableCell></TableRow>
-          )}
-          {[...detail.savingsEntries].reverse().slice(0, compact ? 12 : undefined).map(entry => (
-            <TableRow key={entry.id} className="hover:bg-muted/30">
-              <TableCell className="whitespace-nowrap">{date(entry.entryDate)}</TableCell>
-              <TableCell>
-                <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                  {savingsKindLabel[entry.kind] ?? entry.kind}
-                </span>
-              </TableCell>
-              <TableCell className="font-mono text-xs">{entry.reference}</TableCell>
-              <TableCell className="text-right font-mono tabular-nums">{peso(entry.amount)}</TableCell>
-              <TableCell className="text-right font-mono font-medium tabular-nums">{peso(entry.balanceAfter)}</TableCell>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="space-y-1.5">
+          <label htmlFor="cooperative-savings-entry-type" className="block text-xs font-medium text-muted-foreground">Entry type</label>
+          <NativeSelect id="cooperative-savings-entry-type" value={filter} onChange={event => setFilter(event.target.value)} className="h-9">
+            <option value="">All entries</option>
+            <option value="DEPOSITS">Deposits</option>
+            <option value="WITHDRAWAL">Withdrawals</option>
+            <option value="OFFSET">Offsets</option>
+          </NativeSelect>
+        </div>
+        <span className="text-sm text-muted-foreground">{matching.length} matching {matching.length === 1 ? "entry" : "entries"}</span>
+      </div>
+      <div className="max-h-[48dvh] overflow-auto rounded-lg border">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Date</TableHead><TableHead>Entry</TableHead><TableHead>Reference</TableHead>
+              <TableHead className="text-right">Amount</TableHead><TableHead className="text-right">Balance</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {recent.length === 0 && (
+              <TableRow><TableCell colSpan={5}><EmptyState>{filter ? "No entries match this type." : "No savings entries have been posted."}</EmptyState></TableCell></TableRow>
+            )}
+            {recent.map(entry => (
+              <TableRow key={entry.id} className="hover:bg-muted/30">
+                <TableCell className="whitespace-nowrap">{date(entry.entryDate)}</TableCell>
+                <TableCell>
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                    {savingsKindLabel[entry.kind]}
+                  </span>
+                </TableCell>
+                <TableCell className="font-mono text-xs">{entry.reference}</TableCell>
+                <TableCell className="text-right font-mono tabular-nums">{isSavingsOutflow(entry.kind) ? peso("-" + entry.amount) : "+" + peso(entry.amount)}</TableCell>
+                <TableCell className="text-right font-mono font-medium tabular-nums">{peso(entry.balanceAfter)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      {matching.length > recent.length && <p className="text-xs text-muted-foreground">Showing the latest {recent.length}. Open Statement for the full period.</p>}
     </div>
   );
 }
