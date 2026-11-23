@@ -11,6 +11,11 @@ import {
   ConsoleDialog, EmptyState, FilterBar, FilterField, Kv, Panel, Progress, StatusChip, Tile,
 } from "../console/components/ui";
 import { peso } from "../members/format";
+import { CooperativeDocuments } from "../members/MemberDocuments";
+import type { LoanEnrollmentResult } from "../server/loan-enrollment-save";
+import { LoanEnrollmentDialog } from "./LoanEnrollmentDialog";
+import { LoanDecisionPanel, LoanReleaseDetails } from "./LoanDecisionPanel";
+import type { LoanDecisionResult } from "../server/loan-decisions";
 import { amountToCents, installmentStatus } from "./loan-schedule";
 
 type LoanRow = {
@@ -55,7 +60,7 @@ type LoanRow = {
     warnings: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
     blocks: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
   };
-  termsSnapshot: Record<string, unknown> | null;
+  agreementSigned: boolean;
 };
 
 type Register = {
@@ -92,7 +97,7 @@ type Installment = {
 };
 
 type Detail = {
-  loan: LoanRow;
+  loan: LoanRow & { signedPricing: { paymentCount: number; regularPayment: string; finalPayment: string } | null };
   installments: Installment[];
   payments: Array<{
     id: number; officialReceiptNo: string | null; referenceNo: string | null;
@@ -100,10 +105,12 @@ type Detail = {
     channel: string; receiptDate: string | null; postedAt: string | null; status: string; journalNo: string | null;
   }>;
   documents: Array<{
-    id: number; documentTypeId: number; fileName: string; mimeType: string;
+    id: string; documentTypeId: number; fileName: string; mimeType: string;
     sizeBytes: number; uploadedAt: string | null; uploadedBy: number | null; removedAt: string | null;
   }>;
   history: Array<{ date: string; text: string; actor: string | null }>;
+  documentOptions?: { storageReady: boolean; uploadTypes: Array<{ id: number; name: string }> };
+  release?: LoanDecisionResult | null;
 };
 
 const todayManila = () => new Intl.DateTimeFormat("en-CA", {
@@ -116,7 +123,7 @@ const date = (value: string | null | undefined) => {
     ? value
     : new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium" }).format(parsed);
 };
-const statusText = (value: string) => value.replaceAll("_", " ").toLowerCase().replace(/^./, character => character.toUpperCase());
+const statusText = (value: string) => value === "APPROVED" ? "For release" : value.replaceAll("_", " ").toLowerCase().replace(/^./, character => character.toUpperCase());
 
 export default function LoansModule() {
   const [search, setSearch] = useState("");
@@ -129,7 +136,9 @@ export default function LoansModule() {
   const [data, setData] = useState<Register>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<{ id: number; tab?: "documents" | "review"; releaseNow?: boolean }>();
+  const [enrolling, setEnrolling] = useState(false);
+  const [saved, setSaved] = useState<LoanEnrollmentResult>();
 
   const query = useMemo(() => {
     const params = new URLSearchParams({ page: String(page) });
@@ -179,12 +188,12 @@ export default function LoansModule() {
           <p className="text-sm text-muted-foreground">Cooperative</p>
           <h1 className="text-2xl font-semibold tracking-tight">Loans</h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Live loan register from persisted Cooperative records. Enrollment, decisions, and payments follow in the write phase.
+            Enroll signed loans, track their approval status, and manage supporting documents.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">Live register</Badge>
-          <Button variant="outline" size="sm" disabled title="Live enrollment requires the Members and payroll-reference rollout.">
+          <Button size="sm" onClick={() => setEnrolling(true)}>
             Enroll loan
           </Button>
         </div>
@@ -196,6 +205,9 @@ export default function LoansModule() {
           <Button size="sm" variant="outline" onClick={() => setAttempt(value => value + 1)}>Retry</Button>
         </div>
       )}
+      {saved && <div role="status" className="rounded-md border border-emerald-600/40 bg-emerald-500/5 px-3 py-2 text-sm">
+        {saved.loanNo} · {saved.agreementNo} saved for approval.
+      </div>}
 
       {data && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -259,7 +271,7 @@ export default function LoansModule() {
                 const docs = loan.documents;
                 const docsComplete = docs.required.length > 0 && docs.missing.length === 0;
                 return (
-                  <TableRow key={loan.id} className="cursor-pointer" onClick={() => setSelectedId(loan.id)}>
+                  <TableRow key={loan.id} className="cursor-pointer" onClick={() => setSelected({ id: loan.id })}>
                     <TableCell className="whitespace-normal">
                       <p className="font-mono text-sm font-medium">{loan.loanNo}</p>
                       <p className="text-xs text-muted-foreground">{loan.productName}</p>
@@ -274,7 +286,8 @@ export default function LoansModule() {
                         {loan.frequency === "CUTOFF" ? "Every cutoff" : "Monthly"} · {loan.mode === "PAYROLL" ? "Salary deduction" : "Over the counter"}
                       </span>
                     </TableCell>
-                    <TableCell><StatusChip status={loan.pastDue !== "0.00" && loan.status === "ACTIVE" ? "PAST_DUE" : loan.status} /></TableCell>
+                    <TableCell><StatusChip status={loan.pastDue !== "0.00" && loan.status === "ACTIVE" ? "PAST_DUE" : loan.status}
+                      label={loan.status === "APPROVED" ? "For release" : undefined} /></TableCell>
                     <TableCell>
                       {docs.required.length === 0 || docsComplete
                         ? <StatusChip status="ACTIVE" label="Complete" />
@@ -301,20 +314,37 @@ export default function LoansModule() {
         </div>
       </Panel>
 
-      {selectedId !== null && <LoanDialog id={selectedId} onClose={() => setSelectedId(null)} />}
+      {enrolling && <LoanEnrollmentDialog onClose={() => setEnrolling(false)} onSaved={(result, release) => {
+        setEnrolling(false);
+        setSaved(result);
+        setSelected({ id: result.id, tab: release.requested && !release.reviewDocuments ? "review" : "documents", releaseNow: release.requested });
+        setAttempt(value => value + 1);
+      }} />}
+      {selected && <LoanDialog key={selected.id} id={selected.id} initialTab={selected.tab}
+        decisionEndpoint={"/api/fm/cooperative/loans/" + selected.id + "/decision"} approveAndRelease={selected.releaseNow}
+        onDocumentsChanged={() => setAttempt(value => value + 1)} onDecision={() => setAttempt(value => value + 1)}
+        onClose={() => setSelected(undefined)} />}
     </main>
   );
 }
 
-export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, onClose }: {
+export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, initialTab = "summary",
+  decisionEndpoint, approveAndRelease, onDecision, onDocumentsChanged, onClose }: {
   id: number;
   endpoint?: string;
+  initialTab?: "summary" | "documents" | "review";
+  decisionEndpoint?: string;
+  approveAndRelease?: boolean;
+  onDecision?: () => void;
+  onDocumentsChanged?: () => void;
   onClose: () => void;
 }) {
   const [detail, setDetail] = useState<Detail>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  const [tab, setTab] = useState<string>(initialTab);
+  const [decision, setDecision] = useState<LoanDecisionResult>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -334,12 +364,14 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, o
 
   const loan = detail?.loan;
   const docs = loan?.documents;
+  const status = decision?.status ?? loan?.status;
+  const showReview = decisionEndpoint && (status === "PENDING" || status === "APPROVED");
 
   return (
     <ConsoleDialog
       open
       onOpenChange={open => { if (!open) onClose(); }}
-      title={<span className="flex flex-wrap items-center gap-2"><span className="font-mono">{loan?.loanNo ?? `Loan ${id}`}</span>{loan && <StatusChip status={loan.status} />}</span>}
+      title={<span className="flex flex-wrap items-center gap-2"><span className="font-mono">{loan?.loanNo ?? `Loan ${id}`}</span>{status && <StatusChip status={status} label={status === "APPROVED" ? "For release" : undefined} />}</span>}
       description={loan ? `${loan.memberName}${loan.memberNo ? ` · ${loan.memberNo}` : ""} · ${loan.productName}` : "Loading loan…"}
       wide
     >
@@ -351,13 +383,18 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, o
         </div>
       )}
       {detail && loan && (
-        <Tabs defaultValue="summary">
+        <Tabs value={tab} onValueChange={setTab}>
+          {decision && <p role="status" className="mb-3 rounded-md border p-3 text-sm">
+            {decision.status === "ACTIVE" ? `Loan released · ${decision.journalNo}`
+              : decision.status === "APPROVED" ? "Loan approved and ready for release." : "Loan rejected."}
+          </p>}
           <TabsList className="flex h-auto flex-wrap justify-start">
             <TabsTrigger value="summary">Summary</TabsTrigger>
             <TabsTrigger value="agreement">Agreement</TabsTrigger>
             <TabsTrigger value="schedule">Schedule</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
             <TabsTrigger value="documents">Documents{docs?.missing.length ? ` (${docs.missing.length} missing)` : ""}</TabsTrigger>
+            {showReview && <TabsTrigger value="review">Review</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="summary" className="mt-4 space-y-4">
@@ -367,6 +404,8 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, o
               <Tile label="Term" value={`${loan.months} mo`} detail={`${loan.frequency === "CUTOFF" ? "Every cutoff" : "Monthly"} · ${loan.mode === "PAYROLL" ? "Salary deduction" : "Over the counter"}`} />
               <Tile label="Balance" value={peso(loan.balance)} detail={loan.pastDue !== "0.00" ? `${peso(loan.pastDue)} past due` : "Current"} alert={loan.pastDue !== "0.00"} />
             </div>
+            {(detail.release ?? (decision?.journalNo ? decision : null)) && <LoanReleaseDetails release={(detail.release ?? decision)!} />}
+            {showReview && <div><Button type="button" variant="outline" onClick={() => setTab("review")}>{status === "PENDING" ? "Review pending loan" : "Review release"}</Button></div>}
             <Panel title="Progress">
               <Progress value={loan.paidCount} max={loan.installmentCount || 1} />
               <div className="mt-2 flex justify-between text-xs text-muted-foreground">
@@ -395,11 +434,19 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, o
                 Total payable <strong>{peso(loan.totalPayable)}</strong> over <strong>{loan.months} months</strong> by {loan.mode === "PAYROLL" ? "salary deduction" : "over-the-counter payment"}.
               </p>
               <Kv rows={[
+                ...(loan.signedPricing ? [
+                  ["Payment count", loan.signedPricing.paymentCount],
+                  ["Regular installment", peso(loan.signedPricing.regularPayment)],
+                  ["Final installment", peso(loan.signedPricing.finalPayment)],
+                ] as [string, string | number][] : []),
+                [loan.productKind === "GOODS" ? "Markup" : "Monthly interest", loan.productKind === "GOODS" ? loan.markup + "%" : loan.rate + "% · " + statusText(loan.method)],
+                ["Processing fee on release", peso(loan.processingFee)],
+                ["Late penalty", loan.penaltyPercent + "% after " + loan.graceDays + " days"],
                 ["Applied", date(loan.appliedOn)],
                 ["Approved", date(loan.approvedOn)],
                 ["Released", date(loan.releasedOn)],
                 ["Release method", loan.releaseMethod ?? "—"],
-                ["Signed agreement", loan.termsSnapshot ? "Snapshot recorded" : "Not recorded"],
+                ["Signed agreement", loan.agreementSigned ? "Member signed" : "Not recorded"],
               ]} />
             </div>
           </TabsContent>
@@ -452,26 +499,45 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, o
           </TabsContent>
 
           <TabsContent value="documents" className="mt-4 space-y-3">
-            <p className="text-sm text-muted-foreground">Required documents are read from the agreement snapshot. Live uploads are enabled with the document-storage rollout.</p>
-            {!docs?.required.length && <EmptyState>No required documents recorded.</EmptyState>}
-            {docs?.required.map(document => {
-              const uploaded = docs.done.some(item => item.documentTypeId === document.documentTypeId);
-              return <div key={document.documentTypeId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
-                <span>{document.name}</span>
-                <span className="flex items-center gap-2">
-                  <Badge variant="outline">{document.enforcement}</Badge>
-                  <StatusChip status={uploaded ? "ACTIVE" : "PARTIAL"} label={uploaded ? "On file" : "Missing"} />
-                </span>
-              </div>;
-            })}
-            {detail.documents.length > 0 && <div className="space-y-2">
-              <h3 className="text-sm font-semibold">Files on record</h3>
-              {detail.documents.map(document => <div key={document.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
-                <span>{document.fileName}</span>
-                <span className="text-xs text-muted-foreground">{date(document.uploadedAt)}</span>
-              </div>)}
+            {showReview && approveAndRelease && status === "PENDING" && <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+              <span>{docs?.blocks.length ? "Attach the required documents, then review the payout." : "The signed loan is filed. Review and confirm payout when ready."}</span>
+              <Button type="button" variant="outline" disabled={!!docs?.blocks.length || loading} onClick={() => setTab("review")}>Continue to release</Button>
             </div>}
+            {detail.documentOptions && docs ? <CooperativeDocuments
+              endpoint={endpoint + "/documents"} required={docs.required} uploadTypes={detail.documentOptions.uploadTypes}
+              storageReady={detail.documentOptions.storageReady} canEdit
+              requirementSource="The signed loan agreement sets these requirements."
+              onChanged={() => { setAttempt(value => value + 1); onDocumentsChanged?.(); }}
+            /> : <>
+              {!docs?.required.length && <EmptyState>No required documents recorded.</EmptyState>}
+              {docs?.required.map(document => {
+                const uploaded = docs.done.some(item => item.documentTypeId === document.documentTypeId);
+                return <div key={document.documentTypeId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+                  <span>{document.name}</span>
+                  <span className="flex items-center gap-2">
+                    <Badge variant="outline">{document.enforcement}</Badge>
+                    <StatusChip status={uploaded ? "ACTIVE" : "PARTIAL"} label={uploaded ? "On file" : "Missing"} />
+                  </span>
+                </div>;
+              })}
+              {detail.documents.length > 0 && <div className="space-y-2">
+                <h3 className="text-sm font-semibold">Files on record</h3>
+                {detail.documents.map(document => <div key={document.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+                  <span>{document.fileName}</span>
+                  <span className="text-xs text-muted-foreground">{date(document.uploadedAt)}</span>
+                </div>)}
+              </div>}
+            </>}
           </TabsContent>
+          {showReview && <TabsContent value="review" className="mt-4">
+            <LoanDecisionPanel key={attempt} endpoint={decisionEndpoint} approveAndRelease={approveAndRelease && status === "PENDING"}
+              onChanged={result => {
+                setDecision(result);
+                setTab("summary");
+                setAttempt(value => value + 1);
+                onDecision?.();
+              }} />
+          </TabsContent>}
         </Tabs>
       )}
     </ConsoleDialog>

@@ -51,6 +51,13 @@ test("uses the business date of a later reversal and retains the original in ear
   assert.equal(result.activity[0].amount, "-21.99");
 });
 
+test("includes a job-assessed penalty only from its assessment date", () => {
+  const assessed = { ...ledger, installments: [{ ...installment, penaltyAssessedOn: "2026-11-11" }] };
+  assert.equal(projectLoanLedger(assessed, "2026-11-10").penalties, "0.00");
+  assert.equal(projectLoanLedger(assessed, "2026-11-11").penalties, "3.00");
+  assert.equal(projectLoanLedger(assessed, "2026-11-15").penalties, "0.00");
+});
+
 test("orders same-day reversals by posting time even when the reversal journal ID is smaller", () => {
   const corrected = { ...reversingPayment, journalId: 2, date: payment.date, postedAt: "2026-10-31T12:00:00" };
   const asOf = projectLoanLedger({ ...ledger, movements: [corrected, payment] }, payment.date);
