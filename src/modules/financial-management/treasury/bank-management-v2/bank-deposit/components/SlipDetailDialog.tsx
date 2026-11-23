@@ -329,7 +329,9 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
                   onChange={(event) => setReason(event.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Cancelling reverses the cash posting and returns the checks to the vault.
+                  {depositable
+                    ? "Cancelling reverses the cash posting and returns the checks to the vault."
+                    : "The collections go back to Collections on hand and the slip is kept for the trail."}
                 </p>
                 {touched && reasonError && <p className="text-xs text-destructive">{reasonError}</p>}
               </div>
@@ -342,7 +344,7 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
                 Close
               </Button>
             </DialogClose>
-            {depositable && (
+            {depositable && !confirming && (
               <span
                 className="inline-flex"
                 title={handoverNo.trim() ? undefined : "Enter the slip or validation number the bank stamped."}
