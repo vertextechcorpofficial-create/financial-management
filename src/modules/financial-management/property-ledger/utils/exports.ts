@@ -1,5 +1,10 @@
 import type { Asset, Portfolio } from "../types";
 import { assetSeries, round, snapshot, type Snapshot } from "./engine";
+import type { jsPDF } from "jspdf";
+
+type PdfWithAutoTable = jsPDF & {
+  lastAutoTable?: { finalY?: number };
+};
 
 export function registerRows(portfolio: Portfolio, month: string) {
   return portfolio.assets.map(a => {
@@ -40,10 +45,10 @@ export async function exportPdf(portfolio: Portfolio, month: string, rows: Snaps
   if (asset) {
     const value = snapshot(asset, portfolio.policies, month);
     autoTable(pdf, { startY: 32, head: [["Asset", "Type", "Acquired", "Cost", "Book / carrying", "Market projection", "Status"]], body: [[asset.name, asset.kind, asset.acquired, amount(value.cost), amount(asset.kind === "building" ? value.book : value.carrying), amount(value.market), value.status]], styles: { fontSize: 8 } });
-    let y = (pdf as any).lastAutoTable.finalY + 8;
+    let y = ((pdf as PdfWithAutoTable).lastAutoTable?.finalY ?? 32) + 8;
     pdf.setFontSize(11); pdf.text("Property details", 14, y); y += 4;
     autoTable(pdf, { startY: y, head: [["Field", "Value"]], body: Object.entries(asset.details).filter(([, v]) => v).map(([key, value]) => [key, value]), styles: { fontSize: 8 } });
-    y = (pdf as any).lastAutoTable.finalY + 8;
+    y = ((pdf as PdfWithAutoTable).lastAutoTable?.finalY ?? y) + 8;
     const parts = asset.parts.map(part => [part.name, part.date, amount(part.cost), `${part.life} years`, `${part.salvage}%`]);
     if (parts.length) { pdf.text(asset.kind === "building" ? "Components and improvements" : "Appraisals", 14, y); autoTable(pdf, { startY: y + 4, head: [["Name", "Month", "Amount", "Life", "Salvage"]], body: parts, styles: { fontSize: 8 } }); }
     if (asset.events.length || asset.sale) {

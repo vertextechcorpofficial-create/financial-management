@@ -11,6 +11,71 @@ export class LedgerError extends Error {
 const COLLECTION = "property_ledger_revisions";
 const PATH = "/fm/property-ledger";
 
+type DirectusError = {
+  message?: string;
+  extensions?: { code?: string };
+};
+
+type DirectusErrorResponse = {
+  errors?: DirectusError[];
+};
+
+type PortfolioRow = {
+  revision?: number;
+  currency: Portfolio["policies"]["currency"];
+  fy_start: number;
+  land_model: Portfolio["policies"]["landModel"];
+  building_model: Portfolio["policies"]["buildingModel"];
+  lock_through?: string | null;
+  cap_threshold_centavos: number;
+  projection_end_year: number;
+  component_split: Portfolio["policies"]["componentSplit"];
+};
+
+type EntityRow = { id: string; name: string };
+
+type AssetRow = {
+  id: string;
+  version?: number;
+  kind: Asset["kind"];
+  name: string;
+  entity_id: string;
+  land_id?: string | null;
+  location?: string | null;
+  tags?: string[] | null;
+  acquired: string;
+  cost_centavos: number;
+  rate: number;
+  growth: Asset["growth"];
+  method: Asset["method"];
+  notes?: string | null;
+  details?: Record<string, string> | null;
+  sale_date?: string | null;
+  sale_price_centavos?: number | null;
+  sale_note?: string | null;
+};
+
+type PartRow = {
+  id: string;
+  asset_id: string;
+  name: string;
+  cost_centavos: number;
+  life_years: number;
+  salvage_percent: number;
+  start_month: string;
+};
+
+type EventRow = {
+  id: string;
+  asset_id: string;
+  kind: LedgerEvent["kind"];
+  event_month: string;
+  amount_centavos: number;
+  note?: string | null;
+  vendor?: string | null;
+  improvement_id?: string | null;
+};
+
 export async function authorize(page: LedgerPage = "dashboard") {
   const token = (await cookies()).get(COOKIE_NAME)?.value;
   if (!token) throw new LedgerError("Sign in to access Property Ledger", 401);
@@ -63,10 +128,10 @@ export async function directus<T>(path: string, init?: RequestInit): Promise<T> 
     response = await fetch(`${base}${path}`, { ...init, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(20000) });
   } catch { throw new LedgerError("Property Ledger storage is unavailable. Retry or refresh to check whether your save completed.", 503); }
   if (!response.ok) {
-    const body = await response.json().catch(() => ({})) as { errors?: { extensions?: { code?: string } }[] };
+    const body = await response.json().catch(() => ({})) as DirectusErrorResponse;
     if (body.errors?.some(e => e.extensions?.code === "RECORD_NOT_UNIQUE")) throw new LedgerError("Another user saved first. Refresh before retrying; your unsaved form remains open.", 409);
     if (response.status === 403 || response.status === 404) throw new LedgerError("Property Ledger storage is not provisioned or is inaccessible. Ask an administrator to run the module setup.", 503);
-    const message = Array.isArray((body as any).errors) ? (body as any).errors[0]?.message : undefined;
+    const message = body.errors?.[0]?.message;
     throw new LedgerError(message ? `Property Ledger storage request failed: ${message}` : `Property Ledger storage request failed (${response.status})`, 502);
   }
   return response.json() as Promise<T>;
@@ -114,11 +179,11 @@ function assertCalculated(portfolio: Portfolio) {
 
 async function latestRelational() {
   const [portfolio, entities, assets, parts, events] = await Promise.all([
-    directus<{ data: any }>("/items/property_ledger_portfolios/1?fields=*"),
-    directus<{ data: any[] }>("/items/property_ledger_entities?filter[portfolio_id][_eq]=1&limit=1000"),
-    directus<{ data: any[] }>("/items/property_ledger_assets?filter[portfolio_id][_eq]=1&limit=1000"),
-    directus<{ data: any[] }>("/items/property_ledger_parts?limit=10000"),
-    directus<{ data: any[] }>("/items/property_ledger_events?limit=10000"),
+    directus<{ data: PortfolioRow }>("/items/property_ledger_portfolios/1?fields=*"),
+    directus<{ data: EntityRow[] }>("/items/property_ledger_entities?filter[portfolio_id][_eq]=1&limit=1000"),
+    directus<{ data: AssetRow[] }>("/items/property_ledger_assets?filter[portfolio_id][_eq]=1&limit=1000"),
+    directus<{ data: PartRow[] }>("/items/property_ledger_parts?limit=10000"),
+    directus<{ data: EventRow[] }>("/items/property_ledger_events?limit=10000"),
   ]);
   const policy = portfolio.data;
   if (!policy) return { revision: 0, portfolio: emptyPortfolio() };
