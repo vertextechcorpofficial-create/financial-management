@@ -9,7 +9,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConsoleDialog, EmptyState, Kv, Panel, StatusChip } from "../console/components/ui";
-import { MemberDocuments } from "./MemberDocuments";
+import { CooperativeDocuments } from "./MemberDocuments";
 import { MemberLoans } from "./MemberLoans";
 import { MemberStatement } from "./MemberStatement";
 import { MetricCard, PersonAvatar } from "./components";
@@ -229,8 +229,8 @@ export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
 
           <TabsContent value="documents" className="mt-4">
             {current ? (
-              <MemberDocuments
-                userId={item.userId}
+              <CooperativeDocuments
+                endpoint={"/api/fm/cooperative/members/" + item.userId + "/documents"}
                 required={detail.requiredDocuments}
                 storageReady={detail.documentStorageReady}
                 canEdit={current.status === "ACTIVE"}

@@ -10,10 +10,11 @@ export async function withLoans(handler: (actor: Access) => Promise<unknown>) {
     response = Response.json({ message: access.message }, { status: access.status });
   } else {
     try {
-      response = Response.json(await handler(access));
+      const result = await handler(access);
+      response = result instanceof Response ? result : Response.json(result);
     } catch (error) {
       response = error instanceof LoanError
-        ? Response.json({ message: error.message, code: error.code }, { status: error.status })
+        ? Response.json({ message: error.message, code: error.code, fieldErrors: error.fieldErrors }, { status: error.status })
         : Response.json({ message: "Loans are temporarily unavailable. Please try again." }, { status: 503 });
     }
   }
