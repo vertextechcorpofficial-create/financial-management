@@ -107,9 +107,10 @@ export function OptionCombobox({
           >
             <CommandEmpty>{emptyLabel}</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => (
+              {options.map((option, index) => (
                 <CommandItem
-                  key={option.value}
+                  // A duplicated option value must not become a duplicated React key.
+                  key={`${option.value}::${index}`}
                   value={option.searchText ?? option.label}
                   onSelect={() => choose(option.value)}
                 >

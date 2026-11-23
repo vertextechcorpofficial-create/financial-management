@@ -19,9 +19,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 
 import { toPhtDateString } from "../pht";
-import { PAGE_SIZE } from "../constants";
 import { StatusBadge } from "./StatusBadge";
-import { TablePager, usePageSize } from "./TablePager";
+import { TablePager } from "./TablePager";
 import type { BankCheck } from "../types";
 
 export type CheckAction = "RELEASE" | "DEPOSIT" | "CLEAR" | "RETURN" | "CANCEL" | "REPLACE" | "VIEW";
@@ -104,6 +103,9 @@ type Props = {
   filtered: boolean;
   /** Filter band rendered inside the register card, like every other V2 table. */
   filters: ReactNode;
+  /** Rows per page, held by the hook so the page request and the pager agree. */
+  pageSize: number;
+  onPageSizeChange: (size: number) => void;
 };
 
 /** The check register: issued and received checks across every account. */
@@ -119,14 +121,15 @@ export function ChecksTable({
   total,
   filtered,
   filters,
+  pageSize,
+  onPageSizeChange,
 }: Props) {
 
-  // A mutation can shorten the register under the current page; clamp rather than reset
-  // so an unrelated action does not also move the user off their page.
-  const [pageSize, setPageSize] = usePageSize("fm.check-clearing.rows", PAGE_SIZE);
-  const pageCount = Math.max(1, Math.ceil(checks.length / pageSize));
+  // The server pages now, so the rows that arrive are already the page: no slicing here. `total`
+  // is the filtered count across every page, which is what the pager sizes itself from.
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, pageCount);
-  const rows = checks.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const rows = checks;
 
   const eligibleRows = checks.filter((row) => batchActionFor(row) !== null);
   const pageEligible = rows.filter((row) => batchActionFor(row) !== null);
@@ -298,9 +301,15 @@ export function ChecksTable({
                   </TableCell>
                   <TableCell className="text-sm">{check.direction === "ISSUED" ? "Issued" : "Received"}</TableCell>
                   <TableCell className="max-w-[190px] text-sm">
-                    <span className="block truncate" title={check.bankAccountLabel}>
-                      {check.bankAccountLabel}
-                    </span>
+                    {/* Account number leads; the bank it belongs to sits under it. */}
+                    <p className="truncate" title={check.bankAccountNumber ?? check.bankAccountLabel}>
+                      {check.bankAccountNumber ?? check.bankAccountLabel}
+                    </p>
+                    {check.bankAccountBank ? (
+                      <p className="truncate text-[11px] text-muted-foreground" title={check.bankAccountBank}>
+                        {check.bankAccountBank}
+                      </p>
+                    ) : null}
                   </TableCell>
                   <TableCell className="max-w-[210px] text-sm">
                     <span className="block truncate" title={check.payee ?? check.payor ?? undefined}>
@@ -409,8 +418,13 @@ export function ChecksTable({
                   {check.payee ?? check.payor ?? "—"}
                 </p>
                 <p className="truncate text-xs text-muted-foreground" title={check.bankAccountLabel}>
-                  {check.bankAccountLabel} · {toPhtDateString(check.checkDate)}
+                  {check.bankAccountNumber ?? check.bankAccountLabel} · {toPhtDateString(check.checkDate)}
                 </p>
+                {check.bankAccountBank ? (
+                  <p className="truncate text-[11px] text-muted-foreground" title={check.bankAccountBank}>
+                    {check.bankAccountBank}
+                  </p>
+                ) : null}
               </div>
               <StatusBadge status={check.status} />
             </div>
@@ -444,12 +458,12 @@ export function ChecksTable({
       <TablePager
         page={safePage}
         pageCount={pageCount}
-        total={checks.length}
+        total={total}
         pageSize={pageSize}
         allowAll={false}
         onPageChange={onPageChange}
         onPageSizeChange={(size) => {
-          setPageSize(size);
+          onPageSizeChange(size);
           onPageChange(1);
         }}
         className="border-t border-border/50 px-4 py-3"

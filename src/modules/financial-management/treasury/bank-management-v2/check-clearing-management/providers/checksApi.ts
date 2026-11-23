@@ -5,7 +5,11 @@ export type CheckCounts = Record<CheckStatus, number>;
 export type CheckRegister = {
   checks: BankCheck[];
   counts: CheckCounts;
-  accounts: { bankId: number; label: string; bankName: string }[];
+  accounts: { bankId: number; label: string; bankName: string; accountNumber: string | null }[];
+  /** Rows matching the filters before paging. */
+  total: number;
+  page: number;
+  pageSize: number;
   notice?: string;
 };
 
@@ -53,6 +57,8 @@ export type RegisterFilters = {
   from?: string;
   to?: string;
   q?: string;
+  page?: number;
+  pageSize?: number;
 };
 
 export async function fetchRegister(filters: RegisterFilters): Promise<CheckRegister> {

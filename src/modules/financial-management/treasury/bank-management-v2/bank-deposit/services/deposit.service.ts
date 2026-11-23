@@ -20,7 +20,7 @@ import { depositCancelEntry, depositCashEntry } from "../events";
  * Bank Deposit reads and writes.
  *
  * Deposit slips already exist as `bank_deposit` + `bank_deposit_details`, and the
- * money waiting to be deposited is `collection_details` (payment_method 1 = cash,
+ * money waiting to be deposited is `collection_invoices` (types CASH and ADJUSTMENT), the same
  * 4 = check), so this service reuses them instead of a parallel model. The only new
  * rows are the checks created per deposited check, which feed Check & Clearing.
  */
@@ -173,15 +173,15 @@ async function loadCustomerNames(codes: string[]): Promise<Map<string, string>> 
 }
 
 /** Document numbers for rows that vanished from the queue, so a failure names them. */
-async function describeMissing(detailIds: number[]): Promise<string> {
-  if (!detailIds.length) return "the selected rows";
+async function describeMissing(invoiceIds: number[]): Promise<string> {
+  if (!invoiceIds.length) return "the selected rows";
   try {
-    const { rows: details } = await listItems<{ id: number; collection_id: number | null }>("collection_details", {
+    const { rows: settlements } = await listItems<{ id: number; collection_id: number | null }>("collection_invoices", {
       fields: ["id", "collection_id"],
-      filter: { id: { _in: detailIds } },
+      filter: { id: { _in: invoiceIds } },
       limit: 200,
     });
-    const collections = [...new Set(details.map((row) => Number(row.collection_id)).filter(Boolean))];
+    const collections = [...new Set(settlements.map((row) => Number(row.collection_id)).filter(Boolean))];
     const { rows } = collections.length
       ? await listItems<{ id: number; collection_receipt_no: string | null; docNo: string | null }>("collection", {
           fields: ["id", "collection_receipt_no", "docNo"],
@@ -190,10 +190,10 @@ async function describeMissing(detailIds: number[]): Promise<string> {
         })
       : { rows: [] };
     const byId = new Map(rows.map((row) => [Number(row.id), row.collection_receipt_no || row.docNo]));
-    const labels = details.map((row) => byId.get(Number(row.collection_id)) ?? `detail #${row.id}`);
+    const labels = settlements.map((row) => byId.get(Number(row.collection_id)) ?? `settlement #${row.id}`);
     return labels.length ? labels.join(", ") : "the selected rows";
   } catch {
-    return detailIds.map((id) => `detail #${id}`).join(", ");
+    return invoiceIds.map((id) => `settlement #${id}`).join(", ");
   }
 }
 

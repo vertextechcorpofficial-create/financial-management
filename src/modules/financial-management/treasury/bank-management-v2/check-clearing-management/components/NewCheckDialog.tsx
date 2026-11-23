@@ -16,6 +16,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+/** Payable control accounts a check can credit; the label carries the code and the ledger name. */
+const PAYABLE_OPTIONS = [
+  { value: "AP_CONTROL", label: "AP-CTL · Accounts payable" },
+  { value: "NTP_CONTROL", label: "NTP-CTL · Negotiable instrument control" },
+];
 import { Textarea } from "@/components/ui/textarea";
 
 import { phtDate } from "../pht";
@@ -27,7 +33,7 @@ import { fetchDraweeBanks } from "../providers/checksApi";
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  accounts: { bankId: number; label: string }[];
+  accounts: { bankId: number; label: string; bankName?: string; accountNumber?: string | null }[];
   isSaving: boolean;
   onIssue: (payload: IssueCheckPayload) => Promise<unknown>;
   onReceive: (payload: ReceiveCheckPayload) => Promise<unknown>;
@@ -46,7 +52,11 @@ export function NewCheckDialog({ open, onOpenChange, accounts, isSaving, onIssue
   // break the duplicate-number check that is keyed on drawee + number.
   const [banks, setBanks] = useState<DraweeBank[] | null>(null);
   const [banksError, setBanksError] = useState(false);
-  const bankOptions = (banks ?? []).map((bank) => ({ value: bank.name, label: bank.name }));
+  // The registry holds the same bank name more than once (two MayBank rows, for instance), and a
+  // duplicate option value collides as a React key and prints the bank twice in the list.
+  const bankOptions = Array.from(
+    new Map((banks ?? []).map((bank) => [bank.name.trim().toLowerCase(), { value: bank.name, label: bank.name }])).values(),
+  ).sort((a, b) => a.label.localeCompare(b.label, "en-PH"));
 
   useEffect(() => {
     if (!open || banks) return;
@@ -124,7 +134,12 @@ export function NewCheckDialog({ open, onOpenChange, accounts, isSaving, onIssue
     if (saved) onOpenChange(false);
   }
 
-  const accountOptions = accounts.map((account) => ({ value: String(account.bankId), label: account.label }));
+  // QA standard: the account number identifies the account, the bank name sits under it.
+  const accountOptions = accounts.map((account) => ({
+    value: String(account.bankId),
+    label: account.accountNumber ?? account.bankName ?? account.label,
+    description: account.accountNumber ? (account.bankName ?? undefined) : undefined,
+  }));
 
   const accountSelect = (
     value: string,
@@ -223,12 +238,21 @@ export function NewCheckDialog({ open, onOpenChange, accounts, isSaving, onIssue
                       value={issue.controlKey}
                       onValueChange={(next) => setIssue({ ...issue, controlKey: next })}
                     >
-                      <SelectTrigger id="issue-payable">
-                        <SelectValue />
+                      <SelectTrigger id="issue-payable" className="w-full min-w-0">
+                        {/* The primitive forces the value slot to `flex`, which kills the ellipsis, so the
+                            text is wrapped in its own block span instead of relying on the slot. */}
+                        <SelectValue className="min-w-0 text-left">
+                          <span className="block w-full truncate">
+                            {PAYABLE_OPTIONS.find((option) => option.value === issue.controlKey)?.label ?? "Pick the payable account"}
+                          </span>
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent className="max-h-60">
-                        <SelectItem value="AP_CONTROL">AP-CTL · Accounts payable</SelectItem>
-                        <SelectItem value="NTP_CONTROL">NTP-CTL · Negotiable instrument control</SelectItem>
+                        {PAYABLE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">Where the credit side of E09 lands.</p>

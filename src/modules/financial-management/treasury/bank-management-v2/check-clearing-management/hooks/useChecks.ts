@@ -36,12 +36,20 @@ export function useChecks(initialFilters: RegisterFilters = {}) {
   const [filters, setFilters] = useState<RegisterFilters>({ direction: "ALL", status: "ALL", ...initialFilters });
   const [checks, setChecks] = useState<BankCheck[]>([]);
   const [counts, setCounts] = useState<CheckCounts>(EMPTY_COUNTS);
-  const [accounts, setAccounts] = useState<{ bankId: number; label: string; bankName: string }[]>([]);
+  const [accounts, setAccounts] = useState<{ bankId: number; label: string; bankName: string; accountNumber: string | null }[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  // The pager's rows-per-page lives here because the server does the paging now; the stored value
+  // keeps the reader's choice across visits the way every other V2 table does.
+  const [pageSize, setPageSize] = useState(() => {
+    if (typeof window === "undefined") return 10;
+    const stored = Number(window.localStorage.getItem("fm.check-clearing.rows"));
+    return [5, 10, 25, 50].includes(stored) ? stored : 10;
+  });
+  const [total, setTotal] = useState(0);
 
   // A filter change re-scopes the register, so the old page number no longer means
   // anything; every caller already goes through this setter.
@@ -59,9 +67,10 @@ export function useChecks(initialFilters: RegisterFilters = {}) {
     setIsLoading(true);
     setError(null);
     try {
-      const register = await fetchRegister(filters);
+      const register = await fetchRegister({ ...filters, page, pageSize });
       if (seq !== requestSeq.current) return;
       setChecks(register.checks);
+      setTotal(register.total ?? register.checks.length);
       setCounts(register.counts ?? EMPTY_COUNTS);
       setAccounts(register.accounts ?? []);
       setNotice(register.notice ?? null);
@@ -71,11 +80,22 @@ export function useChecks(initialFilters: RegisterFilters = {}) {
     } finally {
       if (seq === requestSeq.current) setIsLoading(false);
     }
-  }, [filters]);
+  }, [filters, page, pageSize]);
 
   useEffect(() => {
     void refetch();
   }, [refetch]);
+
+  // Written on change rather than in an effect: the pager already calls this, and a write in the
+  // click handler keeps the stored value in step without a second render.
+  const rememberPageSize = useCallback((size: number) => {
+    setPageSize(size);
+    try {
+      window.localStorage.setItem("fm.check-clearing.rows", String(size));
+    } catch {
+      // A blocked storage quota must not stop the reader changing the page size.
+    }
+  }, []);
 
   const statusTiles = useMemo(
     () =>
@@ -225,6 +245,9 @@ export function useChecks(initialFilters: RegisterFilters = {}) {
     setFilters: updateFilters,
     page,
     setPage,
+    pageSize,
+    setPageSize: rememberPageSize,
+    total,
     isLoading,
     isSaving,
     error,
