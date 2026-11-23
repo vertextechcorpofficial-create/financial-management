@@ -22,6 +22,17 @@ export type LoanLedger = {
   movements: LoanMovement[];
 };
 
+export function repaymentBusinessDate(ledger: LoanLedger, receiptDate: string, today: string) {
+  const latest = [
+    ...ledger.movements.map(item => item.date),
+    ...ledger.installments.flatMap(item => [
+      item.accrualProcessedOn ? item.dueDate : "",
+      item.penaltyAssessedOn ?? "",
+    ]),
+  ].reduce((last, date) => date > last ? date : last, ledger.release.date);
+  return receiptDate < latest ? today : receiptDate;
+}
+
 export type LoanStatementTotals = {
   opening: string;
   released: string;

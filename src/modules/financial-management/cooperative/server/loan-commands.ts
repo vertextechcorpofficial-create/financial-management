@@ -5,19 +5,55 @@ import { z } from "zod";
 import { amountToCents } from "../loans/loan-schedule";
 import { accountPurposes, type PolicyState } from "../policies/policy-types";
 import { cooperativeAuditTime } from "./audit";
-import { cooperativeDirectus, CooperativeDirectusError, readDirectusItems } from "./directus";
+import { cooperativeDirectus, CooperativeDirectusError, readDirectusItems, usesCooperativeQaDatabase } from "./directus";
 import { LoanError } from "./loans";
 
 export type LoanActor = { actorId: number; actorName: string; actorRole: string | null };
 type State = Record<string, unknown>;
 type Purpose = typeof accountPurposes[number][0];
 type Account = PolicyState["accounts"][number];
+export type LoanPostingPair = { debit: { id: number }; credit: { id: number }; amount: string };
+
+const glLine = z.object({ journal_id: z.number(), line_no: z.number(), account_id: z.number(),
+  debit: z.coerce.string(), credit: z.coerce.string() });
+type GlLine = z.output<typeof glLine>;
+
+export async function readLoanJournalLines(ids: number[]) {
+  const grouped = new Map<number, GlLine[]>();
+  const unique = [...new Set(ids)];
+  for (let offset = 0; offset < unique.length; offset += 50) {
+    const query = new URLSearchParams({ fields: "journal_id,line_no,account_id,debit,credit", sort: "line_no", limit: "-1",
+      filter: JSON.stringify({ journal_id: { _in: unique.slice(offset, offset + 50) } }) });
+    const { data } = z.object({ data: glLine.array() }).parse(await readDirectusItems("cooperative_gl_lines", query));
+    for (const line of data) {
+      const current = grouped.get(line.journal_id) ?? [];
+      current.push(line);
+      grouped.set(line.journal_id, current);
+    }
+  }
+  return grouped;
+}
+
+export async function readLoanJournalResults(ids: number[]) {
+  const grouped = new Map<number, State>();
+  const unique = [...new Set(ids)];
+  for (let offset = 0; offset < unique.length; offset += 50) {
+    const query = new URLSearchParams({ fields: "journal_id,result", limit: "-1",
+      filter: JSON.stringify({ journal_id: { _in: unique.slice(offset, offset + 50) } }) });
+    const { data } = z.object({ data: z.array(z.object({ journal_id: z.number(), result: z.record(z.string(), z.unknown()).nullable() })) })
+      .parse(await readDirectusItems("cooperative_command_receipts", query));
+    for (const row of data) {
+      if (row.result) grouped.set(row.journal_id, row.result);
+    }
+  }
+  return grouped;
+}
 
 export const loanDigest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 export function loanPostingEnabled() {
   // The dummy database is the target for supervised rehearsal. Live posting is a separate rollout.
-  return process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, "") === "http://100.110.197.61:8056";
+  return usesCooperativeQaDatabase();
 }
 
 export function loanPostingAccounts(policy: PolicyState) {
@@ -99,18 +135,31 @@ export async function writeLoanCommand<T extends State>(
 }
 
 export async function prepareLoanJournal(input: {
-  loanId: number; type: "LOAN_RELEASE" | "LOAN_DUE_ACCRUAL"; date: string; actor: LoanActor; now: Date;
-  pairs: Array<{ debit: Account; credit: Account; amount: string }>;
+  loanId: number; type: "LOAN_RELEASE" | "LOAN_DUE_ACCRUAL" | "LOAN_PAYMENT" | "LOAN_PAYMENT_REVERSED";
+  date: string; actor: LoanActor; now: Date;
+  pairs: LoanPostingPair[];
   feeReceipt?: { membershipId: number; amount: string };
+  paymentReceipt?: { membershipId: number; amount: string };
+  reversal?: { journalId: number; lines: GlLine[] };
   audit: (numbers: { journalNo: string; orNo: string | null }) => State;
 }) {
-  const { type, loanId, date, now, actor, feeReceipt } = input;
+  const { type, loanId, date, now, actor, feeReceipt, paymentReceipt, reversal } = input;
+  const officialReceipt = feeReceipt ?? paymentReceipt;
   if (!loanPostingEnabled()) throw new LoanError(409, "Loan posting is pending rollout in this environment.", "PENDING_ROLLOUT");
-  if (!input.pairs.length || input.pairs.some(pair => pair.debit.id === pair.credit.id || amountToCents(pair.amount) <= 0n)) {
+  if (input.pairs.some(pair => pair.debit.id === pair.credit.id || amountToCents(pair.amount) <= 0n)) {
     throw new LoanError(422, "Check the Cooperative posting account mappings and amounts.", "LOAN_ACCOUNT_REQUIRED");
   }
+  const amounts = [
+    ...(reversal?.lines ?? []).map(row => ({ account_id: row.account_id, debit: row.credit, credit: row.debit })),
+    ...input.pairs.flatMap(({ debit, credit, amount }) => [
+      { account_id: debit.id, debit: amount, credit: "0.00" },
+      { account_id: credit.id, debit: "0.00", credit: amount },
+    ]),
+  ];
+  const imbalance = amounts.reduce((net, row) => net + amountToCents(row.debit) - amountToCents(row.credit), 0n);
+  if (amounts.length < 2 || imbalance !== 0n) throw new LoanError(422, "The loan journal is unbalanced.", "LOAN_JOURNAL_UNBALANCED");
   const year = Number(date.slice(0, 4));
-  const prefixes = feeReceipt ? ["JV", "OR"] : ["JV"];
+  const prefixes = officialReceipt ? ["JV", "OR"] : ["JV"];
   const query = new URLSearchParams({
     fields: "id,prefix,last_number", limit: "3",
     filter: JSON.stringify({ business_year: { _eq: year }, prefix: { _in: prefixes } }),
@@ -132,14 +181,11 @@ export async function prepareLoanJournal(input: {
   }
 
   const jv = next("JV");
-  const or = feeReceipt ? next("OR") : null;
+  const or = officialReceipt ? next("OR") : null;
   const journalId = randomInt(100_000_000, 2_000_000_000);
   const numbers = { journalId, journalNo: jv.number, orNo: or?.number ?? null };
   const at = cooperativeAuditTime(now);
-  const lines = input.pairs.flatMap(({ debit, credit, amount }, index) => [
-    { account_id: debit.id, line_no: index * 2 + 1, debit: amount, credit: "0.00" },
-    { account_id: credit.id, line_no: index * 2 + 2, debit: "0.00", credit: amount },
-  ]);
+  const lines = amounts.map((row, index) => ({ ...row, line_no: index + 1 }));
   return {
     numbers,
     receipt: {
@@ -148,11 +194,13 @@ export async function prepareLoanJournal(input: {
       journal_id: {
         id: journalId, journal_no: jv.number, business_date: date, posted_at: at,
         source_type: "LOAN", source_id: String(loanId), command_type: type, actor_user_id: actor.actorId,
+        ...(reversal ? { reverses_journal_id: reversal.journalId } : {}),
         gl_lines: { create: lines },
         audit_events: { create: [input.audit(numbers)] },
-        ...(or && feeReceipt ? { official_receipts: { create: [{
-          or_no: or.number, membership_id: feeReceipt.membershipId, business_date: date, amount: feeReceipt.amount,
-          fee_part: feeReceipt.amount, deposit_part: "0.00", issued_by: actor.actorId, created_at: at,
+        ...(or && officialReceipt ? { official_receipts: { create: [{
+          or_no: or.number, membership_id: officialReceipt.membershipId, business_date: date, amount: officialReceipt.amount,
+          fee_part: feeReceipt?.amount ?? "0.00", deposit_part: "0.00", issued_by: actor.actorId, created_at: at,
+          ...(paymentReceipt ? { loan_payment_part: paymentReceipt.amount } : {}),
         }] } } : {}),
       },
     },
