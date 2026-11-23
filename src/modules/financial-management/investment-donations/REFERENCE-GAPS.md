@@ -5,7 +5,7 @@ Compared the existing workspaces with the local HTML prototype and PDF sections 
 | Workspace | Working or partially covered | Still required for parity |
 | --- | --- | --- |
 | Overview | Summary, allocation, latest entries, linked alerts for allocation, giving and inflows | Remaining compliance, reconciliation, close, capital and review alerts |
-| Transactions | Filters, entry details and CSV; reversal for supported cash commands with the extension | Dependency-aware reversals, register restoration and tax true-ups |
+| Transactions | Filters, entry details and CSV; reversal for supported cash commands with MySQL configured | Dependency-aware reversals, register restoration and tax true-ups |
 | Inflows & investing | Capital raised, open income receivables, readiness checks, tranche preview, cash and loan balances | Income totals and collection actions, subscription receipts, deposits, loan posting and payoff scheduling |
 | Capital stock | Subscription balances and transfer register | SEC checks, cap table, ownership history and exports, certificate/subscription/transfer/dividend commands |
 | Portfolio & rebalancing | Allocation and open lots | Securities/history, gift-or-sell estimates, purchases/sales, lot picking, price updates and fee accruals |
@@ -16,4 +16,4 @@ Compared the existing workspaces with the local HTML prototype and PDF sections 
 | Annual review | Evidence summary | Persist checklist, sign-off and reopening by financial year |
 | Policy & targets | Stored policy display and journal export | Audited changes and lock rules, controlled backup/restore, activity history and remaining exports |
 
-Before expanding write access, add the PDF's per-workspace Prepare/Approve grants and transaction tests; keep the existing database period lock and immutable postings. The present JSON register storage does not yet satisfy the PDF's per-entity relational schema. Validate live posting and approval on a deployed Directus extension with separate preparer and approver accounts. Section 14 is the acceptance checklist; fixture checks alone do not validate live workflows.
+Before expanding write access, add the PDF's per-workspace Prepare/Approve grants and transaction tests; keep the existing database period lock and immutable postings. The present JSON register storage does not yet satisfy the PDF's per-entity relational schema. Validate live posting and approval through Next.js against MySQL with separate preparer and approver accounts. Section 14 is the acceptance checklist; fixture checks alone do not validate live workflows.
