@@ -99,7 +99,7 @@ export async function readMemberLoanStatement(memberId: number, from: string, to
 
   const entries: Extract<MemberStatement["loans"], { state: "ready" }>["data"]["entries"] = [];
   const activity: Extract<MemberStatement["loans"], { state: "ready" }>["data"]["activity"] = [];
-  const totals = { opening: 0n, released: 0n, paid: 0n, penaltiesPaid: 0n, offsets: 0n, closing: 0n };
+  const totals = { opening: 0n, released: 0n, paid: 0n, penaltiesPaid: 0n, offsets: 0n, waivedInterest: 0n, closing: 0n };
   try {
     for (const { loan, ledger } of loans.data) {
       if (!ledger || ledger.release.date > to) continue;
@@ -108,7 +108,7 @@ export async function readMemberLoanStatement(memberId: number, from: string, to
       entries.push({ id: loan.id, loanNo: loan.loanNo, productName: loan.productName, ...statement.totals });
       for (const item of statement.activity) activity.push({ loanNo: loan.loanNo, ...item });
       for (const key of Object.keys(totals) as Array<keyof LoanStatementTotals>) {
-        totals[key] += amountToCents(statement.totals[key]);
+        totals[key] += amountToCents(statement.totals[key] ?? "0.00");
       }
     }
   } catch {
@@ -124,6 +124,7 @@ export async function readMemberLoanStatement(memberId: number, from: string, to
         opening: signedCentsToAmount(totals.opening), released: signedCentsToAmount(totals.released),
         paid: signedCentsToAmount(totals.paid), penaltiesPaid: signedCentsToAmount(totals.penaltiesPaid),
         offsets: signedCentsToAmount(totals.offsets), closing: signedCentsToAmount(totals.closing),
+        ...(totals.waivedInterest ? { waivedInterest: signedCentsToAmount(totals.waivedInterest) } : {}),
       },
     },
   };

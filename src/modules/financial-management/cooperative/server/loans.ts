@@ -214,7 +214,8 @@ function postedLoanLedger(row: Row, stored: Row[], records: Awaited<ReturnType<t
     throw new LoanError(503, loanHistoryError);
   }
   const ledger = { release, installments, movements };
-  const lastPosting = [...movements.map(movement => movement.date), ...installments.map(item => item.penaltyAssessedOn ?? "")]
+  const lastPosting = [...movements.map(movement => movement.date),
+    ...installments.flatMap(item => [item.penaltyAssessedOn ?? "", item.settlementWaiver?.reversedOn ?? item.settlementWaiver?.date ?? ""])]
     .reduce((last, date) => date > last ? date : last, release.date);
   const storedById = new Map(stored.map(installment => [idOf(installment.id), installment]));
   if (projectLoanLedger(ledger, lastPosting).installments.some(installment => {
@@ -243,6 +244,10 @@ function parseInstallment(row: Row): LoanInstallment {
     penaltyAssessedOn: dateText(row.penalty_assessed_on),
     accrualProcessedOn: dateText(row.accrual_processed_on),
     accrualJournalId: idOf(row.accrual_journal_id) || null,
+    settlementWaiver: row.settlement_waiver == null ? null : z.object({
+      amount: z.string().regex(/^\d+\.\d{2}$/), date: z.iso.date(),
+      reference: z.string(), reversedOn: z.iso.date().nullable(),
+    }).parse(objectValue(row.settlement_waiver)),
     penaltyPaid: text(row.penalty_paid) || "0.00",
     status: ["UNPAID", "PARTIAL", "PAID"].includes(storedStatus) ? storedStatus : installmentStatus({
       no: number(row.installment_no), dueDate: dateText(row.due_date) ?? "",
@@ -367,7 +372,10 @@ async function readLoanViews(loans: Row[], asOf: string, includeDocuments: boole
     const position = ledger ? projectLoanLedger(ledger, asOf) : null;
     const schedule = position?.installments ?? (records ? [] : stored.map(parseInstallment).sort((a, b) => a.no - b.no));
     const termsSnapshot = objectValue(row.terms_snapshot);
-    return { loan: mapLoan(row, schedule, files, asOf, termsSnapshot), termsSnapshot, ledger, position, installments: schedule, files, paymentRows: records?.payments.get(id) };
+    return {
+      loan: mapLoan(row, schedule, files, asOf, termsSnapshot), revision: number(row.revision),
+      termsSnapshot, ledger, position, installments: schedule, files, paymentRows: records?.payments.get(id),
+    };
   });
 }
 

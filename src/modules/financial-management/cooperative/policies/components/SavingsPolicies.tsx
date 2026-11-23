@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { type PolicyContext, usePolicyEditor } from "../policy-client";
-import type { Settings } from "../policy-types";
+import { savingsRateYear, type Settings } from "../policy-types";
 import { PolicyFeedback, PolicyInput, PolicySelect } from "./PolicyForm";
 
 export function SavingsPolicies({ context }: { context: PolicyContext }) {
@@ -14,7 +14,11 @@ export function SavingsPolicies({ context }: { context: PolicyContext }) {
     floorMode: stored?.floorMode ?? "FIXED", fixed: stored?.floorFixedAmount ?? "", percent: stored?.floorPercent ?? "",
     paymentOrder: stored?.paymentOrder ?? "PENALTIES_FIRST",
   });
+  const [rates, setRates] = useState(stored?.exitSavingsAnnualRates ?? {});
+  const [newYear, setNewYear] = useState("");
   const editor = usePolicyEditor(context, latest => latest.settings);
+  const years = Object.keys(rates).sort((a, b) => b.localeCompare(a));
+  const canAddYear = savingsRateYear.safeParse(newYear).success && !Object.hasOwn(rates, newYear);
 
   return <section className="max-w-4xl rounded-lg border bg-card p-5">
     <h2 className="text-base font-semibold">Savings &amp; membership rules</h2>
@@ -25,6 +29,7 @@ export function SavingsPolicies({ context }: { context: PolicyContext }) {
         maintainingBalance: form.maintainingBalance,
         withdrawalsPerYear: /^\d+$/.test(form.withdrawals) ? Number(form.withdrawals) : -1,
         paymentOrder: form.paymentOrder,
+        exitSavingsAnnualRates: rates,
       };
       const data: Settings = form.floorMode === "FIXED"
         ? { ...common, floorMode: "FIXED", floorFixedAmount: form.fixed, floorPercent: null }
@@ -54,6 +59,24 @@ export function SavingsPolicies({ context }: { context: PolicyContext }) {
           <option value="PENALTIES_FIRST">Penalties first, then installments</option>
           <option value="INSTALLMENTS_FIRST">Installments first, then penalties</option>
         </PolicySelect>
+      </fieldset>
+      <fieldset disabled={editor.busy} className="space-y-3 rounded-md border p-3">
+        <legend className="px-1 text-sm font-medium">Annual savings rates for exit clearance</legend>
+        {years.map(year => <div key={year} className="flex flex-wrap items-end gap-2">
+          <PolicyInput label={`Annual savings rate for ${year} (%)`} inputMode="decimal" maxLength={10}
+            value={rates[year]} onChange={event => setRates({ ...rates, [year]: event.target.value })} />
+          <Button type="button" variant="outline" onClick={() => {
+            setRates(Object.fromEntries(Object.entries(rates).filter(([savedYear]) => savedYear !== year)));
+          }} aria-label={`Remove rate for ${year}`}>Remove</Button>
+        </div>)}
+        <div className="flex flex-wrap items-end gap-2">
+          <PolicyInput label="Year to add" inputMode="numeric" maxLength={4} value={newYear}
+            onChange={event => setNewYear(event.target.value)} />
+          <Button type="button" variant="outline" disabled={!canAddYear} onClick={() => {
+            setRates({ ...rates, [newYear]: "" });
+            setNewYear("");
+          }}>Add year</Button>
+        </div>
       </fieldset>
       <PolicyFeedback editor={editor} />
       <Button type="submit" disabled={editor.busy || editor.stale}>{editor.busy ? "Saving…" : "Save settings"}</Button>

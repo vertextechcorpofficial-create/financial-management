@@ -91,6 +91,34 @@ test("counts a payoff only when the installment and assessed penalty are settled
   assert.throws(() => projectLoanLedger({ ...ledger, movements: [{ ...payment, allocations: [{ ...payment.allocations[0], installmentId: 99 }] }] }, payment.date), /schedule/);
 });
 
+test("a clearance waiver adjusts only unearned interest and reverses on its posted date", () => {
+  const settledOn = "2026-11-01";
+  const reverseOn = "2026-11-10";
+  const applied: LoanMovement = { ...offset, date: settledOn, postedAt: settledOn + "T01:00:00",
+    allocations: [{ installmentId: 5, principal: "100.00", interest: "4.00", penalty: "0.00" }] };
+  const undone: LoanMovement = { ...applied, id: 98, journalId: 98, date: reverseOn, postedAt: reverseOn + "T01:00:00",
+    reversesId: applied.id };
+  const caseLedger: LoanLedger = {
+    release,
+    installments: [{ ...installment, penaltyAssessed: "0.00",
+      settlementWaiver: { amount: "6.00", date: settledOn, reversedOn: reverseOn, reference: "CL-2026-0001" } }],
+    movements: [applied, undone],
+  };
+  assert.equal(projectLoanLedger(caseLedger, "2026-10-31").remaining, "110.00");
+  const settled = projectLoanLedger(caseLedger, settledOn);
+  assert.equal(settled.remaining, "0.00");
+  assert.equal(settled.installments[0].paidInterest, "4.00");
+  assert.equal(settled.fullyPaid, true);
+  assert.equal(projectLoanLedger(caseLedger, reverseOn).remaining, "110.00");
+  const initial = loanStatementForPeriod(caseLedger, settledOn, settledOn);
+  assert.equal(initial.totals.waivedInterest, "6.00");
+  assert.equal(initial.totals.offsets, "104.00");
+  const reversal = loanStatementForPeriod(caseLedger, reverseOn, reverseOn);
+  assert.equal(reversal.totals.waivedInterest, "-6.00");
+  assert.equal(reversal.totals.offsets, "-104.00");
+  assert.equal(reversal.totals.closing, "110.00");
+});
+
 const savings: PayrollCommitment = { table: "cooperative_memberships", id: 12, cents: 20_000n };
 const loan: PayrollCommitment = { table: "cooperative_loans", id: 11, cents: 30_000n };
 const deduction = (source_table: string, source_id: number, amount: string) => ({

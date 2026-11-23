@@ -1,6 +1,7 @@
 export const transactionTypes = [
   "SAVINGS_DEPOSIT", "MEMBERSHIP_FEE", "LOAN_RELEASE", "PROCESSING_FEE", "LOAN_PAYMENT",
   "LOAN_PAYMENT_REVERSED", "WITHDRAWAL", "SETTLEMENT_PAYOUT", "SAVINGS_OFFSET", "DIVIDEND", "SAVINGS_DEPOSIT_REVERSED",
+  "SETTLEMENT_WITHHOLDING", "SETTLEMENT_PAYABLE", "SETTLEMENT_PROVISION", "SETTLEMENT_REVERSED",
 ] as const;
 export const transactionChannels = ["OTC", "PAYROLL", "BANK", "SYSTEM"] as const;
 export const transactionDirections = ["IN", "OUT", "NON_CASH"] as const;
@@ -13,6 +14,8 @@ export const transactionLabels: Record<TransactionType, string> = {
   PROCESSING_FEE: "Loan processing fee", LOAN_PAYMENT: "Loan payment", LOAN_PAYMENT_REVERSED: "Loan payment reversal",
   WITHDRAWAL: "Savings withdrawal", SETTLEMENT_PAYOUT: "Settlement payout",
   SAVINGS_OFFSET: "Savings offset", DIVIDEND: "Dividend", SAVINGS_DEPOSIT_REVERSED: "Savings deposit reversal",
+  SETTLEMENT_WITHHOLDING: "Final-pay withholding", SETTLEMENT_PAYABLE: "Departing member payable",
+  SETTLEMENT_PROVISION: "Collection provision", SETTLEMENT_REVERSED: "Settlement reversal",
 };
 
 export const channelLabels: Record<TransactionChannel, string> = {
@@ -23,6 +26,8 @@ const direction: Record<TransactionType, typeof transactionDirections[number]> =
   SAVINGS_DEPOSIT: "IN", MEMBERSHIP_FEE: "IN", LOAN_RELEASE: "OUT", PROCESSING_FEE: "IN",
   LOAN_PAYMENT: "IN", LOAN_PAYMENT_REVERSED: "OUT", WITHDRAWAL: "OUT", SETTLEMENT_PAYOUT: "OUT",
   SAVINGS_OFFSET: "NON_CASH", DIVIDEND: "NON_CASH", SAVINGS_DEPOSIT_REVERSED: "OUT",
+  SETTLEMENT_WITHHOLDING: "NON_CASH", SETTLEMENT_PAYABLE: "NON_CASH",
+  SETTLEMENT_PROVISION: "NON_CASH", SETTLEMENT_REVERSED: "NON_CASH",
 };
 
 export type TransactionComponent = {

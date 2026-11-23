@@ -21,6 +21,7 @@ const foundationCollections = [
 type Collection =
   | typeof foundationCollections[number]
   | "cooperative_documents"
+  | "cooperative_clearances"
   | "cooperative_loans"
   | "cooperative_loan_installments"
   | "cooperative_loan_payments"

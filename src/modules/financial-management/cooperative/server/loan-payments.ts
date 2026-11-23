@@ -5,6 +5,7 @@ import { z } from "zod";
 import { projectLoanLedger, repaymentBusinessDate, type LoanLedger } from "../loans/loan-activity";
 import { allocatePayment, amountToCents, centsToAmount, loanTotals } from "../loans/loan-schedule";
 import { cooperativeAuditEvent, cooperativeAuditTime } from "./audit";
+import { readDirectusItems } from "./directus";
 import {
   findLoanCommand, loanDigest, loanPostingAccounts, loanPostingEnabled, prepareLoanJournal,
   readLoanJournalLines, readLoanJournalResults, requirePostingAccount, staleLoanReview, writeLoanCommand,
@@ -320,6 +321,12 @@ export async function reviewLoanPaymentReversal(id: number, paymentId: number, l
   const { ledger, position } = view;
   if (!ledger || !position || !["ACTIVE", "FULLY_PAID"].includes(view.loan.status) || ledger.movements.some(row => row.kind === "OFFSET")) {
     throw new LoanError(409, "This loan is outside the payment correction workflow.", "LOAN_PAYMENT_UNAVAILABLE");
+  }
+  const members = await readDirectusItems("cooperative_memberships", new URLSearchParams({
+    fields: "status", limit: "1", filter: JSON.stringify({ id: { _eq: view.loan.memberId } }),
+  }));
+  if (z.object({ data: z.array(z.object({ status: z.string() })) }).parse(members).data[0]?.status !== "ACTIVE") {
+    throw new LoanError(409, "This membership is closed. Review the linked exit clearance correction in Transactions.", "LOAN_PAYMENT_UNAVAILABLE");
   }
   const original = ledger.movements.find(row => row.id === paymentId && row.kind === "PAYMENT" && row.reversesId === null);
   if (!original) throw new LoanError(404, "The original payment is unavailable.");

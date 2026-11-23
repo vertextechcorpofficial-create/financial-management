@@ -49,7 +49,7 @@ async function revision() {
 }
 
 const fields = {
-  settings: "id,membership_fee,minimum_savings_per_cutoff,maintaining_balance,withdrawals_per_year,floor_mode,floor_fixed_amount,floor_percent,payment_order",
+  settings: "id,membership_fee,minimum_savings_per_cutoff,maintaining_balance,withdrawals_per_year,floor_mode,floor_fixed_amount,floor_percent,payment_order,exit_savings_annual_rates",
   products: [
     "id,product_code,number_prefix,name,short_name,description,kind,is_open",
     "monthly_rate_min,monthly_rate_max,monthly_rate_default,interest_methods,goods_markup_percent",
@@ -76,6 +76,7 @@ async function readPolicies() {
     maintainingBalance: decimalText(setting.maintaining_balance), withdrawalsPerYear: setting.withdrawals_per_year,
     floorMode: setting.floor_mode, floorFixedAmount: decimalText(setting.floor_fixed_amount),
     floorPercent: decimalText(setting.floor_percent), paymentOrder: setting.payment_order,
+    exitSavingsAnnualRates: setting.exit_savings_annual_rates ?? {},
   }) : null;
 
   const nested = z.array(z.record(z.string(), z.unknown()));
@@ -223,15 +224,17 @@ async function prepare(command: PolicySave, state: Awaited<ReturnType<typeof rea
   const { view } = state;
   if (command.section === "settings") {
     const { data } = command;
+    const exitSavingsAnnualRates = data.exitSavingsAnnualRates ?? view.settings?.exitSavingsAnnualRates ?? {};
     return {
       collection: "cooperative_policy_settings", key: "1", subject: "POLICY_SETTINGS", title: "Savings and membership settings",
-      before: view.settings ?? undefined, after: data,
+      before: view.settings ?? undefined, after: { ...data, exitSavingsAnnualRates },
       payload: {
         ...(view.settings ? {} : { id: 1 }),
         membership_fee: data.membershipFee, minimum_savings_per_cutoff: data.minimumSavings,
         maintaining_balance: data.maintainingBalance, withdrawals_per_year: data.withdrawalsPerYear,
         floor_mode: data.floorMode, floor_fixed_amount: data.floorFixedAmount, floor_percent: data.floorPercent,
         payment_order: data.paymentOrder,
+        ...(data.exitSavingsAnnualRates === undefined ? {} : { exit_savings_annual_rates: exitSavingsAnnualRates }),
       },
     };
   }
