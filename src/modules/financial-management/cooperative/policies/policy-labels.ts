@@ -6,6 +6,8 @@ const labels: Record<string, string> = {
   floorFixedAmount: "Fixed floor per cutoff", floorPercent: "Floor percentage of gross pay",
   exitSavingsAnnualRates: "Annual savings rates for exit clearance",
   isActive: "Active", isContra: "Contra account", accountId: "Account",
+  reservePercent: "Reserve fund share", educationPercent: "Education and training fund share",
+  savingsSharePercent: "Interest on savings share",
 };
 
 export function policyFieldLabel(key: string) {
@@ -24,7 +26,8 @@ const enums: Record<string, string> = {
 };
 
 const monetaryFields = new Set(["membershipFee", "minimumSavings", "maintainingBalance", "floorFixedAmount", "processingFee", "fixedCeiling"]);
-const percentFields = new Set(["rateMin", "rateDefault", "rateMax", "markup", "penaltyPercent", "floorPercent"]);
+const percentFields = new Set(["rateMin", "rateDefault", "rateMax", "markup", "penaltyPercent", "floorPercent",
+  "reservePercent", "educationPercent", "savingsSharePercent"]);
 const formatPercent = (value: string) => `${value.includes(".") ? value.replace(/\.?0+$/, "") : value}%`;
 
 export function policyValue(key: string, value: unknown): string {

@@ -33,6 +33,8 @@ type Collection =
   | "cooperative_payroll_remittance_batches"
   | "cooperative_payroll_remittance_lines"
   | "cooperative_reconciliation_evidence"
+  | "cooperative_dividend_drafts"
+  | "cooperative_dividend_runs"
   | "cooperative_withdrawal_requests"
   | "cooperative_official_receipts"
   | "payroll_run"

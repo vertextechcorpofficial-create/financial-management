@@ -215,17 +215,17 @@ export default function ClearanceModule() {
       </div>
 
       <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-        <Table className="min-w-full sm:min-w-[640px]">
+        <Table className="min-w-full">
           <TableHeader>
             <TableRow className="bg-muted/40 hover:bg-muted/40">
               <TableHead className="min-w-44">Clearance</TableHead>
-              <TableHead className="hidden w-60 max-w-60 sm:table-cell">Member</TableHead>
+              <TableHead className="hidden w-60 max-w-60 lg:table-cell">Member</TableHead>
               <TableHead className="hidden xl:table-cell">Separation date</TableHead>
               <TableHead className="hidden xl:table-cell">Documents</TableHead>
-              <TableHead className="hidden text-right md:table-cell">Owed</TableHead>
+              <TableHead className="hidden text-right lg:table-cell">Owed</TableHead>
               <TableHead className="hidden min-[1400px]:table-cell text-right">Posted savings</TableHead>
               <TableHead>Stage</TableHead>
-              <TableHead className="w-8" />
+              <TableHead className="hidden w-8 sm:table-cell" />
             </TableRow>
           </TableHeader>
           <TableBody className={cn("transition-opacity", loading && data && "opacity-60")} aria-busy={loading}>

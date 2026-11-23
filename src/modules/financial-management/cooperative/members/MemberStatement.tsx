@@ -171,8 +171,8 @@ function StatementLoans({ loans, onRetry }: { loans: Statement["loans"]; onRetry
       <h3 className="text-sm font-semibold">Loans</h3>
       {loans.state !== "ready" ? (
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <p role={loans.state === "unavailable" ? "alert" : "status"}>{loans.message}</p>
-          {loans.state === "unavailable" && <Button type="button" variant="outline" size="sm" onClick={onRetry}>Retry loan activity</Button>}
+          <p role="alert">{loans.message}</p>
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>Retry loan activity</Button>
         </div>
       ) : loans.data.entries.length === 0 ? (
         <p className="text-sm text-muted-foreground">No loans in this period.</p>

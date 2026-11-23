@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { serializeMemberReport } from "../console/reports/report-export";
+import { statementText } from "../members/statement";
 import { transactionEntries, type TransactionComponent } from "../transactions/entries";
+import { getLoanDetail } from "./loans";
 import { getMemberReport, getReportMemberChoices, reportPage } from "./member-reports";
 import { todayManila } from "./member-read";
+import { getMemberStatement } from "./member-service";
 
 type Fixture = Record<string, unknown>;
 type Filter = Record<string, Fixture | Filter[]>;
@@ -31,17 +34,13 @@ function matches(row: Fixture, filter: Filter): boolean {
 function mockReads(context: TestContext, records: Record<string, Fixture[]>, dummy = false) {
   const endpoint = process.env.NEXT_PUBLIC_API_BASE_URL;
   const token = process.env.DIRECTUS_STATIC_TOKEN;
-  const verified = process.env.COOPERATIVE_LOAN_POSTING_VERIFIED;
   process.env.NEXT_PUBLIC_API_BASE_URL = dummy ? "http://100.110.197.61:8056" : "http://127.0.0.1:1";
   process.env.DIRECTUS_STATIC_TOKEN = "isolated-member-report-fixture";
-  process.env.COOPERATIVE_LOAN_POSTING_VERIFIED = "true";
   context.after(() => {
     if (endpoint === undefined) delete process.env.NEXT_PUBLIC_API_BASE_URL;
     else process.env.NEXT_PUBLIC_API_BASE_URL = endpoint;
     if (token === undefined) delete process.env.DIRECTUS_STATIC_TOKEN;
     else process.env.DIRECTUS_STATIC_TOKEN = token;
-    if (verified === undefined) delete process.env.COOPERATIVE_LOAN_POSTING_VERIFIED;
-    else process.env.COOPERATIVE_LOAN_POSTING_VERIFIED = verified;
   });
   const unavailable = new Map<string, number>();
   context.mock.method(globalThis, "fetch", async (input: string, init?: RequestInit) => {
@@ -138,6 +137,9 @@ test("Cooperative member reports share savings dates and produce one full result
   const quiet = await getMemberReport(query("soa", { member: "2" }));
   assert.equal(quiet.rows.length, 0);
   assert.equal(quiet.totals.at(-1), "50.00");
+  const emptyHistory = await getMemberStatement(2, new URLSearchParams(range));
+  assert.equal(emptyHistory.loans.state, "ready");
+  assert.match(statementText(emptyHistory), /No loans in this period\./);
   assert.equal((await getReportMemberChoices(new URLSearchParams({ q: "2" }))).members[0].id, 2);
   assert.equal((await getReportMemberChoices(new URLSearchParams({ q: "finance" }))).members.length, 3);
   await assert.rejects(getMemberReport(query("soa", { member: "1", from: "2026-11-31" })), { status: 422 });
@@ -219,6 +221,8 @@ function postingFixtures() {
     cooperative_loan_payments: [],
     cooperative_loan_payment_allocations: [],
     cooperative_journals: [journal(301, 21, date(120), "LOAN_RELEASE"), journal(302, 22, date(120), "LOAN_RELEASE")],
+    cooperative_audit_events: [],
+    cooperative_command_receipts: [],
     cooperative_savings_entries: [],
     cooperative_transaction_entries: [],
     cooperative_document_types: [
@@ -245,23 +249,24 @@ function postingFixtures() {
 
   function postPayment(input: {
     id: number; loan: typeof defaulted; daysAgo: number; parts: [string, string, string]; total: string;
-    reversed?: boolean; reverses?: number; offset?: boolean;
+    reversed?: boolean; reverses?: number; offset?: boolean; installment?: number;
   }) {
     const { id, loan, daysAgo, parts: [principal, interest, penalty], total, reverses, reversed, offset } = input;
-    const command = offset ? (reverses ? "CLEARANCE_SETTLEMENT_REVERSED" : "LOAN_OFFSET") : reverses ? "LOAN_PAYMENT_REVERSED" : "LOAN_PAYMENT";
-    tables.cooperative_journals.push(journal(400 + id, loan.id, date(daysAgo), command, reverses ? 400 + reverses : null));
+    const command = offset ? (reverses ? "CLEARANCE_SETTLEMENT_REVERSED" : "CLEARANCE_SETTLEMENT") : reverses ? "LOAN_PAYMENT_REVERSED" : "LOAN_PAYMENT";
+    const entry = journal(400 + id, loan.id, date(daysAgo), command, reverses ? 400 + reverses : null);
+    tables.cooperative_journals.push(offset ? { ...entry, source_type: "CLEARANCE", source_id: "25" } : entry);
     tables.cooperative_loan_payments.push({
       id, loan_id: loan.id, member_id: loan.member_id, journal_id: 400 + id, reverses_payment_id: reverses ?? null,
       status: reversed ? "REVERSED" : "POSTED", principal_amount: principal, interest_amount: interest, penalty_amount: penalty, amount: total,
       reference_no: offset ? "CL-25" : "PAY-" + id, channel: offset ? "PAYROLL" : "OTC",
     });
     if (!reverses) tables.cooperative_loan_payment_allocations.push({
-      id, payment_id: id, installment_id: loan.id * 10 + 1, principal, interest, penalty, total,
+      id, payment_id: id, installment_id: loan.id * 10 + (input.installment ?? 1), principal, interest, penalty, total,
     });
   }
   postPayment({ id: 1, loan: defaulted, daysAgo: 12, parts: ["20.00", "2.00", "1.00"], total: "23.00", offset: true });
   postPayment({ id: 2, loan: defaulted, daysAgo: 6, parts: ["7.00", "1.20", "0.00"], total: "8.20", offset: true, reversed: true });
-  postPayment({ id: 3, loan: defaulted, daysAgo: 5, parts: ["20.02", "7.21", "3.00"], total: "30.23", reversed: true });
+  postPayment({ id: 3, loan: defaulted, daysAgo: 5, parts: ["20.02", "7.21", "3.00"], total: "30.23", reversed: true, installment: 2 });
   postPayment({ id: 4, loan: defaulted, daysAgo: 2, parts: ["7.00", "1.20", "0.00"], total: "8.20", offset: true, reverses: 2 });
   postPayment({ id: 5, loan: defaulted, daysAgo: 1, parts: ["20.02", "7.21", "3.00"], total: "30.23", reverses: 3 });
   postPayment({ id: 6, loan: goods, daysAgo: 15, parts: ["200.00", "20.00", "2.00"], total: "222.00" });
@@ -297,7 +302,7 @@ function report(name: string, filters: Record<string, string> = {}) {
 
 test("portfolio and aging use posted schedules, including defaulted receivables and penalty-only balances", async context => {
   const { tables, date } = postingFixtures();
-  mockReads(context, tables, true);
+  mockReads(context, tables);
   const portfolio = await report("portfolio");
   assert.equal(portfolio.rows.length, 4);
   assert.deepEqual(portfolio.rows.find(row => row.id === 23)?.cells.slice(7), ["For approval", null, null, null, null]);
@@ -326,6 +331,15 @@ test("portfolio and aging use posted schedules, including defaulted receivables 
   const roster = await report("roster", { status: "SEPARATED" });
   assert.deepEqual(roster.rows.map(row => [row.id, row.cells.at(-1)]), [[102, "856.75"]]);
   assert.equal(roster.totals.at(-1), "856.75");
+  assert.equal((await getLoanDetail(21, 2))?.loan.balance, "856.75");
+  assert.equal(await getLoanDetail(21, 1), null);
+  const memberStatement = await getMemberStatement(102, new URLSearchParams({ from: date(6), to: date(2) }));
+  const offsetRows = statementText(memberStatement).split("\n").map(row => row.split("\t"))
+    .filter(cells => cells[2] === "Clearance offset" || cells[2] === "Offset reversal");
+  assert.deepEqual(offsetRows, [
+    [date(6), "LN-21", "Clearance offset", "Exit clearance", "CL-25", "JV-402", "", "8.20"],
+    [date(2), "LN-21", "Offset reversal", "Exit clearance", "CL-25", "JV-404", "JV-402", "-8.20"],
+  ]);
 });
 
 test("collections nets linked postings on their own dates and keeps the full filtered export", async context => {
@@ -412,19 +426,44 @@ test("pages all three statement sections independently and exports every section
   assert.match(body, /Release\t\tJV-2051/);
 });
 
-test("marked rollout sources keep usable statement savings and avoid zero-looking loan totals", async context => {
+test("missing or inconsistent loan postings keep independently verified savings available", async context => {
   const { tables, date } = postingFixtures();
-  mockReads(context, tables);
-  process.env.COOPERATIVE_LOAN_POSTING_VERIFIED = "false";
-  assert.equal((await report("portfolio")).notices?.[0].state, "pending_rollout");
+  const unavailable = mockReads(context, tables);
   assert.equal((await report("collections")).blocked, true);
-  const statement = await report("soa", { member: "101", from: date(31), to: date(0) });
-  assert.equal(statement.notices?.[0].state, "pending_rollout");
-  assert.equal(statement.totals.at(-1), "0.00");
-  assert.match(serializeMemberReport(statement, "csv"), /Loans and loan activity,Awaiting source data/);
+  tables.cooperative_savings_entries.push({
+    id: 1, membership_id: 2, entry_date: date(20), kind: "DEPOSIT", amount: "50.00", balance_after: "50.00",
+    reference: "DEPOSIT-1", journal_id: 1001, posted_at: date(20) + "T01:00:00",
+  });
+  const period = { from: date(31), to: date(0) };
+  const journals = tables.cooperative_journals;
+  tables.cooperative_journals = journals.filter(row => row.id !== 301);
+  assert.equal((await report("portfolio")).notices?.[0].state, "unavailable");
+  const statement = await getMemberStatement(102, new URLSearchParams(period));
+  assert.equal(statement.loans.state, "unavailable");
+  assert.equal(statement.closingBalance, "50.00");
+  const copy = statementText(statement);
+  assert.match(copy, /DEPOSIT-1\t50\.00/);
+  assert.match(copy, /Posted loan records could not be verified/);
+  await assert.rejects(getLoanDetail(21), { status: 503 });
+  tables.cooperative_journals = journals;
+
+  const allocation = tables.cooperative_loan_payment_allocations.find(row => row.payment_id === 2)!;
+  allocation.total = "8.21";
+  const statementReport = await report("soa", { ...period, member: "102" });
+  assert.equal(statementReport.totals.at(-1), "50.00");
+  assert.equal(statementReport.notices?.[0].state, "unavailable");
   const roster = await report("roster");
   assert(roster.rows.every(row => row.cells.at(-1) === null));
   assert.equal(roster.totals.at(-1), null);
+  allocation.total = "8.20";
+
+  const reversal = journals.find(row => row.id === 404)!;
+  reversal.reverses_journal_id = 403;
+  assert.equal((await getMemberStatement(102, new URLSearchParams(period))).loans.state, "unavailable");
+  reversal.reverses_journal_id = 402;
+
+  unavailable.set("cooperative_loan_installments", 403);
+  assert.equal((await report("portfolio")).notices?.[0].state, "unavailable");
 });
 
 

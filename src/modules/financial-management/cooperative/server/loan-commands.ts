@@ -6,6 +6,7 @@ import { amountToCents } from "../loans/loan-schedule";
 import { accountPurposes, type PolicyState } from "../policies/policy-types";
 import { cooperativeAuditTime } from "./audit";
 import { cooperativeDirectus, CooperativeDirectusError, readDirectusItems, usesCooperativeQaDatabase } from "./directus";
+import { dividendSourceChange } from "./dividend-source";
 import { LoanError } from "./loans";
 
 export type LoanActor = { actorId: number; actorName: string; actorRole: string | null };
@@ -56,7 +57,7 @@ export function loanPostingEnabled() {
   return usesCooperativeQaDatabase();
 }
 
-export function loanPostingAccounts(policy: PolicyState) {
+export function loanPostingAccounts(policy: Pick<PolicyState, "mappings" | "accounts">) {
   return new Map(accountPurposes.flatMap(([purpose, , , classification, contra = false]) => {
     const mapping = policy.mappings.find(row => row.purpose === purpose);
     const account = policy.accounts.find(row => row.id === mapping?.accountId);
@@ -189,8 +190,9 @@ export async function nextRemittanceJournals(year: number, count: number) {
 
 export async function prepareCooperativeJournal(input: JournalInput & {
   type: LoanPostingType | "WITHDRAWAL_RELEASE" | "SAVINGS_DEPOSIT" | "SAVINGS_DEPOSIT_REVERSED" |
-    "PAYROLL_REMITTANCE" | "PAYROLL_REMITTANCE_REVERSED" | "CLEARANCE_SETTLEMENT" | "CLEARANCE_SETTLEMENT_REVERSED";
-  source: { type: "LOAN" | "WITHDRAWAL" | "MEMBERSHIP" | "PAYROLL_REMITTANCE" | "CLEARANCE"; id: number };
+    "PAYROLL_REMITTANCE" | "PAYROLL_REMITTANCE_REVERSED" | "CLEARANCE_SETTLEMENT" | "CLEARANCE_SETTLEMENT_REVERSED" |
+    "DIVIDEND_STATUTORY" | "DIVIDEND_DECLARED" | "DIVIDEND_CREDITED";
+  source: { type: "LOAN" | "WITHDRAWAL" | "MEMBERSHIP" | "PAYROLL_REMITTANCE" | "CLEARANCE" | "DIVIDEND"; id: number };
 }) {
   const { type, source, date, now, actor, feeReceipt, paymentReceipt, depositReceipt, reversal } = input;
   const officialReceipt = feeReceipt ?? paymentReceipt ?? depositReceipt;
@@ -214,6 +216,11 @@ export async function prepareCooperativeJournal(input: JournalInput & {
   const numbers = { journalId, journalNo: jv.number, orNo: or?.number ?? null };
   const at = cooperativeAuditTime(now);
   const lines = amounts.map((row, index) => ({ ...row, line_no: index + 1 }));
+  // A payroll batch claims the revision on its clearing journal, once for all nested postings.
+  const changesDividendSource = source.type === "PAYROLL_REMITTANCE" ||
+    (!input.reservedJournalNo && ["WITHDRAWAL_RELEASE", "SAVINGS_DEPOSIT", "SAVINGS_DEPOSIT_REVERSED",
+      "LOAN_PAYMENT", "LOAN_PAYMENT_REVERSED"].includes(type));
+  const sourceRevision = changesDividendSource ? await dividendSourceChange() : {};
   return {
     numbers,
     receipt: {
@@ -224,7 +231,7 @@ export async function prepareCooperativeJournal(input: JournalInput & {
         source_type: source.type, source_id: String(source.id), command_type: type, actor_user_id: actor.actorId,
         ...(reversal ? { reverses_journal_id: reversal.journalId } : {}),
         gl_lines: { create: lines },
-        audit_events: { create: [input.audit(numbers)] },
+        audit_events: { create: [{ ...input.audit(numbers), ...sourceRevision }] },
         ...(or && officialReceipt ? { official_receipts: { create: [{
           or_no: or.number, membership_id: officialReceipt.membershipId, business_date: date, amount: officialReceipt.amount,
           fee_part: feeReceipt?.amount ?? "0.00", deposit_part: depositReceipt?.amount ?? "0.00", issued_by: actor.actorId, created_at: at,

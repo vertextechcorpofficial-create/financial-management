@@ -20,7 +20,8 @@ const monetary = new Set([
   "amount", "balance", "savingsBalance", "savingsBefore", "savingsAfter", "savingsRestored", "savingsPerCutoff",
   "openingDeposit", "membershipFee", "principal", "interest", "penalty", "penalties", "prepaidIncome",
   "processingFee", "remaining", "finalPay", "refund", "dividend", "withheld", "finalPayUsed",
-  "maintainingBalance", "minimumSavings", "floorFixedAmount", "fixedCeiling",
+  "maintainingBalance", "minimumSavings", "floorFixedAmount", "fixedCeiling", "netSurplus",
+  "reserve", "education", "savingsCredits", "patronageRefunds", "undividedSurplus",
 ]);
 const approved = new Set([
   ...referenceKeys, ...monetary, "status", "state", "membershipStatus", "accountingStatus", "category", "channel", "feeChannel",
@@ -31,6 +32,7 @@ const approved = new Set([
   "prefix", "methods", "rateMin", "rateDefault", "rateMax", "markup", "termsMonths", "frequencies", "modes",
   "limitType", "savingsMultiple", "minimumMembershipMonths", "penaltyPercent", "graceDays",
   "withdrawalsPerYear", "floorMode", "floorPercent", "paymentOrder", "exitSavingsAnnualRates",
+  "year", "reservePercent", "educationPercent", "savingsSharePercent",
 ]);
 const scalar = z.union([z.string().max(500), z.number(), z.boolean()]);
 const sources = [
