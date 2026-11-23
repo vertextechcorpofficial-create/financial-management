@@ -5,7 +5,7 @@ import { CASE_STATUS_LABEL, CLEARANCE_REASONS } from "../console/types";
 import type { DocumentRequirement } from "../members/types";
 import { money } from "../policies/policy-types";
 import { readCooperativeAuditHistory } from "./audit";
-import { readDirectusItems } from "./directus";
+import { readDirectusByIds, readDirectusItems, readDirectusPages } from "./directus";
 import { privateCooperativeFolder } from "./document-storage";
 import { readMemberLoans } from "./loans";
 import { memberLoanBalances } from "./member-loans";
@@ -125,11 +125,11 @@ const documentRule = z.object({ document_type_id: clearanceId, enforcement: z.en
 
 async function documentPolicy() {
   const [types, rules] = await Promise.all([
-    rows("cooperative_document_types", documentType, {
-      fields: "id,name", filter: JSON.stringify({ is_active: { _eq: true } }), sort: "name,id", limit: "-1",
+    readDirectusPages("cooperative_document_types", documentType, {
+      fields: "id,name", filter: JSON.stringify({ is_active: { _eq: true } }), sort: "name,id",
     }),
-    rows("cooperative_policy_document_requirements", documentRule, {
-      fields: "document_type_id,enforcement", filter: JSON.stringify({ is_active: { _eq: true }, scope: { _eq: "CLEARANCE" } }), limit: "-1",
+    readDirectusPages("cooperative_policy_document_requirements", documentRule, {
+      fields: "document_type_id,enforcement", filter: JSON.stringify({ is_active: { _eq: true }, scope: { _eq: "CLEARANCE" } }),
     }),
   ]);
   const names = new Map(types.map(type => [type.id, type.name]));
@@ -140,16 +140,16 @@ async function documentPolicy() {
   return { types, required };
 }
 
-async function readDocumentCompliance(ids: number[]) {
+export async function readClearanceDocumentCompliance(ids: number[]) {
   const { types, required } = await documentPolicy();
-  const groups = ids.length && required.length ? await rows("cooperative_documents", z.object({ owner_id: clearanceId, document_type_id: clearanceId }), {
-    filter: JSON.stringify({
-      owner_type: { _eq: "CLEARANCE" }, owner_id: { _in: ids }, removed_at: { _null: true },
+  const documents = required.length ? await readDirectusByIds(
+    "cooperative_documents", z.object({ owner_id: clearanceId, document_type_id: clearanceId }),
+    "owner_id,document_type_id", "owner_id", ids, {
+      owner_type: { _eq: "CLEARANCE" }, removed_at: { _null: true },
       document_type_id: { _in: required.map(rule => rule.documentTypeId) },
-    }),
-    groupBy: "owner_id,document_type_id", "aggregate[count]": "*", limit: "-1",
-  }) : [];
-  const found = new Set(groups.map(row => `${row.owner_id}:${row.document_type_id}`));
+    },
+  ) : [];
+  const found = new Set(documents.map(row => `${row.owner_id}:${row.document_type_id}`));
   return {
     types, required,
     cases: new Map(ids.map(id => {
@@ -206,7 +206,7 @@ export async function getClearanceRegister(params: URLSearchParams) {
   const pageRows = total ? await clearanceRows(filter, size, (actualPage - 1) * size) : [];
   const ids = [...new Set(pageRows.map(row => row.membership_id.id))];
   const [docs, loans] = await Promise.all([
-    readDocumentCompliance(pageRows.map(row => row.id)), ids.length ? readMemberLoans(ids, todayManila()) : null,
+    readClearanceDocumentCompliance(pageRows.map(row => row.id)), ids.length ? readMemberLoans(ids, todayManila()) : null,
   ]);
   const byMember = new Map<number, ReturnType<typeof memberLoanBalances>>();
   if (loans?.state === "ready") {
@@ -225,7 +225,7 @@ export async function getClearanceRegister(params: URLSearchParams) {
 export async function getClearanceDetail(id: number) {
   const row = await readClearance(id);
   const [policy, audit, storageReady] = await Promise.all([
-    readDocumentCompliance([id]), readCooperativeAuditHistory({ type: "CLEARANCE", id }),
+    readClearanceDocumentCompliance([id]), readCooperativeAuditHistory({ type: "CLEARANCE", id }),
     privateCooperativeFolder().then(() => true, () => false),
   ]);
   return {

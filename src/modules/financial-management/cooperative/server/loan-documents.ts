@@ -5,7 +5,7 @@ import { CooperativeDocumentError } from "./document-input";
 import { privateCooperativeFolder } from "./document-storage";
 import { loanDigest, writeLoanCommand, type LoanActor } from "./loan-commands";
 import { LoanError } from "./loans";
-import { getPolicies } from "./policies";
+import { isActive, readDocumentTypes } from "./policies";
 
 export function loanDocumentScope(id: number, workspace: "loans" | "approvals" = "loans") {
   return {
@@ -48,10 +48,10 @@ export function loanDocumentScope(id: number, workspace: "loans" | "approvals" =
 }
 
 export async function loanDocumentOptions() {
-  const [folder, types] = await Promise.allSettled([privateCooperativeFolder(), getPolicies()]);
+  const [folder, types] = await Promise.allSettled([privateCooperativeFolder(), readDocumentTypes()]);
   return {
     storageReady: folder.status === "fulfilled",
     uploadTypes: types.status === "fulfilled"
-      ? types.value.documentTypes.filter(type => type.isActive).map(({ id, name }) => ({ id, name })) : [],
+      ? types.value.filter(type => isActive(type.is_active)).map(type => ({ id: Number(type.id), name: String(type.name) })) : [],
   };
 }

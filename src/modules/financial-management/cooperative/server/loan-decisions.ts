@@ -112,6 +112,11 @@ function termsAgreeWithLoan(terms: Terms, loan: Loan, schedule: ReturnType<typeo
 }
 
 async function reviewLoan(id: number, date: string) {
+  // Start the policy read alongside the loan read; a policy failure is handled by the checks block below.
+  const policyLoad = getPolicies().then(
+    policy => ({ ok: true as const, policy }),
+    error => ({ ok: false as const, error }),
+  );
   const view = await readLoanForChange(id, date, true);
   const { loan, revision, termsSnapshot } = view;
   const actions = stateActions(loan.status);
@@ -120,7 +125,6 @@ async function reviewLoan(id: number, date: string) {
   const terms = parsed.data;
   const schedule = terms && scheduleFromTerms(terms, date);
   const signed = Boolean(terms && schedule && termsAgreeWithLoan(terms, loan, schedule));
-  const checksInput: unknown[] = [];
   let accounts: ReturnType<typeof loanPostingAccounts> = new Map();
   let releaseIssue: string | null = null;
   const feeChannels: Array<"CASH" | "BANK"> = [];
@@ -132,7 +136,9 @@ async function reviewLoan(id: number, date: string) {
       detail: signed ? loan.agreementNo : "The signed terms could not be verified against the loan." });
     if (signed && terms && schedule) {
       try {
-        const policy = await getPolicies();
+        const loaded = await policyLoad;
+        if (!loaded.ok) throw loaded.error;
+        const policy = loaded.policy;
         if (!policy.settings) throw new LoanError(503, "Cooperative membership settings are unavailable.");
         const rules = await signedEligibilityRules(terms, policy);
         const rateOk = terms.kind === "GOODS" || rules.rateMin !== null && rules.rateMax !== null &&
@@ -145,7 +151,6 @@ async function reviewLoan(id: number, date: string) {
           principal: terms.principal, mode: terms.mode, frequency: terms.frequency, installments: schedule.installments, rules,
         });
         checks.push(...borrower.checks);
-        checksInput.push(policy.revision, borrower.loanIds, borrower.payroll, borrower.member.savings_balance);
         accounts = loanPostingAccounts(policy);
       } catch (cause) {
         checks.push({ key: "verify", label: "Current eligibility", ok: false,
@@ -183,8 +188,16 @@ async function reviewLoan(id: number, date: string) {
     firstDueDate: schedule?.installments[0]?.dueDate ?? null,
     feeChannels, warnings: loan.documents.warnings.map(row => row.name),
     blockedDocuments: loan.documents.blocks.map(row => row.name),
-    fingerprint: loanDigest([id, revision, date, loan.status, terms, checks, checksInput, releaseIssue,
-      [...accounts].map(([key, account]) => [key, account.id]), view.files.filter(row => !row.removed_at).map(row => row.id).sort()]),
+    fingerprint: loanDigest({
+      id, revision, date, status: loan.status, terms, releaseIssue,
+      fee: loan.processingFee, releaseMethod: loan.releaseMethod,
+      feeChannels: [...feeChannels].sort(),
+      checks: checks.map(({ key, ok, severity }) => [key, ok, severity ?? null])
+        .sort(([a], [b]) => String(a).localeCompare(String(b))),
+      accounts: [...accounts].map(([key, account]) => [key, account.id])
+        .sort(([a], [b]) => String(a).localeCompare(String(b))),
+      files: view.files.filter(row => !row.removed_at).map(row => String(row.id)).sort(),
+    }),
   };
   return { loan, date, schedule, accounts, principalPurpose, cashPurpose, preview } as const;
 }

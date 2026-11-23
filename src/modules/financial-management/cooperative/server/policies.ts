@@ -26,7 +26,7 @@ const pageSize = 50;
 const manila = new Intl.DateTimeFormat("en-PH", {
   timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short",
 });
-const isActive = (value: unknown) => value === true || value === 1 || value === "1";
+export const isActive = (value: unknown) => value === true || value === 1 || value === "1";
 const flag = (value: boolean) => value ? 1 : 0;
 const normalized = (value: string) => value.normalize("NFKC").trim().toLowerCase();
 const asRows = z.object({ data: z.array(z.record(z.string(), z.unknown())) });
@@ -60,15 +60,21 @@ const fields = {
   ].join(","),
 };
 
+export async function readDocumentTypes() {
+  return rows("cooperative_document_types", "id,code,name,is_active", { sort: "name,id" });
+}
+
 async function readPolicies() {
-  const latest = await revision();
-  const [settingsResult, rawProducts, types, rules, accounts, mappings] = await Promise.all([
-    readDirectusItems("cooperative_policy_settings", new URLSearchParams({ fields: fields.settings })),
-    rows("cooperative_loan_products", fields.products, { sort: "name,id" }),
-    rows("cooperative_document_types", "id,code,name,is_active", { sort: "name,id" }),
-    rows("cooperative_policy_document_requirements", "id,scope,document_type_id,enforcement,is_active", { sort: "scope,document_type_id" }),
-    rows("cooperative_gl_accounts", "id,code,name,classification,is_contra,is_active", { sort: "code,id" }),
-    rows("cooperative_account_mappings", "id,purpose,account_id", { sort: "purpose" }),
+  const [latest, [settingsResult, rawProducts, types, rules, accounts, mappings]] = await Promise.all([
+    revision(),
+    Promise.all([
+      readDirectusItems("cooperative_policy_settings", new URLSearchParams({ fields: fields.settings })),
+      rows("cooperative_loan_products", fields.products, { sort: "name,id" }),
+      readDocumentTypes(),
+      rows("cooperative_policy_document_requirements", "id,scope,document_type_id,enforcement,is_active", { sort: "scope,document_type_id" }),
+      rows("cooperative_gl_accounts", "id,code,name,classification,is_contra,is_active", { sort: "code,id" }),
+      rows("cooperative_account_mappings", "id,purpose,account_id", { sort: "purpose" }),
+    ]),
   ]);
   const { data: setting } = z.object({ data: z.record(z.string(), z.unknown()).nullable() }).parse(settingsResult);
   const settings = setting?.id ? settingsSchema.parse({

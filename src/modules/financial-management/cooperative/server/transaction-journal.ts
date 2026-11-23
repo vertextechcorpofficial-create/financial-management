@@ -13,7 +13,7 @@ const id = z.number().int().positive();
 const kind = z.enum(transactionTypes);
 const channel = z.enum(transactionChannels);
 const direction = z.enum(transactionDirections);
-const row = z.object({
+export const indexedTransaction = z.object({
   id, kind, channel, direction,
   business_date: z.iso.date(), receipt_date: z.iso.date().nullable(),
   reference: z.string().nullable(), source_reference: z.string().nullable(), or_no: z.string().nullable(),
@@ -23,7 +23,7 @@ const row = z.object({
     source_type: z.string().optional(), source_id: z.string().optional(),
     reverses_journal_id: z.object({ id, journal_no: z.string() }).nullable() }),
 });
-const fields = [
+export const indexedTransactionFields = [
   "id,kind,channel,direction,business_date,receipt_date,reference,source_reference,or_no,amount,loan_id,payment_id",
   "membership_id.user_id,membership_id.employee_name",
   "journal_id.id,journal_id.journal_no,journal_id.command_type,journal_id.source_type,journal_id.source_id,journal_id.reverses_journal_id.id,journal_id.reverses_journal_id.journal_no",
@@ -34,13 +34,24 @@ const total = z.object({
 });
 const pageSize = 50;
 
-function cents(value: string | number | null) {
+export function transactionCents(value: string | number | null) {
   if (typeof value === "number" && !Number.isSafeInteger(Math.round(value * 100))) {
     throw new LoanError(503, "The journal total could not be read at centavo precision.");
   }
   const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? 0));
   if (!match) throw new LoanError(503, "A journal amount could not be verified.");
   return BigInt(match[1]) * 100n + BigInt((match[2] ?? "").padEnd(2, "0"));
+}
+
+export function transactionSearch(search: string) {
+  if (!search) return {};
+  const contains = { _icontains: search };
+  return { _or: [
+    { membership_id: { employee_name: contains } },
+    ...(/^[1-9]\d{0,9}$/.test(search) ? [{ membership_id: { user_id: { _eq: Number(search) } } }] : []),
+    { reference: contains }, { source_reference: contains }, { or_no: contains }, { journal_id: { journal_no: contains } },
+    { journal_id: { reverses_journal_id: { journal_no: contains } } },
+  ] };
 }
 
 function filters(params: URLSearchParams) {
@@ -53,18 +64,12 @@ function filters(params: URLSearchParams) {
     throw new LoanError(400, "Check the journal filters.");
   }
   const search = params.get("search")?.trim().slice(0, 120) ?? "";
-  const contains = { _icontains: search };
   const common = {
     ...(type ? { kind: { _eq: type } } : {}),
     ...(selectedChannel ? { channel: { _eq: selectedChannel } } : {}),
     ...(month ? { business_date: { _gte: `${month}-01`,
       _lte: new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).toISOString().slice(0, 10) } } : {}),
-    ...(search ? { _or: [
-      { membership_id: { employee_name: contains } },
-      ...(/^[1-9]\d{0,9}$/.test(search) ? [{ membership_id: { user_id: { _eq: Number(search) } } }] : []),
-      { reference: contains }, { source_reference: contains }, { or_no: contains }, { journal_id: { journal_no: contains } },
-      { journal_id: { reverses_journal_id: { journal_no: contains } } },
-    ] } : {}),
+    ...transactionSearch(search),
   };
   return { page, filter: JSON.stringify(common), type, selectedChannel };
 }
@@ -86,7 +91,7 @@ async function legacyJournal(params: URLSearchParams, query: ReturnType<typeof f
     hasMore: result.hasMore, page, indexed: false };
 }
 
-async function paymentStates(rows: z.output<typeof row>[]) {
+async function paymentStates(rows: z.output<typeof indexedTransaction>[]) {
   const originals = rows.filter(entry => entry.kind === "LOAN_PAYMENT" && entry.payment_id !== null);
   if (!originals.length) return new Map<number, { status: string; loan_id: number; journal_id: number }>();
   const query = new URLSearchParams({
@@ -98,7 +103,7 @@ async function paymentStates(rows: z.output<typeof row>[]) {
   return new Map(data.map(item => [item.id, item]));
 }
 
-async function settlementDecisions(rows: z.output<typeof row>[]) {
+async function settlementDecisions(rows: z.output<typeof indexedTransaction>[]) {
   const ids = [...new Set(rows.filter(row => row.journal_id.source_type === "CLEARANCE" &&
     row.journal_id.command_type === "CLEARANCE_SETTLEMENT")
     .map(row => Number(row.journal_id.source_id)).filter(value => id.safeParse(value).success))];
@@ -119,15 +124,15 @@ export async function getTransactionJournal(params: URLSearchParams) {
   const aggregate = new URLSearchParams({ filter: query.filter, groupBy: "direction", "aggregate[sum]": "amount", "aggregate[count]": "*" });
   const { data: groups } = z.object({ data: total.array().max(3) }).parse(await readDirectusItems("cooperative_transaction_entries", aggregate));
   const count = groups.reduce((sum, group) => sum + group.count, 0);
-  const incoming = cents(groups.find(group => group.direction === "IN")?.sum.amount ?? null);
-  const outgoing = cents(groups.find(group => group.direction === "OUT")?.sum.amount ?? null);
+  const incoming = transactionCents(groups.find(group => group.direction === "IN")?.sum.amount ?? null);
+  const outgoing = transactionCents(groups.find(group => group.direction === "OUT")?.sum.amount ?? null);
   const page = Math.min(query.page, Math.max(1, Math.ceil(count / pageSize)));
   const request = new URLSearchParams({
-    fields, filter: query.filter, sort: "-business_date,-posted_at,-id", limit: String(pageSize), offset: String((page - 1) * pageSize),
+    fields: indexedTransactionFields, filter: query.filter, sort: "-business_date,-posted_at,-id", limit: String(pageSize), offset: String((page - 1) * pageSize),
   });
   const data = count
-    ? z.object({ data: row.array().max(pageSize) }).parse(await readDirectusItems("cooperative_transaction_entries", request)).data : [];
-  const originalId = (entry: z.output<typeof row>) => entry.journal_id.reverses_journal_id?.id ?? entry.journal_id.id;
+    ? z.object({ data: indexedTransaction.array().max(pageSize) }).parse(await readDirectusItems("cooperative_transaction_entries", request)).data : [];
+  const originalId = (entry: z.output<typeof indexedTransaction>) => entry.journal_id.reverses_journal_id?.id ?? entry.journal_id.id;
   const remittanceIds = new Set(data.filter(entry => entry.channel === "PAYROLL" &&
     ["SAVINGS_DEPOSIT", "SAVINGS_DEPOSIT_REVERSED", "LOAN_PAYMENT", "LOAN_PAYMENT_REVERSED"].includes(entry.kind)).map(originalId));
   const [payments, remittances, settlements] = await Promise.all([
@@ -142,7 +147,7 @@ export async function getTransactionJournal(params: URLSearchParams) {
     return {
       id: entry.id, kind: entry.kind, channel: entry.channel, memberName: entry.membership_id.employee_name, employeeNo: String(entry.membership_id.user_id),
       businessDate: entry.business_date, receiptDate: entry.receipt_date, sourceReference: entry.source_reference, reference: entry.reference,
-      amount: signedCentsToAmount(cents(entry.amount) * (entry.direction === "OUT" ? -1n : 1n)),
+      amount: signedCentsToAmount(transactionCents(entry.amount) * (entry.direction === "OUT" ? -1n : 1n)),
       orNo: entry.or_no, journalNo: entry.journal_id.journal_no, originalJournal: entry.journal_id.reverses_journal_id?.journal_no ?? null,
       loanId: entry.loan_id, paymentId, reversed: paymentId !== null && original?.status === "REVERSED",
       remittanceBatchId: remittances.get(originalId(entry)) ?? null,
