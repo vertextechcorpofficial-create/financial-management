@@ -16,7 +16,7 @@ export type LoanPostingPair = { debit: { id: number }; credit: { id: number }; a
 
 const glLine = z.object({ journal_id: z.number(), line_no: z.number(), account_id: z.number(),
   debit: z.coerce.string(), credit: z.coerce.string() });
-type GlLine = z.output<typeof glLine>;
+export type GlLine = z.output<typeof glLine>;
 
 export async function readLoanJournalLines(ids: number[]) {
   const grouped = new Map<number, GlLine[]>();
@@ -134,18 +134,66 @@ export async function writeLoanCommand<T extends State>(
   throw new LoanError(503, "The loan action could not be confirmed. Retry with the same request.", "LOAN_WRITE_RETRY");
 }
 
-export async function prepareLoanJournal(input: {
-  loanId: number; type: "LOAN_RELEASE" | "LOAN_DUE_ACCRUAL" | "LOAN_PAYMENT" | "LOAN_PAYMENT_REVERSED";
+type LoanPostingType = "LOAN_RELEASE" | "LOAN_DUE_ACCRUAL" | "LOAN_PAYMENT" | "LOAN_PAYMENT_REVERSED";
+type JournalInput = {
   date: string; actor: LoanActor; now: Date;
   pairs: LoanPostingPair[];
   feeReceipt?: { membershipId: number; amount: string };
   paymentReceipt?: { membershipId: number; amount: string };
+  depositReceipt?: { membershipId: number; amount: string };
   reversal?: { journalId: number; lines: GlLine[] };
+  reservedJournalNo?: string;
   audit: (numbers: { journalNo: string; orNo: string | null }) => State;
-}) {
-  const { type, loanId, date, now, actor, feeReceipt, paymentReceipt, reversal } = input;
-  const officialReceipt = feeReceipt ?? paymentReceipt;
+};
+
+export async function prepareLoanJournal({ loanId, ...input }: JournalInput & { loanId: number; type: LoanPostingType }) {
   if (!loanPostingEnabled()) throw new LoanError(409, "Loan posting is pending rollout in this environment.", "PENDING_ROLLOUT");
+  return prepareCooperativeJournal({ ...input, source: { type: "LOAN", id: loanId } });
+}
+
+async function readNumberSeries(year: number, prefixes: string[]) {
+  const query = new URLSearchParams({
+    fields: "id,prefix,last_number", limit: String(prefixes.length + 1),
+    filter: JSON.stringify({ business_year: { _eq: year }, prefix: { _in: prefixes } }),
+  });
+  const { data } = z.object({ data: z.array(z.object({
+    id: z.number().int().positive(), prefix: z.string(), last_number: z.number().int().min(0).max(9999),
+  })) }).parse(await readDirectusItems("cooperative_number_series", query));
+  const series = new Map(data.map(row => [row.prefix, row]));
+  if (series.size !== data.length) throw new LoanError(503, "The Cooperative number series requires review.");
+  return series;
+}
+
+export async function nextCooperativeNumbers(year: number, prefixes: string[]) {
+  const series = await readNumberSeries(year, prefixes);
+  return prefixes.map(prefix => {
+    const row = series.get(prefix);
+    const count = (row?.last_number ?? 0) + 1;
+    if (count > 9999) throw new LoanError(409, `The yearly ${prefix} number series is exhausted.`, "SERIES_EXHAUSTED");
+    return {
+      number: `${prefix}-${year}-${String(count).padStart(4, "0")}`,
+      ref: row ? { id: row.id, last_number: count } : { prefix, business_year: year, last_number: count },
+    };
+  });
+}
+
+export async function nextRemittanceJournals(year: number, count: number) {
+  const series = (await readNumberSeries(year, ["JV"])).get("JV");
+  const last = series?.last_number ?? 0;
+  if (last + count > 9999) throw new LoanError(409, "The yearly JV number series cannot fit this batch.", "SERIES_EXHAUSTED");
+  return {
+    numbers: Array.from({ length: count }, (_, i) => `JV-${year}-${String(last + i + 1).padStart(4, "0")}`),
+    reference: series ? { id: series.id, last_number: last + count } : { prefix: "JV", business_year: year, last_number: last + count },
+  };
+}
+
+export async function prepareCooperativeJournal(input: JournalInput & {
+  type: LoanPostingType | "WITHDRAWAL_RELEASE" | "SAVINGS_DEPOSIT" | "SAVINGS_DEPOSIT_REVERSED" |
+    "PAYROLL_REMITTANCE" | "PAYROLL_REMITTANCE_REVERSED";
+  source: { type: "LOAN" | "WITHDRAWAL" | "MEMBERSHIP" | "PAYROLL_REMITTANCE"; id: number };
+}) {
+  const { type, source, date, now, actor, feeReceipt, paymentReceipt, depositReceipt, reversal } = input;
+  const officialReceipt = feeReceipt ?? paymentReceipt ?? depositReceipt;
   if (input.pairs.some(pair => pair.debit.id === pair.credit.id || amountToCents(pair.amount) <= 0n)) {
     throw new LoanError(422, "Check the Cooperative posting account mappings and amounts.", "LOAN_ACCOUNT_REQUIRED");
   }
@@ -157,31 +205,11 @@ export async function prepareLoanJournal(input: {
     ]),
   ];
   const imbalance = amounts.reduce((net, row) => net + amountToCents(row.debit) - amountToCents(row.credit), 0n);
-  if (amounts.length < 2 || imbalance !== 0n) throw new LoanError(422, "The loan journal is unbalanced.", "LOAN_JOURNAL_UNBALANCED");
+  if (amounts.length < 2 || imbalance !== 0n) throw new LoanError(422, "The journal is unbalanced.", "LOAN_JOURNAL_UNBALANCED");
   const year = Number(date.slice(0, 4));
-  const prefixes = officialReceipt ? ["JV", "OR"] : ["JV"];
-  const query = new URLSearchParams({
-    fields: "id,prefix,last_number", limit: "3",
-    filter: JSON.stringify({ business_year: { _eq: year }, prefix: { _in: prefixes } }),
-  });
-  const { data } = z.object({ data: z.array(z.object({
-    id: z.number().int().positive(), prefix: z.string(), last_number: z.number().int().min(0).max(9999),
-  })) }).parse(await readDirectusItems("cooperative_number_series", query));
-  const series = new Map(data.map(row => [row.prefix, row]));
-  if (series.size !== data.length) throw new LoanError(503, "The Cooperative number series requires review.");
-
-  function next(prefix: string) {
-    const seriesRow = series.get(prefix);
-    const count = (seriesRow?.last_number ?? 0) + 1;
-    if (count > 9999) throw new LoanError(409, `The yearly ${prefix} number series is exhausted.`, "SERIES_EXHAUSTED");
-    return {
-      number: `${prefix}-${year}-${String(count).padStart(4, "0")}`,
-      ref: seriesRow ? { id: seriesRow.id, last_number: count } : { prefix, business_year: year, last_number: count },
-    };
-  }
-
-  const jv = next("JV");
-  const or = officialReceipt ? next("OR") : null;
+  const [jv, or] = input.reservedJournalNo
+    ? [{ number: input.reservedJournalNo, ref: undefined }]
+    : await nextCooperativeNumbers(year, officialReceipt ? ["JV", "OR"] : ["JV"]);
   const journalId = randomInt(100_000_000, 2_000_000_000);
   const numbers = { journalId, journalNo: jv.number, orNo: or?.number ?? null };
   const at = cooperativeAuditTime(now);
@@ -193,13 +221,13 @@ export async function prepareLoanJournal(input: {
       ...(or ? { receipt_series_id: or.ref } : {}),
       journal_id: {
         id: journalId, journal_no: jv.number, business_date: date, posted_at: at,
-        source_type: "LOAN", source_id: String(loanId), command_type: type, actor_user_id: actor.actorId,
+        source_type: source.type, source_id: String(source.id), command_type: type, actor_user_id: actor.actorId,
         ...(reversal ? { reverses_journal_id: reversal.journalId } : {}),
         gl_lines: { create: lines },
         audit_events: { create: [input.audit(numbers)] },
         ...(or && officialReceipt ? { official_receipts: { create: [{
           or_no: or.number, membership_id: officialReceipt.membershipId, business_date: date, amount: officialReceipt.amount,
-          fee_part: feeReceipt?.amount ?? "0.00", deposit_part: "0.00", issued_by: actor.actorId, created_at: at,
+          fee_part: feeReceipt?.amount ?? "0.00", deposit_part: depositReceipt?.amount ?? "0.00", issued_by: actor.actorId, created_at: at,
           ...(paymentReceipt ? { loan_payment_part: paymentReceipt.amount } : {}),
         }] } } : {}),
       },

@@ -2,7 +2,10 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { loanProductRoom, payrollHeadroom, payrollOverlap, payrollTermCommitment, type PayrollCommitment } from "../loans/loan-assessment";
+import {
+  loanProductRoom, passesLoanChecks, payrollHeadroom, payrollOverlap, payrollTermCommitment,
+  type LoanAssessmentCheck, type PayrollCommitment,
+} from "../loans/loan-assessment";
 import { lastDayOfMonth, loanDueDates } from "../loans/loan-schedule";
 import { peso } from "../members/format";
 import { calculateLoanExample, createLoanTermsSnapshot } from "../policies/loan-terms";
@@ -43,7 +46,7 @@ export function loanDraftError(error: z.ZodError) {
   return new LoanError(422, "Check the loan details.", "LOAN_INPUT", fields);
 }
 
-export async function loanEnrollmentChoices(params: URLSearchParams) {
+export async function listActiveCooperativeMembers(params: URLSearchParams) {
   const size = 10;
   const value = Number(params.get("page") ?? "1");
   const page = Number.isSafeInteger(value) && value > 0 && Number.isSafeInteger(value * size) ? value : 1;
@@ -62,11 +65,18 @@ export async function loanEnrollmentChoices(params: URLSearchParams) {
     fields: Object.keys(memberChoice.shape).join(","), filter: JSON.stringify(filter),
     limit: String(size + 1), offset: String((page - 1) * size), sort: "employee_name,id",
   });
-  const [raw, policy] = await Promise.all([readDirectusItems("cooperative_memberships", query), getPolicies()]);
+  const raw = await readDirectusItems("cooperative_memberships", query);
   const { data } = z.object({ data: z.array(memberChoice) }).parse(raw);
   return {
     members: data.slice(0, size).map(row => ({ id: row.id, employeeNumber: String(row.user_id), name: row.employee_name, department: row.department_name })),
     page, hasMore: data.length > size,
+  };
+}
+
+export async function loanEnrollmentChoices(params: URLSearchParams) {
+  const [choices, policy] = await Promise.all([listActiveCooperativeMembers(params), getPolicies()]);
+  return {
+    ...choices,
     products: policy.products.filter(product => product.isOpen),
     releaseAvailable: loanPostingEnabled(),
   };
@@ -156,10 +166,12 @@ export async function assessBorrower(input: {
   const payroll = input.mode === "payroll"
     ? await assessPayroll(member, settings, date, input.frequency === "monthly" ? "MONTHLY" : "CUTOFF", input.installments, views)
     : { state: "not_required" as const };
-  const checks = [
+  const tenureMet = meetsTenure(member.joined_at, date, rules.minimumMembershipMonths);
+  const checks: LoanAssessmentCheck[] = [
     { key: "active", label: "Active member", ok: true, detail: member.employee_name },
-    { key: "tenure", label: "Membership tenure", ok: meetsTenure(member.joined_at, date, rules.minimumMembershipMonths),
-      detail: "Member since " + member.joined_at + ". Required tenure is " + rules.minimumMembershipMonths + " months." },
+    { key: "tenure", label: "Membership tenure", ok: tenureMet,
+      severity: tenureMet ? undefined : "warning",
+      detail: `Member since ${member.joined_at}. Product minimum is ${rules.minimumMembershipMonths} months.` },
     { key: "limit", label: "Product limit", ok: room.state === "unlimited" || room.state === "ready" && amountToCents(input.principal) <= amountToCents(room.amount),
       detail: room.state === "ready" ? peso(room.amount) + " available to borrow." : room.state === "unlimited" ? "No principal ceiling for this product." : room.message },
     { key: "arrears", label: "Past-due installments", ok: arrears === 0n,
@@ -199,7 +211,7 @@ export async function assessLoanEnrollment(draft: z.infer<typeof loanDraftSchema
   };
   const fingerprint = createHash("sha256").update(JSON.stringify([snapshot, checks, loanIds])).digest("hex");
   return {
-    member, snapshot, loanIds, installments, checks, payroll, fingerprint, canEnroll: checks.every(check => check.ok),
+    member, snapshot, loanIds, installments, checks, payroll, fingerprint, canEnroll: passesLoanChecks(checks),
   };
 }
 

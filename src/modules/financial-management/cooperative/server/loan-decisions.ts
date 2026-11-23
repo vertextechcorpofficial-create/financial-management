@@ -1,9 +1,11 @@
 import "server-only";
 
 import { z } from "zod";
+import { passesLoanChecks, type LoanAssessmentCheck } from "../loans/loan-assessment";
 import { amountToCents, buildLoanSchedule, type LoanInstallment } from "../loans/loan-schedule";
 import { money } from "../policies/policy-types";
 import { cooperativeAuditEvent, cooperativeAuditTime } from "./audit";
+import { nestedTransactionEntries } from "./transaction-index";
 import { readDirectusItems } from "./directus";
 import {
   findLoanCommand, loanDigest, loanPostingAccounts, loanPostingEnabled, prepareLoanJournal,
@@ -45,7 +47,6 @@ const inputSchema = z.object({
 });
 type Terms = z.output<typeof signedTerms>;
 type Loan = Awaited<ReturnType<typeof readLoanForChange>>["loan"];
-type Check = { key: string; label: string; ok: boolean; detail: string };
 type Action = z.infer<typeof actionSchema>;
 export type LoanDecisionResult = {
   id: number; status: string; journalId: number | null; journalNo: string | null; orNo: string | null;
@@ -114,7 +115,7 @@ async function reviewLoan(id: number, date: string) {
   const view = await readLoanForChange(id, date, true);
   const { loan, revision, termsSnapshot } = view;
   const actions = stateActions(loan.status);
-  const checks: Check[] = [];
+  const checks: LoanAssessmentCheck[] = [];
   const parsed = signedTerms.safeParse(termsSnapshot);
   const terms = parsed.data;
   const schedule = terms && scheduleFromTerms(terms, date);
@@ -156,7 +157,7 @@ async function reviewLoan(id: number, date: string) {
         : "All documents required for approval are on file." });
     if (!loanPostingEnabled()) {
       releaseIssue = "Loan posting is pending rollout in this environment.";
-    } else if (checks.every(check => check.ok)) {
+    } else if (passesLoanChecks(checks)) {
       try {
         const principalAccount = requirePostingAccount(accounts, principalPurpose);
         const payoutAccount = requirePostingAccount(accounts, cashPurpose);
@@ -173,7 +174,7 @@ async function reviewLoan(id: number, date: string) {
     }
   }
 
-  const valid = checks.every(check => check.ok);
+  const valid = passesLoanChecks(checks);
   const preview = {
     revision, date, status: loan.status, actions, checks,
     canApprove: actions.includes("APPROVE") && valid,
@@ -268,7 +269,17 @@ export async function decideLoan(id: number, payload: unknown, actor: LoanActor)
       feeReceipt: hasFee && input.feeChannel === "CASH" ? { membershipId: loan.memberId, amount: loan.processingFee } : undefined,
     });
     return {
-      result: { ...result, ...posting.numbers }, receipt: posting.receipt,
+      result: { ...result, ...posting.numbers },
+      receipt: { ...posting.receipt, journal_id: {
+        ...posting.receipt.journal_id,
+        ...nestedTransactionEntries({ id: posting.numbers.journalId, date, postedAt: at }, [
+          { kind: "LOAN_RELEASE", memberId: loan.memberId, loanId: id, sourceReference: loan.loanNo, amount: loan.principal,
+            channel: loan.releaseMethod === "CASH" ? "OTC" : "BANK", reference: result.payoutReference },
+          ...(hasFee ? [{ kind: "PROCESSING_FEE", memberId: loan.memberId, loanId: id, sourceReference: loan.loanNo,
+            amount: loan.processingFee, channel: result.feeChannel === "CASH" ? "OTC" : "BANK",
+            reference: result.feeReference, orNo: posting.numbers.orNo }] as const : []),
+        ]),
+      } },
       changes: { ...changes, released_on: date, installments: { create: schedule!.installments.map(row => installmentRow(row, at)) } },
     };
   });
