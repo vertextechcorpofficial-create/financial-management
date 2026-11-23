@@ -2,10 +2,9 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { maxFileSize, maxFiles, maxUploadSize } from "../document-limits";
 
-export const maxFileSize = 10 * 1024 * 1024;
-const maxFiles = 10;
-const maxRequestSize = maxFiles * maxFileSize + 64 * 1024;
+type UploadBody = Pick<Request, "headers" | "body">;
 const mimeTypes = {
   pdf: "application/pdf",
   png: "image/png",
@@ -23,19 +22,19 @@ export function documentDigest(bytes: Uint8Array | string) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-async function readForm(request: Request) {
+async function readForm(request: UploadBody) {
   const contentType = request.headers.get("Content-Type");
   if (!contentType || !/^multipart\/form-data;/i.test(contentType) || !request.body) {
     throw new CooperativeDocumentError(400, "Send the documents as a multipart upload.");
   }
-  if (Number(request.headers.get("Content-Length")) > maxRequestSize) {
+  if (Number(request.headers.get("Content-Length")) > maxUploadSize) {
     throw new CooperativeDocumentError(413, "Upload up to 10 files, with a maximum of 10 MB each.");
   }
   let size = 0;
   const body = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       size += chunk.byteLength;
-      if (size > maxRequestSize) {
+      if (size > maxUploadSize) {
         throw new CooperativeDocumentError(413, "Upload up to 10 files, with a maximum of 10 MB each.");
       }
       controller.enqueue(chunk);
@@ -68,7 +67,7 @@ function detectedType(bytes: Buffer) {
   return null;
 }
 
-export async function readCooperativeUpload(request: Request) {
+export async function readCooperativeUpload(request: UploadBody) {
   const form = await readForm(request);
   const batchKey = z.uuid().safeParse(form.get("uploadKey"));
   const rawTypeId = form.get("documentTypeId");
