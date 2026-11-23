@@ -393,6 +393,13 @@ export async function readLoanForChange(id: number, date: string, includeDocumen
   return { ...view, revision };
 }
 
+export async function readLoansForRemittance(ids: number[], date: string) {
+  const loans = await readByIds("cooperative_loans", "id", ids, "*");
+  const revisions = new Map(loans.map(row => [idOf(row.id), z.number().int().nonnegative().parse(row.revision)]));
+  return new Map((await readLoanViews(loans, date, false, true)).map(view =>
+    [view.loan.id, { ...view, revision: revisions.get(view.loan.id)! }]));
+}
+
 export async function readLoanAssessmentRecords(memberId: number, asOf: string) {
   const loans = await readByIds("cooperative_loans", "member_id", [memberId], "*");
   if (loans.some(row => !idOf(row.id) || idOf(row.member_id) !== memberId ||

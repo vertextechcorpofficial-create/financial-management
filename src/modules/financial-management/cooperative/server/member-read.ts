@@ -395,6 +395,38 @@ export async function readCooperativePayrollDeductions(userId: number, reference
   return row ?? null;
 }
 
+const payrollDeductionFields = payrollResultSchema.extend({
+  coop_savings: z.unknown(), coop_loan: z.unknown(), breakdown_json: z.unknown(),
+});
+
+export async function readPostedPayrollRun(runId: number) {
+  const [run] = await rows("payroll_run", "payroll_run_id,cutoff_end", postedRunSchema, {
+    filter: { payroll_run_id: { _eq: runId }, cutoff_end: { _lte: todayManila() },
+      status: { _eq: "POSTED" }, posted_at: { _nnull: true } }, limit: 1,
+  });
+  return run ?? null;
+}
+
+export async function readPayrollRunDeductions(run: NonNullable<Awaited<ReturnType<typeof readPostedPayrollRun>>>, ids: number[]) {
+  const result = new Map<number, z.output<typeof payrollDeductionFields>>();
+  for (const batch of payrollIdBatches(ids)) {
+    const employees = await rows("payroll_run_employee", Object.keys(payrollDeductionFields.shape).join(","),
+      payrollDeductionFields, { filter: { payroll_run_id: { _eq: run.payroll_run_id }, user_id: { _in: batch } } });
+    const grouped = new Map<number, typeof employees>();
+    for (const employee of employees) {
+      const group = grouped.get(employee.user_id) ?? [];
+      group.push(employee);
+      grouped.set(employee.user_id, group);
+    }
+    for (const [id, group] of grouped) {
+      if (group.length === 1 && !isFlag(group[0].on_hold) && payrollReference(run.cutoff_end, group).state === "verified") {
+        result.set(id, group[0]);
+      }
+    }
+  }
+  return result;
+}
+
 export function moneyValue(value: string) {
   return Number(value);
 }

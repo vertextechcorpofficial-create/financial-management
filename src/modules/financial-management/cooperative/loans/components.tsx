@@ -1,8 +1,9 @@
 "use client";
 
-import { CheckCircle2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import type { LoanAssessmentCheck } from "./loan-assessment";
 
 export function RegisterSkeleton() {
   return (
@@ -49,18 +50,21 @@ export function DetailSkeleton() {
   );
 }
 
-export function AssessmentCheck({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
-  const Icon = ok ? CheckCircle2 : XCircle;
+export function AssessmentCheck({ ok, label, detail, severity }: Omit<LoanAssessmentCheck, "key">) {
+  const warning = !ok && severity === "warning";
+  const Icon = ok ? CheckCircle2 : warning ? AlertTriangle : XCircle;
   return (
     <li className={cn(
       "flex items-start gap-2.5 rounded-lg border p-2.5 text-sm",
-      ok
-        ? "border-emerald-200/70 bg-emerald-50/40 dark:border-emerald-900/60 dark:bg-emerald-950/20"
-        : "border-rose-200/70 bg-rose-50/40 dark:border-rose-900/60 dark:bg-rose-950/20",
+      ok && "border-emerald-200/70 bg-emerald-50/40 dark:border-emerald-900/60 dark:bg-emerald-950/20",
+      warning && "border-amber-300 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/20",
+      !ok && !warning && "border-rose-200/70 bg-rose-50/40 dark:border-rose-900/60 dark:bg-rose-950/20",
     )}>
-      <Icon className={cn("mt-0.5 size-4 shrink-0", ok ? "text-emerald-600" : "text-rose-600")} />
+      <Icon aria-hidden="true" className={cn("mt-0.5 size-4 shrink-0",
+        ok ? "text-emerald-600" : warning ? "text-amber-700 dark:text-amber-400" : "text-rose-600")} />
       <span className="min-w-0">
         <span className="font-medium">{label}</span>
+        {warning && <span className="ml-2 text-xs font-medium text-amber-800 dark:text-amber-300">Warning</span>}
         <span className="block text-xs text-muted-foreground">{detail}</span>
       </span>
     </li>

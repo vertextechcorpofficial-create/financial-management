@@ -5,6 +5,7 @@ import { z } from "zod";
 import { cooperativeDirectus, readDirectusItems } from "./directus";
 import { getPolicies } from "./policies";
 import { MemberError } from "./member-errors";
+import { nestedTransactionEntries } from "./transaction-index";
 import type { EnrollmentCheck, EnrollmentResult } from "../members/types";
 
 const int = z.coerce.number().int().positive();
@@ -203,6 +204,13 @@ function payload(check: EnrollmentCheck, key: string, hash: string, actor: { act
         terms_snapshot: terms, created_at: now, created_by: actor.actorId,
       }] },
       ...(journal ? { journal_id: journal } : {}),
+      ...(journal ? nestedTransactionEntries({ id: journalId, date: check.inputs.signedAt, postedAt: now }, [
+        ...(cents(deposit) > 0n ? [{ kind: "SAVINGS_DEPOSIT", memberId: membershipId, channel: "OTC",
+          amount: deposit, sourceReference: agreementNo, orNo }] as const : []),
+        ...(cents(fee) > 0n ? [{ kind: "MEMBERSHIP_FEE", memberId: membershipId,
+          channel: check.inputs.feeChannel === "COUNTER" ? "OTC" : "PAYROLL",
+          amount: fee, sourceReference: agreementNo, orNo: check.inputs.feeChannel === "COUNTER" ? orNo : null }] as const : []),
+      ]) : {}),
       ...(cents(deposit) > 0n && journal ? {
         savings_entries: { create: [{
           membership_id: membershipId, journal_id: journalId, entry_date: check.inputs.signedAt, kind: "OPENING",
