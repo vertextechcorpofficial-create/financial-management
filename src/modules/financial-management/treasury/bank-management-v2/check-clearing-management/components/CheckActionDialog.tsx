@@ -31,10 +31,19 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { CHECK_CANCEL_REASONS, CHECK_RETURN_REASONS, PAYABLE_LABELS, statusLabel } from "../constants";
 import { phtDate, toPhtDateString } from "../pht";
 import { DateField } from "./DateField";
+import { OptionCombobox } from "./OptionCombobox";
 import { StatusBadge } from "./StatusBadge";
 import { allowedActions, type CheckAction } from "./ChecksTable";
+import { fetchDraweeBanks } from "../providers/checksApi";
 import type { BankCheck, CheckEvent } from "../types";
-import type { CheckActionPayload } from "../providers/checksApi";
+import type { CheckActionPayload, DraweeBank } from "../providers/checksApi";
+
+/** What kind of paper the replacement is, which the old form never recorded. */
+const REPLACEMENT_TYPES: Array<{ value: "PDC" | "DATED" | "MANAGERS_CHECK"; label: string }> = [
+  { value: "DATED", label: "Dated check" },
+  { value: "PDC", label: "Post-dated check (PDC)" },
+  { value: "MANAGERS_CHECK", label: "Manager's check" },
+];
 
 type Props = {
   check: BankCheck | null;
@@ -139,6 +148,9 @@ export function CheckActionDialog({
   const [replacementAmount, setReplacementAmount] = useState("");
   const [replacementNo, setReplacementNo] = useState("");
   const [replacementDrawee, setReplacementDrawee] = useState("");
+  const [replacementType, setReplacementType] = useState<"PDC" | "DATED" | "MANAGERS_CHECK" | "">("");
+  const [banks, setBanks] = useState<DraweeBank[] | null>(null);
+  const [banksError, setBanksError] = useState(false);
   const [events, setEvents] = useState<{ checkId: number; rows: CheckEvent[] } | null>(null);
   const [original, setOriginal] = useState<{
     checkId: number;
@@ -155,6 +167,7 @@ export function CheckActionDialog({
       setNote("");
       setReplacementNo("");
       setReplacementDrawee("");
+      setReplacementType("");
       setReleaseDate(phtDate());
       setDepositDate(phtDate());
       setClearedDate(phtDate());
@@ -167,9 +180,31 @@ export function CheckActionDialog({
       setEvents(null);
       // Spec 2: a stale check offers cancel with the stale reason already chosen.
       setCancelReason(action === "CANCEL" && check?.isStale ? "Stale (over 180 days)" : "");
+      // A replacement is usually drawn on the same bank, so start from it and let the desk change it.
+      if (action === "REPLACE" && check?.direction === "RECEIVED" && check.draweeBank) {
+        setReplacementDrawee(check.draweeBank);
+      }
     }
     onOpenChange(next);
   }
+
+  useEffect(() => {
+    if (!open || action !== "REPLACE" || check?.direction !== "RECEIVED" || banks) return;
+    let cancelled = false;
+    void fetchDraweeBanks()
+      .then((rows) => {
+        if (!cancelled) setBanks(rows);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBanks([]);
+          setBanksError(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, action, check?.direction, banks]);
 
   useEffect(() => {
     if (!open || action !== "VIEW" || !check) return;
@@ -241,14 +276,21 @@ export function CheckActionDialog({
         ? "Pick the reason the check is being cancelled."
         : "";
   const amountError = action === "REPLACE" && !(Number(amountValue) > 0) ? "Enter an amount greater than zero." : "";
-  const hasErrors = Boolean(reasonError || amountError);
+  const checkNoError =
+    action === "REPLACE" && replacementNo.trim().length < 4 ? "Enter the new check number." : "";
+  const typeError = action === "REPLACE" && !replacementType ? "Choose post-dated, dated or manager's check." : "";
+  const draweeError =
+    action === "REPLACE" && check.direction === "RECEIVED" && !replacementDrawee.trim()
+      ? "Choose the drawee bank on the replacement."
+      : "";
+  const hasErrors = Boolean(reasonError || amountError || checkNoError || typeError || draweeError);
+  const bankOptions = (banks ?? []).map((bank) => ({ value: bank.name, label: bank.name }));
   // Spec 4.5: the clearing date is never before the check date or the date it was sent.
   const sentDate = check.direction === "ISSUED" ? check.releasedAt : check.depositedAt;
   const clearMinDate = [toPhtDateString(check.checkDate), sentDate ? toPhtDateString(sentDate) : ""]
     .filter(Boolean)
     .sort()
     .pop() ?? "";
-  const journalEvents = eventRows?.filter((entry) => entry.journalNo) ?? [];
   const availableActions = allowedActions(check).filter((entry) => entry.action !== "VIEW");
   const primaryAction = availableActions.find((entry) => PRIMARY_ACTIONS.includes(entry.action)) ?? availableActions[0];
   const menuActions = availableActions.filter((entry) => entry.action !== primaryAction?.action);
@@ -267,11 +309,13 @@ export function CheckActionDialog({
     if (action === "DEPOSIT") payload.depositDate = depositDate;
     if (action === "CLEAR") payload.clearedDate = clearedDate;
     if (action === "REPLACE") {
+      if (!replacementType) return;
       payload.replacement = {
         checkDate: replacementDate,
         amount: Number(amountValue),
-        checkNo: replacementNo.trim() || undefined,
-        draweeBank: replacementDrawee.trim() || undefined,
+        checkNo: replacementNo.trim(),
+        draweeBank: check.direction === "RECEIVED" ? replacementDrawee.trim() : undefined,
+        checkType: replacementType,
       };
     }
     const saved = await onSubmit(check, payload);
@@ -430,14 +474,17 @@ export function CheckActionDialog({
             {!isView && action === "REPLACE" && (
               <div className="grid items-start gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="replacement-check-no">New check no.</Label>
+                  <Label htmlFor="replacement-check-no">
+                    New check no. <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     id="replacement-check-no"
                     value={replacementNo}
                     maxLength={40}
-                    placeholder="Left blank uses the next check number"
+                    placeholder="The number printed on the new check"
                     onChange={(event) => setReplacementNo(event.target.value)}
                   />
+                  {touched && checkNoError && <p className="text-xs text-destructive">{checkNoError}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="replacement-amount">
@@ -453,8 +500,10 @@ export function CheckActionDialog({
                   />
                   {touched && amountError && <p className="text-xs text-destructive">{amountError}</p>}
                 </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="replacement-date">New check date</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="replacement-date">
+                    New check date <span className="text-destructive">*</span>
+                  </Label>
                   <DateField
                     id="replacement-date"
                     inDialog
@@ -462,16 +511,42 @@ export function CheckActionDialog({
                     onChange={(value) => setReplacementDate(value)}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="replacement-type">
+                    Type of check <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={replacementType}
+                    onValueChange={(value) => setReplacementType(value as "PDC" | "DATED" | "MANAGERS_CHECK")}
+                  >
+                    <SelectTrigger id="replacement-type" className="h-9 w-full">
+                      <SelectValue placeholder="Post-dated, dated or manager's" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
+                      {REPLACEMENT_TYPES.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {touched && typeError && <p className="text-xs text-destructive">{typeError}</p>}
+                </div>
                 {check.direction === "RECEIVED" ? (
                   <div className="space-y-2 sm:col-span-2">
-                    <Label htmlFor="replacement-drawee">Drawee bank</Label>
-                    <Input
-                      id="replacement-drawee"
+                    <Label htmlFor="replacement-drawee">
+                      Drawee bank <span className="text-destructive">*</span>
+                    </Label>
+                    <OptionCombobox
                       value={replacementDrawee}
-                      maxLength={120}
-                      placeholder={check.draweeBank ?? "Bank that issued the replacement check"}
-                      onChange={(event) => setReplacementDrawee(event.target.value)}
+                      onChange={setReplacementDrawee}
+                      placeholder={check.draweeBank ?? "Choose the bank that issued it"}
+                      searchPlaceholder="Search banks"
+                      emptyLabel={banksError ? "The bank list could not be read." : "No bank matches."}
+                      options={bankOptions}
+                      allowCustom
                     />
+                    {touched && draweeError && <p className="text-xs text-destructive">{draweeError}</p>}
                   </div>
                 ) : null}
               </div>
@@ -586,21 +661,6 @@ export function CheckActionDialog({
                   </div>
                 ) : null}
 
-                {journalEvents.length > 0 ? (
-                  <div className="border-t pt-4">
-                    <p className="mb-2 text-sm font-semibold">Journal entries</p>
-                    <ul className="space-y-1 rounded-lg border px-4 py-3 text-sm">
-                      {journalEvents.map((entry) => (
-                        <li key={entry.id} className="flex items-center justify-between gap-2">
-                          <span className="font-mono text-xs">{entry.journalNo}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {entry.eventCode ?? ""} {entry.action.replace(/_/g, " ").toLowerCase()}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
               </>
             )}
           </div>
@@ -677,7 +737,7 @@ export function CheckActionDialog({
                   onClick={handleSubmit}
                 >
                   {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Confirm
+                  {isSaving ? "Saving…" : "Confirm"}
                 </Button>
               </>
             )}

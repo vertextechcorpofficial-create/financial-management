@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/utils";
+import { cleanText } from "../constants";
 import { phtToday } from "../pht";
 import type { DormancyAccount, EscheatRemittance } from "../types";
 import { DateField } from "./DateField";
@@ -107,7 +108,7 @@ function ActionBody({
       <DialogHeader className="border-b px-6 py-4">
         <DialogTitle className="line-clamp-1">{copy.title}</DialogTitle>
         <DialogDescription className="line-clamp-2 max-w-md">
-          {account.bankName} {account.accountNumber}
+          {account.accountNumber} · {cleanText(account.bankName) ?? "—"}
         </DialogDescription>
       </DialogHeader>
 

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { Search, X } from "lucide-react";
@@ -65,39 +65,21 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
 
   return (
     <div aria-label="Check register filters" className="border-b border-border/50 px-4 py-3">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(118px,1.4fr)_116px_132px_130px_122px_122px_116px_116px]">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(118px,1.4fr)_116px_132px_130px_122px_122px_116px_116px_auto]">
         <div className="space-y-1.5 sm:col-span-2 xl:col-span-1">
           <Label htmlFor="check-search" className="text-[11px] font-medium text-muted-foreground">
             Search
           </Label>
-          <div className="flex items-center gap-1">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="check-search"
-                aria-label="Search checks"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search checks"
-                className="pl-9"
-              />
-            </div>
-            {dirty ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                aria-label="Clear filters"
-                title="Clear filters"
-                onClick={() => {
-                  setQuery("");
-                  onChange({ ...EMPTY });
-                }}
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            ) : null}
+          <div className="relative min-w-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="check-search"
+              aria-label="Search checks"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search checks"
+              className="pl-9"
+            />
           </div>
         </div>
 
@@ -198,6 +180,26 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
             minDate={filters.from}
             onChange={(value) => onChange({ ...filters, to: value || undefined })}
           />
+        </div>
+
+        {/* The clear control sits at the end of the band, not wedged against the search box. */}
+        <div className="flex items-end justify-end sm:col-span-2 xl:col-span-1">
+          {dirty ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              aria-label="Clear filters"
+              title="Clear filters"
+              onClick={() => {
+                setQuery("");
+                onChange({ ...EMPTY });
+              }}
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>

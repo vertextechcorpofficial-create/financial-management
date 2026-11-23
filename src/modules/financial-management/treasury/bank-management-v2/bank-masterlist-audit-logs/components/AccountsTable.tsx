@@ -182,14 +182,19 @@ export function AccountsTable({
               }}
             >
               <div className="flex items-start justify-between gap-3">
-                <p className="min-w-0 truncate font-medium" title={account.bankName}>
-                  {account.bankName}
-                </p>
+                {/* Account number first, the bank it belongs to under it. */}
+                <div className="min-w-0">
+                  <p className="truncate font-medium" title={account.accountNumber}>
+                    {account.accountNumber}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground" title={account.bankName}>
+                    {account.bankName}
+                  </p>
+                </div>
                 <Badge variant="outline" className={toneClass(statusTone(account.status))}>
                   {statusLabel(account.status)}
                 </Badge>
               </div>
-              <p className="truncate text-xs text-muted-foreground">{account.accountNumber}</p>
               <p className="text-sm tabular-nums">{formatCurrency(account.bookBalance)}</p>
               <p className="truncate text-xs text-muted-foreground">
                 {account.currency} · {account.ifrsCategory}

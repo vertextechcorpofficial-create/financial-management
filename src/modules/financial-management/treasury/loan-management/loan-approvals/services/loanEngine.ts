@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Loan math for the register, the schedules and the payments screens.
  *
  * The rules come from the loan management specification and are implemented to match

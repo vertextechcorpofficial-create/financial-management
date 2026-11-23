@@ -6,6 +6,7 @@ import { Ban, CheckCheck, FileClock, LoaderCircle, Plus, Undo2 , ScrollText} fro
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+
 import { cn, formatNumber } from "@/lib/utils";
 
 import { accentClass, toneClass } from "./constants";
@@ -30,6 +31,9 @@ export function CheckModule() {
     setFilters,
     page,
     setPage,
+    pageSize,
+    setPageSize,
+    total,
     isLoading,
     isSaving,
     error,
@@ -196,7 +200,12 @@ export function CheckModule() {
           />
         }
         checks={checks}
-        total={registerTotal}
+        total={total > 0 ? total : registerTotal}
+      pageSize={pageSize}
+      onPageSizeChange={(size) => {
+        setPageSize(size);
+        setPage(1);
+      }}
         filtered={isFiltered}
         isLoading={isLoading}
         page={page}

@@ -88,9 +88,9 @@ export function CloseAccountPanel({
               id="closure-account"
               options={accounts.map((account) => ({
                 value: String(account.bankId),
-                label: `${account.bankName} · ${account.accountNumber}`,
+                label: account.accountNumber,
+                description: `${account.bankName} · ${account.accountName ?? "—"}`,
                 searchText: `${account.accountNumber} ${account.accountName ?? ""} ${account.branch ?? ""}`,
-                description: `${account.accountNumber} · ${account.accountName ?? "—"}`,
               }))}
               value={bankId}
               onChange={setBankId}
