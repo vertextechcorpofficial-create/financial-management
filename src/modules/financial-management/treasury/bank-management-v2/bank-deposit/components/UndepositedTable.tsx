@@ -275,6 +275,7 @@ export function UndepositedTable({
                   aria-label={`Open ${asset.documentNumber}`}
                 >
                   <span
+                    className="-m-2 flex h-11 w-11 shrink-0 items-center justify-center"
                     onClick={(event) => event.stopPropagation()}
                     onKeyDown={(event) => event.stopPropagation()}
                   >

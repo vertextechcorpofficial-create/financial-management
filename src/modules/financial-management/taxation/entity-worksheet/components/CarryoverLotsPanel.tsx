@@ -294,7 +294,7 @@ function RecordLotDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[550px]">
+      <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[550px]">
         <DialogHeader className="border-b border-border/50 px-6 py-4">
           <DialogTitle>Record a carryover lot</DialogTitle>
           <DialogDescription>
@@ -419,7 +419,7 @@ function EditUsedDialog({
         onOpenChange(open);
       }}
     >
-      <DialogContent className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[500px]">
+      <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[500px]">
         <DialogHeader className="border-b border-border/50 px-6 py-4">
           <DialogTitle>
             Used amount · {lot?.kind} {lot?.originYear}

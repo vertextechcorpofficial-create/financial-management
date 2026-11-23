@@ -203,7 +203,7 @@ export function CarryoverTable({
                     </p>
                     <p className="font-mono text-[11px] text-muted-foreground">{lot.companyCode}</p>
                   </div>
-                  <Badge variant="secondary" className="shrink-0 text-[10px]" title={kindLabel(lot)}>
+                  <Badge variant="secondary" className="shrink-0 text-[11px]" title={kindLabel(lot)}>
                     {kindLabel(lot)}
                   </Badge>
                 </div>

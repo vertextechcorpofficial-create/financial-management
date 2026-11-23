@@ -317,7 +317,7 @@ export function ChecksTable({
                       {check.replacesNo || check.replacedByNo ? (
                         <Badge
                           variant="outline"
-                          className="text-[10px] font-semibold text-muted-foreground"
+                          className="text-[11px] font-semibold text-muted-foreground"
                           title="Part of a replacement chain; open the check to see it."
                         >
                           Replacement
@@ -327,14 +327,14 @@ export function ChecksTable({
                         <Badge
                           variant="outline"
                           className={cn(
-                            "text-[10px] font-semibold",
+                            "text-[11px] font-semibold",
                             "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300",
                           )}
                         >
                           Stale
                         </Badge>
                       ) : check.isPdc ? (
-                        <Badge variant="outline" className="border-border bg-muted text-[10px] font-semibold text-muted-foreground">
+                        <Badge variant="outline" className="border-border bg-muted text-[11px] font-semibold text-muted-foreground">
                           PDC
                         </Badge>
                       ) : null}
@@ -390,7 +390,11 @@ export function ChecksTable({
             }}
           >
             <div className="flex items-start gap-3">
-              <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+              <span
+                className="-m-2 flex h-11 w-11 shrink-0 items-center justify-center"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
                 <Checkbox
                   aria-label={`Select check ${check.checkNo}`}
                   checked={selected.has(check.id)}

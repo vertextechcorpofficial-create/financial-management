@@ -12,8 +12,8 @@ import { NavUser } from "@/components/shared/app-sidebar/nav-user";
 
 import { cookies } from "next/headers";
 
-// ✅ Wire the module you asked for
-import ComingSoon from "../../_components/ComingSoon";
+// ✅ Wire the Statement of Changes in Equity Client
+import { StatementOfChangesInEquityClient } from "@/modules/financial-management/financial-statements/statement-of-changes-in-equity/components/statement-of-changes-in-equity-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -117,9 +117,9 @@ export default async function Page() {
                 </div>
             </header>
 
-            {/* ✅ UI ONLY: remove ScrollArea so the page doesn't scroll; the table card handles scrolling */}
-            <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-4">
-                <ComingSoon />
+            {/* ✅ Main scrollable reporting body */}
+            <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-4 md:p-6 bg-muted/30">
+                <StatementOfChangesInEquityClient />
             </main>
         </div>
     );

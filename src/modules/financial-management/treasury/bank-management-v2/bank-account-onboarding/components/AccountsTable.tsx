@@ -161,7 +161,7 @@ export function AccountsTable({
                         {missingFields(account).length > 0 ? (
                           <Badge
                             variant="outline"
-                            className="shrink-0 text-[10px] font-medium text-muted-foreground"
+                            className="shrink-0 text-[11px] font-medium text-muted-foreground"
                             title={`Not recorded: ${missingFields(account).join(", ")}.`}
                           >
                             Incomplete
