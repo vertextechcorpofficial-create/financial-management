@@ -2,37 +2,37 @@ import type { PriceType, Unit } from "../types";
 
 export const MATRIX_PRICE_TYPE_COLORS = [
     {
-        className: "bg-[#F3F4F6] text-[#374151] border-[#D1D5DB]",
+        className: "bg-muted text-foreground border-border",
         fill: "FFF3F4F6",
         font: "FF374151",
         border: "FFD1D5DB",
     },
     {
-        className: "bg-[#EAF4FF] text-[#1E4D8C] border-[#B8D1F3]",
+        className: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/25",
         fill: "FFEAF4FF",
         font: "FF1E4D8C",
         border: "FFB8D1F3",
     },
     {
-        className: "bg-[#F0FFF4] text-[#1D5C2E] border-[#C6F6D5]",
+        className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/25",
         fill: "FFF0FFF4",
         font: "FF1D5C2E",
         border: "FFC6F6D5",
     },
     {
-        className: "bg-[#FFF9E6] text-[#8C6D1E] border-[#FCEFB4]",
+        className: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/25",
         fill: "FFFFF9E6",
         font: "FF8C6D1E",
         border: "FFFCEFB4",
     },
     {
-        className: "bg-[#FFF5F5] text-[#8C1E1E] border-[#FED7D7]",
+        className: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/25",
         fill: "FFFFF5F5",
         font: "FF8C1E1E",
         border: "FFFED7D7",
     },
     {
-        className: "bg-[#F7F0FF] text-[#4D1E8C] border-[#E9D8FD]",
+        className: "bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-500/25",
         fill: "FFF7F0FF",
         font: "FF4D1E8C",
         border: "FFE9D8FD",

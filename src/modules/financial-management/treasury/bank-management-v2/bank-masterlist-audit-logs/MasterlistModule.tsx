@@ -81,9 +81,11 @@ export function MasterlistModule() {
     { value: "ALL", label: "All accounts" },
     ...allAccounts.map((account) => ({
       value: String(account.bankId),
-      label: `BA-${account.bankId} · ${account.bankName} · ${account.accountNumber}`,
-      searchText: `${account.bankName} ${account.accountNumber} ${account.branch ?? ""}`,
-      description: account.currency,
+      // Name on the first line, the account number on the second: a record picker shows
+      // what tells two rows apart, not one long string that clips mid-number.
+      label: account.accountNumber,
+      description: account.bankName,
+      searchText: `${account.bankName} ${account.accountNumber} ${account.currency} ${account.branch ?? ""}`,
     })),
   ];
 

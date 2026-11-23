@@ -22,6 +22,17 @@ export type LoanLedger = {
   movements: LoanMovement[];
 };
 
+export function repaymentBusinessDate(ledger: LoanLedger, receiptDate: string, today: string) {
+  const latest = [
+    ...ledger.movements.map(item => item.date),
+    ...ledger.installments.flatMap(item => [
+      item.accrualProcessedOn ? item.dueDate : "",
+      item.penaltyAssessedOn ?? "",
+    ]),
+  ].reduce((last, date) => date > last ? date : last, ledger.release.date);
+  return receiptDate < latest ? today : receiptDate;
+}
+
 export type LoanStatementTotals = {
   opening: string;
   released: string;
@@ -88,6 +99,7 @@ export function projectLoanLedger(ledger: LoanLedger, asOf: string) {
     const projected = {
       ...installment, paidTotal: centsToAmount(paid.principal + paid.interest),
       paidPrincipal: centsToAmount(paid.principal), paidInterest: centsToAmount(paid.interest), penaltyPaid: centsToAmount(paid.penalty),
+      penaltyAssessed: installment.penaltyAssessedOn && installment.penaltyAssessedOn > asOf ? "0.00" : installment.penaltyAssessed,
     };
     return { ...projected, status: installmentStatus(projected) };
   });

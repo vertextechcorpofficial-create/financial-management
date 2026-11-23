@@ -24,6 +24,7 @@ import { formatCurrency, formatNumber } from "@/lib/utils";
 import { phtDisplayStamp, toPhtDateString } from "../pht";
 import { toneClass } from "../constants";
 import { fetchDepositSlip } from "../providers/depositApi";
+import { DateField } from "./DateField";
 import { StatusBadge } from "./StatusBadge";
 import { DepositPreview } from "./DepositPreview";
 import type { DepositSlip, DepositSlipDetail } from "../types";
@@ -34,16 +35,20 @@ type Props = {
   isSaving: boolean;
   onOpenChange: (open: boolean) => void;
   onCancel: (slipId: number, reason: string) => Promise<boolean>;
+  /** Prepared -> Deposited: the bank has taken the money, on this date and under this number. */
+  onDeposit: (slipId: number, confirmation: { depositDate: string; slipNo: string }) => Promise<boolean>;
 };
 
 /**
  * Read-only mirror of the creation modal (P17): same fields, same contents table, disabled
  * inputs, plus the cancellation control. Items come from the slip, not from the store.
  */
-export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel }: Props) {
+export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel, onDeposit }: Props) {
   const [reason, setReason] = useState("");
   const [touched, setTouched] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [depositDate, setDepositDate] = useState("");
+  const [validationNo, setValidationNo] = useState("");
   const [detail, setDetail] = useState<DepositSlipDetail | null>(null);
   const [failure, setFailure] = useState<{ slipId: number; message: string } | null>(null);
 
@@ -75,9 +80,21 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel 
   if (!slip) return null;
 
   const cancellable = slip.status !== "CANCELLED" && slip.status !== "CLEARED";
+  // Only a prepared slip has anything to deposit; a deposited one is waiting on its checks.
+  const depositable = slip.status === "PREPARED";
   const reasonError = reason.trim().length < 5 ? "Give a short reason (at least 5 characters)." : "";
   const items = current?.items ?? [];
   const cashTotal = items.filter((item) => item.assetType === "CASH").reduce((total, item) => total + item.amount, 0);
+
+  // Both fields show the slip's own values until the desk types something else, so no effect is needed.
+  const handoverDate = depositDate || toPhtDateString(slip.depositDate);
+  const handoverNo = validationNo || (slip.referenceNo ?? "");
+
+  async function handleDeposit() {
+    if (!slip) return;
+    const ok = await onDeposit(slip.id, { depositDate: handoverDate, slipNo: handoverNo.trim() });
+    if (ok) onOpenChange(false);
+  }
 
   async function handleCancel() {
     setTouched(true);
@@ -143,19 +160,33 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel 
                 <Label htmlFor="slip-detail-date" className="text-xs text-muted-foreground">
                   Deposit date
                 </Label>
-                <Input id="slip-detail-date" value={toPhtDateString(slip.depositDate)} disabled readOnly />
+                {depositable ? (
+                  <DateField id="slip-detail-date" value={handoverDate} onChange={setDepositDate} inDialog />
+                ) : (
+                  <Input id="slip-detail-date" value={toPhtDateString(slip.depositDate)} disabled readOnly />
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="slip-detail-no" className="text-xs text-muted-foreground">
                   Slip / validation no.
                 </Label>
-                <Input
-                  id="slip-detail-no"
-                  value={slip.referenceNo ?? "—"}
-                  title={`Generated no. ${slip.depositNo}`}
-                  disabled
-                  readOnly
-                />
+                {depositable ? (
+                  <Input
+                    id="slip-detail-no"
+                    value={handoverNo}
+                    onChange={(event) => setValidationNo(event.target.value)}
+                    placeholder="What the bank stamped"
+                    maxLength={40}
+                  />
+                ) : (
+                  <Input
+                    id="slip-detail-no"
+                    value={slip.referenceNo ?? "—"}
+                    title={`Generated no. ${slip.depositNo}`}
+                    disabled
+                    readOnly
+                  />
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="slip-detail-prepared" className="text-xs text-muted-foreground">
@@ -232,7 +263,7 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel 
                     </TableHeader>
                     <TableBody>
                       {items.map((item) => (
-                        <TableRow key={item.collectionDetailId}>
+                        <TableRow key={item.collectionInvoiceId}>
                           <TableCell>
                             <Badge
                               variant="outline"
@@ -298,7 +329,9 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel 
                   onChange={(event) => setReason(event.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Cancelling reverses the cash posting and returns the checks to the vault.
+                  {depositable
+                    ? "Cancelling reverses the cash posting and returns the checks to the vault."
+                    : "The collections go back to Collections on hand and the slip is kept for the trail."}
                 </p>
                 {touched && reasonError && <p className="text-xs text-destructive">{reasonError}</p>}
               </div>
@@ -311,6 +344,21 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel 
                 Close
               </Button>
             </DialogClose>
+            {depositable && !confirming && (
+              <span
+                className="inline-flex"
+                title={handoverNo.trim() ? undefined : "Enter the slip or validation number the bank stamped."}
+              >
+                <Button
+                  type="button"
+                  disabled={isSaving || !handoverNo.trim()}
+                  onClick={handleDeposit}
+                >
+                  {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Mark as deposited
+                </Button>
+              </span>
+            )}
             {cancellable && !confirming && (
               <Button type="button" variant="outline" disabled={isSaving} onClick={() => setConfirming(true)}>
                 Cancel slip

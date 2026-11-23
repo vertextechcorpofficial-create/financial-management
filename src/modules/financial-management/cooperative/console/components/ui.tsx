@@ -48,7 +48,7 @@ const chipStyles: Record<string, string> = {
 
 export function StatusChip({ status, label }: { status: string; label?: string }) {
   const text = label ?? status.replaceAll("_", " ");
-  return <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${chipStyles[status] ?? "bg-muted text-muted-foreground"}`}>{text}</span>;
+  return <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${chipStyles[status] ?? "bg-muted text-muted-foreground"}`}>{text}</span>;
 }
 
 export function memberStatusChip(status: MemberStatus) {

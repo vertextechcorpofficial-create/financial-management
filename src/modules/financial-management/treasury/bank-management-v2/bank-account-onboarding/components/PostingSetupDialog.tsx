@@ -64,7 +64,8 @@ export function PostingSetupDialog({
   const unmapped = mapping.length - mapped;
   const options = chartAccounts.map((account) => ({
     value: String(account.coaId),
-    label: `${account.glCode} · ${account.accountTitle}`,
+    label: account.accountTitle,
+    description: account.glCode,
     searchText: `${account.glCode} ${account.accountTitle}`,
   }));
 

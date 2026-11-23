@@ -127,6 +127,9 @@ export interface BankCheck {
   id: number;
   bankAccountId: number;
   bankAccountLabel: string;
+  /** The two halves of the label, so a table can stack the number over the bank. */
+  bankAccountNumber: string | null;
+  bankAccountBank: string | null;
   direction: CheckDirection;
   checkNo: string;
   checkDate: string;

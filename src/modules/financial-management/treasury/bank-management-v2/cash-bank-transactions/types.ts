@@ -46,6 +46,8 @@ export interface AccountOption {
   bankId: number;
   /** Drawn from `bank_accounts.bank_name`; the list filters by bank, not only by account. */
   bankName: string;
+  /** The two halves of `label`, so a picker prints the number over the bank name (QA3). */
+  accountNumber: string | null;
   label: string;
   currency: string;
   bookBalance: number;

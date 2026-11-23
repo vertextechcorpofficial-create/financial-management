@@ -420,10 +420,10 @@ export function percentOfCents(amount: string, percent: string) {
   return (amountToCents(amount) * rate + 500_000n) / 1_000_000n;
 }
 
-export function todayManila() {
+export function todayManila(now = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date());
+  }).format(now);
 }
 
 export function normalizeMoney(value: string) {

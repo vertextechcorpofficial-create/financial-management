@@ -125,7 +125,7 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
                 variant={selected ? "outline" : "default"}
                 disabled={blockReason !== null && !selected}
                 title={blockReason ?? undefined}
-                onClick={() => onToggle(asset.collectionDetailId)}
+                onClick={() => onToggle(asset.collectionInvoiceId)}
               >
                 {selected ? "Remove from slip" : "Add to slip"}
               </Button>

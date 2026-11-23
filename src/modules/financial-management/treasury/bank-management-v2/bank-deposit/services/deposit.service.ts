@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { CheckStatus, DepositSlip, DepositSlipDetail, DepositSlipItem, ResolvedJournalEntry, UndepositedAsset } from "../types";
+import type { DepositSlip, DepositSlipDetail, DepositSlipItem, ResolvedJournalEntry, UndepositedAsset } from "../types";
 import { daysSince, phtDisplayStamp, phtStamp, phtToday } from "../pht";
 import { postJournalEntry, PostingBlockedError, resolveJournalEntry } from "./gl.service";
 import {
@@ -20,7 +20,7 @@ import { depositCancelEntry, depositCashEntry } from "../events";
  * Bank Deposit reads and writes.
  *
  * Deposit slips already exist as `bank_deposit` + `bank_deposit_details`, and the
- * money waiting to be deposited is `collection_details` (payment_method 1 = cash,
+ * money waiting to be deposited is `collection_invoices` (types CASH and ADJUSTMENT), the same
  * 4 = check), so this service reuses them instead of a parallel model. The only new
  * rows are the checks created per deposited check, which feed Check & Clearing.
  */
@@ -28,17 +28,6 @@ import { depositCancelEntry, depositCashEntry } from "../events";
 const CASH = 1;
 const CHECK = 4;
 
-const DETAIL_FIELDS = [
-  "id",
-  "collection_id",
-  "payment_method",
-  "check_no",
-  "chequeDate",
-  "amount",
-  "bank",
-  "customer_code",
-  "is_cleared",
-];
 const COLLECTION_FIELDS = ["id", "collection_date", "collection_receipt_no", "docNo", "isPosted", "isCancelled"];
 const SLIP_FIELDS = [
   "id",
@@ -56,18 +45,6 @@ const SLIP_FIELDS = [
   "remarks",
 ];
 const ACCOUNT_FIELDS = ["bank_id", "bank_name", "account_number", "account_name"];
-
-type DetailRow = {
-  id: number;
-  collection_id: number | null;
-  payment_method: number | null;
-  check_no: string | null;
-  chequeDate: string | null;
-  amount: number | string | null;
-  bank: string | null;
-  customer_code: string | null;
-  is_cleared: unknown;
-};
 
 type SlipRow = {
   id: number;
@@ -87,7 +64,10 @@ type SlipRow = {
 
 export type DepositAccount = {
   bankId: number;
+  /** Kept for the slips' one-line bank column; pickers use the two halves below. */
   label: string;
+  bankName: string | null;
+  accountNumber: string | null;
   glCoaId: number | null;
   glCode: string | null;
   glTitle: string | null;
@@ -108,12 +88,21 @@ function accountLabel(row: AccountRow): string {
   return [row.bank_name, row.account_number].filter(Boolean).join(" · ") || `Account ${row.bank_id}`;
 }
 
+/** The two halves of the label, so a picker can show the name over its number instead of one clipped string. */
+function accountParts(row: AccountRow): { bankName: string | null; accountNumber: string | null } {
+  return {
+    bankName: asString(row.bank_name).trim() || null,
+    accountNumber: asString(row.account_number).trim() || null,
+  };
+}
+
 function toDepositAccount(row: AccountRow, coa: Map<number, CoaRow>): DepositAccount {
   const glCoaId = row.gl_coa_id == null ? null : Number(row.gl_coa_id);
   const linked = glCoaId == null ? null : coa.get(glCoaId) ?? null;
   return {
     bankId: Number(row.bank_id),
     label: accountLabel(row),
+    ...accountParts(row),
     glCoaId,
     glCode: linked?.gl_code ?? null,
     glTitle: linked?.account_title ?? null,
@@ -146,20 +135,6 @@ export async function loadDepositAccount(bankId: number): Promise<DepositAccount
     limit: 1,
   })).rows;
   return toDepositAccount(row, new Map(coa.map((item) => [Number(item.coa_id), item])));
-}
-
-/**
- * `collection_details.bank` stores the `bank_names` id as text, so the register printed bare numbers
- * until this lookup. Missing ids fall back to the raw value rather than blanking the cell.
- */
-async function loadBankNames(): Promise<Map<string, string>> {
-  const { rows } = await listItems<{ id: number; bank_name: string | null }>("bank_names", {
-    fields: ["id", "bank_name"],
-    limit: 500,
-  });
-  return new Map(
-    rows.filter((row) => row.bank_name).map((row) => [String(row.id), String(row.bank_name)]),
-  );
 }
 
 function isTruthyFlag(value: unknown): boolean {
@@ -198,15 +173,15 @@ async function loadCustomerNames(codes: string[]): Promise<Map<string, string>> 
 }
 
 /** Document numbers for rows that vanished from the queue, so a failure names them. */
-async function describeMissing(detailIds: number[]): Promise<string> {
-  if (!detailIds.length) return "the selected rows";
+async function describeMissing(invoiceIds: number[]): Promise<string> {
+  if (!invoiceIds.length) return "the selected rows";
   try {
-    const { rows: details } = await listItems<{ id: number; collection_id: number | null }>("collection_details", {
+    const { rows: settlements } = await listItems<{ id: number; collection_id: number | null }>("collection_invoices", {
       fields: ["id", "collection_id"],
-      filter: { id: { _in: detailIds } },
+      filter: { id: { _in: invoiceIds } },
       limit: 200,
     });
-    const collections = [...new Set(details.map((row) => Number(row.collection_id)).filter(Boolean))];
+    const collections = [...new Set(settlements.map((row) => Number(row.collection_id)).filter(Boolean))];
     const { rows } = collections.length
       ? await listItems<{ id: number; collection_receipt_no: string | null; docNo: string | null }>("collection", {
           fields: ["id", "collection_receipt_no", "docNo"],
@@ -215,64 +190,114 @@ async function describeMissing(detailIds: number[]): Promise<string> {
         })
       : { rows: [] };
     const byId = new Map(rows.map((row) => [Number(row.id), row.collection_receipt_no || row.docNo]));
-    const labels = details.map((row) => byId.get(Number(row.collection_id)) ?? `detail #${row.id}`);
+    const labels = settlements.map((row) => byId.get(Number(row.collection_id)) ?? `settlement #${row.id}`);
     return labels.length ? labels.join(", ") : "the selected rows";
   } catch {
-    return detailIds.map((id) => `detail #${id}`).join(", ");
+    return invoiceIds.map((id) => `settlement #${id}`).join(", ");
   }
 }
 
-/** Cash and customer checks in the vault that are not on a live deposit slip yet. */
+/** Invoice number and customer for a settlement row: `collection_invoices.invoice_id` is the key. */
+async function loadInvoices(
+  invoiceIds: number[],
+): Promise<Map<number, { invoiceNo: string | null; customerCode: string | null }>> {
+  const unique = [...new Set(invoiceIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!unique.length) return new Map();
+  const { rows } = await listItems<{ invoice_id: number; invoice_no: string | null; customer_code: string | null }>(
+    "sales_invoice",
+    { fields: ["invoice_id", "invoice_no", "customer_code"], filter: { invoice_id: { _in: unique } }, limit: 800 },
+  );
+  return new Map(
+    rows.map((row) => [
+      Number(row.invoice_id),
+      { invoiceNo: row.invoice_no ?? null, customerCode: asString(row.customer_code) || null },
+    ]),
+  );
+}
+
+type SettlementRow = {
+  id: number;
+  collection_id: number | null;
+  invoice_id: number | null;
+  amount: number | string | null;
+  type: string | null;
+};
+
+/**
+ * The money waiting to be banked is the settlement row, not the tender line: the Collection
+ * Summary reads `collection_invoices` (one row per invoice and money type), which is the only
+ * place a customer and an invoice can be named. A receipt's cash tender may cover two invoices,
+ * so its settlement rows carry the names the slip has to print.
+ */
 export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
-  const [{ rows: details }, { rows: links }] = await Promise.all([
-    listItems<DetailRow>("collection_details", {
-      fields: DETAIL_FIELDS,
-      filter: { payment_method: { _in: [CASH, CHECK] } },
+  const [{ rows: settlements }, { rows: links }, checkResult] = await Promise.all([
+    listItems<SettlementRow>("collection_invoices", {
+      fields: ["id", "collection_id", "invoice_id", "amount", "type"],
+      filter: { type: { _in: ["CASH", "ADJUSTMENT"] } },
       limit: 800,
     }),
-    listItems<{ collection_detail_id: number | null; bank_deposit_id: number | null }>("bank_deposit_details", {
-      fields: ["collection_detail_id", "bank_deposit_id"],
+    listItems<{ collection_invoice_id: number | null }>("bank_deposit_details", {
+      fields: ["collection_invoice_id"],
       limit: 800,
     }),
+    listItems<{ check_no: string | null; source_ref: string | null; drawee_bank: string | null }>("bank_checks", {
+      fields: ["check_no", "source_ref", "drawee_bank"],
+      filter: { direction: { _eq: "RECEIVED" }, status: { _neq: "CANCELLED" } },
+      limit: 800,
+    }).catch(() => ({ rows: [] as { check_no: string | null; source_ref: string | null; drawee_bank: string | null }[] })),
   ]);
 
-  const deposited = new Set(links.map((link) => Number(link.collection_detail_id)));
-  const pending = details.filter((row) => !isTruthyFlag(row.is_cleared) && !deposited.has(Number(row.id)));
+  const deposited = new Set(links.map((link) => Number(link.collection_invoice_id)));
+  const pending = settlements.filter((row) => !deposited.has(Number(row.id)));
   if (!pending.length) return [];
 
   const collectionIds = [...new Set(pending.map((row) => Number(row.collection_id)).filter(Boolean))];
-  const { rows: collections } = await listItems<{
-    id: number;
-    collection_date: string | null;
-    collection_receipt_no: string | null;
-    docNo: string | null;
-    isPosted: unknown;
-    isCancelled: unknown;
-  }>("collection", { fields: COLLECTION_FIELDS, filter: { id: { _in: collectionIds } }, limit: 800 });
-  const byId = new Map(collections.map((row) => [Number(row.id), row]));
-  const [bankNames, customerNames] = await Promise.all([
-    loadBankNames(),
-    loadCustomerNames(pending.map((row) => asString(row.customer_code))),
+  const [{ rows: collections }, invoices] = await Promise.all([
+    listItems<{
+      id: number;
+      collection_date: string | null;
+      collection_receipt_no: string | null;
+      docNo: string | null;
+      isPosted: unknown;
+      isCancelled: unknown;
+    }>("collection", { fields: COLLECTION_FIELDS, filter: { id: { _in: collectionIds } }, limit: 800 }),
+    loadInvoices(pending.map((row) => Number(row.invoice_id ?? 0))),
   ]);
+  const byId = new Map(collections.map((row) => [Number(row.id), row]));
+
+  // A received cheque names its receipt in `source_ref`, so a settlement row of that receipt
+  // knows its cheque number and drawee bank without reading the tender table.
+  const checkByRef = new Map<string, { checkNo: string | null; draweeBank: string | null }>();
+  for (const check of checkResult.rows) {
+    const ref = asString(check.source_ref);
+    if (ref && !checkByRef.has(ref)) checkByRef.set(ref, { checkNo: check.check_no, draweeBank: check.drawee_bank });
+  }
+
+  const customerNames = await loadCustomerNames(
+    pending.map((row) => invoices.get(Number(row.invoice_id ?? 0))?.customerCode ?? ""),
+  );
 
   return pending
     .map((row) => {
       const parent = row.collection_id == null ? undefined : byId.get(Number(row.collection_id));
       const collectionDate = parent?.collection_date ?? null;
-      const isCash = Number(row.payment_method) === CASH;
-      const code = asString(row.customer_code) || null;
-      const name = code ? customerNames.get(code) : undefined;
+      const documentNumber = parent?.collection_receipt_no || parent?.docNo || `#${row.collection_id ?? row.id}`;
+      const invoice = invoices.get(Number(row.invoice_id ?? 0));
+      const check = checkByRef.get(asString(parent?.collection_receipt_no) || asString(parent?.docNo) || "");
+      const customerCode = invoice?.customerCode ?? null;
       return {
-        collectionDetailId: Number(row.id),
+        collectionInvoiceId: Number(row.id),
         collectionId: Number(row.collection_id ?? 0),
-        documentNumber: parent?.collection_receipt_no || parent?.docNo || `#${row.collection_id ?? row.id}`,
+        invoiceId: row.invoice_id == null ? null : Number(row.invoice_id),
+        invoiceNo: invoice?.invoiceNo ?? null,
+        documentNumber,
         collectionReference: parent?.docNo ?? null,
-        assetType: isCash ? "CASH" : "CHECK",
-        customer: name ?? code,
-        customerCode: code,
-        bankName: bankNames.get(asString(row.bank)) ?? asString(row.bank) ?? null,
-        checkNo: row.check_no,
-        chequeDate: row.chequeDate,
+        assetType: check ? "CHECK" : "CASH",
+        customer: (customerCode ? customerNames.get(customerCode) : undefined) ?? customerCode,
+        customerCode,
+        bankName: check?.draweeBank ?? null,
+        checkNo: check?.checkNo ?? null,
+        chequeDate: null,
         collectionDate,
         amount: roundMoney(asNumber(row.amount)),
         ageDays: daysSince(collectionDate),
@@ -339,76 +364,96 @@ async function loadPreparers(ids: number[]): Promise<Map<number, { name: string 
   }
 }
 
-type SlipItemRow = {
-  id: number;
-  bank_deposit_id: number;
-  collection_detail_id: number | null;
-};
-type ItemDetailRow = {
-  id: number;
-  collection_id: number | null;
-  payment_method: number | null;
-  check_no: string | null;
-  amount: number | string | null;
-  customer_code: string | null;
-};
-
 /** Itemised contents for the slip list and its read-only modal (P17). */
 async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlipItem[]>> {
   const result = new Map<number, DepositSlipItem[]>();
   if (!slipIds.length) return result;
-  const { rows: links } = await listItems<SlipItemRow>("bank_deposit_details", {
-    fields: ["id", "bank_deposit_id", "collection_detail_id"],
+  const { rows: links } = await listItems<{
+    id: number;
+    bank_deposit_id: number | null;
+    collection_invoice_id: number | null;
+    amount: number | string | null;
+    payment_method: number | null;
+    check_no: string | null;
+    deposit_status: string | null;
+  }>("bank_deposit_details", {
+    fields: ["id", "bank_deposit_id", "collection_invoice_id", "amount", "payment_method", "check_no", "deposit_status"],
     filter: { bank_deposit_id: { _in: slipIds } },
     limit: 2000,
   });
   if (!links.length) return result;
 
-  const detailIds = [...new Set(links.map((link) => Number(link.collection_detail_id)).filter(Boolean))];
-  const [{ rows: details }, { rows: checks }] = await Promise.all([
-    listItems<ItemDetailRow>("collection_details", {
-      fields: ["id", "collection_id", "payment_method", "check_no", "amount", "customer_code"],
-      filter: { id: { _in: detailIds } },
-      limit: 2000,
-    }),
-    listItems<{ collection_detail_id: number | null; status: string }>("bank_checks", {
-      fields: ["collection_detail_id", "status"],
-      filter: { collection_detail_id: { _in: detailIds }, direction: { _eq: "RECEIVED" } },
-      limit: 2000,
-    }).catch((error: unknown) => {
-      if (error instanceof DirectusError) return { rows: [] as { collection_detail_id: number | null; status: string }[] };
-      throw error;
-    }),
+  const invoiceRowIds = [...new Set(links.map((link) => Number(link.collection_invoice_id)).filter(Boolean))];
+  const { rows: settlements } = invoiceRowIds.length
+    ? await listItems<{ id: number; collection_id: number | null; invoice_id: number | null }>("collection_invoices", {
+        fields: ["id", "collection_id", "invoice_id"],
+        filter: { id: { _in: invoiceRowIds } },
+        limit: 2000,
+      })
+    : { rows: [] as { id: number; collection_id: number | null; invoice_id: number | null }[] };
+  const settlementById = new Map(settlements.map((row) => [Number(row.id), row]));
+  const collectionIds = [...new Set(settlements.map((row) => Number(row.collection_id)).filter(Boolean))];
+  const [{ rows: collections }, invoices] = await Promise.all([
+    collectionIds.length
+      ? listItems<{ id: number; docNo: string | null; collection_receipt_no: string | null; collection_date: string | null }>(
+          "collection",
+          { fields: ["id", "docNo", "collection_receipt_no", "collection_date"], filter: { id: { _in: collectionIds } }, limit: 800 },
+        )
+      : Promise.resolve({
+          rows: [] as { id: number; docNo: string | null; collection_receipt_no: string | null; collection_date: string | null }[],
+        }),
+    loadInvoices(settlements.map((row) => Number(row.invoice_id ?? 0))),
   ]);
-  const detailById = new Map(details.map((row) => [Number(row.id), row]));
-  const collectionIds = [...new Set(details.map((row) => Number(row.collection_id)).filter(Boolean))];
-  const { rows: collections } = collectionIds.length
-    ? await listItems<{ id: number; docNo: string | null; collection_receipt_no: string | null; collection_date: string | null }>(
-        "collection",
-        { fields: ["id", "docNo", "collection_receipt_no", "collection_date"], filter: { id: { _in: collectionIds } }, limit: 800 },
-      )
-    : { rows: [] };
   const collectionById = new Map(collections.map((row) => [Number(row.id), row]));
-  const customerNames = await loadCustomerNames(details.map((row) => asString(row.customer_code)));
-  const checkByDetail = new Map(checks.map((row) => [Number(row.collection_detail_id), row.status as CheckStatus]));
+  const customerNames = await loadCustomerNames([...invoices.values()].map((entry) => entry.customerCode ?? ""));
 
+  // One row per invoice, the way the Collection Summary reads: a receipt's cash tender and its
+  // adjustment legs are two settlement rows against the same invoice, and splitting them on the
+  // slip shows the same customer twice for one invoice.
+  const grouped = new Map<string, DepositSlipItem>();
   for (const link of links) {
-    const detail = detailById.get(Number(link.collection_detail_id));
-    if (!detail) continue;
-    const parent = detail.collection_id == null ? undefined : collectionById.get(Number(detail.collection_id));
-    const code = asString(detail.customer_code) || null;
-    const item: DepositSlipItem = {
-      collectionDetailId: Number(detail.id),
-      assetType: Number(detail.payment_method) === CASH ? "CASH" : "CHECK",
-      documentNumber: parent?.collection_receipt_no || parent?.docNo || `detail #${detail.id}`,
-      checkNo: detail.check_no,
-      customer: (code ? customerNames.get(code) : undefined) ?? code,
-      customerCode: code,
-      collectionDate: parent?.collection_date ?? null,
-      amount: roundMoney(asNumber(detail.amount)),
-      checkStatus: checkByDetail.get(Number(detail.id)) ?? null,
-    };
+    const settlement = settlementById.get(Number(link.collection_invoice_id));
+    const parent = settlement?.collection_id == null ? undefined : collectionById.get(Number(settlement.collection_id));
+    const invoice = invoices.get(Number(settlement?.invoice_id ?? 0));
+    const customerCode = invoice?.customerCode ?? null;
+    const method = Number(link.payment_method);
     const slipId = Number(link.bank_deposit_id);
+    const key = `${slipId}:${settlement?.invoice_id ?? link.id}`;
+    const amount = roundMoney(asNumber(link.amount));
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.amount = roundMoney(existing.amount + amount);
+      // A cheque anywhere in the invoice makes the row a cheque; otherwise money handed over beats
+      // a discount leg, so a cash tender and its adjustment read as one cash row.
+      if (method === CHECK) {
+        existing.assetType = "CHECK";
+        existing.methodLabel = "Check";
+        existing.checkNo = existing.checkNo ?? link.check_no;
+      } else if (method === CASH && existing.methodLabel !== "Check") {
+        existing.methodLabel = "Cash";
+      }
+      continue;
+    }
+    grouped.set(key, {
+      collectionInvoiceId: Number(link.collection_invoice_id ?? link.id),
+      invoiceNo: invoice?.invoiceNo ?? null,
+      assetType: method === CHECK ? "CHECK" : "CASH",
+      // A settlement row with no method was applied as an adjustment (discount, rounding), not
+      // as money handed over, so the badge says what it is instead of calling it cash.
+      methodLabel: method === CHECK ? "Check" : method === CASH ? "Cash" : "Adjustment",
+      documentNumber: parent?.collection_receipt_no || parent?.docNo || "No receipt recorded",
+      checkNo: link.check_no,
+      customer: (customerCode ? customerNames.get(customerCode) : undefined) ?? customerCode,
+      customerCode,
+      collectionDate: parent?.collection_date ?? null,
+      amount,
+      checkStatus: null,
+      lineStatus: asString(link.deposit_status) || "IN_TRANSIT",
+    });
+  }
+
+  for (const [key, item] of grouped) {
+    const slipId = Number(key.slice(0, key.indexOf(":")));
     const bucket = result.get(slipId) ?? [];
     bucket.push(item);
     result.set(slipId, bucket);
@@ -416,9 +461,9 @@ async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlip
   return result;
 }
 
-/** A cash item resolves when the slip is saved; a check when the bank clears or returns it. */
+/** A cash item resolves when the slip is deposited; a check when the bank clears or returns it. */
 function itemResolved(item: DepositSlipItem): boolean {
-  if (item.assetType === "CASH") return true;
+  if (item.assetType === "CASH") return item.lineStatus !== "IN_TRANSIT";
   return item.checkStatus === "CLEARED" || item.checkStatus === "RETURNED" || item.checkStatus === "CANCELLED";
 }
 
@@ -437,11 +482,24 @@ export async function listDepositSlips(): Promise<DepositSlip[]> {
     const items = itemsBySlip.get(id) ?? [];
     const bouncedCount = items.filter((item) => item.checkStatus === "RETURNED").length;
     const resolvedCount = items.filter(itemResolved).length;
+    const pendingCount = items.filter((item) => item.lineStatus === "IN_TRANSIT").length;
     const stored = row.status as DepositSlip["status"];
-    // P3/P6: the header never carries a bounce. It is Prepared until every item has resolved,
-    // then Cleared; the bounce count rides alongside as its own badge.
+    // P3/P6: the header never carries a bounce. It is Prepared while every line is still on hand,
+    // Deposited once the bank has taken the slip, and Cleared only when the slip carried checks and
+    // the bank has answered for all of them. Cash needs no answer beyond the deposit, so a cash-only
+    // slip settles at Deposited; calling it Cleared would claim a clearing step that never happened.
+    const checkLines = items.filter((item) => item.assetType === "CHECK");
+    const checksAnswered = checkLines.length > 0 && checkLines.every(
+      (item) => item.checkStatus === "CLEARED" || item.checkStatus === "RETURNED" || item.checkStatus === "CANCELLED",
+    );
     const status: DepositSlip["status"] =
-      stored === "CANCELLED" ? "CANCELLED" : items.length > 0 && resolvedCount === items.length ? "CLEARED" : "PREPARED";
+      stored === "CANCELLED"
+        ? "CANCELLED"
+        : checksAnswered
+          ? "CLEARED"
+          : items.length > 0 && pendingCount === items.length
+            ? "PREPARED"
+            : "DEPOSITED";
     const account = accounts.get(Number(row.target_bank_id));
     const preparer = preparers.get(Number(row.prepared_by ?? 0));
     return {
@@ -450,6 +508,8 @@ export async function listDepositSlips(): Promise<DepositSlip[]> {
       depositDate: row.deposit_date,
       targetBankId: Number(row.target_bank_id ?? 0),
       targetBankLabel: account?.label ?? "—",
+      targetBankName: account?.bankName ?? null,
+      targetBankNumber: account?.accountNumber ?? null,
       glCode: account?.glCode ?? null,
       glTitle: account?.glTitle ?? null,
       glFallback: account?.glFallback ?? true,
@@ -557,13 +617,13 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
   const account = await loadDepositAccount(input.bankAccountId);
 
   const assets = await listUndepositedAssets();
-  const byId = new Map(assets.map((asset) => [asset.collectionDetailId, asset]));
+  const byId = new Map(assets.map((asset) => [asset.collectionInvoiceId, asset]));
 
   const cash = input.cashIds.map((id) => byId.get(id)).filter((asset): asset is UndepositedAsset => !!asset && asset.assetType === "CASH");
   const checks = input.checkIds.map((id) => byId.get(id)).filter((asset): asset is UndepositedAsset => !!asset && asset.assetType === "CHECK");
 
   if (cash.length !== input.cashIds.length || checks.length !== input.checkIds.length) {
-    const known = new Set(assets.map((asset) => asset.collectionDetailId));
+    const known = new Set(assets.map((asset) => asset.collectionInvoiceId));
     const missing = [...input.cashIds, ...input.checkIds].filter((id) => !known.has(id));
     throw new ValidationError(
       `These collections are no longer waiting to be deposited: ${await describeMissing(missing)}. Refresh and try again.`,
@@ -644,8 +704,15 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
     for (const asset of [...cash, ...checks]) {
       await createItem("bank_deposit_details", {
         bank_deposit_id: created.id,
-        collection_detail_id: asset.collectionDetailId,
+        // The line is the only place the method and the cheque survive: the settlement row
+        // behind it knows the customer and the invoice, never how the money arrived.
+        collection_invoice_id: asset.collectionInvoiceId,
+        amount: asset.amount,
+        payment_method: asset.assetType === "CHECK" ? CHECK : CASH,
+        check_no: asset.checkNo,
+        cheque_date: asset.chequeDate,
         deposit_status: "IN_TRANSIT",
+        created_at: phtStamp(),
       });
     }
   } catch (error) {
@@ -665,7 +732,7 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
       await createItem("bank_checks", {
         bank_account_id: input.bankAccountId,
         direction: "RECEIVED",
-        check_no: check.checkNo ?? `DEP-${check.collectionDetailId}`,
+        check_no: check.checkNo ?? `DEP-${check.collectionInvoiceId}`,
         check_date: check.chequeDate ?? input.depositDate,
         amount: check.amount,
         drawee_bank: check.bankName,
@@ -674,7 +741,7 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
         is_pdc: 0,
         source_type: "COLLECTIONS",
         source_ref: depositNo,
-        collection_detail_id: check.collectionDetailId,
+        collection_detail_id: check.collectionInvoiceId,
         created_at: phtStamp(),
       });
     }
@@ -713,6 +780,56 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
   return { slip, postingBlocked, notice };
 }
 
+/**
+ * Marks a prepared slip as taken by the bank. The header records the handover, cash lines are
+ * banked at once, and cheque lines wait for clearing — the method comes from our own line, which
+ * is the only place it survives (`collection_invoices` knows the invoice, never the tender).
+ */
+export async function markDepositSlipDeposited(
+  slipId: number,
+  confirmation: { depositDate?: string; slipNo?: string },
+): Promise<DepositSlip> {
+  const { rows } = await listItems<SlipRow>("bank_deposit", { fields: SLIP_FIELDS, filter: { id: { _eq: slipId } }, limit: 1 });
+  const slip = rows[0];
+  if (!slip) throw new NotFoundError("Deposit slip not found.");
+  if (slip.status === "CANCELLED") throw new ValidationError("A cancelled slip cannot be marked as deposited.");
+  if (slip.status === "DEPOSITED" || slip.status === "CLEARED") {
+    throw new ValidationError("This slip is already through the bank.");
+  }
+
+  // Validate the handover facts before anything is written, so a typo cannot leave the lines moved.
+  const depositDate = asString(confirmation.depositDate).trim();
+  if (depositDate && !/^\d{4}-\d{2}-\d{2}$/.test(depositDate)) {
+    throw new ValidationError("The deposit date looks wrong. Use a date like 2026-11-20.");
+  }
+  const slipNo = asString(confirmation.slipNo).trim();
+  if (slipNo && slipNo.length > 40) throw new ValidationError("The validation number is too long.");
+
+  const { rows: details } = await listItems<{ id: number; payment_method: number | null }>("bank_deposit_details", {
+    fields: ["id", "payment_method"],
+    filter: { bank_deposit_id: { _eq: slipId } },
+    limit: 400,
+  });
+  if (!details.length) throw new ValidationError("This slip carries no items, so there is nothing to deposit.");
+
+  for (const detail of details) {
+    const isCheck = Number(detail.payment_method) === CHECK;
+    await updateItem("bank_deposit_details", Number(detail.id), {
+      deposit_status: isCheck ? "FOR_CLEARING" : "DEPOSITED",
+    });
+  }
+  await updateItem("bank_deposit", slipId, {
+    status: "DEPOSITED",
+    ...(depositDate ? { deposit_date: depositDate } : {}),
+    ...(slipNo ? { deposit_reference_no: slipNo } : {}),
+  });
+
+  const slips = await listDepositSlips();
+  const updated = slips.find((entry) => entry.id === slipId);
+  if (!updated) throw new NotFoundError("Deposit slip not found.");
+  return updated;
+}
+
 export async function cancelDepositSlip(slipId: number, reason: string): Promise<DepositSlip> {
   const { rows } = await listItems<SlipRow>("bank_deposit", { fields: SLIP_FIELDS, filter: { id: { _eq: slipId } }, limit: 1 });
   const slip = rows[0];
@@ -725,33 +842,25 @@ export async function cancelDepositSlip(slipId: number, reason: string): Promise
   // cash side is reversed with E08 below. Dropping the derived-CLEARED refusal is what makes that
   // possible; the check guard underneath still blocks a slip whose checks have cleared or returned.
 
-  const { rows: links } = await listItems<{ id: number; collection_detail_id: number | null }>("bank_deposit_details", {
-    fields: ["id", "collection_detail_id"],
+  const { rows: links } = await listItems<{ id: number; check_no: string | null }>("bank_deposit_details", {
+    fields: ["id", "check_no"],
     filter: { bank_deposit_id: { _eq: slipId } },
     limit: 200,
   });
-  const detailIds = links.map((link) => Number(link.collection_detail_id)).filter(Boolean);
+  const checkNumbers = links.map((link) => asString(link.check_no).trim()).filter(Boolean);
 
   let checkIds: number[] = [];
-  if (detailIds.length) {
-    try {
-      const { rows: checks } = await listItems<{ id: number; status: string }>("bank_checks", {
-        fields: ["id", "status"],
-        filter: { collection_detail_id: { _in: detailIds }, direction: { _eq: "RECEIVED" } },
-        limit: 200,
-      });
-      const blocking = checks.filter((check) => check.status !== "IN_CLEARING");
-      if (blocking.length) {
-        throw new ValidationError("A check on this slip has already cleared or been returned, so the slip cannot be cancelled.");
-      }
-      checkIds = checks.map((check) => Number(check.id));
-    } catch (error) {
-      if (error instanceof DirectusError) {
-        // The check register does not exist yet, so there is nothing to validate against.
-      } else {
-        throw error;
-      }
+  if (checkNumbers.length) {
+    const { rows: checks } = await listItems<{ id: number; status: string }>("bank_checks", {
+      fields: ["id", "status"],
+      filter: { check_no: { _in: checkNumbers }, direction: { _eq: "RECEIVED" } },
+      limit: 200,
+    });
+    const blocking = checks.filter((check) => check.status !== "IN_CLEARING" && check.status !== "RECEIVED");
+    if (blocking.length) {
+      throw new ValidationError("A check on this slip has already cleared or been returned, so the slip cannot be cancelled.");
     }
+    checkIds = checks.map((check) => Number(check.id));
   }
 
   // A slip from the legacy table can carry checks with no register row, so the guard above has

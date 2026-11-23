@@ -31,6 +31,7 @@ export function DepositModule() {
     setSlipsPageSize,
     slips,
     accounts,
+    accountTotals,
     totals,
     isLoading,
     isSaving,
@@ -38,6 +39,7 @@ export function DepositModule() {
     refetch,
     createSlip,
     cancelSlip,
+    markDeposited,
     assetsPage,
     setAssetsPage,
     assetsPageSize,
@@ -52,7 +54,7 @@ export function DepositModule() {
   const [openAsset, setOpenAsset] = useState<UndepositedAsset | null>(null);
 
   const selectedAssets = useMemo(
-    () => assets.filter((asset) => selected.has(asset.collectionDetailId)),
+    () => assets.filter((asset) => selected.has(asset.collectionInvoiceId)),
     [assets, selected],
   );
 
@@ -164,7 +166,7 @@ export function DepositModule() {
             filters={filters}
             selected={selected}
             selectedAmount={assets
-              .filter((asset) => selected.has(asset.collectionDetailId))
+              .filter((asset) => selected.has(asset.collectionInvoiceId))
               .reduce((sum, asset) => sum + asset.amount, 0)}
             isLoading={isLoading}
             page={assetsPage}
@@ -204,6 +206,7 @@ export function DepositModule() {
           if (!open) setSelected(new Set());
         }}
         accounts={accounts}
+        accountTotals={accountTotals}
         assets={selectedAssets}
         isSaving={isSaving}
         onSubmit={createSlip}
@@ -211,7 +214,7 @@ export function DepositModule() {
 
       <AssetDetailDialog
         asset={openAsset}
-        selected={openAsset ? selected.has(openAsset.collectionDetailId) : false}
+        selected={openAsset ? selected.has(openAsset.collectionInvoiceId) : false}
         onOpenChange={(open) => {
           if (!open) setOpenAsset(null);
         }}
@@ -226,6 +229,7 @@ export function DepositModule() {
           if (!open) setActiveSlip(null);
         }}
         onCancel={cancelSlip}
+        onDeposit={markDeposited}
       />
     </div>
   );

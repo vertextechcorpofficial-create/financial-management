@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,73 +10,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ConsoleDialog, EmptyState, FilterBar, FilterField, Kv, Panel, StatusChip, Tile,
 } from "../console/components/ui";
+import { LoanDecisionPanel, LoanReleaseDetails } from "../loans/LoanDecisionPanel";
+import type { ApprovalDetail, ApprovalQueue } from "../server/approvals";
+import type { LoanDecisionResult } from "../server/loan-decisions";
+import { approvalStatuses, approvalTypes, type ApprovalStatusFilter, type ApprovalType } from "./filters";
 
-type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
-type SourceState = "ready" | "pending_rollout" | "unavailable";
-type Source = {
-  type: "membership" | "loan" | "withdrawal";
-  label: string;
-  state: SourceState;
-  message: string | null;
-  count: number | null;
-};
-type Documents = {
-  required: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
-  done: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
-  missing: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
-  warnings: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
-  blocks: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
-};
-type Row = {
-  type: "loan" | "membership" | "withdrawal";
-  id: number;
-  reference: string;
-  title: string;
-  memberId: number;
-  memberNo: string | null;
-  memberName: string;
-  department: string | null;
-  amount: string;
-  filedAt: string | null;
-  status: ApprovalStatus;
-  released: boolean;
-  releasedOn: string | null;
-  releaseMethod: string | null;
-  documents: Documents | null;
-};
-type Queue = {
-  sources: Source[];
-  tiles: Record<"membership" | "loan" | "withdrawal", Source>;
-  rows: Row[];
-  page: number;
-  pageSize: number;
-  total: number;
-  hasMore: boolean;
-  filterOptions: {
-    types: Array<{ value: string; label: string }>;
-    statuses: string[];
-  };
-};
-type Detail = {
-  type: "loan";
-  sourceState: "ready";
-  detail: {
-    loan: {
-      id: number; loanNo: string; agreementNo: string; memberNo: string | null; memberName: string;
-      department: string | null; productName: string; productKind: "CASH" | "GOODS";
-      itemName: string | null; itemQuantity: number; principal: string; rate: string; markup: string;
-      method: string; months: number; frequency: "CUTOFF" | "MONTHLY"; mode: "PAYROLL" | "OTC";
-      purpose: string | null; status: string; releaseMethod: string | null; processingFee: string;
-      penaltyPercent: string; graceDays: number; totalPayable: string; appliedOn: string | null;
-      approvedOn: string | null; releasedOn: string | null; balance: string; pastDue: string;
-      penalties: string; paidCount: number; installmentCount: number; documents: Documents;
-    };
-    installments: Array<{ no: number; dueDate: string; principal: string; interest: string; total: string; paidTotal: string; status: string }>;
-    payments: Array<{ id: number; officialReceiptNo: string | null; referenceNo: string | null; amount: string; channel: string; receiptDate: string | null }>;
-    documents: Array<{ id: number; documentTypeId: number; fileName: string; uploadedAt: string | null }>;
-    history: Array<{ date: string; text: string; actor: string | null }>;
-  };
-};
+type Row = ApprovalQueue["rows"][number];
+type Source = ApprovalQueue["sources"][number];
+type LoadResult<T> = { key: string; data?: T; error?: string };
 
 const php = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2 });
 const peso = (value: string | number | null | undefined) => php.format(Number(value ?? 0));
@@ -89,177 +30,178 @@ const date = (value: string | null | undefined) => {
 };
 const statusLabel = (value: string) => value.replaceAll("_", " ").toLowerCase().replace(/^./, character => character.toUpperCase());
 
+async function loadRequest<T>(url: string, signal: AbortSignal, message: string): Promise<T> {
+  const response = await fetch(url, { cache: "no-store", signal });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload) throw new Error(payload?.message || message);
+  return payload as T;
+}
+
 export default function ApprovalsModule() {
   const [search, setSearch] = useState("");
-  const [type, setType] = useState("");
-  const [status, setStatus] = useState<ApprovalStatus>("PENDING");
+  const [type, setType] = useState<ApprovalType | "">("");
+  const [status, setStatus] = useState<ApprovalStatusFilter>("PENDING");
   const [page, setPage] = useState(1);
   const [attempt, setAttempt] = useState(0);
-  const [data, setData] = useState<Queue>();
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [result, setResult] = useState<LoadResult<ApprovalQueue>>();
   const [selected, setSelected] = useState<Row | null>(null);
 
-  const query = useMemo(() => {
-    const params = new URLSearchParams({ page: String(page), status });
-    if (search.trim()) params.set("search", search.trim());
-    if (type) params.set("type", type);
-    return params.toString();
-  }, [page, search, status, type]);
-
-  const load = useCallback(async (signal: AbortSignal) => {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/fm/cooperative/approvals?${query}`, { cache: "no-store", signal });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload) throw new Error(payload?.message || "Unable to load the approval queue.");
-      if (!signal.aborted) setData(payload as Queue);
-    } catch (cause) {
-      if (!signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load the approval queue.");
-    } finally {
-      if (!signal.aborted) setLoading(false);
-    }
-  }, [query]);
+  const params = new URLSearchParams({ page: String(page), status });
+  if (search.trim()) params.set("search", search.trim());
+  if (type) params.set("type", type);
+  const query = params.toString();
+  const requestKey = `${query}#${attempt}`;
 
   useEffect(() => {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => void load(controller.signal), 200);
+    const message = "Unable to load the approval queue.";
+    const timer = window.setTimeout(() => {
+      loadRequest<ApprovalQueue>(`/api/fm/cooperative/approvals?${query}`, controller.signal, message)
+        .then(data => { if (!controller.signal.aborted) setResult({ key: requestKey, data }); })
+        .catch(cause => { if (!controller.signal.aborted) setResult({ key: requestKey, error: cause instanceof Error ? cause.message : message }); });
+    }, 200);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [load, attempt]);
+  }, [query, requestKey]);
 
-  function chooseType(value: string) {
+  function chooseType(value: ApprovalType | "") {
     setType(value);
     setPage(1);
   }
 
-  const sourceState = data?.sources.find(source => source.type === type) ?? null;
-  const visibleSources = data?.sources.filter(source => source.state !== "ready") ?? [];
+  const current = result?.key === requestKey ? result : undefined;
+  const loading = !current;
+  const data = current?.data;
+  const source = data?.tiles[type || "loan"];
+  const error = current?.error ?? (source?.state === "unavailable" ? source.message : null);
+  const total = source?.state === "ready" ? data?.total : undefined;
+  const shownPage = data?.page ?? page;
 
   return (
     <main className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-muted-foreground">Cooperative</p>
-          <h1 className="text-2xl font-semibold tracking-tight">Approvals</h1>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Membership, loan, and withdrawal requests in one live queue. Decision actions are enabled as each source and shared posting service passes QA.
-          </p>
-        </div>
-        <Badge variant="outline">Live queue</Badge>
+      <h1 className="text-2xl font-semibold tracking-tight">Approvals</h1>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {approvalTypes.map(option => <SourceTile key={option.value} label={option.label} source={result?.data?.tiles[option.value]}
+          active={type === option.value} unavailable={Boolean(current?.error)}
+          onClick={() => chooseType(type === option.value ? "" : option.value)} />)}
       </div>
 
-      {error && <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-        <p className="text-sm text-destructive">{error}</p>
-        <Button size="sm" variant="outline" onClick={() => setAttempt(value => value + 1)}>Retry</Button>
-      </div>}
-
-      {data && <div className="grid gap-3 sm:grid-cols-3">
-        <SourceTile source={data.tiles.membership} active={type === "membership"} onClick={() => chooseType(type === "membership" ? "" : "membership")} />
-        <SourceTile source={data.tiles.loan} active={type === "loan"} onClick={() => chooseType(type === "loan" ? "" : "loan")} />
-        <SourceTile source={data.tiles.withdrawal} active={type === "withdrawal"} onClick={() => chooseType(type === "withdrawal" ? "" : "withdrawal")} />
-      </div>}
-
-      {visibleSources.map(source => <div key={source.type} role="status" className="rounded-md border border-amber-300/60 bg-amber-50/50 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20">
-        <span className="font-semibold">{source.label}: </span>
-        {source.message}
-      </div>)}
-
       <Panel title="Request queue" description="Open a request to review its details, document status, and history.">
-        <FilterBar count={data?.total ?? 0} noun="requests">
+        <FilterBar count={total} noun="requests">
           <FilterField label="Search">
-            <Input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Member or reference" className="h-8 w-64" />
+            <Input aria-label="Search member or reference" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Member or reference" className="h-8 w-full sm:w-64" />
           </FilterField>
           <FilterField label="Type">
-            <NativeSelect value={type} onChange={event => chooseType(event.target.value)} className="h-8">
+            <NativeSelect aria-label="Type" value={type} onChange={event => chooseType(event.target.value as ApprovalType | "")} className="h-8">
               <option value="">All types</option>
-              {data?.filterOptions.types.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+              {approvalTypes.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
             </NativeSelect>
           </FilterField>
           <FilterField label="Status">
-            <NativeSelect value={status} onChange={event => { setStatus(event.target.value as ApprovalStatus); setPage(1); }} className="h-8">
-              {data?.filterOptions.statuses.map(value => <option key={value} value={value}>{statusLabel(value)}</option>)}
+            <NativeSelect aria-label="Status" value={status} onChange={event => { setStatus(event.target.value as ApprovalStatusFilter); setPage(1); }} className="h-8">
+              {approvalStatuses.map(value => <option key={value} value={value}>{value === "ALL" ? "All statuses" : statusLabel(value)}</option>)}
             </NativeSelect>
           </FilterField>
         </FilterBar>
 
-        {sourceState && sourceState.state !== "ready" && <EmptyState>{sourceState.message}</EmptyState>}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" aria-busy={loading}>
           <Table>
             <TableHeader><TableRow><TableHead>Filed</TableHead><TableHead>Type</TableHead><TableHead>Reference</TableHead><TableHead>Member</TableHead><TableHead>Documents</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader>
             <TableBody>
-              {loading && !data && <TableRow><TableCell colSpan={8}><EmptyState>Loading requests…</EmptyState></TableCell></TableRow>}
-              {!loading && data?.rows.length === 0 && <TableRow><TableCell colSpan={8}><EmptyState>{sourceState && sourceState.state !== "ready" ? sourceState.message : "No requests match these filters."}</EmptyState></TableCell></TableRow>}
+              {error && <TableRow><TableCell colSpan={8}><LoadError message={error} onRetry={() => setAttempt(value => value + 1)} /></TableCell></TableRow>}
+              {!error && !data?.rows.length && <TableRow><TableCell colSpan={8} className="whitespace-normal">
+                <EmptyState>{loading ? "Loading requests…" : source?.message ?? "No requests match these filters."}</EmptyState>
+              </TableCell></TableRow>}
               {data?.rows.map(row => <TableRow key={`${row.type}-${row.id}`} className="cursor-pointer" onClick={() => setSelected(row)}>
                 <TableCell>{date(row.filedAt)}</TableCell>
-                <TableCell>{row.type === "loan" ? "Loan" : row.type === "membership" ? "Membership" : "Withdrawal"}<span className="block text-xs text-muted-foreground">{row.title}</span></TableCell>
+                <TableCell>Loan<span className="block text-xs text-muted-foreground">{row.title}</span></TableCell>
                 <TableCell className="font-mono text-xs">{row.reference}</TableCell>
                 <TableCell className="whitespace-normal">{row.memberName}<span className="block text-xs text-muted-foreground">{row.memberNo ?? row.department ?? ""}</span></TableCell>
                 <TableCell>{row.documents ? row.documents.missing.length ? <StatusChip status="PARTIAL" label={`${row.documents.done.length}/${row.documents.required.length}`} /> : <StatusChip status="ACTIVE" label="Complete" /> : "—"}</TableCell>
                 <TableCell className="text-right font-mono">{row.amount !== "0.00" ? peso(row.amount) : "—"}</TableCell>
-                <TableCell><StatusChip status={row.status} />{row.released && <span className="mt-1 block text-[10px] text-muted-foreground">Released {date(row.releasedOn)}</span>}</TableCell>
-                <TableCell className="text-right text-xs text-muted-foreground">Review →</TableCell>
+                <TableCell><StatusChip status={row.status} label={row.status === "APPROVED"
+                  ? row.released ? "Released" : "For release" : undefined} /></TableCell>
+                <TableCell className="text-right">
+                  <Button type="button" size="sm" variant="ghost" onClick={event => { event.stopPropagation(); setSelected(row); }}>
+                    {row.status === "PENDING" || row.status === "APPROVED" && !row.released ? "Review" : "View"}
+                  </Button>
+                </TableCell>
               </TableRow>)}
             </TableBody>
           </Table>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span>Page {data?.page ?? page}{data ? ` · ${data.total} requests` : ""}</span>
+          <span>Page {shownPage}</span>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page <= 1 || loading} onClick={() => setPage(value => Math.max(1, value - 1))}>Previous</Button>
-            <Button size="sm" variant="outline" disabled={!data?.hasMore || loading} onClick={() => setPage(value => value + 1)}>Next</Button>
+            <Button size="sm" variant="outline" disabled={!data || shownPage <= 1} onClick={() => setPage(shownPage - 1)}>Previous</Button>
+            <Button size="sm" variant="outline" disabled={!data?.hasMore} onClick={() => setPage(shownPage + 1)}>Next</Button>
           </div>
         </div>
       </Panel>
 
-      {selected && <ApprovalDialog key={`${selected.type}-${selected.id}`} row={selected} onClose={() => setSelected(null)} />}
+      {selected && <ApprovalDialog key={`${selected.type}-${selected.id}`} row={selected}
+        onChanged={() => setAttempt(value => value + 1)} onClose={() => setSelected(null)} />}
     </main>
   );
 }
 
-function SourceTile({ source, active, onClick }: { source: Source; active: boolean; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className={`rounded-lg border bg-card p-3 text-left ${active ? "border-emerald-500" : ""}`}>
-    <p className="text-xs text-muted-foreground">{source.label}</p>
-    <p className="font-mono text-xl font-semibold">{source.count === null ? "—" : source.count}</p>
-    <p className="text-xs text-muted-foreground">{source.state === "ready" ? (source.type === "loan" ? "pending decisions" : "pending requests") : source.state === "pending_rollout" ? "Pending rollout" : "Temporarily unavailable"}</p>
+function SourceTile({ label, source, active, unavailable, onClick }: {
+  label: string; source?: Source; active: boolean; unavailable: boolean; onClick: () => void;
+}) {
+  const state = unavailable ? "unavailable" : source?.state;
+  return <button type="button" aria-pressed={active} onClick={onClick} className={`rounded-lg border bg-card p-3 text-left ${active ? "border-emerald-500" : ""}`}>
+    <p className="text-xs text-muted-foreground">{label}</p>
+    <p className="font-mono text-xl font-semibold">{source?.count ?? "—"}</p>
+    <p className="text-xs text-muted-foreground">{state === "ready" ? "pending requests" : state === "pending_rollout"
+      ? "Pending rollout" : state === "unavailable" ? "Temporarily unavailable" : "Loading…"}</p>
   </button>;
 }
 
-function ApprovalDialog({ row, onClose }: { row: Row; onClose: () => void }) {
-  const [detail, setDetail] = useState<Detail>();
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return <div role="alert" className="flex flex-wrap items-center gap-3 whitespace-normal rounded-md border border-destructive/40 bg-destructive/5 p-3">
+    <p className="text-sm text-destructive">{message}</p>
+    <Button size="sm" variant="outline" onClick={onRetry}>Retry</Button>
+  </div>;
+}
+
+function ApprovalDialog({ row, onChanged, onClose }: { row: Row; onChanged: () => void; onClose: () => void }) {
+  const [attempt, setAttempt] = useState(0);
+  const [result, setResult] = useState<LoadResult<ApprovalDetail>>();
+  const [decision, setDecision] = useState<LoanDecisionResult>();
+  const path = `/api/fm/cooperative/approvals/${row.type}/${row.id}`;
+  const requestKey = `${path}#${attempt}`;
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`/api/fm/cooperative/approvals/${row.type}/${row.id}`, { cache: "no-store", signal: controller.signal })
-      .then(async response => {
-        const payload = await response.json().catch(() => null);
-        if (!response.ok || !payload) throw new Error(payload?.message || "Unable to load this request.");
-        return payload as Detail;
-      })
-      .then(payload => { if (!controller.signal.aborted) setDetail(payload); })
-      .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load this request."); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    const message = "Unable to load this request.";
+    loadRequest<ApprovalDetail>(path, controller.signal, message)
+      .then(data => { if (!controller.signal.aborted) setResult({ key: requestKey, data }); })
+      .catch(cause => { if (!controller.signal.aborted) setResult({ key: requestKey, error: cause instanceof Error ? cause.message : message }); });
     return () => controller.abort();
-  }, [row]);
+  }, [path, requestKey]);
 
+  const current = result?.key === requestKey ? result : undefined;
+  const detail = current?.data;
   const loan = detail?.detail.loan;
+  const release = detail?.detail.release ?? (decision?.journalNo ? decision : null);
+  const loanStatus = loan?.status;
 
   return <ConsoleDialog
     open
     onOpenChange={open => { if (!open) onClose(); }}
-    title={`${row.type === "loan" ? "Loan" : row.type === "membership" ? "Membership" : "Withdrawal"} request`}
+    title="Loan request"
     description={`${row.memberName} · ${row.reference}`}
     wide
-    footer={<p className="text-xs text-muted-foreground">Review is live. Decision actions are enabled with the shared loan decision service and the source posting rollout.</p>}
   >
-    {loading && <p role="status" className="text-sm text-muted-foreground">Loading request…</p>}
-    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {decision && <p role="status" className="rounded-md border p-3 text-sm">
+      {decision.status === "ACTIVE" ? `Loan released · ${decision.journalNo}`
+        : decision.status === "APPROVED" ? "Loan approved and ready for release." : "Loan rejected."}
+    </p>}
+    {!current && <p role="status" className="text-sm text-muted-foreground">Loading request…</p>}
+    {current?.error && <LoadError message={current.error} onRetry={() => setAttempt(value => value + 1)} />}
     {detail && loan && <Tabs defaultValue="summary">
       <TabsList className="flex h-auto flex-wrap justify-start">
         <TabsTrigger value="summary">Summary</TabsTrigger>
@@ -277,22 +219,26 @@ function ApprovalDialog({ row, onClose }: { row: Row; onClose: () => void }) {
           <Kv rows={[
             ["Loan", loan.loanNo],
             ["Agreement", loan.agreementNo],
+            ["Signature", loan.agreementSigned ? "Member signed" : "Awaiting signature"],
             ["Member", `${loan.memberName}${loan.memberNo ? ` · ${loan.memberNo}` : ""}`],
             ["Product", loan.productName],
             ["Filed", date(loan.appliedOn)],
-            ["Status", statusLabel(loan.status)],
-            ["Released", loan.releasedOn ? `${date(loan.releasedOn)}${loan.releaseMethod ? ` · ${loan.releaseMethod}` : ""}` : "Not released"],
+            ["Status", loan.releasedOn ? "Released" : loanStatus === "APPROVED" ? "For release" : statusLabel(loan.status)],
+            ...(loan.approvedOn ? [["Approved", date(loan.approvedOn)]] as [string, string][] : []),
+            ["Processing fee on release", peso(loan.processingFee)],
+            ...(loan.signedPricing ? [
+              ["Regular installment", peso(loan.signedPricing.regularPayment)],
+              ["Final installment", peso(loan.signedPricing.finalPayment)],
+            ] as [string, string][] : []),
+            ...(loan.releasedOn && loan.releaseMethod ? [["Payout method", statusLabel(loan.releaseMethod)]] as [string, string][] : []),
+            ...(loan.releasedOn && !release ? [["Released", date(loan.releasedOn)]] as [string, string][] : []),
             ["Total payable", peso(loan.totalPayable)],
           ]} />
         </Panel>
-        <Panel title="Checks">
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <p>Membership, product-capacity, payroll-headroom, and signed-terms checks will be revalidated by the shared loan decision service when decisions are enabled.</p>
-            {loan.documents.blocks.length > 0 && <p className="text-destructive">{loan.documents.blocks.length} blocking document{loan.documents.blocks.length === 1 ? "" : "s"} missing.</p>}
-            {loan.documents.warnings.length > 0 && <p className="text-amber-600">{loan.documents.warnings.length} document warning{loan.documents.warnings.length === 1 ? "" : "s"}.</p>}
-            {loan.documents.required.length > 0 && loan.documents.missing.length === 0 && <p className="text-emerald-600">All required documents are on file.</p>}
-          </div>
-        </Panel>
+        {release && <LoanReleaseDetails release={release} />}
+        {(loanStatus === "PENDING" || loanStatus === "APPROVED") && <LoanDecisionPanel
+          endpoint={`${path}/decision`}
+          onChanged={result => { setDecision(result); setAttempt(value => value + 1); onChanged(); }} />}
       </TabsContent>
       <TabsContent value="documents" className="mt-4 space-y-3">
         {loan.documents.required.length === 0 && <EmptyState>No required documents recorded.</EmptyState>}
@@ -300,10 +246,24 @@ function ApprovalDialog({ row, onClose }: { row: Row; onClose: () => void }) {
           <span>{document.name}</span>
           <span className="flex items-center gap-2"><Badge variant="outline">{document.enforcement}</Badge><StatusChip status={loan.documents.done.some(item => item.documentTypeId === document.documentTypeId) ? "ACTIVE" : "PARTIAL"} label={loan.documents.done.some(item => item.documentTypeId === document.documentTypeId) ? "On file" : "Missing"} /></span>
         </div>)}
-        {detail.detail.documents.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Files</h3>{detail.detail.documents.map(file => <div key={file.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"><span>{file.fileName}</span><span className="text-xs text-muted-foreground">{date(file.uploadedAt)}</span></div>)}</div>}
+        {detail.detail.documents.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Files</h3>{detail.detail.documents.map(file => {
+          const url = "/api/fm/cooperative/approvals/loan/" + loan.id + "/documents/" + encodeURIComponent(file.id);
+          return <div key={file.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+            <span>{file.fileName} <span className="text-xs text-muted-foreground">{date(file.uploadedAt)}</span></span>
+            <span className="flex gap-2">
+              <Button asChild size="sm" variant="outline"><a href={url} target="_blank" rel="noreferrer">Open</a></Button>
+              <Button asChild size="sm" variant="outline"><a href={url + "?download=1"}>Download</a></Button>
+            </span>
+          </div>;
+        })}</div>}
       </TabsContent>
       <TabsContent value="history" className="mt-4">
-        {detail.detail.history.length === 0 ? <EmptyState>No history recorded.</EmptyState> : <ul className="space-y-1 text-sm text-muted-foreground">{detail.detail.history.map((entry, index) => <li key={`${entry.date}-${index}`}>{date(entry.date)}: {entry.text}{entry.actor ? ` · ${entry.actor}` : ""}</li>)}</ul>}
+        {detail.detail.history.length === 0 ? <EmptyState>No history recorded.</EmptyState> : <ul className="divide-y rounded-md border">
+          {detail.detail.history.map((entry, index) => <li key={`${entry.date}-${index}`} className="space-y-1 p-3 text-sm">
+            <p>{entry.text}</p>
+            <p className="text-xs text-muted-foreground">{date(entry.date)}{entry.actor ? ` · ${entry.actor}` : ""}</p>
+          </li>)}
+        </ul>}
       </TabsContent>
     </Tabs>}
   </ConsoleDialog>;

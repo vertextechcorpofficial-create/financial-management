@@ -14,6 +14,9 @@ export type LoanInstallment = {
   paidPrincipal: string;
   paidInterest: string;
   penaltyAssessed: string;
+  penaltyAssessedOn?: string | null;
+  accrualProcessedOn?: string | null;
+  accrualJournalId?: number | null;
   penaltyPaid: string;
   status: InstallmentStatus;
 };

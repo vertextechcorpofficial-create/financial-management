@@ -64,7 +64,8 @@ export async function directusFetch<T>(path: string, init?: RequestInit): Promis
 
   const text = await response.text().catch(() => "");
   if (!response.ok) {
-    throw new DirectusError(`Directus request failed (${response.status})`, response.status, text);
+    // The path names which call broke: a bare 400/403 from Directus says nothing on its own.
+    throw new DirectusError(`Directus request failed (${response.status}) on ${path.split("?")[0]}`, response.status, text);
   }
   return (text ? JSON.parse(text) : {}) as T;
 }

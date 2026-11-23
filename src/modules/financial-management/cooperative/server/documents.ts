@@ -12,12 +12,14 @@ import { privateCooperativeFolder, readCooperativeAsset, uploadCooperativeAsset 
 import { discardDocumentParts, readStagedDocumentUpload, stageDocumentPart } from "./document-upload-parts";
 
 type Operation = "read" | "upload" | "remove";
-type Owner = { type: "MEMBER" | "LOAN" | "CLEARANCE"; id: number };
+type Owner = { type: "MEMBER" | "LOAN" | "CLEARANCE"; id: number; revision?: number };
+type MetadataWrite = { create: Record<string, unknown>[] } | { update: Record<string, unknown>[] };
 type Scope = {
   workspace: CooperativeWorkspaceKey;
   // Provided by the owning submodule. Check that the verified actor can perform
   // this operation on the current record, including member ownership and status.
   loadOwner: (actorId: number, operation: Operation) => Promise<Owner | null>;
+  writeMetadata?: (owner: Owner, actor: Actor, change: MetadataWrite) => Promise<void>;
 };
 
 const collection = "cooperative_documents";
@@ -165,7 +167,8 @@ async function cleanUnlinkedFiles(uploaded: string[]) {
 }
 
 function knownRollback(error: unknown) {
-  return error instanceof CooperativeDirectusError && [400, 401, 403, 404, 409, 413, 415, 422].includes(error.status);
+  return (error instanceof CooperativeDirectusError || error instanceof CooperativeDocumentError) &&
+    [400, 401, 403, 404, 409, 413, 415, 422].includes(error.status);
 }
 
 export async function stageCooperativeDocumentPart(scope: Scope, request: Request) {
@@ -234,7 +237,8 @@ export async function uploadCooperativeDocuments(scope: Scope, request: Request)
         throw new CooperativeDocumentError(403, "Your access to this record changed during the upload.");
       }
       metadataSent = true;
-      await writeDocuments("POST", items, rows);
+      if (scope.writeMetadata) await scope.writeMetadata(currentOwner, actor, { create: rows });
+      else await writeDocuments("POST", items, rows);
       return replay(await readBatch(), 201);
     } catch (error) {
       const saved = metadataSent ? await readBatch().catch(() => undefined) : undefined;
@@ -278,10 +282,12 @@ export async function removeCooperativeDocument(scope: Scope, id: string, reques
     const now = new Date();
     const at = cooperativeAuditTime(now);
     try {
-      await writeDocuments("PATCH", `${items}/${row.id}`, {
+      const changes = {
         removed_at: at, removed_by: actor.actorId, removal_reason: reason?.trim() || null,
         removal_event_id: documentAudit(actor, request, row, now, { at, reason }),
-      });
+      };
+      if (scope.writeMetadata) await scope.writeMetadata(owner, actor, { update: [{ id: row.id, ...changes }] });
+      else await writeDocuments("PATCH", `${items}/${row.id}`, changes);
     } catch (error) {
       const saved = await findDocument(owner, id).catch(() => undefined);
       if (!saved?.removed_at) throw error;
