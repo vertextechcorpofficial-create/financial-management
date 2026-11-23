@@ -46,6 +46,10 @@ export class CooperativeDirectusError extends Error {
   }
 }
 
+export function usesCooperativeQaDatabase() {
+  return process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, "") === "http://100.110.197.61:8056";
+}
+
 export async function cooperativeDirectus(path: string, init: RequestInit = {}, timeout = 10_000) {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, "");
   const token = process.env.DIRECTUS_STATIC_TOKEN?.trim();
