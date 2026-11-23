@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { amountToCents, centsToAmount, signedCentsToAmount } from "./member-read";
+import { readWithdrawalSnapshots, withdrawalPostingEnabled, withdrawalPendingMessage } from "./withdrawal-store";
 
 export type WithdrawalSource<T> =
   | { state: "ready"; data: T }
@@ -29,10 +30,9 @@ export type WithdrawalBalance = {
 // include commitments from any year, and the policy amount belongs to the same snapshot.
 type WithdrawalSnapshotReader = (membershipIds: readonly number[]) => Promise<WithdrawalSource<WithdrawalBalanceSnapshot[]>>;
 
-const readCommittedSnapshots: WithdrawalSnapshotReader = async () => ({
-  state: "pending_rollout",
-  message: "Withdrawal balances will be available after staff withdrawal posting is verified.",
-});
+const readCommittedSnapshots: WithdrawalSnapshotReader = async ids => withdrawalPostingEnabled()
+  ? { state: "ready", data: await readWithdrawalSnapshots([...ids]) }
+  : { state: "pending_rollout", message: withdrawalPendingMessage };
 
 export function calculateWithdrawalBalance(snapshot: WithdrawalBalanceSnapshot): WithdrawalBalance {
   const verified = snapshotSchema.parse(snapshot);

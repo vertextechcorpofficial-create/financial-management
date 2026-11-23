@@ -9,12 +9,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { LoanPaymentDialog } from "../../loans/LoanPaymentDialog";
 import { MemberApiError, memberFetch, newRequestKey } from "../../members/client";
 import { peso } from "../../members/format";
-import type { LoanJournalRow, LoanPaymentJournal } from "../../server/loan-payment-register";
 import type { LoanPaymentResult, LoanReversalPreview } from "../../server/loan-payments";
+import type { TransactionJournal } from "../../server/transaction-journal";
+import { channelLabels, transactionChannels, transactionLabels, transactionTypes } from "../../transactions/entries";
+import { SavingsDepositDialog, savingsReceiptUrl } from "../../transactions/SavingsDepositDialog";
+import { PayrollRemittanceDialog } from "../../transactions/PayrollRemittanceDialog";
+import { StaffWithdrawals } from "../../withdrawals/StaffWithdrawals";
 import { ConsoleDialog, EmptyState, FilterBar, FilterField, Kv, Panel, Tile } from "../components/ui";
 import { formatDate } from "../format";
 
 const endpoint = "/api/fm/cooperative/transactions/loan-payments";
+const journalEndpoint = "/api/fm/cooperative/transactions/journal";
+type ReversiblePayment = { id: number; loanId: number; journalNo: string; loanNo: string | null; memberName: string; amount: string; businessDate: string };
 
 export default function TransactionsModule() {
   const [search, setSearch] = useState("");
@@ -23,18 +29,20 @@ export default function TransactionsModule() {
   const [month, setMonth] = useState("");
   const [page, setPage] = useState(1);
   const [attempt, setAttempt] = useState(0);
-  const [journal, setJournal] = useState<LoanPaymentJournal>();
+  const [journal, setJournal] = useState<TransactionJournal>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [payment, setPayment] = useState(false);
-  const [reversal, setReversal] = useState<LoanJournalRow>();
+  const [deposit, setDeposit] = useState(false);
+  const [remittance, setRemittance] = useState<{ view: "upload" | "history" | "detail"; batchId?: number }>();
+  const [reversal, setReversal] = useState<ReversiblePayment>();
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
     const request = new AbortController();
     const params = new URLSearchParams({ search, type, channel, month, page: String(page) });
     const timer = setTimeout(() => {
-      memberFetch<LoanPaymentJournal>(`${endpoint}?${params}`, { signal: request.signal }).then(result => {
+      memberFetch<TransactionJournal>(`${journalEndpoint}?${params}`, { signal: request.signal }).then(result => {
         if (!request.signal.aborted) setJournal(result);
       }).catch(cause => {
         if (!request.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load the journal.");
@@ -60,34 +68,43 @@ export default function TransactionsModule() {
         <div>
           <p className="text-sm text-muted-foreground">Cooperative</p>
           <h1 className="text-2xl font-semibold tracking-tight">Transactions</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Record loan payments and review posted repayments and reversals.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Record money received and review posted activity.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" disabled aria-label="Savings deposit, pending rollout">Savings deposit</Button>
+          <Button size="sm" variant="outline" disabled={!journal?.indexed} onClick={() => setDeposit(true)}>Savings deposit</Button>
           <Button size="sm" onClick={() => setPayment(true)}>Loan payment</Button>
+          {journal?.indexed && <>
+            <Button size="sm" variant="outline" onClick={() => setRemittance({ view: "upload" })}>Payroll remittance</Button>
+            <Button size="sm" variant="outline" onClick={() => setRemittance({ view: "history" })}>Batch history</Button>
+          </>}
         </div>
       </div>
       {notice && <p role="status" className="rounded-md border p-3 text-sm">{notice}</p>}
+      <StaffWithdrawals />
       <div className="grid gap-3 sm:grid-cols-3">
-        <Tile label="Payments received" value={journal ? peso(journal.received) : "—"} detail="Filtered journal" />
-        <Tile label="Reversals" value={journal ? peso(journal.reversed) : "—"} detail="Filtered journal" />
-        <Tile label="Net payments" value={journal ? peso(journal.net) : "—"} detail={`${journal?.count ?? 0} entries`} />
+        <Tile label="Money in (filtered)" value={!loading && !error && journal ? peso(journal.moneyIn) : "—"} />
+        <Tile label="Money out (filtered)" value={!loading && !error && journal ? peso(journal.moneyOut) : "—"} />
+        <Tile label="Net" value={!loading && !error && journal ? peso(journal.net) : "—"} detail={!loading && !error && journal ? `${journal.count} entries` : undefined} />
       </div>
 
-      <Panel title="Loan payment journal">
-        <FilterBar count={journal?.count} noun="entries">
-          <FilterField label="Search"><Input value={search} onChange={event => { setSearch(event.target.value); changePage(1); }} placeholder="Member, loan or reference" className="h-8 w-64" /></FilterField>
+      <Panel title={journal?.indexed === false ? "Loan payment journal" : "Posted journal"}>
+        <FilterBar count={loading || error ? undefined : journal?.count} noun="entries">
+          <FilterField label="Search"><Input aria-label="Search posted journal" value={search} onChange={event => { setSearch(event.target.value); changePage(1); }} placeholder="Member or reference" className="h-8 w-full sm:w-64" /></FilterField>
           <FilterField label="Type">
-            <NativeSelect value={type} onChange={event => { setType(event.target.value); changePage(1); }} className="h-8">
-              <option value="">All types</option><option value="payment">Payment</option><option value="reversal">Reversal</option>
+            <NativeSelect aria-label="Transaction type" value={type} onChange={event => { setType(event.target.value); changePage(1); }} className="h-8">
+              <option value="">All types</option>
+              {(journal?.indexed ? [...transactionTypes.slice(0, 7), "SAVINGS_DEPOSIT_REVERSED"] as const : ["LOAN_PAYMENT", "LOAN_PAYMENT_REVERSED"] as const).map(kind =>
+                <option key={kind} value={kind}>{transactionLabels[kind]}</option>)}
             </NativeSelect>
           </FilterField>
           <FilterField label="Channel">
-            <NativeSelect value={channel} onChange={event => { setChannel(event.target.value); changePage(1); }} className="h-8">
-              <option value="">All channels</option><option value="PAYROLL">Payroll remittance</option><option value="OTC">Over the counter</option>
+            <NativeSelect aria-label="Transaction channel" value={channel} onChange={event => { setChannel(event.target.value); changePage(1); }} className="h-8">
+              <option value="">All channels</option>
+              {(journal?.indexed ? transactionChannels : transactionChannels.slice(0, 2)).map(value =>
+                <option key={value} value={value}>{channelLabels[value]}</option>)}
             </NativeSelect>
           </FilterField>
-          <FilterField label="Posting month"><Input type="month" value={month} onChange={event => { setMonth(event.target.value); changePage(1); }} className="h-8" /></FilterField>
+          <FilterField label="Posting month"><Input aria-label="Posting month" type="month" value={month} onChange={event => { setMonth(event.target.value); changePage(1); }} className="h-8" /></FilterField>
         </FilterBar>
 
         {error && <div role="alert" className="mb-3 flex items-center gap-3 text-sm text-destructive">
@@ -100,41 +117,55 @@ export default function TransactionsModule() {
               <TableHead>Channel</TableHead><TableHead>Reference</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Actions</TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {loading ? <TableRow><TableCell colSpan={7}><EmptyState>Loading posted loan payments…</EmptyState></TableCell></TableRow> :
+              {loading ? <TableRow><TableCell colSpan={7}><EmptyState>Loading posted transactions…</EmptyState></TableCell></TableRow> :
                 !error && !journal?.rows.length && <TableRow><TableCell colSpan={7}><EmptyState>No posted entries match these filters.</EmptyState></TableCell></TableRow>}
               {!loading && !error && journal?.rows.map(row => <TableRow key={row.id}>
-                <TableCell>{formatDate(row.businessDate)}{row.businessDate !== row.receiptDate &&
+                <TableCell>{formatDate(row.businessDate)}{row.receiptDate && row.businessDate !== row.receiptDate &&
                   <span className="block text-xs text-muted-foreground">Received {formatDate(row.receiptDate)}</span>}
                 </TableCell>
-                <TableCell className="whitespace-normal">{row.memberName}<span className="block font-mono text-xs text-muted-foreground">{row.loanNo}</span></TableCell>
-                <TableCell>{row.reversal ? "Reversal" : row.reversed ? "Reversed payment" : "Payment"}</TableCell>
-                <TableCell>{row.channel === "OTC" ? "Over the counter" : "Payroll remittance"}</TableCell>
+                <TableCell className="whitespace-normal">{row.memberName}<span className="block font-mono text-xs text-muted-foreground">{row.employeeNo}</span></TableCell>
+                <TableCell>{row.reversed ? "Reversed payment" : transactionLabels[row.kind]}</TableCell>
+                <TableCell>{channelLabels[row.channel]}</TableCell>
                 <TableCell className="font-mono text-xs">
-                  {row.orNo ?? row.reference ?? row.journalNo}
-                  {(row.orNo || row.reference) && <span className="block text-muted-foreground">{row.journalNo}</span>}
+                  {[...new Set([row.orNo, row.sourceReference, row.reference, row.journalNo].filter(Boolean))].map(reference =>
+                    <span className="block" key={reference}>{reference}</span>)}
                   {row.originalJournal && <span className="block text-muted-foreground">Reverses {row.originalJournal}</span>}
                 </TableCell>
                 <TableCell className="text-right font-mono">{peso(row.amount)}</TableCell>
                 <TableCell><div className="flex flex-wrap items-center gap-2">
-                  {row.orNo && <Button size="sm" variant="outline" asChild>
-                    <a href={`${endpoint}/${row.loanId}?receipt=${row.id}`} target="_blank" rel="noreferrer">Print receipt</a>
+                  {row.depositJournalId && <Button size="sm" variant="outline" asChild>
+                    <a href={savingsReceiptUrl(row.depositJournalId)} target="_blank" rel="noreferrer">Print official receipt</a>
                   </Button>}
-                  {!row.reversal && !row.reversed && <Button size="sm" variant="outline" onClick={() => setReversal(row)}>Reverse</Button>}
+                  {row.orNo && row.paymentId && row.loanId && <Button size="sm" variant="outline" asChild>
+                    <a href={`${endpoint}/${row.loanId}?receipt=${row.paymentId}`} target="_blank" rel="noreferrer">Print receipt</a>
+                  </Button>}
+                  {row.remittanceBatchId && <Button size="sm" variant="outline"
+                    onClick={() => setRemittance({ view: "detail", batchId: row.remittanceBatchId! })}>View remittance</Button>}
+                  {row.kind === "LOAN_PAYMENT" && row.paymentId !== null && row.loanId !== null && !row.reversed && !row.remittanceBatchId &&
+                    <Button size="sm" variant="outline" onClick={() => {
+                      if (row.paymentId && row.loanId) setReversal({ ...row, id: row.paymentId, loanId: row.loanId, loanNo: row.sourceReference });
+                    }}>Reverse</Button>}
                 </div></TableCell>
               </TableRow>)}
             </TableBody>
           </Table>
         </div>
         <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          Page {page}
+          Page {journal?.page ?? page}
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page === 1 || loading} onClick={() => changePage(page - 1)}>Previous</Button>
-            <Button size="sm" variant="outline" disabled={!journal?.hasMore || loading} onClick={() => changePage(page + 1)}>Next</Button>
+            <Button size="sm" variant="outline" disabled={(journal?.page ?? page) === 1 || loading || !!error} onClick={() => changePage((journal?.page ?? page) - 1)}>Previous</Button>
+            <Button size="sm" variant="outline" disabled={!journal?.hasMore || loading || !!error} onClick={() => changePage((journal?.page ?? page) + 1)}>Next</Button>
           </div>
         </div>
       </Panel>
 
       {payment && <LoanPaymentDialog endpoint={endpoint} onClose={() => setPayment(false)} onPosted={() => { setNotice(""); refresh(); }} />}
+      {deposit && <SavingsDepositDialog onClose={() => setDeposit(false)} onPosted={result => {
+        setNotice(`Savings deposit posted · ${result.orNo}`);
+        refresh();
+      }} />}
+      {remittance && <PayrollRemittanceDialog initialView={remittance.view} initialBatchId={remittance.batchId}
+        onClose={() => setRemittance(undefined)} onChanged={message => { setNotice(message); refresh(); }} />}
       {reversal && <ReversalDialog row={reversal} onClose={() => setReversal(undefined)} onPosted={result => {
         setReversal(undefined);
         setNotice(`Payment reversed · ${result.journalNo}`);
@@ -145,7 +176,7 @@ export default function TransactionsModule() {
 }
 
 function ReversalDialog({ row, onClose, onPosted }: {
-  row: LoanJournalRow; onClose: () => void; onPosted: (result: LoanPaymentResult) => void;
+  row: ReversiblePayment; onClose: () => void; onPosted: (result: LoanPaymentResult) => void;
 }) {
   const [review, setReview] = useState<{ preview: LoanReversalPreview; key: string }>();
   const [reason, setReason] = useState("");

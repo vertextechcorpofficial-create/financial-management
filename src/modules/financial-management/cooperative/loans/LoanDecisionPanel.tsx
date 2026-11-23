@@ -13,6 +13,7 @@ import { Kv, Panel } from "../console/components/ui";
 import { MemberApiError, memberFetch, newRequestKey } from "../members/client";
 import { date, peso } from "../members/format";
 import type { LoanDecisionPreview, LoanDecisionResult } from "../server/loan-decisions";
+import { AssessmentCheck } from "./components";
 import { amountToCents } from "./loan-schedule";
 
 type Action = LoanDecisionPreview["actions"][number];
@@ -142,23 +143,7 @@ export function LoanDecisionPanel({ endpoint, approveAndRelease, onChanged }: {
         {preview && !preview.actions.length && <p className="text-sm text-muted-foreground">This loan already has a recorded decision.</p>}
         {preview?.actions.length ? <>
           <ul className="grid gap-2 sm:grid-cols-2">
-            {preview.checks.map(check => {
-              const Icon = check.ok ? CheckCircle2 : XCircle;
-              return (
-                <li key={check.key} className={cn(
-                  "flex items-start gap-2.5 rounded-lg border p-2.5 text-sm",
-                  check.ok
-                    ? "border-emerald-200/70 bg-emerald-50/40 dark:border-emerald-900/60 dark:bg-emerald-950/20"
-                    : "border-rose-200/70 bg-rose-50/40 dark:border-rose-900/60 dark:bg-rose-950/20",
-                )}>
-                  <Icon className={cn("mt-0.5 size-4 shrink-0", check.ok ? "text-emerald-600" : "text-rose-600")} />
-                  <span className="min-w-0">
-                    <span className="font-medium">{check.label}</span>
-                    <span className="block text-xs text-muted-foreground">{check.detail}</span>
-                  </span>
-                </li>
-              );
-            })}
+            {preview.checks.map(({ key, ...check }) => <AssessmentCheck key={key} {...check} />)}
           </ul>
           {preview.warnings.length > 0 && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">

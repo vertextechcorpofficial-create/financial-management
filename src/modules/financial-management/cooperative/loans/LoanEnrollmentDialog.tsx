@@ -348,9 +348,7 @@ function Assessment({ preview }: { preview: LoanEnrollmentPreview }) {
       <div className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Checks</p>
         <ul className="space-y-1.5">
-          {preview.checks.map(check => (
-            <AssessmentCheck key={check.key} ok={check.ok} label={check.label} detail={check.detail} />
-          ))}
+          {preview.checks.map(({ key, ...check }) => <AssessmentCheck key={key} {...check} />)}
         </ul>
       </div>
       {payroll.state === "verified" && (

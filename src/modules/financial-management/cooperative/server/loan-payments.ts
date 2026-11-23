@@ -13,7 +13,9 @@ import {
 import { catchUpLoanDueDates, loanDueWork } from "./loan-due-dates";
 import { LoanError, readLoanForChange } from "./loans";
 import { todayManila } from "./member-read";
+import { nestedTransactionEntries } from "./transaction-index";
 import { getPolicies } from "./policies";
+import type { PolicyState } from "../policies/policy-types";
 
 const positiveId = z.number().int().positive();
 const paymentInput = z.object({
@@ -37,6 +39,7 @@ const reversalInput = z.object({
 const savedAccrualAccounts = z.record(z.string(), positiveId);
 
 type View = Awaited<ReturnType<typeof readLoanForChange>>;
+type PaymentInput = z.output<typeof paymentInput>;
 type Installment = LoanLedger["installments"][number];
 
 function parseInput<T extends z.ZodType>(schema: T, payload: unknown) {
@@ -94,10 +97,10 @@ export async function getLoanPaymentSummary(id: number) {
 
 export type LoanPaymentSummary = Awaited<ReturnType<typeof getLoanPaymentSummary>>;
 
-async function reviewPayment(id: number, input: z.output<typeof paymentInput>) {
+async function reviewPayment(id: number, input: PaymentInput, remittance?: { view: View; policy: PolicyState }) {
   requirePaymentRollout();
   const today = todayManila();
-  const view = await readLoanForChange(id, today);
+  const view = remittance?.view ?? await readLoanForChange(id, today);
   const ledger = activeLedger(view);
   if (input.receiptDate < ledger.release.date || input.receiptDate > today) {
     throw new LoanError(422, "Check the receipt date.", "LOAN_PAYMENT_INPUT",
@@ -113,9 +116,9 @@ async function reviewPayment(id: number, input: z.output<typeof paymentInput>) {
       throw new LoanError(409, "This remittance reference has already been posted for the loan.", "LOAN_REMITTANCE_DUPLICATE");
     }
   }
-  const businessDate = repaymentBusinessDate(ledger, input.receiptDate, today);
+  const businessDate = remittance ? today : repaymentBusinessDate(ledger, input.receiptDate, today);
   const { schedule, dueWork, amounts } = paymentPosition(view, ledger, businessDate);
-  const policy = await getPolicies();
+  const policy = remittance?.policy ?? await getPolicies();
   if (!policy.settings) throw new LoanError(503, "Cooperative loan payment policy is unavailable.");
   const accounts = loanPostingAccounts(policy);
   const order = policy.settings.paymentOrder;
@@ -133,7 +136,11 @@ async function reviewPayment(id: number, input: z.output<typeof paymentInput>) {
     status: after.fullyPaid ? "FULLY_PAID" as const : "ACTIVE" as const,
     fingerprint: loanDigest([id, view.revision, businessDate, input, policy.revision, applied.allocations, dueWork]),
   };
-  return { ledger, today, view, preview, accounts, applied };
+  return { ledger, today, view, preview, accounts, applied, input };
+}
+
+export function reviewPayrollLoanPayment(view: View, policy: PolicyState, amount: string, receiptDate: string, reference: string) {
+  return reviewPayment(view.loan.id, { amount, receiptDate, reference, channel: "PAYROLL", confirmed: true }, { view, policy });
 }
 
 export async function getLoanPaymentPreview(id: number, payload: unknown) {
@@ -167,10 +174,11 @@ async function receivableAccounts(ledger: LoanLedger, items: Installment[]) {
   return { principal: releaseDebit.account_id, accrued };
 }
 
-async function paymentPairs(review: Awaited<ReturnType<typeof reviewPayment>>, channel: "OTC" | "PAYROLL") {
+async function paymentPairs(review: Awaited<ReturnType<typeof reviewPayment>>, fromEmployer = false) {
   const { view, ledger, preview, accounts } = review;
   const hasGoods = view.loan.productKind === "GOODS";
-  const debit = requirePostingAccount(accounts, channel === "OTC" ? "CASH_ON_HAND" : "CASH_IN_BANK");
+  const debit = requirePostingAccount(accounts, fromEmployer ? "DUE_FROM_EMPLOYER" :
+    review.input.channel === "OTC" ? "CASH_ON_HAND" : "CASH_IN_BANK");
   const involved = new Map(ledger.installments.map(item => [item.no, item]));
   const accrued = preview.allocations.filter(row => amountToCents(row.interest) > 0n)
     .map(row => involved.get(row.installmentNo)!).filter(item => item.dueDate <= preview.businessDate);
@@ -223,7 +231,7 @@ export async function postLoanPayment(id: number, payload: unknown, actor: LoanA
     throw error;
   });
   if ("duplicate" in review) return review;
-  const { view, ledger, preview, accounts, applied } = review;
+  const { view, preview, accounts } = review;
   if (submitted.revision !== preview.revision || submitted.fingerprint !== preview.fingerprint) {
     const saved = await findLoanCommand<LoanPaymentResult>(command);
     if (saved) return saved;
@@ -233,51 +241,69 @@ export async function postLoanPayment(id: number, payload: unknown, actor: LoanA
     await catchUpLoanDueDates(view, preview.businessDate, async () => accounts);
     throw new LoanError(409, "Due-date records were updated. Review the refreshed payment before confirming.", "LOAN_DUE_UPDATED");
   }
-  const { pairs, prepaymentIncomeAccountId, prepaymentCreditLine } = await paymentPairs(review, input.channel);
+  const allocation = await paymentPairs(review);
+  return writeLoanCommand(command, preview.revision, actor,
+    now => prepareLoanPayment(review, actor, now, allocation));
+}
+
+export async function preparePayrollLoanPayment(review: Awaited<ReturnType<typeof reviewPayrollLoanPayment>>,
+  actor: LoanActor, now: Date, reservedJournalNo: string) {
+  return prepareLoanPayment(review, actor, now, await paymentPairs(review, true), reservedJournalNo);
+}
+
+async function prepareLoanPayment(review: Awaited<ReturnType<typeof reviewPayment>>, actor: LoanActor, now: Date,
+  { pairs, prepaymentIncomeAccountId, prepaymentCreditLine }: Awaited<ReturnType<typeof paymentPairs>>, reservedJournalNo?: string) {
+  const { input, view, ledger, preview, applied } = review;
+  const id = view.loan.id;
+  const type = "LOAN_PAYMENT";
   const schedule = new Map(ledger.installments.map(row => [row.no, row.id]));
   const used = new Set(preview.allocations.map(row => row.installmentNo));
   const principal = centsToAmount(total(preview.allocations, row => row.principal));
   const interest = centsToAmount(total(preview.allocations, row => row.interest));
   const penalty = applied.penaltyPart;
-  return writeLoanCommand(command, preview.revision, actor, async now => {
-    if (todayManila(now) !== review.today) throw staleLoanReview();
-    const paymentId = randomInt(100_000_000, 2_000_000_000);
-    const posting = await prepareLoanJournal({
-      loanId: id, type: command.type, date: preview.businessDate, actor, now, pairs,
-      paymentReceipt: input.channel === "OTC" ? { membershipId: view.loan.memberId, amount: input.amount } : undefined,
-      audit: ({ journalNo, orNo }) => ({
-        ...cooperativeAuditEvent(actor, {
-          subject: { type: "LOAN", id }, action: "LOAN_PAYMENT_POSTED",
-          before: { balance: preview.balance, status: view.loan.status },
-          after: { paymentId, journalNo, orNo, ...input, businessDate: preview.businessDate, principal, interest, penalty,
-            balance: preview.afterBalance, penalties: preview.afterPenalties, status: preview.status },
-        }, now), actor_name: actor.actorName,
-      }),
-    });
-    const at = cooperativeAuditTime(now);
-    const row = {
-      id: paymentId, loan_id: id, member_id: view.loan.memberId,
-      official_receipt_no: posting.numbers.orNo, reference_no: input.reference || null,
-      amount: input.amount, principal_amount: principal, interest_amount: interest, penalty_amount: penalty,
-      channel: input.channel, receipt_date: input.receiptDate, posted_at: at, posted_by: actor.actorId,
-      status: "POSTED", created_at: at,
-      allocations: { create: preview.allocations.map(({ installmentNo, ...values }) =>
-        ({ installment_id: schedule.get(installmentNo), ...values, created_at: at })) },
-    };
-    return {
-      result: {
-        paymentId, loanId: id, ...posting.numbers, amount: input.amount, principal, interest, penalty,
-        businessDate: preview.businessDate, receiptDate: input.receiptDate, status: preview.status,
-        balance: preview.afterBalance, penalties: preview.afterPenalties, prepaymentIncomeAccountId, prepaymentCreditLine,
-      } satisfies LoanPaymentResult,
-      changes: {
-        status: preview.status,
-        installments: { update: applied.schedule.filter(item => used.has(item.no)).map(item =>
-          paidFields({ ...item, id: schedule.get(item.no)! }, preview.businessDate, now)) },
-      },
-      receipt: { ...posting.receipt, journal_id: { ...posting.receipt.journal_id, loan_payments: { create: [row] } } },
-    };
+  if (todayManila(now) !== review.today) throw staleLoanReview();
+  const paymentId = randomInt(100_000_000, 2_000_000_000);
+  const posting = await prepareLoanJournal({
+    loanId: id, type, date: preview.businessDate, actor, now, pairs, reservedJournalNo,
+    paymentReceipt: input.channel === "OTC" ? { membershipId: view.loan.memberId, amount: input.amount } : undefined,
+    audit: ({ journalNo, orNo }) => ({
+      ...cooperativeAuditEvent(actor, {
+        subject: { type: "LOAN", id }, action: "LOAN_PAYMENT_POSTED",
+        before: { balance: preview.balance, status: view.loan.status },
+        after: { paymentId, journalNo, orNo, ...input, businessDate: preview.businessDate, principal, interest, penalty,
+          balance: preview.afterBalance, penalties: preview.afterPenalties, status: preview.status },
+      }, now), actor_name: actor.actorName,
+    }),
   });
+  const at = cooperativeAuditTime(now);
+  const row = {
+    id: paymentId, loan_id: id, member_id: view.loan.memberId,
+    official_receipt_no: posting.numbers.orNo, reference_no: input.reference || null,
+    amount: input.amount, principal_amount: principal, interest_amount: interest, penalty_amount: penalty,
+    channel: input.channel, receipt_date: input.receiptDate, posted_at: at, posted_by: actor.actorId,
+    status: "POSTED", created_at: at,
+    allocations: { create: preview.allocations.map(({ installmentNo, ...values }) =>
+      ({ installment_id: schedule.get(installmentNo), ...values, created_at: at })) },
+  };
+  return {
+    result: {
+      paymentId, loanId: id, ...posting.numbers, amount: input.amount, principal, interest, penalty,
+      businessDate: preview.businessDate, receiptDate: input.receiptDate, status: preview.status,
+      balance: preview.afterBalance, penalties: preview.afterPenalties, prepaymentIncomeAccountId, prepaymentCreditLine,
+    } satisfies LoanPaymentResult,
+    changes: {
+      status: preview.status,
+      installments: { update: applied.schedule.filter(item => used.has(item.no)).map(item =>
+        paidFields({ ...item, id: schedule.get(item.no)! }, preview.businessDate, now)) },
+    },
+    receipt: { ...posting.receipt, journal_id: {
+      ...posting.receipt.journal_id, loan_payments: { create: [row] },
+      ...nestedTransactionEntries({ id: posting.numbers.journalId, date: preview.businessDate, postedAt: at }, [{
+        kind: type, memberId: view.loan.memberId, loanId: id, paymentId, channel: input.channel, amount: input.amount,
+        receivedOn: input.receiptDate, reference: input.reference, orNo: posting.numbers.orNo, sourceReference: view.loan.loanNo,
+      }]),
+    } },
+  };
 }
 
 export type LoanPaymentResult = {
@@ -287,10 +313,10 @@ export type LoanPaymentResult = {
   prepaymentIncomeAccountId: number | null; prepaymentCreditLine: number | null;
 };
 
-async function reviewReversal(id: number, paymentId: number) {
+export async function reviewLoanPaymentReversal(id: number, paymentId: number, loan?: View) {
   requirePaymentRollout();
   const date = todayManila();
-  const view = await readLoanForChange(id, date);
+  const view = loan ?? await readLoanForChange(id, date);
   const { ledger, position } = view;
   if (!ledger || !position || !["ACTIVE", "FULLY_PAID"].includes(view.loan.status) || ledger.movements.some(row => row.kind === "OFFSET")) {
     throw new LoanError(409, "This loan is outside the payment correction workflow.", "LOAN_PAYMENT_UNAVAILABLE");
@@ -320,7 +346,7 @@ async function reviewReversal(id: number, paymentId: number) {
 
 export async function getLoanReversalPreview(id: number, payload: unknown) {
   const data = parseInput(z.object({ paymentId: positiveId }), payload);
-  return (await reviewReversal(id, data.paymentId)).preview;
+  return (await reviewLoanPaymentReversal(id, data.paymentId)).preview;
 }
 
 export type LoanReversalPreview = Awaited<ReturnType<typeof getLoanReversalPreview>>;
@@ -333,14 +359,21 @@ export async function reverseLoanPayment(id: number, payload: unknown, actor: Lo
     hash: loanDigest([id, actor.actorId, input, submitted]) };
   const prior = await findLoanCommand<LoanPaymentResult>(command);
   if (prior) return prior;
-  const review = await reviewReversal(id, input.paymentId).catch(async error => {
+  const review = await reviewLoanPaymentReversal(id, input.paymentId).catch(async error => {
     const saved = await findLoanCommand<LoanPaymentResult>(command);
     if (saved) return saved;
     throw error;
   });
   if ("duplicate" in review) return review;
-  const { view, ledger, original, restored, preview } = review;
+  const { preview } = review;
   if (submitted.revision !== preview.revision || submitted.fingerprint !== preview.fingerprint) throw staleLoanReview();
+  const allocation = await prepareReversalAllocations(review);
+  return writeLoanCommand(command, preview.revision, actor,
+    now => prepareLoanReversal(review, input.reason, actor, now, allocation));
+}
+
+async function prepareReversalAllocations(review: Awaited<ReturnType<typeof reviewLoanPaymentReversal>>, policy?: PolicyState) {
+  const { view, ledger, original, restored, preview } = review;
   const originalLines = (await readLoanJournalLines([original.journalId])).get(original.journalId) ?? [];
   if (total(originalLines, row => row.debit) !== amountToCents(preview.amount) ||
     total(originalLines, row => row.credit) !== amountToCents(preview.amount)) {
@@ -351,10 +384,10 @@ export async function reverseLoanPayment(id: number, payload: unknown, actor: Lo
   const pairs: LoanPostingPair[] = [];
   const restoredAccrualAccounts: Record<string, number> = {};
   if (restore.length) {
-    const [receivables, historic, policy] = await Promise.all([
-      receivableAccounts(ledger, restore), readLoanJournalResults([original.journalId]), getPolicies(),
+    const [receivables, historic, effectivePolicy] = await Promise.all([
+      receivableAccounts(ledger, restore), readLoanJournalResults([original.journalId]), policy ?? getPolicies(),
     ]);
-    const accounts = loanPostingAccounts(policy);
+    const accounts = loanPostingAccounts(effectivePolicy);
     const income = positiveId.safeParse(historic.get(original.journalId)?.prepaymentIncomeAccountId);
     if (!income.success) throw new LoanError(503, "The original advance interest posting could not be verified.");
     for (const item of restore) {
@@ -372,47 +405,65 @@ export async function reverseLoanPayment(id: number, payload: unknown, actor: Lo
       if (row.date > (lastPaid.get(installmentId) ?? "")) lastPaid.set(installmentId, row.date);
     }
   }
+  return { originalLines, pairs, restoredAccrualAccounts, lastPaid };
+}
+
+export async function preparePayrollLoanReversal(review: Awaited<ReturnType<typeof reviewLoanPaymentReversal>>, reason: string,
+  actor: LoanActor, now: Date, reservedJournalNo: string, policy: PolicyState) {
+  return prepareLoanReversal(review, reason, actor, now, await prepareReversalAllocations(review, policy), reservedJournalNo);
+}
+
+async function prepareLoanReversal(review: Awaited<ReturnType<typeof reviewLoanPaymentReversal>>, reason: string,
+  actor: LoanActor, now: Date, { originalLines, pairs, restoredAccrualAccounts, lastPaid }: Awaited<ReturnType<typeof prepareReversalAllocations>>,
+  reservedJournalNo?: string) {
+  const { view, original, restored, preview } = review;
+  const id = view.loan.id;
+  const type = "LOAN_PAYMENT_REVERSED";
   const principal = centsToAmount(total(original.allocations, item => item.principal));
   const interest = centsToAmount(total(original.allocations, item => item.interest));
   const penalty = centsToAmount(total(original.allocations, item => item.penalty));
-  return writeLoanCommand(command, preview.revision, actor, async now => {
-    if (todayManila(now) !== preview.date) throw staleLoanReview();
-    const paymentId = randomInt(100_000_000, 2_000_000_000);
-    const posting = await prepareLoanJournal({
-      loanId: id, type: command.type, date: preview.date, actor, now, pairs,
-      reversal: { journalId: original.journalId, lines: originalLines },
-      audit: ({ journalNo }) => ({
-        ...cooperativeAuditEvent(actor, { subject: { type: "LOAN", id }, action: command.type,
-          before: { paymentId: original.id, balance: preview.currentBalance, status: view.loan.status },
-          after: { paymentId, journalNo, originalJournal: original.journalNo, balance: preview.afterBalance, status: preview.status },
-          reason: input.reason,
-        }, now), actor_name: actor.actorName,
-      }),
-    });
-    const at = cooperativeAuditTime(now);
-    const row = {
-      id: paymentId, loan_id: id, member_id: view.loan.memberId, amount: preview.amount,
-      principal_amount: principal, interest_amount: interest, penalty_amount: penalty,
-      channel: original.channel, reference_no: original.reference, receipt_date: preview.date,
-      posted_at: at, posted_by: actor.actorId, status: "POSTED", reverses_payment_id: input.paymentId, created_at: at,
-    };
-    return {
-      result: {
-        paymentId, loanId: id, ...posting.numbers, amount: preview.amount, principal, interest, penalty,
-        businessDate: preview.date, receiptDate: preview.date, status: preview.status, balance: preview.afterBalance,
-        penalties: preview.afterPenalties, prepaymentIncomeAccountId: null, prepaymentCreditLine: null, restoredAccrualAccounts,
-      },
-      changes: {
-        status: preview.status,
-        payments: { update: [{ id: original.id, status: "REVERSED" }] },
-        installments: { update: restored.map(item => ({
-          ...paidFields(item, lastPaid.get(item.id) ?? null, now),
-          ...(restoredAccrualAccounts[item.id] ? {
-            accrual_journal_id: posting.numbers.journalId, accrual_processed_on: item.accrualProcessedOn ?? preview.date,
-          } : {}),
-        })) },
-      },
-      receipt: { ...posting.receipt, journal_id: { ...posting.receipt.journal_id, loan_payments: { create: [row] } } },
-    };
+  if (todayManila(now) !== preview.date) throw staleLoanReview();
+  const paymentId = randomInt(100_000_000, 2_000_000_000);
+  const posting = await prepareLoanJournal({
+    loanId: id, type, date: preview.date, actor, now, pairs, reservedJournalNo,
+    reversal: { journalId: original.journalId, lines: originalLines },
+    audit: ({ journalNo }) => ({
+      ...cooperativeAuditEvent(actor, { subject: { type: "LOAN", id }, action: type,
+        before: { paymentId: original.id, balance: preview.currentBalance, status: view.loan.status },
+        after: { paymentId, journalNo, originalJournal: original.journalNo, balance: preview.afterBalance, status: preview.status },
+        reason,
+      }, now), actor_name: actor.actorName,
+    }),
   });
+  const at = cooperativeAuditTime(now);
+  const row = {
+    id: paymentId, loan_id: id, member_id: view.loan.memberId, amount: preview.amount,
+    principal_amount: principal, interest_amount: interest, penalty_amount: penalty,
+    channel: original.channel, reference_no: original.reference, receipt_date: preview.date,
+    posted_at: at, posted_by: actor.actorId, status: "POSTED", reverses_payment_id: original.id, created_at: at,
+  };
+  return {
+    result: {
+      paymentId, loanId: id, ...posting.numbers, amount: preview.amount, principal, interest, penalty,
+      businessDate: preview.date, receiptDate: preview.date, status: preview.status, balance: preview.afterBalance,
+      penalties: preview.afterPenalties, prepaymentIncomeAccountId: null, prepaymentCreditLine: null, restoredAccrualAccounts,
+    },
+    changes: {
+      status: preview.status,
+      payments: { update: [{ id: original.id, status: "REVERSED" }] },
+      installments: { update: restored.map(item => ({
+        ...paidFields(item, lastPaid.get(item.id) ?? null, now),
+        ...(restoredAccrualAccounts[item.id] ? {
+          accrual_journal_id: posting.numbers.journalId, accrual_processed_on: item.accrualProcessedOn ?? preview.date,
+        } : {}),
+      })) },
+    },
+    receipt: { ...posting.receipt, journal_id: {
+      ...posting.receipt.journal_id, loan_payments: { create: [row] },
+      ...nestedTransactionEntries({ id: posting.numbers.journalId, date: preview.date, postedAt: at }, [{
+        kind: type, memberId: view.loan.memberId, loanId: id, paymentId, channel: original.channel === "CLEARANCE" ? "SYSTEM" : original.channel,
+        amount: preview.amount, receivedOn: preview.date, reference: original.reference, sourceReference: view.loan.loanNo,
+      }]),
+    } },
+  };
 }

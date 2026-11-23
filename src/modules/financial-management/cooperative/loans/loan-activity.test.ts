@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loanStatementForPeriod, projectLoanLedger, repaymentBusinessDate, type LoanLedger, type LoanMovement } from "./loan-activity";
-import { payrollHeadroom, payrollOverlap, payrollTermCommitment, salaryLoanRoom, type PayrollCommitment } from "./loan-assessment";
+import {
+  passesLoanChecks, payrollHeadroom, payrollOverlap, payrollTermCommitment, salaryLoanRoom,
+  type LoanAssessmentCheck, type PayrollCommitment,
+} from "./loan-assessment";
 import type { Product } from "../policies/policy-types";
 
 const installment = {
@@ -92,6 +95,15 @@ const savings: PayrollCommitment = { table: "cooperative_memberships", id: 12, c
 const loan: PayrollCommitment = { table: "cooperative_loans", id: 11, cents: 30_000n };
 const deduction = (source_table: string, source_id: number, amount: string) => ({
   source_table, source_id, amount, item_key: source_table + ":" + source_id,
+});
+
+test("a failed tenure warning allows the loan action while a failed payroll check blocks it", () => {
+  const tenure: LoanAssessmentCheck = { key: "tenure", label: "Membership tenure", detail: "Product minimum is 3 months.", ok: false, severity: "warning" };
+  const payroll = { key: "payroll", label: "Take-home pay", detail: "Verified payroll cutoff.", ok: true };
+
+  assert.equal(passesLoanChecks([tenure, payroll]), true);
+  assert.equal(passesLoanChecks([{ ...tenure, ok: true, severity: undefined }, payroll]), true);
+  assert.equal(passesLoanChecks([tenure, { ...payroll, ok: false }]), false);
 });
 
 test("credits a verified partial withholding and keeps unrelated employee-loan deductions in net pay", () => {
