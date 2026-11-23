@@ -1,6 +1,10 @@
 import "server-only";
 
-import { getLoanDetail, getLoanRegister, LoanError } from "./loans";
+import { z } from "zod";
+import { approvalStatuses, approvalTypes, type ApprovalStatusFilter, type ApprovalType } from "../approvals/filters";
+import { amountToCents, centsToAmount } from "../loans/loan-schedule";
+import { readDirectusItems } from "./directus";
+import { getLoanDetail, readLoanDocumentStatuses } from "./loans";
 
 export class ApprovalError extends Error {
   constructor(readonly status: number, message: string, readonly code?: string) {
@@ -8,152 +12,143 @@ export class ApprovalError extends Error {
   }
 }
 
-type SourceState = "ready" | "pending_rollout" | "unavailable";
-type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
-
-type ApprovalRow = {
-  type: "loan" | "membership" | "withdrawal";
-  id: number;
-  reference: string;
-  title: string;
-  memberId: number;
-  memberNo: string | null;
-  memberName: string;
-  department: string | null;
-  amount: string;
-  filedAt: string | null;
-  status: ApprovalStatus;
-  released: boolean;
-  releasedOn: string | null;
-  releaseMethod: string | null;
-  documents: {
-    required: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
-    done: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
-    missing: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
-    warnings: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
-    blocks: Array<{ documentTypeId: number; name: string; enforcement: "WARN" | "BLOCK" }>;
-  } | null;
+const pageSize = 50;
+const pendingLoans = { status: { _eq: "PENDING" } };
+const loanHistory = {
+  _and: [
+    { status: { _in: ["ACTIVE", "FULLY_PAID", "DEFAULTED"] } },
+    { _or: [{ approved_on: { _nnull: true } }, { released_on: { _nnull: true } }] },
+  ],
 };
 
+const id = z.union([z.number(), z.string().regex(/^[1-9]\d*$/)]).transform(Number).pipe(z.number().int().positive());
+const loanRow = z.object({
+  id,
+  loan_no: z.string(),
+  product_name: z.string(),
+  member_id: id,
+  member_no: z.string().nullable(),
+  member_name: z.string(),
+  department_name: z.string().nullable(),
+  principal: z.union([z.string(), z.number()]),
+  applied_on: z.string().nullable(),
+  status: z.enum(["PENDING", "APPROVED", "REJECTED", "ACTIVE", "FULLY_PAID", "DEFAULTED"]),
+  released_on: z.string().nullable(),
+  release_method: z.string().nullable(),
+  terms_snapshot: z.unknown(),
+});
+const loanPage = z.object({ data: z.array(loanRow).max(pageSize) });
+const count = z.union([z.number(), z.string().regex(/^\d+$/)]).transform(Number).pipe(z.number().int().nonnegative());
+const countResult = z.object({ data: z.array(z.object({ count })).length(1) });
+
 type Source = {
-  type: "membership" | "loan" | "withdrawal";
+  type: ApprovalType;
   label: string;
-  state: SourceState;
+  state: "ready" | "pending_rollout" | "unavailable";
   message: string | null;
   count: number | null;
 };
 
-const labels = {
-  membership: "Membership",
-  loan: "Loan",
-  withdrawal: "Withdrawal",
-} as const;
-
-function pendingCount(rows: ApprovalRow[]) {
-  return rows.filter(row => row.status === "PENDING").length;
+function loanFilter(status: ApprovalStatusFilter, search: string) {
+  const statuses = status === "ALL" ? { status: { _in: ["PENDING", "APPROVED", "REJECTED"] } } : { status: { _eq: status } };
+  const filter = status === "APPROVED" || status === "ALL" ? { _or: [statuses, loanHistory] } : statuses;
+  if (!search) return filter;
+  const includes = { _icontains: search };
+  return {
+    _and: [filter, { _or: [
+      { member_name: includes }, { member_no: includes }, { loan_no: includes },
+      { product_name: includes }, { department_name: includes },
+    ] }],
+  };
 }
 
-function loanStatus(status: string, approvedOn: string | null, releasedOn: string | null): ApprovalStatus | null {
-  if (status === "PENDING") return "PENDING";
-  if (status === "APPROVED") return "APPROVED";
-  if (status === "REJECTED") return "REJECTED";
-  if ((status === "ACTIVE" || status === "FULLY_PAID") && (approvedOn || releasedOn)) return "APPROVED";
-  return null;
+async function countLoans(filter: object) {
+  const query = new URLSearchParams({ "aggregate[count]": "*", filter: JSON.stringify(filter) });
+  const { data } = countResult.parse(await readDirectusItems("cooperative_loans", query));
+  return data[0].count;
 }
 
-async function readLoanApprovalRows() {
-  const rows: ApprovalRow[] = [];
-  let page = 1;
-  for (;;) {
-    const result = await getLoanRegister(new URLSearchParams({ page: String(page) }));
-    for (const loan of result.rows) {
-      const status = loanStatus(loan.status, loan.approvedOn, loan.releasedOn);
-      if (!status) continue;
-      rows.push({
-        type: "loan",
-        id: loan.id,
-        reference: loan.loanNo,
-        title: loan.productName,
-        memberId: loan.memberId,
-        memberNo: loan.memberNo,
-        memberName: loan.memberName,
-        department: loan.department,
-        amount: loan.principal,
-        filedAt: loan.appliedOn,
-        status,
-        released: Boolean(loan.releasedOn),
-        releasedOn: loan.releasedOn,
-        releaseMethod: loan.releaseMethod,
-        documents: loan.documents,
-      });
-    }
-    if (!result.hasMore || page >= 20) break;
-    page += 1;
-  }
-  return rows;
+async function readLoanApprovalPage(filter: object, page: number) {
+  const query = new URLSearchParams({
+    fields: Object.keys(loanRow.shape).join(","),
+    sort: "-applied_on,-id",
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
+    filter: JSON.stringify(filter),
+  });
+  const { data } = loanPage.parse(await readDirectusItems("cooperative_loans", query));
+  const documents = await readLoanDocumentStatuses(data);
+  return data.map(loan => ({
+    type: "loan",
+    id: loan.id,
+    reference: loan.loan_no,
+    title: loan.product_name,
+    memberId: loan.member_id,
+    memberNo: loan.member_no,
+    memberName: loan.member_name,
+    department: loan.department_name,
+    amount: centsToAmount(amountToCents(String(loan.principal))),
+    filedAt: loan.applied_on,
+    status: loan.status === "PENDING" || loan.status === "REJECTED" ? loan.status : "APPROVED",
+    released: Boolean(loan.released_on),
+    releasedOn: loan.released_on,
+    releaseMethod: loan.release_method,
+    documents: documents.get(loan.id) ?? null,
+  } as const));
 }
 
-function pendingSource(type: Source["type"], message: string): Source {
-  return { type, label: labels[type], state: "pending_rollout", message, count: null };
-}
+const approvalFilters = z.object({
+  type: z.enum(["", "membership", "loan", "withdrawal"]),
+  status: z.enum(approvalStatuses),
+  page: z.number().int().positive(),
+});
 
 export async function getApprovalQueue(params: URLSearchParams) {
-  const requestedType = params.get("type")?.trim().toLowerCase() ?? "";
-  const requestedStatus = (params.get("status")?.trim().toUpperCase() || "PENDING") as ApprovalStatus;
-  const search = params.get("search")?.trim().toLowerCase() ?? "";
-  const page = Math.max(1, Number(params.get("page") ?? "1") || 1);
+  const parsed = approvalFilters.safeParse({
+    type: params.get("type")?.trim().toLowerCase() ?? "",
+    status: params.get("status")?.trim().toUpperCase() || "PENDING",
+    page: Number(params.get("page") ?? "1"),
+  });
+  if (!parsed.success) throw new ApprovalError(400, "Check the request filters and page number.");
+  const { type, status, page: requestedPage } = parsed.data;
+  const search = params.get("search")?.trim() ?? "";
+  // Cancelled requests will come from sources that support cancellations.
+  const filter = (!type || type === "loan") && status !== "CANCELLED" ? loanFilter(status, search) : null;
 
-  let loanRows: ApprovalRow[] = [];
-  let loanSource: Source;
+  let rows: Awaited<ReturnType<typeof readLoanApprovalPage>> = [];
+  let total = 0;
+  let page = 1;
+  let loan: Source;
   try {
-    loanRows = await readLoanApprovalRows();
-    loanSource = { type: "loan", label: labels.loan, state: "ready", message: null, count: pendingCount(loanRows) };
-  } catch (error) {
-    loanSource = {
-      type: "loan",
-      label: labels.loan,
-      state: "unavailable",
-      message: error instanceof LoanError ? error.message : "Loan requests are temporarily unavailable.",
-      count: null,
-    };
+    const countFiltered = filter && (status !== "PENDING" || search) ? countLoans(filter) : null;
+    const [pending, filtered] = await Promise.all([countLoans(pendingLoans), countFiltered]);
+    const matching = filter ? filtered ?? pending : 0;
+    const availablePage = Math.min(requestedPage, Math.max(1, Math.ceil(matching / pageSize)));
+    if (filter && matching > 0) rows = await readLoanApprovalPage(filter, availablePage);
+    total = matching;
+    page = availablePage;
+    loan = { type: "loan", label: "Loan", state: "ready", message: null, count: pending };
+  } catch {
+    loan = { type: "loan", label: "Loan", state: "unavailable", message: "Loan requests are temporarily unavailable.", count: null };
   }
 
-  const sources: Source[] = [
-    pendingSource("membership", "Membership applications will appear after Join the Cooperative is delivered."),
-    loanSource,
-    pendingSource("withdrawal", "Withdrawal requests will appear after Withdraw Savings is delivered."),
-  ];
-
-  const rows = loanRows.filter(row => {
-    const text = [row.reference, row.memberName, row.memberNo, row.title, row.department]
-      .filter(Boolean).join(" ").toLowerCase();
-    if (search && !text.includes(search)) return false;
-    if (requestedType && row.type !== requestedType) return false;
-    return row.status === requestedStatus;
-  }).sort((a, b) => (b.filedAt ?? "").localeCompare(a.filedAt ?? "") || b.id - a.id);
-
-  const total = rows.length;
-  const start = (page - 1) * 50;
+  const membership: Source = {
+    type: "membership", label: "Membership", state: "pending_rollout", count: null,
+    message: "Membership requests will appear when employee applications are enabled. Staff enroll members in Members.",
+  };
+  const withdrawal: Source = {
+    type: "withdrawal", label: "Withdrawal", state: "pending_rollout", count: null,
+    message: "Withdrawal requests will appear when Record withdrawal request is available in Transactions.",
+  };
   return {
-    sources,
-    tiles: {
-      membership: sources[0],
-      loan: sources[1],
-      withdrawal: sources[2],
-    },
-    rows: rows.slice(start, start + 50),
+    sources: [membership, loan, withdrawal],
+    tiles: { membership, loan, withdrawal },
+    rows,
     page,
-    pageSize: 50,
+    pageSize,
     total,
-    hasMore: start + 50 < total,
-    filterOptions: {
-      types: [
-        { value: "membership", label: labels.membership },
-        { value: "loan", label: labels.loan },
-        { value: "withdrawal", label: labels.withdrawal },
-      ],
-      statuses: ["PENDING", "APPROVED", "REJECTED", "CANCELLED"],
-    },
+    hasMore: page * pageSize < total,
+    filterOptions: { types: approvalTypes, statuses: approvalStatuses },
   };
 }
 
@@ -164,8 +159,12 @@ export async function getApprovalDetail(type: string, id: number) {
     if (!detail) throw new ApprovalError(404, "The loan is unavailable.");
     return { type: "loan" as const, sourceState: "ready" as const, detail };
   }
-  if (type === "membership" || type === "withdrawal") {
-    throw new ApprovalError(501, `${labels[type]} requests are pending rollout.`, "PENDING_ROLLOUT");
+  const placeholder = approvalTypes.find(option => option.value === type);
+  if (placeholder) {
+    throw new ApprovalError(501, `${placeholder.label} requests are pending rollout.`, "PENDING_ROLLOUT");
   }
   throw new ApprovalError(400, "Choose a valid approval type.");
 }
+
+export type ApprovalQueue = Awaited<ReturnType<typeof getApprovalQueue>>;
+export type ApprovalDetail = Awaited<ReturnType<typeof getApprovalDetail>>;

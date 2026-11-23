@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loanStatementForPeriod, projectLoanLedger, type LoanLedger, type LoanMovement } from "./loan-activity";
+import { loanStatementForPeriod, projectLoanLedger, repaymentBusinessDate, type LoanLedger, type LoanMovement } from "./loan-activity";
 import { payrollHeadroom, payrollOverlap, payrollTermCommitment, salaryLoanRoom, type PayrollCommitment } from "./loan-assessment";
 import type { Product } from "../policies/policy-types";
 
@@ -24,6 +24,16 @@ const reversingPayment: LoanMovement = {
   reference: "JV-2026-0011", reversesId: payment.id,
 };
 const ledger: LoanLedger = { release, installments: [installment], movements: [payment, reversingPayment, offset] };
+
+test("uses today's business date when a receipt predates a posted payment or due-date event", () => {
+  const today = "2026-12-10";
+  assert.equal(repaymentBusinessDate(ledger, "2026-11-30", today), today);
+  assert.equal(repaymentBusinessDate(ledger, "2026-12-01", today), "2026-12-01");
+  const beforeDue = { ...ledger, movements: [] };
+  assert.equal(repaymentBusinessDate(beforeDue, "2026-10-30", today), "2026-10-30");
+  assert.equal(repaymentBusinessDate({ ...beforeDue, installments: [{ ...installment, accrualProcessedOn: today }] }, "2026-10-30", today), today);
+  assert.equal(repaymentBusinessDate({ ...beforeDue, installments: [{ ...installment, penaltyAssessedOn: "2026-11-02" }] }, "2026-11-01", today), today);
+});
 
 test("includes release and payment on the date boundaries with separate penalties and offsets", () => {
   const statement = loanStatementForPeriod(ledger, "2026-10-15", "2026-11-15");
