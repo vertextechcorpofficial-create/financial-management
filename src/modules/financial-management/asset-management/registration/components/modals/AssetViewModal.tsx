@@ -60,7 +60,7 @@ export default function ViewAssetModal({
                   {asset.item_image ? (
                     <Image
                       unoptimized
-                      src={`/api/fm/asset-management/asset-image-view?id=${asset.item_image}`}
+                      src={`/api/fm/asset-management/registration/asset-image-view?id=${asset.item_image}`}
                       fill className="object-contain w-full h-full p-6"
                       alt={asset.item_name}
                     />

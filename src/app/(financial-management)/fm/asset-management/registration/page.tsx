@@ -14,7 +14,7 @@ import { NavUser } from "@/components/shared/app-sidebar/nav-user";
 import { cookies } from "next/headers";
 
 // ✅ Wire the module you asked for
-import AssetManagementModulePage from "@/modules/financial-management/asset-management/AssetManagementModulePage";
+import AssetManagementModulePage from "@/modules/financial-management/asset-management/registration/AssetManagementModulePage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

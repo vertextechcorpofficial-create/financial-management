@@ -3,7 +3,7 @@ import {
   fetchAssetAssignments,
   createAssetAssignment,
   returnAssetAssignment,
-} from "@/modules/financial-management/asset-management/services/asset";
+} from "@/modules/financial-management/asset-management/registration/services/asset";
 
 export async function GET(req: Request) {
   try {
