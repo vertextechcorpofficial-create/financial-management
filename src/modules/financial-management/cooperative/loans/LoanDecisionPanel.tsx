@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import {
   AlertTriangle, CheckCircle2, HandCoins, Loader2, XCircle,
 } from "lucide-react";
@@ -49,23 +49,34 @@ export function LoanReleaseDetails({ release }: { release: LoanDecisionResult })
   );
 }
 
-export function LoanDecisionPanel({ endpoint, approveAndRelease, onChanged }: {
+export function LoanDecisionPanel({ endpoint, approveAndRelease, onChanged, initialPreview, initialPreviewLoading }: {
   endpoint: string;
   approveAndRelease?: boolean;
   onChanged: (result: LoanDecisionResult) => void;
+  initialPreview?: LoanDecisionPreview;
+  initialPreviewLoading?: boolean;
 }) {
-  const [preview, setPreview] = useState<LoanDecisionPreview>();
+  const [preview, setPreview] = useState<LoanDecisionPreview | undefined>(initialPreview);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState("");
+  const [note, setNote] = useState("");
   const [action, setAction] = useState<Action | undefined>(approveAndRelease ? "APPROVE_AND_RELEASE" : undefined);
   const [form, setForm] = useState(initialForm);
   const [saving, setSaving] = useState(false);
   const key = useRef<string | null>(null);
   const pending = useRef(false);
+  const retried = useRef(false);
+
+  const loadPreview = useCallback((signal?: AbortSignal) => memberFetch<LoanDecisionPreview>(endpoint, { signal }), [endpoint]);
 
   useEffect(() => {
+    if (attempt === 0 && initialPreview) {
+      setPreview(initialPreview);
+      return;
+    }
+    if (attempt === 0 && initialPreviewLoading) return;
     const controller = new AbortController();
-    memberFetch<LoanDecisionPreview>(endpoint, { signal: controller.signal })
+    loadPreview(controller.signal)
       .then(result => {
         if (!controller.signal.aborted) {
           setPreview(result);
@@ -76,28 +87,61 @@ export function LoanDecisionPanel({ endpoint, approveAndRelease, onChanged }: {
         if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load the loan checks.");
       });
     return () => controller.abort();
-  }, [endpoint, attempt]);
+  }, [loadPreview, attempt, initialPreview, initialPreviewLoading]);
 
   function refresh() {
     setPreview(undefined);
     setAction(undefined);
     setForm(initialForm);
+    setNote("");
     key.current = null;
+    retried.current = false;
     setAttempt(value => value + 1);
   }
 
   const release = action === "APPROVE_AND_RELEASE" || action === "RELEASE";
   const hasFee = !!preview && amountToCents(preview.fee) > 0n;
   const bankTransfer = !!preview && preview.releaseMethod !== "CASH";
-  const canSubmit = preview && !saving && (
-    action === "APPROVE" ? preview.canApprove : action === "REJECT" ? !!form.reason.trim()
-      : release && preview.canRelease && form.payoutConfirmed && (!bankTransfer || !!form.payoutReference.trim()) &&
-        (!hasFee || form.feeConfirmed && !!form.feeChannel && (form.feeChannel !== "BANK" || !!form.feeReference.trim()))
-  );
+
+  function canSubmitFor(target: LoanDecisionPreview | undefined, currentAction: Action | undefined, values: typeof initialForm) {
+    if (!target || !currentAction) return false;
+    const targetRelease = currentAction === "APPROVE_AND_RELEASE" || currentAction === "RELEASE";
+    const targetFee = amountToCents(target.fee) > 0n;
+    const targetBank = target.releaseMethod !== "CASH";
+    if (currentAction === "APPROVE") return target.canApprove;
+    if (currentAction === "REJECT") return Boolean(values.reason.trim());
+    return target.canRelease && targetRelease && values.payoutConfirmed &&
+      (!targetBank || Boolean(values.payoutReference.trim())) &&
+      (!targetFee || (values.feeConfirmed && Boolean(values.feeChannel) &&
+        (values.feeChannel !== "BANK" || Boolean(values.feeReference.trim()))));
+  }
+
+  const canSubmit = !saving && canSubmitFor(preview, action, form);
 
   function update<K extends keyof typeof initialForm>(field: K, value: typeof initialForm[K]) {
     key.current = null;
+    retried.current = false;
     setForm(previous => ({ ...previous, [field]: value }));
+  }
+
+  function choose(next: Action) {
+    setAction(next);
+    setForm(initialForm);
+    setError("");
+    setNote("");
+    key.current = null;
+    retried.current = false;
+  }
+
+  async function postDecision(target: LoanDecisionPreview, currentAction: Action, values: typeof initialForm) {
+    key.current ??= newRequestKey();
+    return memberFetch<LoanDecisionResult>(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...values, feeChannel: values.feeChannel || undefined, action: currentAction, requestKey: key.current,
+        revision: target.revision, fingerprint: target.fingerprint,
+      }),
+    });
   }
 
   async function submit() {
@@ -105,21 +149,43 @@ export function LoanDecisionPanel({ endpoint, approveAndRelease, onChanged }: {
     pending.current = true;
     setSaving(true);
     setError("");
+    setNote("");
     try {
-      key.current ??= newRequestKey();
-      const result = await memberFetch<LoanDecisionResult>(endpoint, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form, feeChannel: form.feeChannel || undefined, action, requestKey: key.current,
-          revision: preview.revision, fingerprint: preview.fingerprint,
-        }),
-      });
-      setError("");
+      const result = await postDecision(preview, action, form);
       refresh();
       onChanged(result);
     } catch (cause) {
+      const code = cause instanceof MemberApiError ? cause.payload?.code : undefined;
+      if (code === "STALE_LOAN_REVIEW" && !retried.current) {
+        retried.current = true;
+        setNote("Details were refreshed. Confirming again...");
+        try {
+          const fresh = await loadPreview();
+          setPreview(fresh);
+          if (fresh.actions.includes(action) && canSubmitFor(fresh, action, form)) {
+            const result = await postDecision(fresh, action, form);
+            refresh();
+            onChanged(result);
+            return;
+          }
+          if (!fresh.actions.includes(action)) setAction(undefined);
+          setError("The loan changed. Review the updated checks and confirm again.");
+        } catch (retryCause) {
+          setError(retryCause instanceof Error ? retryCause.message : "Could not confirm the loan action. Try again.");
+        } finally {
+          setNote("");
+        }
+        return;
+      }
       setError(cause instanceof Error ? cause.message : "Could not confirm the loan action. Try again.");
-      if (cause instanceof MemberApiError && ["STALE_LOAN_REVIEW", "LOAN_ACTION_UNAVAILABLE", "LOAN_REVIEW_BLOCKED"].includes(cause.payload?.code ?? "")) refresh();
+      if (code === "LOAN_ACTION_UNAVAILABLE" || code === "LOAN_REVIEW_BLOCKED") {
+        // Keep the chosen action and entered details; only the checks need to be refreshed.
+        const fresh = await loadPreview().catch(() => null);
+        if (fresh) {
+          setPreview(fresh);
+          if (!fresh.actions.includes(action)) setAction(undefined);
+        }
+      }
     } finally {
       pending.current = false;
       setSaving(false);
@@ -134,6 +200,11 @@ export function LoanDecisionPanel({ endpoint, approveAndRelease, onChanged }: {
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <p>{error}</p>
           </div>
+        )}
+        {note && (
+          <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> {note}
+          </p>
         )}
         {!preview && (error
           ? <Button size="sm" variant="outline" onClick={() => { setError(""); refresh(); }}>Reload review</Button>
@@ -164,7 +235,7 @@ export function LoanDecisionPanel({ endpoint, approveAndRelease, onChanged }: {
                     key={value}
                     type="button"
                     disabled={disabled}
-                    onClick={() => { setAction(value); setForm(initialForm); setError(""); key.current = null; }}
+                    onClick={() => choose(value)}
                     className={cn(
                       "rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-50",
                       value === "REJECT"

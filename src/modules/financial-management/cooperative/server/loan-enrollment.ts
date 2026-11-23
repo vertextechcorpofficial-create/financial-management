@@ -104,8 +104,9 @@ const openCommitments = ["PENDING", "APPROVED", "ACTIVE"];
 async function assessPayroll(
   member: Borrower, settings: Settings, date: string, frequency: "MONTHLY" | "CUTOFF",
   installments: Array<{ total: string }>, views: MemberLoanView[],
+  preloaded?: Awaited<ReturnType<typeof latestPayrollReference>> | null,
 ) {
-  const payroll = await latestPayrollReference(member.user_id, date).catch(() => ({
+  const payroll = preloaded ?? await latestPayrollReference(member.user_id, date).catch(() => ({
     state: "unavailable" as const, message: "Posted VOS payroll could not be read. Try again.",
   }));
   if (payroll.state !== "verified") return payroll;
@@ -149,7 +150,18 @@ export async function assessBorrower(input: {
   rules: Pick<Product, "limitType" | "savingsMultiple" | "fixedCeiling" | "minimumMembershipMonths">;
 }) {
   const { memberId, productId, rules, settings, date, excludeLoanId } = input;
-  const [member, records] = await Promise.all([readBorrower(memberId), readLoanAssessmentRecords(memberId, date)]).catch(error => {
+  const member = await readBorrower(memberId).catch(error => {
+    if (error instanceof LoanError) throw error;
+    throw new LoanError(503, "The member’s loan records could not be verified. Try again.");
+  });
+  const [records, payrollRef] = await Promise.all([
+    readLoanAssessmentRecords(memberId, date),
+    input.mode === "payroll"
+      ? latestPayrollReference(member.user_id, date).catch(() => ({
+        state: "unavailable" as const, message: "Posted VOS payroll could not be read. Try again.",
+      }))
+      : Promise.resolve(null),
+  ]).catch(error => {
     if (error instanceof LoanError) throw error;
     throw new LoanError(503, "The member’s loan records could not be verified. Try again.");
   });
@@ -164,7 +176,7 @@ export async function assessBorrower(input: {
   }
   const room = loanProductRoom({ ...rules, isOpen: true }, member.savings_balance, committed);
   const payroll = input.mode === "payroll"
-    ? await assessPayroll(member, settings, date, input.frequency === "monthly" ? "MONTHLY" : "CUTOFF", input.installments, views)
+    ? await assessPayroll(member, settings, date, input.frequency === "monthly" ? "MONTHLY" : "CUTOFF", input.installments, views, payrollRef)
     : { state: "not_required" as const };
   const tenureMet = meetsTenure(member.joined_at, date, rules.minimumMembershipMonths);
   const checks: LoanAssessmentCheck[] = [

@@ -28,6 +28,7 @@ export function LoanMemberSelect({
   onRetry,
   onSelect,
   disabled = false,
+  emptyMessage = "No active members match this search.",
 }: {
   member?: Member;
   members: Member[];
@@ -41,6 +42,7 @@ export function LoanMemberSelect({
   onRetry: () => void;
   onSelect: (member: Member | undefined) => void;
   disabled?: boolean;
+  emptyMessage?: string;
 }) {
   const [open, setOpen] = useState(false);
   const from = members.length ? (page - 1) * pageSize + 1 : 0;
@@ -109,7 +111,7 @@ export function LoanMemberSelect({
               </div>
             ) : members.length === 0 ? (
               <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-                No active members match this search.
+                {emptyMessage}
               </div>
             ) : (
               <CommandGroup>

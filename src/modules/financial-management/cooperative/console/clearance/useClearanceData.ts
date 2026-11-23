@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fieldErrorsFrom, MemberApiError, memberFetch, newRequestKey } from "../../members/client";
 import type { ClearanceActionResult } from "../../server/clearance-commands";
 
@@ -25,9 +25,10 @@ export function useClearanceData<T>(path: string, delay = 0) {
   }, [path, attempt, delay]);
   const same = state?.path === path ? state : undefined;
   const loading = same?.attempt !== attempt;
+  const reload = useCallback(() => setAttempt(value => value + 1), []);
   return {
     data: same?.data, loading, error: loading ? undefined : same?.error,
-    reload: () => setAttempt(value => value + 1),
+    reload,
   };
 }
 

@@ -8,6 +8,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Kv, Panel } from "../console/components/ui";
 import { memberFetch } from "./client";
+import { copyCooperativeText } from "./copyText";
 import { date, isCalendarDate, peso, savingsKindLabel, statusText, todayManila } from "./format";
 import { loanActivityChannels, loanStatementColumns, statementPeriods, statementText } from "./statement";
 import type { MemberStatement as Statement, StatementPeriod } from "./types";
@@ -52,32 +53,7 @@ export function MemberStatement({ userId }: { userId: number }) {
 
   async function copy() {
     if (!statement || !copyContainer.current) return;
-    const content = statementText(statement);
-    let copied = false;
-    if (navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(content);
-        copied = true;
-      } catch {
-        // Continue with the clipboard command used on HTTP deployments.
-      }
-    }
-    if (!copied && copyContainer.current) {
-      const input = document.createElement("textarea");
-      input.value = content;
-      input.readOnly = true;
-      input.style.cssText = "position:fixed;top:0;left:0;opacity:0";
-      copyContainer.current.appendChild(input);
-      try {
-        input.select();
-        copied = document.execCommand("copy");
-      } catch {
-        copied = false;
-      } finally {
-        input.remove();
-        copyButton.current?.focus({ preventScroll: true });
-      }
-    }
+    const copied = await copyCooperativeText(statementText(statement), copyContainer.current, copyButton.current);
     setCopyFeedback({ result: statement, message: copied ? "Statement copied." : "Unable to copy the statement. Try again." });
   }
 
