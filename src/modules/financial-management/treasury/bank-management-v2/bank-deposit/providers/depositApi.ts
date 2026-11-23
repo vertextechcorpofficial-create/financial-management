@@ -1,11 +1,25 @@
 import type { DepositSlip, DepositSlipDetail, ResolvedJournalEntry, UndepositedAsset } from "../types";
 
-export type DepositAccountOption = { bankId: number; label: string };
+export type DepositAccountOption = {
+  bankId: number;
+  label: string;
+  /** The two halves of that label, so a picker can stack them. */
+  bankName?: string | null;
+  accountNumber?: string | null;
+};
+
+export type DepositAccountTotals = {
+  /** Active accounts that carry a GL link, so a deposit can post. */
+  eligible: number;
+  /** Every active account, linked or not. */
+  active: number;
+};
 
 export type DepositSnapshot = {
   assets: UndepositedAsset[];
   slips: DepositSlip[];
   accounts: DepositAccountOption[];
+  accountTotals: DepositAccountTotals;
 };
 
 async function unwrap<T>(response: Response): Promise<T> {
@@ -66,6 +80,19 @@ export async function cancelSlip(slipId: number, reason: string): Promise<Deposi
       body: JSON.stringify({ reason }),
     }),
   );
+}
+
+/** Prepared -> Deposited: the bank has the money, so cash lines are Deposited and checks For clearing. */
+export type DepositConfirmation = { depositDate?: string; slipNo?: string };
+
+export async function markSlipDeposited(slipId: number, confirmation: DepositConfirmation = {}): Promise<DepositSlip> {
+  return unwrap<{ slip: DepositSlip }>(
+    await fetch(`/api/fm/treasury/bank-management-v2/bank-deposit/slips/${slipId}/deposit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(confirmation),
+    }),
+  ).then((payload) => payload.slip);
 }
 
 /** E07 lines for both dialogs; the server resolves the account's Linked GL (E07 never uses a dummy). */

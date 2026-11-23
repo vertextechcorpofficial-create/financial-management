@@ -28,8 +28,9 @@ const ActionSchema = z.object({
     .object({
       checkDate: dateField,
       amount: z.coerce.number().positive("Enter an amount greater than zero."),
-      checkNo: z.string().trim().max(40).optional(),
+      checkNo: z.string().trim().min(4, "The check number needs at least four digits.").max(40),
       draweeBank: z.string().trim().max(120).optional(),
+      checkType: z.enum(["PDC", "DATED", "MANAGERS_CHECK"]),
     })
     .optional(),
 });
@@ -70,8 +71,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         ? {
             checkDate: parsed.data.replacement.checkDate,
             amount: parsed.data.replacement.amount,
-            checkNo: parsed.data.replacement.checkNo ?? null,
+            checkNo: parsed.data.replacement.checkNo,
             draweeBank: parsed.data.replacement.draweeBank ?? null,
+            checkType: parsed.data.replacement.checkType,
           }
         : null,
     }, actorId);

@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,7 +21,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { phtDate } from "../pht";
 import { DateField } from "./DateField";
 import { OptionCombobox } from "./OptionCombobox";
-import type { IssueCheckPayload, ReceiveCheckPayload } from "../providers/checksApi";
+import type { IssueCheckPayload, ReceiveCheckPayload, DraweeBank } from "../providers/checksApi";
+import { fetchDraweeBanks } from "../providers/checksApi";
 
 type Props = {
   open: boolean;
@@ -42,6 +42,29 @@ export function NewCheckDialog({ open, onOpenChange, accounts, isSaving, onIssue
   const [issue, setIssue] = useState(emptyIssue);
   const [receive, setReceive] = useState(emptyReceive);
   const [touched, setTouched] = useState(false);
+  // The drawee bank is a registry lookup, not free text: three spellings of one bank
+  // break the duplicate-number check that is keyed on drawee + number.
+  const [banks, setBanks] = useState<DraweeBank[] | null>(null);
+  const [banksError, setBanksError] = useState(false);
+  const bankOptions = (banks ?? []).map((bank) => ({ value: bank.name, label: bank.name }));
+
+  useEffect(() => {
+    if (!open || banks) return;
+    let cancelled = false;
+    void fetchDraweeBanks()
+      .then((rows) => {
+        if (!cancelled) setBanks(rows);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBanks([]);
+          setBanksError(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, banks]);
 
   function handleOpenChange(next: boolean) {
     if (!next) {
@@ -247,11 +270,14 @@ export function NewCheckDialog({ open, onOpenChange, accounts, isSaving, onIssue
                     <Label htmlFor="receive-bank">
                       Drawee bank <span className="text-destructive">*</span>
                     </Label>
-                    <Input
-                      id="receive-bank"
+                    <OptionCombobox
                       value={receive.draweeBank}
-                      maxLength={120}
-                      onChange={(event) => setReceive({ ...receive, draweeBank: event.target.value })}
+                      onChange={(value) => setReceive({ ...receive, draweeBank: value })}
+                      placeholder="Choose the bank that issued it"
+                      searchPlaceholder="Search banks"
+                      emptyLabel={banksError ? "The bank list could not be read." : "No bank matches."}
+                      options={bankOptions}
+                      allowCustom
                     />
                     {touched && receiveErrors.draweeBank && (
                       <p className="text-xs text-destructive">{receiveErrors.draweeBank}</p>

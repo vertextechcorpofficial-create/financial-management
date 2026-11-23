@@ -77,7 +77,8 @@ export function RegisterAccountDialog({
   const bankOptions = options.banks.map((bank) => ({ value: bank.name, label: bank.name }));
   const glOptions = options.cashAccounts.map((account) => ({
     value: String(account.coaId),
-    label: `${account.glCode} · ${account.accountTitle}`,
+    label: account.accountTitle,
+    description: account.glCode,
     searchText: `${account.glCode} ${account.accountTitle}`,
   }));
 

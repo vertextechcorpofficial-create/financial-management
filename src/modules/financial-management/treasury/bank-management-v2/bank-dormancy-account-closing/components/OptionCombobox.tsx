@@ -91,7 +91,7 @@ export function OptionCombobox({
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+      <PopoverContent className="w-[340px] max-w-[calc(100vw-2rem)] p-0" align="start">
         <Command>
                     <CommandInput
             placeholder={searchPlaceholder}

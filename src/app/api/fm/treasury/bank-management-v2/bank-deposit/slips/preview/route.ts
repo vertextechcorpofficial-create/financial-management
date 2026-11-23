@@ -11,7 +11,7 @@ const PreviewSchema = z.object({
   cashTotal: z.coerce.number().min(0).max(999_999_999_999),
 });
 
-/** E07 preview only — resolves the cash leg against `bank_gl_mapping`, writes nothing. */
+/** E07 preview: resolve the cash leg against `bank_gl_mapping` and write nothing. */
 export async function POST(request: Request) {
   let payload: unknown;
   try {

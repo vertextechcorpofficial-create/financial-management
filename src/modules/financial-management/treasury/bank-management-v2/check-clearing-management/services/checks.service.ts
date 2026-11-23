@@ -276,12 +276,16 @@ export type ReceiveCheckInput = {
   remarks: string | null;
 };
 
+export type ReplacementCheckType = "PDC" | "DATED" | "MANAGERS_CHECK";
+
 export type ReplacementInput = {
   checkDate: string;
   amount: number;
-  checkNo?: string | null;
+  checkNo: string;
   /** Received replacements only: the new check's drawee bank. Falls back to the old check's. */
   draweeBank?: string | null;
+  /** Classification of the replacement itself, so a dated check cannot be recorded as post-dated. */
+  checkType: ReplacementCheckType;
 };
 
 export type CheckActionInput = {
@@ -367,7 +371,19 @@ export function describeCheckError(error: unknown, context: string): { status: n
   }
   console.error(context, error);
   if (error instanceof DirectusError) {
-    return { status: 502, body: { success: false, error: "The banking instance rejected the request." } };
+    // The path is the only thing that makes a 502 diagnosable, and it names no customer data.
+    const where = error.message.match(/on (\S+)/)?.[1];
+    // The platform's own sentence names the column it refused; without it a 502 is a dead end.
+    const why = error.body.replace(/\s+/g, " ").slice(0, 200);
+    return {
+      status: 502,
+      body: {
+        success: false,
+        error: where
+          ? `The banking instance rejected the request (${where}): ${why}`
+          : `The banking instance rejected the request: ${why}`,
+      },
+    };
   }
   return { status: 500, body: { success: false, error: "The request could not be completed." } };
 }
@@ -1180,6 +1196,13 @@ export async function applyCheckAction(
   }
 
   const providedNo = asString(replacement.checkNo);
+  const replacementDrawee = asString(replacement.draweeBank) || asString(row.drawee_bank);
+  if (direction === "RECEIVED" && !replacementDrawee) {
+    throw new ValidationError("Choose the drawee bank on the replacement check.", "replacement.draweeBank");
+  }
+  if (!replacement.checkType) {
+    throw new ValidationError("Choose what kind of check the replacement is.", "replacement.checkType");
+  }
   let replacementNo: string;
   if (providedNo) {
     const { rows: duplicates } = await listItems<{ id: number }>(CHECKS, {
@@ -1202,7 +1225,7 @@ export async function applyCheckAction(
     throw new ValidationError("Give the replacement check number.", "replacement.checkNo");
   }
 
-  const draweeBank = direction === "RECEIVED" ? asString(replacement.draweeBank) || row.drawee_bank : row.drawee_bank;
+  const draweeBank = direction === "RECEIVED" ? replacementDrawee : row.drawee_bank;
   const created = await createItem<{ id: number }>(CHECKS, {
     bank_account_id: bankAccountId,
     direction,
@@ -1213,7 +1236,9 @@ export async function applyCheckAction(
     payee: row.payee,
     payor: row.payor,
     status: direction === "ISSUED" ? "PENDING" : "RECEIVED",
-    is_pdc: replacement.checkDate > today ? 1 : 0,
+    // The classification wins over the date: a manager's check drawn today is not a PDC,
+    // and a post-dated replacement keeps `is_pdc` even when the date has since arrived.
+    is_pdc: replacement.checkType === "PDC" ? 1 : 0,
     // Spec 4.8 / P82: a replacement keeps the old check's payable account.
     control_key: direction === "ISSUED" ? payableKeyFor(row) : null,
     source_type: "REPLACEMENT",
@@ -1472,4 +1497,19 @@ export async function createCheckbookSeries(input: CreateCheckbookInput): Promis
 
   const labels = await accountLabels([input.bankAccountId]);
   return { series: toSeries(created, labels) };
+}
+
+/**
+ * The drawee banks a received check can be drawn on: the shared `bank_names` registry,
+ * so the desk picks one spelling instead of typing "UnionBank", "Union Bank" and "UB".
+ */
+export async function listDraweeBanks(): Promise<Array<{ id: number; name: string }>> {
+  const { rows } = await listItems<{ id: number; bank_name: string | null }>("bank_names", {
+    fields: ["id", "bank_name"],
+    sort: "bank_name",
+    limit: 400,
+  });
+  return rows
+    .map((row) => ({ id: Number(row.id), name: asString(row.bank_name) }))
+    .filter((row) => row.name.length > 0);
 }

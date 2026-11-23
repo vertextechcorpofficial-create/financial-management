@@ -93,15 +93,43 @@ export type CheckActionPayload = {
   releaseDate?: string;
   depositDate?: string;
   clearedDate?: string;
-  replacement?: { checkDate: string; amount: number; checkNo?: string; draweeBank?: string };
+  replacement?: {
+    checkDate: string;
+    amount: number;
+    checkNo: string;
+    draweeBank?: string;
+    checkType: "PDC" | "DATED" | "MANAGERS_CHECK";
+  };
 };
 
+export type DraweeBank = { id: number; name: string };
+
+/** The shared bank registry, so a received check picks one spelling of its drawee bank. */
+export async function fetchDraweeBanks(): Promise<DraweeBank[]> {
+  const response = await fetch(
+    "/api/fm/treasury/bank-management-v2/check-clearing-management/banks",
+    { cache: "no-store" },
+  );
+  const payload = await unwrap<{ banks: DraweeBank[] }>(response);
+  return payload.banks;
+}
+
 function postJson<T>(url: string, payload: unknown): Promise<T> {
+  // A wedged write used to leave the dialog spinning for minutes with no way out, so the
+  // request is bounded and says so. The banking instance answers a check write in seconds.
   return fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-  }).then((response) => unwrap<T>(response));
+    signal: AbortSignal.timeout(60_000),
+  })
+    .then((response) => unwrap<T>(response))
+    .catch((error: unknown) => {
+      if (error instanceof DOMException && error.name === "TimeoutError") {
+        throw new Error("The banking instance did not answer within a minute. Nothing was reported as saved — check the register before trying again.");
+      }
+      throw error;
+    });
 }
 
 export function issueCheck(payload: IssueCheckPayload): Promise<CheckMutationResult> {

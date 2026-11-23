@@ -60,10 +60,8 @@ export function allowedActions(check: BankCheck): { action: CheckAction; label: 
     actions.push({ action: "RETURN", label: "Record return" });
     if (direction === "ISSUED") actions.push({ action: "CANCEL", label: "Cancel check", destructive: true });
   }
-  if (status === "CLEARED" && direction === "RECEIVED") {
-    // Row 12: only a received check that cleared can be returned from Cleared.
-    actions.push({ action: "RETURN", label: "Record return" });
-  }
+  // Cleared is terminal: the bank has kept the money, so nothing may move it again.
+  // The FSD's row 12 allowed a return after clearing; the third-QA review overruled it.
   if ((status === "RETURNED" || status === "CANCELLED") && !check.replacedById) {
     actions.push({ action: "REPLACE", label: "Replace check" });
   }

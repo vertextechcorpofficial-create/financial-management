@@ -137,9 +137,32 @@ export class PostingBlockedError extends Error {
 }
 
 async function nextJeNo(): Promise<string> {
-  const { rows } = await listItems<{ id: number }>(ENTRIES, { fields: ["id"], sort: "-id", limit: 1 });
-  const next = Number(rows[0]?.id ?? 0) + 1;
-  return `JE-${String(next).padStart(7, "0")}`;
+  const { rows } = await listItems<{ je_no: string }>(ENTRIES, { fields: ["je_no"], sort: "-id", limit: 200 });
+  // Numbers come from the highest je_no in use, never from a row count: deleting an entry
+  // must not hand the same number to the next posting.
+  const highest = rows.reduce((max, row) => {
+    const digits = Number((row.je_no ?? "").match(/(\d+)$/)?.[1] ?? 0);
+    return digits > max ? digits : max;
+  }, 0);
+  return `JE-${String(highest + 1).padStart(7, "0")}`;
+}
+
+/**
+ * The ledger keeps one entry per posting event, enforced by a unique key on
+ * (event_code, source_ref). A retried action - a return re-submitted after a timeout,
+ * a double click - must land on the entry that already exists instead of failing with
+ * "the value has to be unique", which is what the platform reports for that key.
+ */
+async function existingEntry(resolved: { eventCode: string; sourceRef: string | null }): Promise<
+  { id: number; je_no: string; created_at: string } | null
+> {
+  if (!resolved.sourceRef) return null;
+  const { rows } = await listItems<{ id: number; je_no: string; created_at: string }>(ENTRIES, {
+    fields: ["id", "je_no", "created_at"],
+    filter: { event_code: { _eq: resolved.eventCode }, source_ref: { _eq: resolved.sourceRef } },
+    limit: 1,
+  });
+  return rows[0] ?? null;
 }
 
 export async function postJournalEntry(
@@ -157,6 +180,20 @@ export async function postJournalEntry(
   }
   if (resolved.totalDebit <= 0 || resolved.totalDebit !== resolved.totalCredit) {
     throw new PostingBlockedError("Journal entry does not balance.");
+  }
+
+  const already = await existingEntry(resolved);
+  if (already) {
+    // The event posted on an earlier attempt and the database refuses a second header
+    // for it. Reuse that entry so the caller can finish the remaining writes.
+    return {
+      ...resolved,
+      id: already.id,
+      jeNo: already.je_no,
+      status: "POSTED",
+      reversesJeNo,
+      createdAt: already.created_at,
+    };
   }
 
   const jeNo = await nextJeNo();
