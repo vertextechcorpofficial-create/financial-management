@@ -25,6 +25,7 @@ import { AssetDetails } from "./components/AssetDetails";
 import { EventDialog } from "./components/EventDialog";
 import { PoliciesPanel } from "./components/PoliciesPanel";
 import { ImportDialog } from "./components/ImportDialog";
+import { newLedgerId as duplicateId } from "./utils/id";
 import { LedgerTable } from "./components/LedgerTable";
 import { PortfolioToolbar } from "./components/PortfolioToolbar";
 import { MetricGrid, ValuationControls } from "./components/ReportPrimitives";
@@ -76,6 +77,9 @@ export function PropertyLedgerModule({ view = "dashboard" }: { view?: LedgerPage
   const sum = (key: keyof Pick<Snapshot, "book" | "market" | "accumulated" | "cost" | "carrying">) => values.reduce((s, item) => s + item.value[key], 0);
   const held = values.filter(item => item.value.status === "Held");
   const flags = reviewFlags(filtered, month);
+  const lockMonth = portfolio.policies.lockThrough;
+  const today = new Date().toISOString().slice(0, 7);
+  const staleLock = !!lockMonth && monthIndex(today) - monthIndex(lockMonth) > 2;
   const selected = portfolio.assets.find(a => a.id === selectedId);
   const isSchedule = ["building-depreciation", "land-appreciation", "combined"].includes(view);
   const registerKind = view === "land-register" ? "land" : "building";
@@ -98,13 +102,28 @@ export function PropertyLedgerModule({ view = "dashboard" }: { view?: LedgerPage
     setExporting(true);
     try {
       const exported = asset ? { ...filtered!, assets: [asset] } : filtered!;
-      const report = asset ? schedule(assetSeries(asset, portfolio!.policies, through), granularity, portfolio!.policies.fyStart) : isSchedule ? rows : schedule(portfolioSeries(exported, through), "annual", portfolio!.policies.fyStart);
-      if (format === "xlsx") await exportExcel(exported, month, report); else await exportPdf(exported, month, report, asset);
+      const report = asset ? schedule(assetSeries(asset, portfolio!.policies, through), "annual", portfolio!.policies.fyStart) : isSchedule ? rows : schedule(portfolioSeries(exported, through), "annual", portfolio!.policies.fyStart);
+      if (format === "xlsx") {
+        const fields = scheduleFields();
+        await exportExcel(exported, month, report, isSchedule ? {
+          headers: fields.map(c => c.title),
+          body: [...rows.map(row => fields.map(c => scheduleValue(row, c.id))), ...(rows.length ? [fields.map(c => String(footer[c.id] ?? ""))] : [])],
+        } : undefined);
+      } else await exportPdf(exported, month, report, asset);
     } catch { toast.error("Export failed. Please retry."); }
     finally { setExporting(false); }
   }
   const title = LEDGER_PAGES.find(p => p.slug === view)!.heading;
-  const valueColumn = (key: keyof Snapshot | "total", heading: string, negative = false): ColumnDef<ScheduleRow> => ({ id: key, accessorFn: row => row[key] as number, header: heading, cell: cell => money((negative ? -1 : 1) * cell.getValue<number>()) });
+  function scheduleValue(row: ScheduleRow, key: string) {
+    if (kind === "all" && ((row.assetKind === "land" && ["depreciation", "impairment", "accumulated", "book"].includes(key)) ||
+      (row.assetKind === "building" && ["market", "appreciation"].includes(key)))) return undefined;
+    const value = row[key as keyof ScheduleRow];
+    return typeof value === "number" && ["depreciation", "impairment", "buildingDisposals", "landDisposals"].includes(key) ? -value : value;
+  }
+  const valueColumn = (key: keyof Snapshot | "total", heading: string, negative = false): ColumnDef<ScheduleRow> => ({ id: key, accessorFn: row => scheduleValue(row, key), header: heading, cell: cell => {
+    const value = cell.getValue<number | undefined>();
+    return value === undefined ? "" : money(negative ? -Math.abs(value) : value);
+  } });
   const scheduleColumns: ColumnDef<ScheduleRow>[] = [{ accessorKey: "month", header: "Period" }, ...(breakdown === "asset" ? [{ accessorKey: "assetName", header: "Asset" }] : []), ...(breakdown === "totals" ? [{ accessorKey: "count", header: kind === "building" ? "Buildings held" : kind === "land" ? "Parcels held" : "Assets held" }] : [])];
   if (kind === "building") scheduleColumns.push(valueColumn("openingBook", "Opening book value"), valueColumn("additions", "Additions"), valueColumn("depreciation", "Depreciation", true), valueColumn("impairment", "Impairment", true), ...(portfolio.policies.buildingModel === "reval" ? [valueColumn("revaluation", "Revaluation")] : []), valueColumn("buildingDisposals", "Disposals (book value)", true), valueColumn("book", "Closing book value"), valueColumn("accumulated", "Accumulated depreciation"), ...(portfolio.policies.buildingModel === "reval" ? [valueColumn("surplus", "Revaluation surplus")] : []), valueColumn("proceeds", "Sale proceeds"), valueColumn("gain", "Gain / loss on sale"), valueColumn("repairs", "Repairs expensed"));
   else if (kind === "land") scheduleColumns.push(valueColumn("openingMarket", "Opening market value"), valueColumn("additions", "Additions (cost)"), valueColumn("appreciation", "Appreciation"), valueColumn("landDisposals", "Disposals (value)", true), valueColumn("market", "Closing market value"), valueColumn("landCost", "Cost basis"), valueColumn("carrying", portfolio.policies.landModel === "reval" ? "Carrying amount (revalued)" : "Carrying amount (cost)"), ...(portfolio.policies.landModel === "reval" ? [valueColumn("surplus", "Revaluation surplus / deficit")] : []), valueColumn("proceeds", "Sale proceeds"), valueColumn("gain", "Gain / loss on sale"));
@@ -116,9 +135,12 @@ export function PropertyLedgerModule({ view = "dashboard" }: { view?: LedgerPage
     footer.count = closing.count; footer.openingBook = money(opening.openingBook); footer.openingMarket = money(opening.openingMarket);
     for (const key of flowKeys) footer[key] = money(totals.reduce((s, row) => s + row[key], 0) * (["depreciation", "impairment", "buildingDisposals", "landDisposals"].includes(key) ? -1 : 1));
   }
+  function scheduleFields() {
+    return scheduleColumns.map(column => ({ id: "id" in column && column.id ? column.id : "accessorKey" in column ? String(column.accessorKey) : "", title: String(column.header) }));
+  }
   async function copySchedule() {
-    const keys = scheduleColumns.map(column => ({ id: "id" in column && column.id ? column.id : "accessorKey" in column ? String(column.accessorKey) : "", title: String(column.header) }));
-    try { await copyText([keys.map(c => csv(c.title)).join(","), ...rows.map(row => keys.map(c => csv(row[c.id as keyof ScheduleRow])).join(","))].join("\r\n")); toast.success("Schedule copied as CSV"); } catch { toast.error("Clipboard unavailable"); }
+    const keys = scheduleFields();
+    try { await copyText([keys.map(c => csv(c.title)).join(","), ...rows.map(row => keys.map(c => csv(scheduleValue(row, c.id))).join(",")), ...(rows.length ? [keys.map(c => csv(footer[c.id])).join(",")] : [])].join("\r\n")); toast.success("Schedule copied as CSV"); } catch { toast.error("Clipboard unavailable"); }
   }
   const nameColumn: ColumnDef<Asset> = { accessorKey: "name", header: registerKind === "land" ? "Land" : "Building", cell: ({ row }) => <div className="min-w-40"><button className="text-left font-medium text-primary hover:underline" onClick={() => setSelectedId(row.original.id)}>{row.original.name}</button><p className="mt-1 text-xs text-muted-foreground">{[entity ? "" : entityName(row.original.entityId), row.original.tags.join(", ")].filter(Boolean).join(" · ")}</p></div> };
   const statusColumn: ColumnDef<Asset> = { id: "status", accessorFn: asset => snapshot(asset, portfolio.policies, month).status, header: "Status", cell: cell => <Badge variant="outline">{cell.getValue<string>()}</Badge> };
@@ -137,7 +159,10 @@ export function PropertyLedgerModule({ view = "dashboard" }: { view?: LedgerPage
     </header>
 
     {view === "dashboard" && <section className="space-y-4" aria-label="Portfolio overview" data-testid="dashboard-sections">
-      <Card data-section="attention"><CardHeader className="py-4"><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="text-sm">Needs attention{flags.length ? ` · ${flags.length}` : ""}</CardTitle><CardDescription>As of {month}</CardDescription></div></CardHeader>{flags.length > 0 && <CardContent className="pt-0"><div className="space-y-2">{flags.slice(0, 8).map((flag, index) => <button key={`${flag.asset.id}:${index}`} className="flex w-full flex-wrap items-center gap-3 rounded-md border p-2 text-left text-sm hover:bg-accent" onClick={() => setSelectedId(flag.asset.id)}><Badge variant="outline">{flag.level}</Badge><span><b>{flag.asset.name}</b> — {flag.note}</span></button>)}</div></CardContent>}</Card>
+      <Card data-section="attention"><CardHeader className="py-4"><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="text-sm">Needs attention</CardTitle><CardDescription>As of {month}</CardDescription></div></CardHeader>{(flags.length > 0 || staleLock) && <CardContent className="space-y-2 pt-0">
+        {[...flags.filter(f => f.level !== "Missing info"), ...(staleLock ? [{ asset: undefined, level: "Review", note: `Books are locked only through ${lockMonth}` }] : []), ...flags.filter(f => f.level === "Missing info")].slice(0, 8).map((flag, index) => flag.asset ? <button key={index} className="flex w-full flex-wrap items-center gap-3 rounded-md border p-2 text-left text-sm hover:bg-accent" onClick={() => setSelectedId(flag.asset!.id)}><Badge variant="outline">{flag.level}</Badge><span><b>{flag.asset.name}</b> — {flag.note}</span></button> : <p key={index} className="rounded-md border p-2 text-sm"><Badge variant="outline">Review</Badge> {flag.note}</p>)}
+        {flags.length + Number(staleLock) > 8 && <p className="text-sm text-muted-foreground">and {flags.length + Number(staleLock) - 8} more</p>}
+      </CardContent>}</Card>
       <MetricGrid metrics={[{ label: "Building book value", value: money(sum("book")), hint: `As of ${month} · ${held.filter(a => a.asset.kind === "building").length} buildings held` }, { label: "Accumulated depreciation", value: money(sum("accumulated")), hint: `${compact(fiscalDepreciation(filtered, month))} depreciation in the fiscal year` }, { label: "Land value", value: money(sum("market")), hint: "Market projection, separate from carrying amount" }, { label: "Total value", value: money(sum("book") + sum("market")), hint: `${held.length} assets held · ${sum("cost") ? percent((sum("book") + sum("market") - sum("cost")) / sum("cost") * 100) : "0%"} vs. cost` }]} />
       {!portfolio.assets.length && <Card><CardHeader><CardTitle>Register your land and buildings</CardTitle><CardDescription>Register land parcels and buildings separately, then link buildings to the land they stand on.</CardDescription></CardHeader><CardContent className="flex flex-wrap gap-2"><Button onClick={() => register("building")}>Register building</Button><Button variant="outline" onClick={() => register("land")}>Register land</Button></CardContent></Card>}
       <Card data-section="value-chart"><CardHeader><CardTitle className="text-sm">Value over time</CardTitle></CardHeader><CardContent><div className="h-72" role="img" aria-label="Portfolio building book value, land value and total value by month" data-testid="property-value-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={chartData}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" /><XAxis dataKey="month" minTickGap={45} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} tickFormatter={value => value.slice(0, 4)} /><YAxis width={60} tickFormatter={n => new Intl.NumberFormat("en", { notation: "compact" }).format(n)} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} /><Tooltip formatter={n => money(Number(n))} contentStyle={{ backgroundColor: "hsl(var(--popover))", borderColor: "hsl(var(--border))", borderRadius: 8 }} /><Legend /><ReferenceLine x={month} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" /><Line dataKey="book" name="Building book value" stroke="hsl(var(--primary))" dot={false} strokeWidth={2} isAnimationActive={false} /><Line dataKey="market" name="Land value" stroke="hsl(var(--warning))" dot={false} strokeWidth={2} isAnimationActive={false} /><Line dataKey="total" name="Total" stroke="hsl(var(--success))" dot={false} strokeWidth={2} isAnimationActive={false} /></LineChart></ResponsiveContainer></div><ValuationControls earliest={earliest} /></CardContent></Card>
@@ -153,14 +178,20 @@ export function PropertyLedgerModule({ view = "dashboard" }: { view?: LedgerPage
 
     {isSchedule && <section className="space-y-4" aria-label={title}>
       <Card><CardContent className="flex flex-wrap items-end gap-5 pt-5"><div><p className="mb-2 text-sm font-medium">Period</p><div role="group" aria-label="Period" className="flex gap-1">{(["monthly", "quarterly", "annual"] as const).map(g => <Button key={g} size="sm" variant={granularity === g ? "default" : "outline"} aria-pressed={granularity === g} onClick={() => setGranularity(g)}>{g === "annual" ? "Annually" : g === "monthly" ? "Monthly" : "Quarterly"}</Button>)}</div></div><Field label="Asset"><select className={`${selectClass} max-w-60`} value={scheduleAsset} onChange={e => setScheduleAsset(e.target.value)}><option value="">All {kind === "all" ? "assets" : kind === "land" ? "land" : "buildings"}</option>{filtered.assets.filter(a => kind === "all" || a.kind === kind).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field><Field label="From"><select className={`${selectClass} w-24`} value={firstYear} onChange={e => { setFromYear(Number(e.target.value)); if (Number(e.target.value) > lastYear) setToYear(Number(e.target.value)); }}>{years.map(y => <option key={y} value={y}>FY {y}</option>)}</select></Field><Field label="To"><select className={`${selectClass} w-24`} value={lastYear} onChange={e => { setToYear(Number(e.target.value)); if (Number(e.target.value) < firstYear) setFromYear(Number(e.target.value)); }}>{years.map(y => <option key={y} value={y}>FY {y}</option>)}</select></Field><div><p className="mb-2 text-sm font-medium">Breakdown</p><div role="group" aria-label="Breakdown" className="flex gap-1"><Button size="sm" variant={breakdown === "totals" ? "default" : "outline"} aria-pressed={breakdown === "totals"} onClick={() => setBreakdown("totals")}>Totals</Button><Button size="sm" variant={breakdown === "asset" ? "default" : "outline"} aria-pressed={breakdown === "asset"} onClick={() => setBreakdown("asset")}>By asset</Button></div></div></CardContent></Card>
-      <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="text-sm">{title} · {granularity === "annual" ? "Annual" : granularity === "monthly" ? "Monthly" : "Quarterly"} · {scheduleAsset ? filtered.assets.find(a => a.id === scheduleAsset)?.name : `All ${kind === "all" ? "assets" : kind === "land" ? "land" : "buildings"}`}</CardTitle><CardDescription>{rows.length} rows · {from} – {to}</CardDescription></div></CardHeader><CardContent><LedgerTable key={`${view}:${granularity}:${breakdown}:${scheduleAsset}:${entity}:${tag}:${firstYear}:${lastYear}`} rows={rows} columns={scheduleColumns} label={title} footer={footer} /><p className="mt-4 text-xs leading-relaxed text-muted-foreground">Flows (additions, depreciation, appreciation and sales) are period totals. Balances are the period’s last month. Opening values are the preceding month’s close. Depreciation starts in each component’s in-service month. Estimates only — not an appraisal or tax advice; no general-ledger entries are posted.</p></CardContent></Card>
+      <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="text-sm">{title} · {granularity === "annual" ? "Annual" : granularity === "monthly" ? "Monthly" : "Quarterly"} · {scheduleAsset ? filtered.assets.find(a => a.id === scheduleAsset)?.name : `All ${kind === "all" ? "assets" : kind === "land" ? "land" : "buildings"}`}</CardTitle><CardDescription>{rows.length} rows · {from} – {to}</CardDescription></div></CardHeader><CardContent><LedgerTable key={`${view}:${granularity}:${breakdown}:${scheduleAsset}:${entity}:${tag}:${firstYear}:${lastYear}`} rows={breakdown === "asset" ? rows.slice(0, 2000) : rows} columns={scheduleColumns} label={title} footer={footer} />{breakdown === "asset" && rows.length > 2000 && <p className="text-xs text-muted-foreground">Showing the first 2,000 rows. CSV and Excel include all {rows.length} rows.</p>}<p className="mt-4 text-xs leading-relaxed text-muted-foreground">Flows (additions, depreciation, appreciation and sales) are period totals. Balances are the period’s last month. Opening values are the preceding month’s close. Depreciation starts in each component’s in-service month. Estimates only — not an appraisal or tax advice; no general-ledger entries are posted.</p></CardContent></Card>
     </section>}
     {view === "accounting-policies" && <PoliciesPanel key={state.revision} portfolio={portfolio} canManage={state.canManage} saving={saving} onSave={save} />}
     {view === "change-history" && <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="text-sm">{historyRows.length} changes</CardTitle><CardDescription>Latest 400 revisions · all revisions retained in storage</CardDescription></div></CardHeader><CardContent><LedgerTable key={historyQuery} rows={historyRows} columns={historyColumns} label="Property ledger change history" /></CardContent></Card>}
-    {selected && <AssetDetails asset={selected} portfolio={portfolio} month={month} saving={saving} onClose={() => setSelectedId("")} onEdit={() => setEditing(selected)} onEvent={() => setEventAsset(selected)} onExport={() => void download("pdf", selected)} onSave={saveAsset} onRemove={() => void removeAsset(selected)} onRegisterBuilding={() => setEditing({ ...newAsset("building", selected.entityId), landId: selected.id, location: selected.location })} />}
+    {selected && <AssetDetails key={selected.id} asset={selected} portfolio={portfolio} month={month} saving={saving} onClose={() => setSelectedId("")} onEdit={() => setEditing(selected)} onEvent={() => setEventAsset(selected)} onExport={() => void download("pdf", selected)} onSave={saveAsset} onSavePortfolio={save} onRemove={() => void removeAsset(selected)} onDuplicate={() => {
+      const partIds = new Map(selected.parts.map(p => [p.id, duplicateId()]));
+      setEditing({ ...selected, id: duplicateId(), version: 1, name: `${selected.name.slice(0, 113)} (copy)`, sale: null,
+        parts: selected.parts.map(p => ({ ...p, id: partIds.get(p.id)! })),
+        events: selected.events.map(e => ({ ...e, id: duplicateId(), improvementId: e.improvementId ? partIds.get(e.improvementId) : undefined })),
+      });
+    }} onRegisterBuilding={() => setEditing({ ...newAsset("building", selected.entityId), landId: selected.id, location: selected.location })} />}
     {editing && <AssetDialog key={editing.id} initial={editing} portfolio={portfolio} saving={saving} onClose={() => setEditing(null)} onSave={saveAsset} />}
     {eventAsset && <EventDialog key={eventAsset.id} asset={eventAsset} policies={portfolio.policies} saving={saving} onClose={() => setEventAsset(null)} onSave={saveAsset} />}
-    {importing && <ImportDialog entityId={entity || portfolio.entities[0].id} saving={saving} onClose={() => setImporting(false)} onSave={assets => save({ ...portfolio, assets: [...portfolio.assets, ...assets] })} />}
+    {importing && <ImportDialog kind={registerKind} entityId={entity || portfolio.entities[0].id} existing={portfolio.assets} lockThrough={portfolio.policies.lockThrough} saving={saving} onClose={() => setImporting(false)} onSave={assets => save({ ...portfolio, assets: [...portfolio.assets, ...assets] })} />}
     {confirmation}
   </div>;
 }

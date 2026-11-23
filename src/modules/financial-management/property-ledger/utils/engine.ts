@@ -28,7 +28,7 @@ function blank(month: string): Snapshot {
   return { month, cost: 0, book: 0, market: 0, carrying: 0, depreciation: 0, accumulated: 0, repairs: 0, impairment: 0, revaluation: 0, surplus: 0, revaluationLoss: 0, proceeds: 0, gain: 0, additions: 0, disposals: 0, appreciation: 0, count: 0, openingBook: 0, openingMarket: 0, landCost: 0, buildingDisposals: 0, landDisposals: 0, status: "Not acquired" };
 }
 /** Events take effect at the start of a month; disposal uses the prior month close. Projections are not GL postings. */
-export function assetSeries(asset: Asset, policies: Policies, through: string): Snapshot[] {
+export function assetSeries(asset: Asset, policies: Policies, through: string, partBalances?: Map<string, { book: number; accumulated: number }>): Snapshot[] {
   const start = monthIndex(asset.acquired), end = monthIndex(through);
   if (end < start) return [];
   const sale = asset.sale ? monthIndex(asset.sale.date) : Infinity;
@@ -46,6 +46,8 @@ export function assetSeries(asset: Asset, policies: Policies, through: string): 
     if (m >= sale) {
       if (m === sale) {
         const opening = asset.kind === "land" ? landCarry : (m === start ? asset.parts.filter(p => p.date === asset.acquired).reduce((s, p) => s + p.cost, 0) : previousBook);
+        // Recognize both movements when there is no prior held month.
+        if (m === start) row.additions = opening;
         row.proceeds = asset.sale!.price; row.gain = row.proceeds - opening; row.disposals = opening;
         if (asset.kind === "land") row.landDisposals = previousMarket;
         else row.buildingDisposals = opening;
@@ -67,7 +69,7 @@ export function assetSeries(asset: Asset, policies: Policies, through: string): 
       const active = parts.filter(p => p.start <= m);
       const events = asset.events.filter(e => monthIndex(e.date) === m).sort((a, b) => Number(b.kind === "revaluation") - Number(a.kind === "revaluation"));
       for (const event of events) {
-        if (event.kind === "repair") { row.repairs += event.amount; continue; }
+        if (event.kind === "repair") { if (!event.improvementId) row.repairs += event.amount; continue; }
         if (event.kind === "revaluation" && policies.buildingModel !== "reval") continue;
         const total = active.reduce((s, p) => s + p.book, 0);
         if (!total) continue;
@@ -92,6 +94,7 @@ export function assetSeries(asset: Asset, policies: Policies, through: string): 
       for (const p of active) {
         const expense = Math.max(0, Math.min(p.schedule[m - p.start] ?? 0, p.book - p.floor));
         p.book -= expense; row.depreciation += expense;
+        if (partBalances) partBalances.set(p.id, { book: p.book, accumulated: (partBalances.get(p.id)?.accumulated ?? 0) + expense });
       }
       accumulated += row.depreciation;
       row.cost = cost; row.book = active.reduce((s, p) => s + p.book, 0); row.carrying = row.book;
@@ -122,7 +125,8 @@ export function schedule(rows: Snapshot[], granularity: "monthly" | "quarterly" 
   for (const row of rows) {
     const m = monthIndex(row.month), shifted = m - fyStart + 1;
     const fy = Math.floor(shifted / 12) + (fyStart === 1 ? 0 : 1);
-    const key = granularity === "monthly" ? row.month : granularity === "annual" ? `FY ${fy}` : `FY ${fy} Q${Math.floor(((shifted % 12) + 12) % 12 / 3) + 1}`;
+    const year = fyStart === 1 ? String(fy) : `FY${fy}`;
+    const key = granularity === "monthly" ? row.month : granularity === "annual" ? year : `Q${Math.floor(((shifted % 12) + 12) % 12 / 3) + 1} ${year}`;
     const prev = grouped.get(key);
     const next = { ...row, month: key };
     if (prev) {
