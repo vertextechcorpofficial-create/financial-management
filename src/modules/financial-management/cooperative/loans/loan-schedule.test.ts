@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createLoanTermsSnapshot } from "../policies/loan-terms";
+import type { Product } from "../policies/policy-types";
 import {
   allocatePayment,
   amountToCents,
@@ -58,6 +60,26 @@ test("prices goods from invoice value plus markup", () => {
     schedule.installments.reduce((sum, row) => sum + amountToCents(row.principal), 0n),
     amountToCents("19100.00"),
   );
+});
+
+test("captures goods price, quantity, and required documents in the signed terms", () => {
+  const product: Product = {
+    id: 1, code: "AP", name: "Appliance", shortName: "Appliance", prefix: "AP", description: "", isOpen: true,
+    kind: "GOODS", items: [{ id: 2, name: "Refrigerator", price: "19100.00" }], markup: "10.000000",
+    rateMin: null, rateDefault: null, rateMax: null, methods: ["markup"], termsMonths: [6], frequencies: ["cutoff"], modes: ["otc"],
+    limitType: "NONE", savingsMultiple: null, fixedCeiling: null, minimumMembershipMonths: 0, penaltyPercent: "2.000000",
+    graceDays: 10, processingFee: "50.00", documentRules: [{ documentTypeId: 3, enforcement: "BLOCK" }],
+  };
+  const docTypes = [{ id: 3, code: "VENDOR_QUOTE", name: "Vendor quotation", isActive: true }];
+  const selection = { itemId: 2, quantity: 2, term: 6, method: "markup", frequency: "cutoff", mode: "otc" } as const;
+  const snapshot = createLoanTermsSnapshot(product, docTypes, 7, selection);
+  product.items[0].price = "19900.00";
+  product.documentRules[0].enforcement = "WARN";
+  assert.equal(snapshot.principal, "38200.00");
+  assert.deepEqual(snapshot.item, { id: 2, name: "Refrigerator", price: "19100.00", quantity: 2 });
+  assert.equal(snapshot.documents[0].enforcement, "BLOCK");
+  assert.throws(() => createLoanTermsSnapshot(product, docTypes, 7, { ...selection, quantity: 11 }), /quantity/);
+  assert.throws(() => createLoanTermsSnapshot(product, docTypes, 7, { ...selection, itemId: undefined }), /item/);
 });
 
 test("allocates partial payments proportionally and penalties first", () => {

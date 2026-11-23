@@ -15,6 +15,7 @@ import {
 import { calculateLoanExample } from "../policies/loan-terms";
 import { isCalendarDate } from "../members/format";
 import { projectLoanLedger, type LoanLedger, type LoanMovement, type LoanSource } from "../loans/loan-activity";
+import { todayManila } from "./member-read";
 
 // Enable after the Loans release and repayment flows and the Transactions reversal flow pass posting QA.
 const loanPostingVerified: boolean = false;
@@ -22,7 +23,7 @@ const pendingLoanPosting = "Member loan balances and activity will be available 
 const loanHistoryError = "Posted loan records could not be verified. Try again or ask the Cooperative office to review the postings.";
 
 export class LoanError extends Error {
-  constructor(readonly status: number, message: string, readonly code?: string) {
+  constructor(readonly status: number, message: string, readonly code?: string, readonly fieldErrors?: Record<string, string>) {
     super(message);
   }
 }
@@ -103,7 +104,6 @@ function postedAmount(value: unknown) {
   return centsToAmount(amountToCents(amount));
 }
 
-const installmentFields = "id,loan_id,installment_no,due_date,principal,interest,total,paid_total,paid_principal,paid_interest,penalty_assessed,penalty_paid,status";
 const paymentFields = "id,loan_id,member_id,official_receipt_no,reference_no,amount,principal_amount,interest_amount,penalty_amount,channel,receipt_date,posted_at,status,journal_id,reverses_payment_id";
 const journalFields = "id,journal_no,business_date,posted_at,command_type,source_id,reverses_journal_id";
 const documentFields = "id,owner_id,document_type_id,file_name,mime_type,size_bytes,uploaded_at,uploaded_by,removed_at";
@@ -141,7 +141,7 @@ function postedLoanLedger(row: Row, stored: Row[], records: Awaited<ReturnType<t
   const releases = records.releases.get(loanId) ?? [];
   const payments = records.payments.get(loanId) ?? [];
   const releasedOn = dateText(row.released_on);
-  if (!releasedOn && !releases.length && !payments.length && ["PENDING", "APPROVED", "REJECTED"].includes(text(row.status))) return null;
+  if (!releasedOn && !releases.length && !payments.length && !stored.length && ["PENDING", "APPROVED", "REJECTED"].includes(text(row.status))) return null;
 
   const release = postingReference(releases[0]);
   if (releases.length !== 1 || releases[0].reverses_journal_id != null || release.date !== releasedOn || !stored.length) {
@@ -210,7 +210,8 @@ function postedLoanLedger(row: Row, stored: Row[], records: Awaited<ReturnType<t
     throw new LoanError(503, loanHistoryError);
   }
   const ledger = { release, installments, movements };
-  const lastPosting = movements.reduce((last, movement) => movement.date > last ? movement.date : last, release.date);
+  const lastPosting = [...movements.map(movement => movement.date), ...installments.map(item => item.penaltyAssessedOn ?? "")]
+    .reduce((last, date) => date > last ? date : last, release.date);
   const storedById = new Map(stored.map(installment => [idOf(installment.id), installment]));
   if (projectLoanLedger(ledger, lastPosting).installments.some(installment => {
     const saved = storedById.get(installment.id)!;
@@ -235,6 +236,8 @@ function parseInstallment(row: Row): LoanInstallment {
     paidPrincipal: text(row.paid_principal) || "0.00",
     paidInterest: text(row.paid_interest) || "0.00",
     penaltyAssessed: text(row.penalty_assessed) || "0.00",
+    penaltyAssessedOn: dateText(row.penalty_assessed_on),
+    accrualProcessedOn: dateText(row.accrual_processed_on),
     penaltyPaid: text(row.penalty_paid) || "0.00",
     status: ["UNPAID", "PARTIAL", "PAID"].includes(storedStatus) ? storedStatus : installmentStatus({
       no: number(row.installment_no), dueDate: dateText(row.due_date) ?? "",
@@ -284,8 +287,7 @@ function frequencyOf(value: unknown): LoanFrequency {
   return text(value).toUpperCase() === "MONTHLY" ? "MONTHLY" : "CUTOFF";
 }
 
-function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[], asOf: string) {
-  const snapshot = objectValue(row.terms_snapshot);
+function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[], asOf: string, snapshot: Row | null) {
   const totals = loanTotals(installments, asOf);
   const docs = documentStatus(snapshot, documents);
   const status = text(row.status).toUpperCase() || "PENDING";
@@ -320,7 +322,7 @@ function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[], as
     appliedOn: dateText(row.applied_on),
     approvedOn: dateText(row.approved_on),
     releasedOn: dateText(row.released_on),
-    agreementSigned: Boolean(row.agreement_signed),
+    agreementSigned: row.agreement_signed === true || row.agreement_signed === 1 || row.agreement_signed === "1",
     balance: totals.remaining,
     pastDue: totals.pastDue,
     penalties: totals.penalties,
@@ -329,18 +331,17 @@ function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[], as
     nextDueDate: totals.next?.dueDate ?? null,
     fullyPaid: status === "FULLY_PAID" || (status === "ACTIVE" && totals.fullyPaid),
     documents: docs,
-    termsSnapshot: snapshot,
   };
 }
 
-async function readLoanViews(loans: Row[], asOf: string, includeDocuments: boolean) {
+async function readLoanViews(loans: Row[], asOf: string, includeDocuments: boolean, verifyPostings = loanPostingVerified) {
   const ids = loans.map(row => idOf(row.id));
   const [installments, documents, payments] = await Promise.all([
-    readByIds("cooperative_loan_installments", "loan_id", ids, installmentFields),
+    readByIds("cooperative_loan_installments", "loan_id", ids, "*"),
     includeDocuments ? readByIds("cooperative_documents", "owner_id", ids, documentFields, { owner_type: { _eq: "LOAN" } }) : [],
-    loanPostingVerified ? readByIds("cooperative_loan_payments", "loan_id", ids, paymentFields) : [],
+    verifyPostings ? readByIds("cooperative_loan_payments", "loan_id", ids, paymentFields) : [],
   ]);
-  const records = loanPostingVerified ? await readLoanLedgerRows(ids, payments) : null;
+  const records = verifyPostings ? await readLoanLedgerRows(ids, payments) : null;
   const installmentsByLoan = groupById(installments, "loan_id");
   const documentsByLoan = groupById(documents, "owner_id");
   return loans.map(row => {
@@ -351,11 +352,48 @@ async function readLoanViews(loans: Row[], asOf: string, includeDocuments: boole
     const ledger = records && !releasedLater ? postedLoanLedger(row, stored, records) : null;
     const position = ledger ? projectLoanLedger(ledger, asOf) : null;
     const schedule = position?.installments ?? (records ? [] : stored.map(parseInstallment).sort((a, b) => a.no - b.no));
-    return { loan: mapLoan(row, schedule, files, asOf), ledger, position, installments: schedule, files, paymentRows: records?.payments.get(id) };
+    const termsSnapshot = objectValue(row.terms_snapshot);
+    return { loan: mapLoan(row, schedule, files, asOf, termsSnapshot), termsSnapshot, ledger, position, installments: schedule, files, paymentRows: records?.payments.get(id) };
   });
 }
 
 export type MemberLoanView = Awaited<ReturnType<typeof readLoanViews>>[number];
+
+async function readLoanRecord(id: number) {
+  if (!Number.isSafeInteger(id) || id <= 0) throw new LoanError(400, "Choose a valid loan.");
+  try {
+    const response = await cooperativeDirectus(`/items/cooperative_loans/${id}?fields=*`);
+    const payload = await response.json() as { data?: Row | null };
+    return payload.data ?? null;
+  } catch (error) {
+    if (error instanceof CooperativeDirectusError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export async function readLoanForChange(id: number, date: string, includeDocuments = false) {
+  const row = await readLoanRecord(id);
+  if (!row) throw new LoanError(404, "The loan is unavailable.");
+  const revision = z.number().int().nonnegative().parse(row.revision);
+  const [view] = await readLoanViews([row], date, includeDocuments, true);
+  return { ...view, revision };
+}
+
+export async function readLoanAssessmentRecords(memberId: number, asOf: string) {
+  const loans = await readByIds("cooperative_loans", "member_id", [memberId], "*");
+  if (loans.some(row => !idOf(row.id) || idOf(row.member_id) !== memberId ||
+    !["PENDING", "APPROVED", "ACTIVE", "DEFAULTED", "FULLY_PAID", "REJECTED"].includes(text(row.status)))) {
+    throw new LoanError(503, loanHistoryError);
+  }
+  const open = loans.filter(row => ["PENDING", "APPROVED", "ACTIVE", "DEFAULTED"].includes(text(row.status)));
+  for (const row of open) postedAmount(row.principal);
+  const views = await readLoanViews(open, asOf, false, true);
+  if (views.some(({ loan, position }) =>
+    !loan.productId || (["ACTIVE", "DEFAULTED"].includes(loan.status) ? !position : Boolean(position)))) {
+    throw new LoanError(503, loanHistoryError);
+  }
+  return { loanIds: loans.map(row => idOf(row.id)).sort((a, b) => a - b), views };
+}
 
 export async function readMemberLoans(memberIds: number[], asOf: string, includeDocuments = false): Promise<LoanSource<MemberLoanView[]>> {
   if (!loanPostingVerified) return { state: "pending_rollout", message: pendingLoanPosting };
@@ -373,6 +411,8 @@ export function loanInstallmentAmount(view: MemberLoanView) {
   if (!["PENDING", "APPROVED", "REJECTED"].includes(loan.status) || !loan.agreementSigned || loan.months < 1 || loan.months > 120) return null;
   const method = loan.method === "DIMINISHING" ? "diminishing" : loan.method === "FLAT" ? "flat" : "markup";
   try {
+    const signedPayment = text(objectValue(view.termsSnapshot?.pricing)?.regularPayment);
+    if (signedPayment) return postedAmount(signedPayment);
     if (amountToCents(loan.principal) > 0n) return calculateLoanExample(loan.principal, method === "markup" ? loan.markup : loan.rate, method,
       loan.months, loan.frequency === "CUTOFF" ? "cutoff" : "monthly").regularPayment;
   } catch {
@@ -408,17 +448,26 @@ function history(loan: Row, audit: Row[]) {
   const applied = dateText(loan.applied_on);
   const approved = dateText(loan.approved_on);
   const released = dateText(loan.released_on);
-  if (applied) entries.push({ date: applied, text: "Submitted for approval", actor: null });
-  if (approved) entries.push({ date: approved, text: "Approved", actor: null });
-  if (released) entries.push({ date: released, text: "Released", actor: null });
+  if (applied && !audit.some(row => row.action === "LOAN_ENROLLED")) entries.push({ date: applied, text: "Submitted for approval", actor: null });
+  if (approved && !audit.some(row => row.action === "LOAN_APPROVED" || row.action === "LOAN_RELEASED" && released === approved)) {
+    entries.push({ date: approved, text: "Approved", actor: null });
+  }
+  if (released && !audit.some(row => row.action === "LOAN_RELEASED")) entries.push({ date: released, text: "Released", actor: null });
   for (const row of audit) {
-    const date = dateText(row.occurred_at);
+    const at = text(row.occurred_at).replace(" ", "T");
+    const time = new Date(at.endsWith("Z") ? at : at + "Z");
+    const date = row.action === "LOAN_ENROLLED" ? applied ?? dateText(row.occurred_at)
+      : row.action === "LOAN_APPROVED" ? approved
+        : row.action === "LOAN_RELEASED" ? released
+          : Number.isNaN(time.valueOf()) ? null : todayManila(time);
     const action = text(row.action).replaceAll("_", " ").toLowerCase();
     if (!date || !action) continue;
     entries.push({
       date,
-      text: action.replace(/^./, character => character.toUpperCase()),
-      actor: row.actor_user_id !== null && row.actor_user_id !== undefined ? `User ${number(row.actor_user_id)}` : null,
+      text: row.action === "LOAN_ENROLLED" ? "Submitted for approval" : [
+        action.replace(/^./, character => character.toUpperCase()), text(row.reason),
+      ].filter(Boolean).join(" · "),
+      actor: text(row.actor_name) || (idOf(row.actor_user_id) ? `User ${idOf(row.actor_user_id)}` : null),
     });
   }
   return entries.sort((a, b) => a.date.localeCompare(b.date));
@@ -501,31 +550,27 @@ export async function getLoanDetail(id: number, memberId?: number) {
     if (!row || idOf(row.member_id) !== memberId || idOf(row.id) !== id) return null;
     if (!loanPostingVerified) throw new LoanError(503, pendingLoanPosting, "PENDING_ROLLOUT");
   } else {
-    try {
-      const response = await cooperativeDirectus(`/items/cooperative_loans/${id}?fields=*`);
-      const payload = await response.json() as { data?: Row | null };
-      row = payload.data ?? null;
-    } catch (error) {
-      if (error instanceof CooperativeDirectusError && error.status === 404) return null;
-      throw error;
-    }
+    row = await readLoanRecord(id);
   }
   if (!row) return null;
 
-  const [[view], paymentsBeforeRollout, auditRows] = await Promise.all([
+  const [[view], paymentsBeforeRollout, auditRows, releases] = await Promise.all([
     readLoanViews([row], today(), true),
     loanPostingVerified ? [] : readByIds("cooperative_loan_payments", "loan_id", [id], paymentFields),
     rows("cooperative_audit_events", new URLSearchParams({
-      fields: "id,action,occurred_at,actor_user_id,reason",
+      fields: "id,action,occurred_at,actor_user_id,actor_name,reason",
       "filter[entity_type][_eq]": "LOAN",
       "filter[entity_id][_eq]": String(id),
       limit: "-1",
       sort: "-occurred_at",
     })).catch(() => []),
+    row.released_on ? rows("cooperative_command_receipts", new URLSearchParams({
+      fields: "result", "filter[loan_id][_eq]": String(id), "filter[command_type][_eq]": "LOAN_RELEASE", limit: "2",
+    })) : [],
   ]);
 
-  const documents = view.files.map(row => ({
-    id: idOf(row.id),
+  const documents = view.files.filter(row => !row.removed_at).map(row => ({
+    id: typeof row.id === "string" ? row.id : String(idOf(row.id)),
     documentTypeId: idOf(row.document_type_id),
     fileName: text(row.file_name),
     mimeType: text(row.mime_type),
@@ -535,13 +580,21 @@ export async function getLoanDetail(id: number, memberId?: number) {
     removedAt: text(row.removed_at) || null,
   }));
   const movements = new Map(view.ledger?.movements.map(movement => [movement.id, movement]));
+  const signedPricing = z.object({
+    paymentCount: z.number().int().positive(), regularPayment: z.string(), finalPayment: z.string(),
+  }).safeParse(view.termsSnapshot?.pricing);
+  const release = releases.length === 1 ? z.object({
+    id: z.number(), status: z.literal("ACTIVE"), date: z.iso.date(), journalId: z.number(), journalNo: z.string(),
+    orNo: z.string().nullable(), payoutReference: z.string().nullable(), feeChannel: z.enum(["CASH", "BANK"]).nullable(), feeReference: z.string().nullable(),
+  }).safeParse(objectValue(releases[0].result)) : undefined;
 
   return {
-    loan: view.loan,
+    loan: { ...view.loan, termsSnapshot: view.termsSnapshot, signedPricing: signedPricing.data ?? null },
     installments: view.installments,
     payments: (view.paymentRows ?? paymentsBeforeRollout).map(row => payment(row, movements.get(idOf(row.id))))
       .sort((a, b) => (b.receiptDate ?? "").localeCompare(a.receiptDate ?? "") || b.id - a.id),
     documents,
     history: history(row, auditRows),
+    release: release?.data?.id === id ? release.data : null,
   };
 }

@@ -88,6 +88,7 @@ export function projectLoanLedger(ledger: LoanLedger, asOf: string) {
     const projected = {
       ...installment, paidTotal: centsToAmount(paid.principal + paid.interest),
       paidPrincipal: centsToAmount(paid.principal), paidInterest: centsToAmount(paid.interest), penaltyPaid: centsToAmount(paid.penalty),
+      penaltyAssessed: installment.penaltyAssessedOn && installment.penaltyAssessedOn > asOf ? "0.00" : installment.penaltyAssessed,
     };
     return { ...projected, status: installmentStatus(projected) };
   });

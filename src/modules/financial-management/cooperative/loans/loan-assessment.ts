@@ -6,8 +6,11 @@ export type SalaryLoanRoom =
   | { state: "unlimited" }
   | { state: "unavailable"; message: string };
 
-export function salaryLoanRoom(product: Product | null, savings: string, committedPrincipal: bigint): SalaryLoanRoom {
-  if (!product?.isOpen) return { state: "unavailable", message: "The salary loan product is unavailable." };
+export function loanProductRoom(
+  product: Pick<Product, "isOpen" | "limitType" | "savingsMultiple" | "fixedCeiling"> | null,
+  savings: string, committedPrincipal: bigint,
+): SalaryLoanRoom {
+  if (!product?.isOpen) return { state: "unavailable", message: "The loan product is unavailable." };
   if (product.limitType === "NONE") return { state: "unlimited" };
   let limit = amountToCents(product.fixedCeiling);
   if (product.limitType === "SAVINGS_MULTIPLE") {
@@ -16,7 +19,13 @@ export function salaryLoanRoom(product: Product | null, savings: string, committ
     limit = (amountToCents(savings) * rate + 5_000n) / 10_000n;
   }
   const room = limit - committedPrincipal;
-  return { state: "ready", amount: centsToAmount(room > 0n ? room : 0n) };
+  const available = room > 0n ? room : 0n;
+  return { state: "ready", amount: `${available / 100n}.${String(available % 100n).padStart(2, "0")}` };
+}
+
+export function salaryLoanRoom(product: Product | null, savings: string, committedPrincipal: bigint): SalaryLoanRoom {
+  if (!product?.isOpen) return { state: "unavailable", message: "The salary loan product is unavailable." };
+  return loanProductRoom(product, savings, committedPrincipal);
 }
 
 export function payrollTermCommitment(

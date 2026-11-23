@@ -15,20 +15,26 @@ import type { DocumentRequirement, MemberDocument, MemberDocumentList } from "./
 
 type DocumentType = MemberDocumentList["documentTypes"][number];
 
-export function MemberDocuments({
-  userId,
+export function CooperativeDocuments({
+  endpoint,
   required,
+  uploadTypes,
+  requirementSource = "The document rules come from Policies.",
   storageReady,
   canEdit,
   onChanged,
 }: {
-  userId: number;
+  endpoint: string;
   required: DocumentRequirement[];
+  uploadTypes?: DocumentType[];
+  requirementSource?: string;
   storageReady: boolean;
   canEdit: boolean;
   onChanged: () => void;
 }) {
-  const [documentTypeId, setDocumentTypeId] = useState(String(required[0]?.documentTypeId ?? ""));
+  const allowedTypes = new Map(uploadTypes?.map(type => [type.id, type]));
+  for (const rule of required) allowedTypes.set(rule.documentTypeId, { id: rule.documentTypeId, name: rule.name });
+  const [documentTypeId, setDocumentTypeId] = useState(String(required[0]?.documentTypeId ?? uploadTypes?.[0]?.id ?? ""));
   const [files, setFiles] = useState<File[]>([]);
   const [uploadKey, setUploadKey] = useState(() => newRequestKey());
   const [filter, setFilter] = useState<DocumentType>();
@@ -39,7 +45,6 @@ export function MemberDocuments({
   const [busy, setBusy] = useState<"upload" | "remove">();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const endpoint = "/api/fm/cooperative/members/" + userId + "/documents";
   const query = new URLSearchParams({
     page: String(page), ...(filter ? { documentTypeId: String(filter.id) } : {}),
   }).toString();
@@ -47,7 +52,7 @@ export function MemberDocuments({
   const documents = current?.result?.items ?? [];
   const types = onFile ?? [];
   const typeOptions = filter && !types.some(type => type.id === filter.id) ? [...types, filter] : types;
-  const uploadType = required.some(row => String(row.documentTypeId) === documentTypeId) ? documentTypeId : "";
+  const uploadType = allowedTypes.has(Number(documentTypeId)) ? documentTypeId : "";
 
   useEffect(() => {
     const controller = new AbortController();
@@ -120,7 +125,7 @@ export function MemberDocuments({
       await memberFetch(endpoint + "/" + document.id, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "Removed from the member record" }),
+        body: JSON.stringify({ reason: "Removed from the record" }),
       });
       refreshAfterWrite("Document removed.");
     } catch (cause) {
@@ -149,9 +154,9 @@ export function MemberDocuments({
         </div>
       )}
 
-      <Panel title="Required documents" description="The document rules come from Policies.">
+      <Panel title="Required documents" description={requirementSource}>
         {required.length === 0 ? (
-          <EmptyState>Policies do not require a membership document.</EmptyState>
+          <EmptyState>No documents are required.</EmptyState>
         ) : !onFile ? (
           <p className="text-sm text-muted-foreground">{current?.error ? "Document compliance is unavailable." : "Checking required documents…"}</p>
         ) : (
@@ -175,7 +180,9 @@ export function MemberDocuments({
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{row.name}</p>
-                      <p className="text-[11px] text-muted-foreground">{isMissing ? "Needs attention" : "On file"}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {isMissing ? row.enforcement === "BLOCK" ? "Required for approval" : row.enforcement === "WARN" ? "Approval warning" : "Needs attention" : "On file"}
+                      </p>
                     </div>
                     <span className="shrink-0"><StatusChip status={isMissing ? "PARTIAL" : "ACTIVE"} label={isMissing ? "Missing" : "Ready"} /></span>
                   </div>
@@ -186,7 +193,7 @@ export function MemberDocuments({
         )}
       </Panel>
 
-      {canEdit && required.length > 0 && (
+      {canEdit && allowedTypes.size > 0 && (
         <Panel title="Upload documents" description="Choose one document type per batch. Add up to 10 PDF, JPEG, or PNG files, each up to 10 MB.">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:items-end">
             <div className="space-y-1.5">
@@ -202,7 +209,7 @@ export function MemberDocuments({
                 className="h-9 w-full"
               >
                 <option value="" disabled>Choose a document type</option>
-                {required.map(row => <option key={row.documentTypeId} value={row.documentTypeId}>{row.name}</option>)}
+                {[...allowedTypes.values()].map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
               </NativeSelect>
             </div>
             <label
@@ -326,10 +333,10 @@ export function MemberDocuments({
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-0.5">
                       <Button asChild size="icon" variant="ghost" className="size-8" title="Open" aria-label={`Open ${document.filename}`}>
-                        <a href={`/api/fm/cooperative/members/${userId}/documents/${document.id}`} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /></a>
+                        <a href={endpoint + "/" + document.id} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /></a>
                       </Button>
                       <Button asChild size="icon" variant="ghost" className="size-8" title="Download" aria-label={`Download ${document.filename}`}>
-                        <a href={`/api/fm/cooperative/members/${userId}/documents/${document.id}?download=1`}><Download className="size-4" /></a>
+                        <a href={endpoint + "/" + document.id + "?download=1"}><Download className="size-4" /></a>
                       </Button>
                       {canEdit && (
                         <Button size="icon" variant="ghost" className="size-8 text-muted-foreground hover:text-destructive" title="Remove" aria-label={`Remove ${document.filename}`} disabled={Boolean(busy)} onClick={() => void remove(document)}>

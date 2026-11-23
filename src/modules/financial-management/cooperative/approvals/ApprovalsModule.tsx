@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ConsoleDialog, EmptyState, FilterBar, FilterField, Kv, Panel, StatusChip, Tile,
 } from "../console/components/ui";
+import { LoanDecisionPanel, LoanReleaseDetails } from "../loans/LoanDecisionPanel";
+import type { LoanDecisionResult } from "../server/loan-decisions";
 
 type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 type SourceState = "ready" | "pending_rollout" | "unavailable";
@@ -70,11 +72,14 @@ type Detail = {
       penaltyPercent: string; graceDays: number; totalPayable: string; appliedOn: string | null;
       approvedOn: string | null; releasedOn: string | null; balance: string; pastDue: string;
       penalties: string; paidCount: number; installmentCount: number; documents: Documents;
+      agreementSigned: boolean;
+      signedPricing: { paymentCount: number; regularPayment: string; finalPayment: string } | null;
     };
     installments: Array<{ no: number; dueDate: string; principal: string; interest: string; total: string; paidTotal: string; status: string }>;
     payments: Array<{ id: number; officialReceiptNo: string | null; referenceNo: string | null; amount: string; channel: string; receiptDate: string | null }>;
-    documents: Array<{ id: number; documentTypeId: number; fileName: string; uploadedAt: string | null }>;
+    documents: Array<{ id: string; documentTypeId: number; fileName: string; uploadedAt: string | null }>;
     history: Array<{ date: string; text: string; actor: string | null }>;
+    release?: LoanDecisionResult | null;
   };
 };
 
@@ -200,7 +205,8 @@ export default function ApprovalsModule() {
                 <TableCell className="whitespace-normal">{row.memberName}<span className="block text-xs text-muted-foreground">{row.memberNo ?? row.department ?? ""}</span></TableCell>
                 <TableCell>{row.documents ? row.documents.missing.length ? <StatusChip status="PARTIAL" label={`${row.documents.done.length}/${row.documents.required.length}`} /> : <StatusChip status="ACTIVE" label="Complete" /> : "—"}</TableCell>
                 <TableCell className="text-right font-mono">{row.amount !== "0.00" ? peso(row.amount) : "—"}</TableCell>
-                <TableCell><StatusChip status={row.status} />{row.released && <span className="mt-1 block text-[10px] text-muted-foreground">Released {date(row.releasedOn)}</span>}</TableCell>
+                <TableCell><StatusChip status={row.status} label={row.type === "loan" && row.status === "APPROVED"
+                  ? row.released ? "Released" : "For release" : undefined} /></TableCell>
                 <TableCell className="text-right text-xs text-muted-foreground">Review →</TableCell>
               </TableRow>)}
             </TableBody>
@@ -216,7 +222,8 @@ export default function ApprovalsModule() {
         </div>
       </Panel>
 
-      {selected && <ApprovalDialog key={`${selected.type}-${selected.id}`} row={selected} onClose={() => setSelected(null)} />}
+      {selected && <ApprovalDialog key={`${selected.type}-${selected.id}`} row={selected}
+        onChanged={() => setAttempt(value => value + 1)} onClose={() => setSelected(null)} />}
     </main>
   );
 }
@@ -229,10 +236,12 @@ function SourceTile({ source, active, onClick }: { source: Source; active: boole
   </button>;
 }
 
-function ApprovalDialog({ row, onClose }: { row: Row; onClose: () => void }) {
+function ApprovalDialog({ row, onChanged, onClose }: { row: Row; onChanged: () => void; onClose: () => void }) {
   const [detail, setDetail] = useState<Detail>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
+  const [decision, setDecision] = useState<LoanDecisionResult>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -246,9 +255,10 @@ function ApprovalDialog({ row, onClose }: { row: Row; onClose: () => void }) {
       .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load this request."); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [row]);
+  }, [row, attempt]);
 
   const loan = detail?.detail.loan;
+  const loanStatus = decision?.status ?? loan?.status;
 
   return <ConsoleDialog
     open
@@ -256,7 +266,6 @@ function ApprovalDialog({ row, onClose }: { row: Row; onClose: () => void }) {
     title={`${row.type === "loan" ? "Loan" : row.type === "membership" ? "Membership" : "Withdrawal"} request`}
     description={`${row.memberName} · ${row.reference}`}
     wide
-    footer={<p className="text-xs text-muted-foreground">Review is live. Decision actions are enabled with the shared loan decision service and the source posting rollout.</p>}
   >
     {loading && <p role="status" className="text-sm text-muted-foreground">Loading request…</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -277,22 +286,28 @@ function ApprovalDialog({ row, onClose }: { row: Row; onClose: () => void }) {
           <Kv rows={[
             ["Loan", loan.loanNo],
             ["Agreement", loan.agreementNo],
+            ["Signature", loan.agreementSigned ? "Member signed" : "Awaiting signature"],
             ["Member", `${loan.memberName}${loan.memberNo ? ` · ${loan.memberNo}` : ""}`],
             ["Product", loan.productName],
             ["Filed", date(loan.appliedOn)],
-            ["Status", statusLabel(loan.status)],
+            ["Status", loanStatus === "APPROVED" ? "For release" : statusLabel(loanStatus ?? loan.status)],
+            ["Processing fee on release", peso(loan.processingFee)],
+            ...(loan.signedPricing ? [
+              ["Regular installment", peso(loan.signedPricing.regularPayment)],
+              ["Final installment", peso(loan.signedPricing.finalPayment)],
+            ] as [string, string][] : []),
             ["Released", loan.releasedOn ? `${date(loan.releasedOn)}${loan.releaseMethod ? ` · ${loan.releaseMethod}` : ""}` : "Not released"],
             ["Total payable", peso(loan.totalPayable)],
           ]} />
         </Panel>
-        <Panel title="Checks">
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <p>Membership, product-capacity, payroll-headroom, and signed-terms checks will be revalidated by the shared loan decision service when decisions are enabled.</p>
-            {loan.documents.blocks.length > 0 && <p className="text-destructive">{loan.documents.blocks.length} blocking document{loan.documents.blocks.length === 1 ? "" : "s"} missing.</p>}
-            {loan.documents.warnings.length > 0 && <p className="text-amber-600">{loan.documents.warnings.length} document warning{loan.documents.warnings.length === 1 ? "" : "s"}.</p>}
-            {loan.documents.required.length > 0 && loan.documents.missing.length === 0 && <p className="text-emerald-600">All required documents are on file.</p>}
-          </div>
-        </Panel>
+        {decision && <p role="status" className="rounded-md border p-3 text-sm">
+          {decision.status === "ACTIVE" ? `Loan released · ${decision.journalNo}`
+            : decision.status === "APPROVED" ? "Loan approved and ready for release." : "Loan rejected."}
+        </p>}
+        {(detail.detail.release ?? (decision?.journalNo ? decision : null)) && <LoanReleaseDetails release={(detail.detail.release ?? decision)!} />}
+        {(loanStatus === "PENDING" || loanStatus === "APPROVED") && <LoanDecisionPanel key={attempt}
+          endpoint={`/api/fm/cooperative/approvals/loan/${loan.id}/decision`}
+          onChanged={result => { setDecision(result); setAttempt(value => value + 1); onChanged(); }} />}
       </TabsContent>
       <TabsContent value="documents" className="mt-4 space-y-3">
         {loan.documents.required.length === 0 && <EmptyState>No required documents recorded.</EmptyState>}
@@ -300,7 +315,16 @@ function ApprovalDialog({ row, onClose }: { row: Row; onClose: () => void }) {
           <span>{document.name}</span>
           <span className="flex items-center gap-2"><Badge variant="outline">{document.enforcement}</Badge><StatusChip status={loan.documents.done.some(item => item.documentTypeId === document.documentTypeId) ? "ACTIVE" : "PARTIAL"} label={loan.documents.done.some(item => item.documentTypeId === document.documentTypeId) ? "On file" : "Missing"} /></span>
         </div>)}
-        {detail.detail.documents.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Files</h3>{detail.detail.documents.map(file => <div key={file.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"><span>{file.fileName}</span><span className="text-xs text-muted-foreground">{date(file.uploadedAt)}</span></div>)}</div>}
+        {detail.detail.documents.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Files</h3>{detail.detail.documents.map(file => {
+          const url = "/api/fm/cooperative/approvals/loan/" + loan.id + "/documents/" + encodeURIComponent(file.id);
+          return <div key={file.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+            <span>{file.fileName} <span className="text-xs text-muted-foreground">{date(file.uploadedAt)}</span></span>
+            <span className="flex gap-2">
+              <Button asChild size="sm" variant="outline"><a href={url} target="_blank" rel="noreferrer">Open</a></Button>
+              <Button asChild size="sm" variant="outline"><a href={url + "?download=1"}>Download</a></Button>
+            </span>
+          </div>;
+        })}</div>}
       </TabsContent>
       <TabsContent value="history" className="mt-4">
         {detail.detail.history.length === 0 ? <EmptyState>No history recorded.</EmptyState> : <ul className="space-y-1 text-sm text-muted-foreground">{detail.detail.history.map((entry, index) => <li key={`${entry.date}-${index}`}>{date(entry.date)}: {entry.text}{entry.actor ? ` · ${entry.actor}` : ""}</li>)}</ul>}
