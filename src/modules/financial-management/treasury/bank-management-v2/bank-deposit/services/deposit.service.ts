@@ -484,13 +484,18 @@ export async function listDepositSlips(): Promise<DepositSlip[]> {
     const resolvedCount = items.filter(itemResolved).length;
     const pendingCount = items.filter((item) => item.lineStatus === "IN_TRANSIT").length;
     const stored = row.status as DepositSlip["status"];
-    // P3/P6: the header never carries a bounce. It is Prepared while any line is still on hand,
-    // Deposited once the money has left but a check is still with the bank, and Cleared when every
-    // line has resolved. A cash-only slip skips Deposited because cash clears on deposit.
+    // P3/P6: the header never carries a bounce. It is Prepared while every line is still on hand,
+    // Deposited once the bank has taken the slip, and Cleared only when the slip carried checks and
+    // the bank has answered for all of them. Cash needs no answer beyond the deposit, so a cash-only
+    // slip settles at Deposited; calling it Cleared would claim a clearing step that never happened.
+    const checkLines = items.filter((item) => item.assetType === "CHECK");
+    const checksAnswered = checkLines.length > 0 && checkLines.every(
+      (item) => item.checkStatus === "CLEARED" || item.checkStatus === "RETURNED" || item.checkStatus === "CANCELLED",
+    );
     const status: DepositSlip["status"] =
       stored === "CANCELLED"
         ? "CANCELLED"
-        : items.length > 0 && resolvedCount === items.length
+        : checksAnswered
           ? "CLEARED"
           : items.length > 0 && pendingCount === items.length
             ? "PREPARED"
@@ -837,33 +842,25 @@ export async function cancelDepositSlip(slipId: number, reason: string): Promise
   // cash side is reversed with E08 below. Dropping the derived-CLEARED refusal is what makes that
   // possible; the check guard underneath still blocks a slip whose checks have cleared or returned.
 
-  const { rows: links } = await listItems<{ id: number; collection_detail_id: number | null }>("bank_deposit_details", {
-    fields: ["id", "collection_detail_id"],
+  const { rows: links } = await listItems<{ id: number; check_no: string | null }>("bank_deposit_details", {
+    fields: ["id", "check_no"],
     filter: { bank_deposit_id: { _eq: slipId } },
     limit: 200,
   });
-  const detailIds = links.map((link) => Number(link.collection_detail_id)).filter(Boolean);
+  const checkNumbers = links.map((link) => asString(link.check_no).trim()).filter(Boolean);
 
   let checkIds: number[] = [];
-  if (detailIds.length) {
-    try {
-      const { rows: checks } = await listItems<{ id: number; status: string }>("bank_checks", {
-        fields: ["id", "status"],
-        filter: { collection_detail_id: { _in: detailIds }, direction: { _eq: "RECEIVED" } },
-        limit: 200,
-      });
-      const blocking = checks.filter((check) => check.status !== "IN_CLEARING");
-      if (blocking.length) {
-        throw new ValidationError("A check on this slip has already cleared or been returned, so the slip cannot be cancelled.");
-      }
-      checkIds = checks.map((check) => Number(check.id));
-    } catch (error) {
-      if (error instanceof DirectusError) {
-        // The check register does not exist yet, so there is nothing to validate against.
-      } else {
-        throw error;
-      }
+  if (checkNumbers.length) {
+    const { rows: checks } = await listItems<{ id: number; status: string }>("bank_checks", {
+      fields: ["id", "status"],
+      filter: { check_no: { _in: checkNumbers }, direction: { _eq: "RECEIVED" } },
+      limit: 200,
+    });
+    const blocking = checks.filter((check) => check.status !== "IN_CLEARING" && check.status !== "RECEIVED");
+    if (blocking.length) {
+      throw new ValidationError("A check on this slip has already cleared or been returned, so the slip cannot be cancelled.");
     }
+    checkIds = checks.map((check) => Number(check.id));
   }
 
   // A slip from the legacy table can carry checks with no register row, so the guard above has
