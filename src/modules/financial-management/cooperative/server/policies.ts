@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { cooperativeAuditEvent } from "./audit";
 import { cooperativeDirectus, readDirectusItems } from "./directus";
+import { dividendSourceChange, readDividendSourceRevision, isCooperativeWriteCollision } from "./dividend-source";
 import { policyFieldLabel, policyValue } from "../policies/policy-labels";
 import {
   accountPurposes, accountSchema, documentRuleSchema, documentTypeSchema, mappingSchema, policyAreas, productSchema, settingsSchema,
@@ -334,17 +335,21 @@ export async function savePolicies(command: PolicySave, actor: Actor, userAgent:
     policy_summary: [save.title.replace(/\s+/g, " "), ...changed].join("\n").slice(0, 6000),
   };
   const method = save.id || save.collection === "cooperative_policy_settings" ? "PATCH" : "POST";
-  try {
-    const response = await cooperativeDirectus(`/items/${save.collection}${save.id ? `/${save.id}` : ""}?fields=id`, {
-      method, headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...save.payload, last_policy_event_id: event }),
-    }, 30_000);
-    await response.body?.cancel();
-  } catch (error) {
-    if (await revision().catch(() => state.view.revision) !== state.view.revision) throw stalePolicy();
-    throw error;
+  for (let attempt = 0; ; attempt++) {
+    const source = save.subject === "ACCOUNT_MAPPING" || save.subject === "GL_ACCOUNT" ? await dividendSourceChange() : {};
+    try {
+      const response = await cooperativeDirectus(`/items/${save.collection}${save.id ? `/${save.id}` : ""}?fields=id`, {
+        method, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...save.payload, last_policy_event_id: { ...event, ...source } }),
+      }, 30_000);
+      await response.body?.cancel();
+      return { revision: next, saved: true };
+    } catch (error) {
+      if (await revision().catch(() => state.view.revision) !== state.view.revision) throw stalePolicy();
+      if (attempt >= 2 || !isCooperativeWriteCollision(error) || !source.dividend_source_revision ||
+        await readDividendSourceRevision() < source.dividend_source_revision) throw error;
+    }
   }
-  return { revision: next, saved: true };
 }
 
 export async function getPolicyHistory(query: URLSearchParams) {

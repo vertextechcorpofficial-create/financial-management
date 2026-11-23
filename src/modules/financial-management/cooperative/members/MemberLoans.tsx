@@ -23,8 +23,8 @@ export function MemberLoans({ userId, loans, onRetry }: { userId: number; loans:
         <EmptyState>Loans are recorded against a Cooperative membership.</EmptyState>
       ) : loans.state !== "ready" ? (
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <p role={loans.state === "unavailable" ? "alert" : "status"}>{loans.message}</p>
-          {loans.state === "unavailable" && <Button type="button" variant="outline" size="sm" onClick={onRetry}>Retry loans</Button>}
+          <p role="alert">{loans.message}</p>
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>Retry loans</Button>
         </div>
       ) : (
         <>

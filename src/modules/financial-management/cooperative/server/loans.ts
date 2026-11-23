@@ -1,7 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import { CooperativeDirectusError, readDirectusByIds, readDirectusItems, readDirectusPages, usesCooperativeQaDatabase } from "./directus";
+import { CooperativeDirectusError, readDirectusByIds, readDirectusItems, readDirectusPages } from "./directus";
 import {
   amountToCents,
   centsToAmount,
@@ -17,9 +17,6 @@ import { isCalendarDate } from "../members/format";
 import { projectLoanLedger, type LoanLedger, type LoanMovement, type LoanSource } from "../loans/loan-activity";
 import { todayManila } from "./member-read";
 
-// Enable after the Loans release and repayment flows and the Transactions reversal flow pass posting QA.
-const loanPostingVerified = () => usesCooperativeQaDatabase() || process.env.COOPERATIVE_LOAN_POSTING_VERIFIED === "true";
-const pendingLoanPosting = "Member loan balances and activity will be available after Loans posting is verified.";
 const loanHistoryError = "Posted loan records could not be verified. Try again or ask the Cooperative office to review the postings.";
 
 export class LoanError extends Error {
@@ -348,14 +345,14 @@ function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[], as
   };
 }
 
-async function readLoanViews(loans: Row[], asOf: string, includeDocuments: boolean, verifyPostings = loanPostingVerified()) {
+async function readLoanViews(loans: Row[], asOf: string, includeDocuments: boolean) {
   const ids = loans.map(row => idOf(row.id));
   const [installments, documents, payments] = await Promise.all([
-    readByIds("cooperative_loan_installments", "loan_id", ids, verifyPostings ? installmentFields : "*"),
+    readByIds("cooperative_loan_installments", "loan_id", ids, installmentFields),
     includeDocuments ? readByIds("cooperative_documents", "owner_id", ids, documentFields, { owner_type: { _eq: "LOAN" } }) : [],
-    verifyPostings ? readByIds("cooperative_loan_payments", "loan_id", ids, paymentFields) : [],
+    readByIds("cooperative_loan_payments", "loan_id", ids, paymentFields),
   ]);
-  const records = verifyPostings ? await readLoanLedgerRows(ids, payments) : null;
+  const records = await readLoanLedgerRows(ids, payments);
   const installmentsByLoan = groupById(installments, "loan_id");
   const documentsByLoan = groupById(documents, "owner_id");
   return loans.map(row => {
@@ -363,13 +360,13 @@ async function readLoanViews(loans: Row[], asOf: string, includeDocuments: boole
     const stored = installmentsByLoan.get(id) ?? [];
     const files = documentsByLoan.get(id) ?? [];
     const releasedLater = (dateText(row.released_on) ?? "") > asOf;
-    const ledger = records && !releasedLater ? postedLoanLedger(row, stored, records) : null;
+    const ledger = releasedLater ? null : postedLoanLedger(row, stored, records);
     const position = ledger ? projectLoanLedger(ledger, asOf) : null;
-    const schedule = position?.installments ?? (records ? [] : stored.map(parseInstallment).sort((a, b) => a.no - b.no));
+    const schedule = position?.installments ?? [];
     const termsSnapshot = objectValue(row.terms_snapshot);
     return {
       loan: mapLoan(row, schedule, files, asOf, termsSnapshot), revision: number(row.revision),
-      termsSnapshot, ledger, position, installments: schedule, files, paymentRows: records?.payments.get(id),
+      termsSnapshot, ledger, position, installments: schedule, files, paymentRows: records.payments.get(id),
     };
   });
 }
@@ -392,14 +389,14 @@ export async function readLoanForChange(id: number, date: string, includeDocumen
   const row = await readLoanRecord(id);
   if (!row) throw new LoanError(404, "The loan is unavailable.");
   const revision = z.number().int().nonnegative().parse(row.revision);
-  const [view] = await readLoanViews([row], date, includeDocuments, true);
+  const [view] = await readLoanViews([row], date, includeDocuments);
   return { ...view, revision };
 }
 
 export async function readLoansForRemittance(ids: number[], date: string) {
   const loans = await readByIds("cooperative_loans", "id", ids, "*");
   const revisions = new Map(loans.map(row => [idOf(row.id), z.number().int().nonnegative().parse(row.revision)]));
-  return new Map((await readLoanViews(loans, date, false, true)).map(view =>
+  return new Map((await readLoanViews(loans, date, false)).map(view =>
     [view.loan.id, { ...view, revision: revisions.get(view.loan.id)! }]));
 }
 
@@ -411,7 +408,7 @@ export async function readLoanAssessmentRecords(memberId: number, asOf: string) 
   }
   const open = loans.filter(row => ["PENDING", "APPROVED", "ACTIVE", "DEFAULTED"].includes(text(row.status)));
   for (const row of open) postedAmount(row.principal);
-  const views = await readLoanViews(open, asOf, false, true);
+  const views = await readLoanViews(open, asOf, false);
   if (views.some(({ loan, position }) =>
     !loan.productId || (["ACTIVE", "DEFAULTED"].includes(loan.status) ? !position : Boolean(position)))) {
     throw new LoanError(503, loanHistoryError);
@@ -420,7 +417,6 @@ export async function readLoanAssessmentRecords(memberId: number, asOf: string) 
 }
 
 async function readPostedLoanViews(load: () => Promise<Row[]>, asOf: string, includeDocuments = false): Promise<LoanSource<MemberLoanView[]>> {
-  if (!loanPostingVerified()) return { state: "pending_rollout", message: pendingLoanPosting };
   try {
     return { state: "ready", data: await readLoanViews(await load(), asOf, includeDocuments) };
   } catch {
@@ -584,17 +580,13 @@ export async function getLoanDetail(id: number, memberId?: number) {
   if (memberId !== undefined) {
     [row = null] = await readByIds("cooperative_loans", "id", [id], "*", { member_id: { _eq: memberId } });
     if (!row || idOf(row.member_id) !== memberId || idOf(row.id) !== id) return null;
-    if (!loanPostingVerified()) throw new LoanError(503, pendingLoanPosting, "PENDING_ROLLOUT");
   } else {
     row = await readLoanRecord(id);
   }
   if (!row) return null;
 
-  const verifyPostings = loanPostingVerified();
-  const paymentsBeforeRollout = verifyPostings || !row.released_on
-    ? [] : await readByIds("cooperative_loan_payments", "loan_id", [id], "id");
   const [[view], auditRows, releases] = await Promise.all([
-    readLoanViews([row], today(), true, verifyPostings || paymentsBeforeRollout.length > 0),
+    readLoanViews([row], today(), true),
     rows("cooperative_audit_events", new URLSearchParams({
       fields: "id,action,occurred_at,actor_user_id,actor_name,reason",
       "filter[entity_type][_eq]": "LOAN",
