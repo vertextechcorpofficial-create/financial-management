@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { CircleCheck, CircleX, ClipboardCheck, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { OperationsExpense } from "../operationsTypes";
@@ -25,8 +26,8 @@ export function DummyExpenseActions({ expense, onSaved }: { expense: OperationsE
     } catch (e) { setError(e instanceof Error ? e.message : "Action unconfirmed. Retry the same intent."); }
     finally { setBusy(false); }
   };
-  return <section className="space-y-4 rounded-lg border p-4">
-    <h3 className="font-semibold">Review and decision</h3>
+  return <section className="space-y-4 rounded-xl border bg-muted/20 p-4">
+    <h3 className="flex items-center gap-2 font-semibold"><ClipboardCheck aria-hidden="true" className="size-5 text-primary" />Review and decision</h3>
     {!capability?.finance && !capability?.decide && <p className="text-sm">{capability?.blocker || "Verified decision capability unavailable."}</p>}
     {capability?.decide && <div className="space-y-3">
       <p className="text-sm">Review the expense amount, attachments, special requirements and company before approving. Return or reject with a reason if requirements are not satisfied.</p>
@@ -35,7 +36,9 @@ export function DummyExpenseActions({ expense, onSaved }: { expense: OperationsE
       {([["companyChecked", "Company and supporting evidence reviewed"], ["categoryChecked", "Expense category reviewed"], ["documentsChecked", "Supporting documents reviewed"], ["specialRulesChecked", "Applicable special requirements reviewed"]] as const).map(([key, label]) => <label key={key} className="flex gap-2 text-sm"><input type="checkbox" disabled={busy} checked={review[key]} onChange={e => setReview({ ...review, [key]: e.target.checked })} />{label}</label>)}
     </div>}
     <div className="flex flex-wrap gap-2">
-      {([ ["APPROVE", "Approve"], ["REJECT", "Reject"], ["RETURN", "Return with concern"] ] as const).map(([key, label]) => <Button key={key} variant={key === "APPROVE" ? "default" : "outline"} disabled={busy || !capability?.decide} onClick={() => setAction(key)}>{label}</Button>)}
+      <Button className="bg-emerald-700 text-white hover:bg-emerald-800" disabled={busy || !capability?.decide} onClick={() => setAction("APPROVE")}><CircleCheck aria-hidden="true" />Approve</Button>
+      <Button variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950 dark:hover:text-rose-200" disabled={busy || !capability?.decide} onClick={() => setAction("REJECT")}><CircleX aria-hidden="true" />Reject</Button>
+      <Button variant="outline" className="border-orange-200 text-orange-800 hover:bg-orange-50 hover:text-orange-900 dark:border-orange-800 dark:text-orange-300 dark:hover:bg-orange-950 dark:hover:text-orange-200" disabled={busy || !capability?.decide} onClick={() => setAction("RETURN")}><RotateCcw aria-hidden="true" />Return with concern</Button>
     </div>
     {action && <form className="space-y-3 rounded border p-3" onSubmit={e => { e.preventDefault(); void submit(); }}>
       <p className="text-sm font-medium">Confirm {action.replaceAll("_", " ")} · revision {expense.revision}</p>
