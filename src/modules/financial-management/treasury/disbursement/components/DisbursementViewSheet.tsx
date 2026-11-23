@@ -16,6 +16,7 @@ import { disbursementProvider } from "../providers/fetchProvider";
 import { generateDisbursementPDF } from "../utils/pdfGenerator";
 import { cn } from "@/lib/utils";
 import { StickyTableWrapper } from "./StickyTableWrapper";
+import { useAttachmentPreview } from "../hooks/useAttachmentPreview";
 import { decodeToken, formatCurrency, formatManilaDate, formatManilaDateTime, getCookie, getPaymentStateLabel, getVoucherStepIndex, VOUCHER_STEPS } from "../utils/disbursement-utils";
 
 interface DisbursementViewSheetProps {
@@ -29,22 +30,7 @@ interface DisbursementViewSheetProps {
 }
 
 function AttachmentPreview({ docUrl }: { docUrl: string }) {
-    const [contentType, setContentType] = useState<string>("");
-    const cleanBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
-    const token = process.env.NEXT_PUBLIC_DIRECTUS_STATIC_TOKEN || "AAKv73dkIV8DfAIA5vEt3eXVdIebzmBW";
-    const viewUrl = docUrl.startsWith("http") ? docUrl : `${cleanBase}/assets/${docUrl}?access_token=${token}`;
-
-    useEffect(() => {
-        if (!viewUrl) return;
-        fetch(viewUrl, { method: "HEAD" })
-            .then((res) => {
-                const type = res.headers.get("content-type");
-                if (type) setContentType(type.toLowerCase());
-            })
-            .catch((err) => console.warn("Failed to fetch document headers:", err));
-    }, [viewUrl]);
-
-    const isPdf = docUrl.toLowerCase().endsWith(".pdf") || viewUrl.toLowerCase().endsWith(".pdf") || contentType.includes("pdf");
+    const { viewUrl, isPdf, loadingPreview, previewFailed, onPreviewError } = useAttachmentPreview(docUrl);
 
     return (
         <div className="space-y-3">
@@ -73,7 +59,7 @@ function AttachmentPreview({ docUrl }: { docUrl: string }) {
                     <span>Attachment Preview</span>
                 </div>
                 <div className="p-3 flex justify-center items-center bg-card max-h-[320px] overflow-hidden">
-                    {isPdf ? (
+                    {loadingPreview ? <p className="p-4 text-xs text-muted-foreground">Loading preview…</p> : previewFailed ? <p className="p-4 text-xs text-muted-foreground">Preview unavailable. Use View to open the document.</p> : isPdf ? (
                         <iframe 
                             src={viewUrl} 
                             className="w-full h-[280px] border-0 rounded-lg" 
@@ -85,13 +71,7 @@ function AttachmentPreview({ docUrl }: { docUrl: string }) {
                             src={viewUrl} 
                             alt="Supporting Document" 
                             className="max-h-[280px] max-w-full object-contain rounded-lg shadow-sm"
-                            onError={(e) => {
-                                e.currentTarget.style.display = "none";
-                                const parent = e.currentTarget.parentElement;
-                                if (parent) {
-                                    parent.innerHTML = '<div class="text-[10px] font-black uppercase tracking-widest text-muted-foreground p-4 text-center">Preview not available. Click "View" above to open.</div>';
-                                }
-                            }}
+                            onError={onPreviewError}
                         />
                     )}
                 </div>
@@ -126,7 +106,7 @@ export function DisbursementViewSheet({ disbursement, open, onOpenChange, onUpda
     const isApprover = disbursement.approverId != null && currentUserId != null && String(disbursement.approverId) === String(currentUserId);
 
     const handleAction = async (status: string) => {
-        if (loading || actionLockRef.current) return;
+        if (readOnly || loading || actionLockRef.current) return;
         actionLockRef.current = true;
         setActionLocked(true);
         try {

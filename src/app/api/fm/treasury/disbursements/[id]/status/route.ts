@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { decodeJwtPayload } from "@/lib/auth-utils";
-import { normalizeDisbursement, getLineItems, getUserMap, PayableRow, DisbursementRow, resolveEncoderId, getCoaMap, getDivisionMap, getBankMap, relationId, loadNormalizedDisbursement } from "../../route";
+import { getLineItems, PayableRow, DisbursementRow, resolveCurrentUserId, resolveTransactionTypeId, getCoaMap, getBankMap, relationId, loadNormalizedDisbursement, findMissingPayableDateError } from "../../route";
 import { findUnpostedPurchaseOrderReferences } from "../../_purchase-order-eligibility";
-import { findVatSplitDivisionError } from "../../_payable-split-integrity";
+import { findVatSplitDivisionError, findMissingPayableDivisionError } from "../../_payable-split-integrity";
 import { acquireMemoCapLock, refreshSupplierMemoStatuses, validateSupplierMemoCaps } from "../../_memo-cap-integrity";
 import { validatePaymentLine } from "../../_payment-method";
 import { hasDisbursementApprovalAccess } from "../../_approval-access";
 import { markWerPlanLiquidatedIfSettled } from "../../../../reports/logistics-wer/_payables";
+import { disbursementErrorResponse } from "../../_errors";
+import { findDuplicateVoucherReference } from "@/modules/financial-management/treasury/disbursement/utils/references";
+import { acquireDisbursementMutationLock } from "@/modules/financial-management/treasury/disbursement/utils/mutation-lock";
+import { sameAuditTimestamp } from "../../_audit";
 
 export const runtime = "nodejs";
 
@@ -139,8 +143,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!status) return NextResponse.json({ message: "Status is required" }, { status: 400 });
 
     const decoded = decodeJwtPayload(token);
-    const encoderEmail = decoded?.email || decoded?.sub || null;
-    const currentUserId = await resolveEncoderId(encoderEmail);
+    const currentUserId = await resolveCurrentUserId(decoded);
 
     if (!currentUserId) {
         return NextResponse.json({
@@ -150,8 +153,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     let releaseMemoCapLock: (() => void) | undefined;
+    let releaseMutationLock: (() => void) | undefined;
+    let headerCommitted = false;
+    let stagedPaymentStamps: { id: unknown; released_by: unknown; released_date: unknown }[] = [];
 
     try {
+        releaseMutationLock = await acquireDisbursementMutationLock(id);
         // 1. Fetch current record from Directus
         const directusUrl = `${DIRECTUS_URL}/items/disbursement/${id}`;
         const currentRes = await fetch(directusUrl, {
@@ -161,10 +168,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
         if (!currentRes.ok) return NextResponse.json({ message: "Disbursement not found in Directus" }, { status: 404 });
         const currentDis = (await currentRes.json()).data;
+        const transactionTypeId = resolveTransactionTypeId(currentDis.transaction_type, currentDis.doc_no);
+        if (transactionTypeId === null) return NextResponse.json({ message: "Transaction Type is missing. Repair the voucher classification before changing its workflow status." }, { status: 400 });
 
         const currentStatus = String(currentDis.status || "");
-        const isReplay = currentStatus === status ||
-            (status === "Submitted" && currentStatus === "Approved" && Number(currentDis.total_amount) < 1000);
+        const isReplay = currentStatus === status && status !== "Partially Released";
         if (isReplay) {
             return NextResponse.json(await loadNormalizedDisbursement(currentDis, token));
         }
@@ -275,6 +283,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
                 if (currentDis.status !== "Draft" && currentDis.status !== "Returned for Revision") {
                     return NextResponse.json({ message: "Can only submit from Draft or Returned status." }, { status: 400 });
                 }
+                if (!currentDis.supporting_documents_url || !relationId(currentDis.department_id, "department_id")) {
+                    return NextResponse.json({ message: "A department and supporting document are required for approval submission." }, { status: 400 });
+                }
+                const duplicateReference = findDuplicateVoucherReference(payables.map(line => ({ referenceNo: line.reference_no, remarks: line.remarks })));
+                if (duplicateReference) return NextResponse.json({ message: `Reference ${duplicateReference} is already applied to this voucher.` }, { status: 409 });
+                const requiredLineError = findMissingPayableDivisionError(payables.map(line => ({ divisionId: relationId(line.division_id, "division_id") })))
+                    || findMissingPayableDateError(payables.map(line => ({ date: String(line.date || "") })));
+                if (requiredLineError || payables.length === 0 || payables.some(line => !relationId(line.coa_id, "coa_id") || !Number.isFinite(Number(line.amount)) || Number(line.amount) === 0)) {
+                    return NextResponse.json({ message: requiredLineError || "Complete the account and non-zero amount on every payable line before submitting." }, { status: 400 });
+                }
 
                 const unpostedPoReferences = await findUnpostedPurchaseOrderReferences(
                     payables.map((line) => line.reference_no),
@@ -324,6 +342,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
                 if (currentDis.status !== "Submitted") {
                     return NextResponse.json({ message: "Can only approve Submitted disbursements." }, { status: 400 });
                 }
+                if (!(await hasDisbursementApprovalAccess(currentUserId))) {
+                    return NextResponse.json({ message: "Only authorized disbursement approvers can approve a voucher." }, { status: 403 });
+                }
                 approverId = currentUserId;
                 dateApproved = new Date().toISOString();
                 break;
@@ -333,9 +354,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
                 if (currentDis.status !== "Approved" && currentDis.status !== "Released" && currentDis.status !== "Partially Released") {
                     return NextResponse.json({ message: "Can only release Approved or already Released disbursements." }, { status: 400 });
                 }
+                const pendingPayments = payments.filter(line => !line.released_date);
+                if (pendingPayments.length === 0) {
+                    return NextResponse.json({ message: "Add an unreleased payment line before releasing this voucher." }, { status: 400 });
+                }
 
                 for (let index = 0; index < payments.length; index++) {
                     const line = payments[index];
+                    if (!line.date || !Number.isFinite(Number(line.amount)) || Number(line.amount) === 0) {
+                        return NextResponse.json({ message: `Payment date and a non-zero amount are required on payment row ${index + 1}.` }, { status: 400 });
+                    }
                     const validationError = validatePaymentLine({
                         coaId: relationId(line.coa_id, "coa_id"),
                         bankId: relationId(line.bank_id as never),
@@ -373,44 +401,48 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
                     newStatus = "Partially Released";
                 }
 
-                // Batch-update all related payment rows to bind release audit stamps
-                const paymentIds = payments.map((p) => p.id).filter(Boolean);
+                // Stamp only newly released rows; earlier releases retain their actors/dates.
+                const paymentIds = pendingPayments.map((p) => p.id).filter(Boolean);
                 if (paymentIds.length > 0) {
-                    try {
-                        const batchRes = await fetch(`${DIRECTUS_URL}/items/disbursement_payments`, {
-                            method: "PATCH",
-                            headers: {
-                                Authorization: `Bearer ${DIRECTUS_TOKEN}`,
-                                "Content-Type": "application/json"
-                            },
-                            body: JSON.stringify({
-                                keys: paymentIds,
-                                data: {
-                                    released_by: releasedBy,
-                                    released_date: dateReleased
-                                }
-                            })
-                        });
-                        if (!batchRes.ok) {
-                            console.error("Directus payment lines release stamp failed:", await batchRes.text());
-                        }
-                    } catch (err) {
-                        console.error("Failed to execute batch release update on payments:", err);
+                    const batchRes = await fetch(`${DIRECTUS_URL}/items/disbursement_payments`, {
+                        method: "PATCH",
+                        headers: {
+                            Authorization: `Bearer ${DIRECTUS_TOKEN}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            keys: paymentIds,
+                            data: {
+                                released_by: releasedBy,
+                                released_date: dateReleased
+                            }
+                        })
+                    });
+                    if (!batchRes.ok) {
+                        throw new Error(await batchRes.text());
+                    }
+                    stagedPaymentStamps = pendingPayments.map(line => ({ id: line.id, released_by: relationId(line.released_by, "user_id") ?? null, released_date: line.released_date ?? null }));
+                    const verified = (await getLineItems([id])).payments.get(id) || [];
+                    if (pendingPayments.some(line => !verified.some(saved => Number(saved.id) === Number(line.id)
+                        && relationId(saved.released_by, "user_id") === currentUserId && sameAuditTimestamp(saved.released_date, dateReleased)))) {
+                        throw new Error("Payment release audit stamps were not persisted. Verify the payment audit field permissions.");
                     }
                 }
 
-                // Sync PO statuses
-                await syncPurchaseOrderStatuses(currentDis, payables);
                 break;
             }
             case "Posted":
                 if (currentDis.status !== "Released" && currentDis.status !== "Partially Released") {
                     return NextResponse.json({ message: "Can only post Released or Partially Released disbursements." }, { status: 400 });
                 }
+                if (payments.some(line => !line.released_date)
+                    || Number(currentDis.paid_amount) + 0.01 < Number(currentDis.total_amount)) {
+                    return NextResponse.json({ message: "The remaining balance must be released in the Releasing Workspace before posting." }, { status: 409 });
+                }
                 if (!isBalanced) {
                     return NextResponse.json({ message: "Cannot post: Debits do not match Credits. The voucher must be balanced first." }, { status: 400 });
                 }
-                if (currentDis.approver_id != null && Number(currentDis.approver_id) === currentUserId) {
+                if (relationId(currentDis.approver_id, "user_id") === currentUserId) {
                     return NextResponse.json({
                         message: "Segregation of Duties Violation",
                         detail: "The user who approved the voucher cannot post it."
@@ -419,8 +451,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
                 isPosted = 1;
                 postedBy = currentUserId;
                 datePosted = new Date().toISOString();
-                // Sync PO statuses
-                await syncPurchaseOrderStatuses(currentDis, payables);
                 break;
 
             case "Draft":
@@ -438,6 +468,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
         // 4. Update status and attributes in Directus
         const updatePayload = {
+            transaction_type: transactionTypeId,
             status: newStatus,
             approver_id: approverId,
             date_approved: dateApproved,
@@ -462,6 +493,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
         if (!patchRes.ok) throw new Error(await patchRes.text());
         const updatedDis = (await patchRes.json()).data;
+        headerCommitted = true;
+        const stampFields = status === "Approved" ? ["approver_id", "date_approved"]
+            : status === "Posted" ? ["posted_by", "date_posted"]
+            : status === "Released" || status === "Partially Released" ? ["released_by", "date_released"]
+            : status === "Submitted" ? ["submitted_by", "date_submitted"] : null;
+        const expectedStamp = status === "Approved" ? dateApproved : status === "Posted" ? datePosted
+            : status === "Submitted" ? dateSubmitted : dateReleased;
+        if (stampFields && (relationId(updatedDis[stampFields[0]], "user_id") !== currentUserId || !sameAuditTimestamp(updatedDis[stampFields[1]], expectedStamp))) {
+            throw new Error("The workflow audit stamp was not persisted. Verify the Disbursement audit field permissions before retrying.");
+        }
+        if (Number(updatedDis.transaction_type) !== updatePayload.transaction_type) throw new Error("Transaction type was not persisted. Verify the transaction_type field permissions.");
+        if (["Released", "Partially Released", "Posted"].includes(newStatus)) await syncPurchaseOrderStatuses(updatedDis, payables);
 
         // Logistics WER liquidation sync (gated: WER-sourced disbursements only,
         // settled states only; failures must not break the status transition).
@@ -479,32 +522,27 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
             await lockAppliedMemos(payables, currentPayeeId);
         }
 
-        // 5. Build DTO representation
-        const userIdsToFetch: number[] = [];
-        const addId = (val: number | undefined) => {
-            if (typeof val === "number" && Number.isFinite(val)) {
-                userIdsToFetch.push(val);
-            }
-        };
-        addId(relationId(updatedDis.encoder_id, "user_id"));
-        addId(relationId(updatedDis.submitted_by, "user_id"));
-        addId(relationId(updatedDis.approver_id, "user_id"));
-        addId(relationId(updatedDis.released_by, "user_id"));
-        addId(relationId(updatedDis.posted_by, "user_id"));
-        payments.forEach(p => {
-            addId(relationId(p.released_by, "user_id"));
-        });
-
-        const userMap = await getUserMap(token, userIdsToFetch);
-        const divisionMap = await getDivisionMap();
-        const normalized = normalizeDisbursement(updatedDis, lineItems.payables, lineItems.payments, userMap, coaMap, divisionMap, bankMap);
-
-        return NextResponse.json(normalized);
+        // Reload the stamped payment rows rather than returning pre-release data.
+        return NextResponse.json(await loadNormalizedDisbursement(updatedDis, token));
 
     } catch (err: unknown) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        return NextResponse.json({ message: "BFF Error", detail: errorMessage }, { status: 502 });
+        if (!headerCommitted && stagedPaymentStamps.length > 0) {
+            try {
+                for (const line of stagedPaymentStamps) {
+                    const restored = await fetch(`${DIRECTUS_URL}/items/disbursement_payments/${line.id}`, {
+                        method: "PATCH",
+                        headers: { Authorization: `Bearer ${DIRECTUS_TOKEN}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({ released_by: line.released_by, released_date: line.released_date }),
+                    });
+                    if (!restored.ok) throw new Error("Unable to restore payment release stamps.");
+                }
+            } catch {
+                return NextResponse.json({ code: "RELEASE_RECONCILIATION_REQUIRED", message: "The release could not be completed or rolled back. Ask an administrator to reconcile this voucher before retrying.", disbursementId: id }, { status: 503 });
+            }
+        }
+        return disbursementErrorResponse(err);
     } finally {
         releaseMemoCapLock?.();
+        releaseMutationLock?.();
     }
 }
