@@ -57,10 +57,10 @@ export function loanPostingEnabled() {
 }
 
 export function loanPostingAccounts(policy: PolicyState) {
-  return new Map(accountPurposes.flatMap(([purpose, , , classification]) => {
+  return new Map(accountPurposes.flatMap(([purpose, , , classification, contra = false]) => {
     const mapping = policy.mappings.find(row => row.purpose === purpose);
     const account = policy.accounts.find(row => row.id === mapping?.accountId);
-    return account?.isActive && !account.isContra && account.classification === classification
+    return account?.isActive && account.isContra === contra && account.classification === classification
       ? [[purpose, account] as const] : [];
   }));
 }
@@ -189,8 +189,8 @@ export async function nextRemittanceJournals(year: number, count: number) {
 
 export async function prepareCooperativeJournal(input: JournalInput & {
   type: LoanPostingType | "WITHDRAWAL_RELEASE" | "SAVINGS_DEPOSIT" | "SAVINGS_DEPOSIT_REVERSED" |
-    "PAYROLL_REMITTANCE" | "PAYROLL_REMITTANCE_REVERSED";
-  source: { type: "LOAN" | "WITHDRAWAL" | "MEMBERSHIP" | "PAYROLL_REMITTANCE"; id: number };
+    "PAYROLL_REMITTANCE" | "PAYROLL_REMITTANCE_REVERSED" | "CLEARANCE_SETTLEMENT" | "CLEARANCE_SETTLEMENT_REVERSED";
+  source: { type: "LOAN" | "WITHDRAWAL" | "MEMBERSHIP" | "PAYROLL_REMITTANCE" | "CLEARANCE"; id: number };
 }) {
   const { type, source, date, now, actor, feeReceipt, paymentReceipt, depositReceipt, reversal } = input;
   const officialReceipt = feeReceipt ?? paymentReceipt ?? depositReceipt;

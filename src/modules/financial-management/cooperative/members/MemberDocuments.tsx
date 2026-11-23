@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, Download, ExternalLink, FileText, FolderOpen, Loader2, Trash2, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,7 @@ export function CooperativeDocuments({
   storageReady,
   canEdit,
   onChanged,
+  renderFileAction,
 }: {
   endpoint: string;
   required: DocumentRequirement[];
@@ -31,6 +32,7 @@ export function CooperativeDocuments({
   storageReady: boolean;
   canEdit: boolean;
   onChanged: () => void;
+  renderFileAction?: (file: MemberDocument) => ReactNode;
 }) {
   const allowedTypes = new Map(uploadTypes?.map(type => [type.id, type]));
   for (const rule of required) allowedTypes.set(rule.documentTypeId, { id: rule.documentTypeId, name: rule.name });
@@ -332,6 +334,7 @@ export function CooperativeDocuments({
                   <TableCell className="text-right font-mono text-xs tabular-nums">{fileSize(document.size)}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-0.5">
+                      {canEdit && !busy && renderFileAction?.(document)}
                       <Button asChild size="icon" variant="ghost" className="size-8" title="Open" aria-label={`Open ${document.filename}`}>
                         <a href={endpoint + "/" + document.id} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /></a>
                       </Button>

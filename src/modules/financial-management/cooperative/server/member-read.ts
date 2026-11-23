@@ -4,6 +4,7 @@ import { z } from "zod";
 import { readDirectusItems } from "./directus";
 import { getPolicies } from "./policies";
 import type { Product } from "../policies/policy-types";
+import { isSavingsOutflow } from "../members/format";
 import { MemberError } from "./member-errors";
 import {
   type CurrentMembership,
@@ -303,6 +304,22 @@ export async function readSavingsEntries(membershipId: number, through?: string)
     reference: row.reference,
     postedAt: `${row.posted_at}${row.posted_at.endsWith("Z") ? "" : "Z"}`,
   }));
+}
+
+export async function readPostedSavingsThrough(membershipId: number, through: string) {
+  const totals = z.object({
+    kind: savingsSchema.shape.kind,
+    sum: z.object({
+      amount: z.union([z.number(), z.string()]).transform(String).pipe(z.string().regex(/^\d+(?:\.\d{1,2})?$/)),
+    }),
+  });
+  const query = new URLSearchParams({
+    filter: JSON.stringify({ membership_id: { _eq: membershipId }, entry_date: { _lte: through } }),
+    groupBy: "kind", "aggregate[sum]": "amount", limit: "5",
+  });
+  const { data } = z.object({ data: totals.array() }).parse(await readDirectusItems("cooperative_savings_entries", query));
+  return signedCentsToAmount(data.reduce((balance, { kind, sum }) =>
+    balance + (isSavingsOutflow(kind) ? -1n : 1n) * amountToCents(sum.amount), 0n));
 }
 
 export const amountToCents = (value: string) => {

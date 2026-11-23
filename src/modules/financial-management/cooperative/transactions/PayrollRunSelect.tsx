@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -34,10 +35,13 @@ export function PayrollRunSelect({ endpoint, value, onChange, disabled }: {
   return <div className="space-y-2">
     <div className="flex flex-wrap items-end gap-2">
       <label className="block flex-1 space-y-1 text-sm">Search payroll runs
-        <Input value={term} onChange={event => setTerm(event.target.value)} placeholder="Run ID or YYYY-MM-DD"
-          disabled={disabled} onKeyDown={event => {
-            if (event.key === "Enter") { event.preventDefault(); setQuery({ search: term.trim(), page: 1 }); }
-          }} />
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input value={term} onChange={event => setTerm(event.target.value)} placeholder="Run ID or YYYY-MM-DD" aria-label="Search payroll runs"
+            disabled={disabled} className="pl-8" onKeyDown={event => {
+              if (event.key === "Enter") { event.preventDefault(); setQuery({ search: term.trim(), page: 1 }); }
+            }} />
+        </div>
       </label>
       <Button type="button" variant="outline" disabled={disabled} onClick={() => setQuery({ search: term.trim(), page: 1 })}>Search</Button>
     </div>

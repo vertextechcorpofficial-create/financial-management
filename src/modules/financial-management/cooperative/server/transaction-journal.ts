@@ -20,12 +20,13 @@ const row = z.object({
   amount: z.union([z.number(), z.string()]), loan_id: id.nullable(), payment_id: id.nullable(),
   membership_id: z.object({ user_id: id, employee_name: z.string() }),
   journal_id: z.object({ id, journal_no: z.string(), command_type: z.string(),
+    source_type: z.string().optional(), source_id: z.string().optional(),
     reverses_journal_id: z.object({ id, journal_no: z.string() }).nullable() }),
 });
 const fields = [
   "id,kind,channel,direction,business_date,receipt_date,reference,source_reference,or_no,amount,loan_id,payment_id",
   "membership_id.user_id,membership_id.employee_name",
-  "journal_id.id,journal_id.journal_no,journal_id.command_type,journal_id.reverses_journal_id.id,journal_id.reverses_journal_id.journal_no",
+  "journal_id.id,journal_id.journal_no,journal_id.command_type,journal_id.source_type,journal_id.source_id,journal_id.reverses_journal_id.id,journal_id.reverses_journal_id.journal_no",
 ].join(",");
 const total = z.object({
   direction, count: z.coerce.number().int().nonnegative(),
@@ -79,6 +80,7 @@ async function legacyJournal(params: URLSearchParams, query: ReturnType<typeof f
   const rows = result.rows.map(item => ({
     ...item, kind: item.reversal ? "LOAN_PAYMENT_REVERSED" as const : "LOAN_PAYMENT" as const,
     paymentId: item.id, sourceReference: item.loanNo, employeeNo: null, depositJournalId: null, remittanceBatchId: null,
+    settlementId: null, settlementReversed: false,
   }));
   return { rows, count: result.count, moneyIn: result.received, moneyOut: result.reversed, net: result.net,
     hasMore: result.hasMore, page, indexed: false };
@@ -94,6 +96,21 @@ async function paymentStates(rows: z.output<typeof row>[]) {
   const payment = z.object({ id, status: z.enum(["POSTED", "REVERSED"]), loan_id: id, journal_id: id });
   const { data } = z.object({ data: payment.array() }).parse(await readDirectusItems("cooperative_loan_payments", query));
   return new Map(data.map(item => [item.id, item]));
+}
+
+async function settlementDecisions(rows: z.output<typeof row>[]) {
+  const ids = [...new Set(rows.filter(row => row.journal_id.source_type === "CLEARANCE" &&
+    row.journal_id.command_type === "CLEARANCE_SETTLEMENT")
+    .map(row => Number(row.journal_id.source_id)).filter(value => id.safeParse(value).success))];
+  const statuses = new Map<number, boolean>();
+  if (ids.length) {
+    const query = new URLSearchParams({ fields: "id,reversal_snapshot", limit: String(ids.length),
+      filter: JSON.stringify({ id: { _in: ids }, status: { _eq: "COMPLETED" } }) });
+    const { data } = z.object({ data: z.array(z.object({ id, reversal_snapshot: z.record(z.string(), z.unknown()).nullable() })) })
+      .parse(await readDirectusItems("cooperative_clearances", query));
+    for (const row of data) statuses.set(row.id, row.reversal_snapshot !== null);
+  }
+  return statuses;
 }
 
 export async function getTransactionJournal(params: URLSearchParams) {
@@ -113,13 +130,15 @@ export async function getTransactionJournal(params: URLSearchParams) {
   const originalId = (entry: z.output<typeof row>) => entry.journal_id.reverses_journal_id?.id ?? entry.journal_id.id;
   const remittanceIds = new Set(data.filter(entry => entry.channel === "PAYROLL" &&
     ["SAVINGS_DEPOSIT", "SAVINGS_DEPOSIT_REVERSED", "LOAN_PAYMENT", "LOAN_PAYMENT_REVERSED"].includes(entry.kind)).map(originalId));
-  const [payments, remittances] = await Promise.all([
-    paymentStates(data), remittanceLinks("journal_id", [...remittanceIds]),
+  const [payments, remittances, settlements] = await Promise.all([
+    paymentStates(data), remittanceLinks("journal_id", [...remittanceIds]), settlementDecisions(data),
   ]);
   const rows = data.map(entry => {
     const original = entry.kind === "LOAN_PAYMENT" && entry.payment_id ? payments.get(entry.payment_id) : undefined;
     const paymentId = entry.kind === "LOAN_PAYMENT" && original?.journal_id === entry.journal_id.id && original.loan_id === entry.loan_id
       ? entry.payment_id : null;
+    const sourceId = Number(entry.journal_id.source_id);
+    const settlement = entry.journal_id.source_type === "CLEARANCE" && entry.journal_id.command_type === "CLEARANCE_SETTLEMENT";
     return {
       id: entry.id, kind: entry.kind, channel: entry.channel, memberName: entry.membership_id.employee_name, employeeNo: String(entry.membership_id.user_id),
       businessDate: entry.business_date, receiptDate: entry.receipt_date, sourceReference: entry.source_reference, reference: entry.reference,
@@ -127,6 +146,8 @@ export async function getTransactionJournal(params: URLSearchParams) {
       orNo: entry.or_no, journalNo: entry.journal_id.journal_no, originalJournal: entry.journal_id.reverses_journal_id?.journal_no ?? null,
       loanId: entry.loan_id, paymentId, reversed: paymentId !== null && original?.status === "REVERSED",
       remittanceBatchId: remittances.get(originalId(entry)) ?? null,
+      settlementId: settlement && settlements.has(sourceId) ? sourceId : null,
+      settlementReversed: settlement && settlements.get(sourceId) === true,
       depositJournalId: entry.kind === "SAVINGS_DEPOSIT" && entry.journal_id.command_type === "SAVINGS_DEPOSIT" && entry.or_no
         ? entry.journal_id.id : null,
     };
