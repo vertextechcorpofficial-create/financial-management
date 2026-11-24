@@ -158,6 +158,7 @@ export function LoanEnrollmentModule() {
         <option value="">All statuses</option><option value="APPROVED">Approved · awaiting agency</option>
         <option value="ENROLLED">For verification</option><option value="RETURNED">Returned for correction</option>
         <option value="VERIFIED">Verified · awaiting activation</option>
+        <option value="ACTIVATING">Activation pending</option><option value="ACTIVE">Active</option>
       </NativeSelect>
     </div>
     {current?.error && <LoadError message={current.error} retry={refreshMonth} />}

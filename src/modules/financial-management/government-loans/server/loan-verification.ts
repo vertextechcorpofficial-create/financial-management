@@ -1,36 +1,36 @@
 import "server-only";
 
 import { z } from "zod";
-import { matchPayrollEnrollment } from "../enrollment/payroll-match";
-import { normalizedReference } from "../enrollment/rules";
+import { todayManila } from "@/modules/financial-management/cooperative/members/format";
 import { enrollmentReviewStatuses } from "../enrollment/types";
 import { canStartInOpenPeriod, isEnrollmentPreparer, needsImportTransferChoice, requiredEnrollmentEvidence } from "../enrollment/verification-rules";
 import {
-  ENROLLMENT_PAGE_SIZE, enrollmentDecisions, type BulkVerificationResult, type VerificationOutcome,
+  ENROLLMENT_PAGE_SIZE, enrollmentDecisions, verificationStatuses, type BulkVerificationResult, type VerificationOutcome,
   type VerificationQueue, type VerificationReview, type VerificationSelection,
 } from "../enrollment/verification-types";
 import { enrollmentEvidenceKinds } from "../requests/types";
 import type { AgencyActor } from "./agencies";
 import { GOVERNMENT_LOAN_REQUESTS } from "./directus";
+import { readEnrollmentRows } from "./enrollment-sources";
+import { commitEnrollmentActivation } from "./loan-activation";
 import {
-  enrollmentBenefitCode, readEnrollmentRows, readLinkedPayrollLoans, readPayrollReferences, readReservedReferences,
-} from "./enrollment-sources";
-import {
-  enrollmentDetail, enrollmentListItem, listEnrollmentRecords, readOpenMonth, readStagedEnrollment, validatePriorLoan,
+  checkLiveEnrollmentReference, enrollmentDetail, enrollmentListItem, listEnrollmentRecords, readOpenMonth, readStagedEnrollment,
 } from "./loan-enrollment";
 import {
   commitRequestRevision, loanCommand, loanCommandPartKey, readCommandReceipt, readLoanDocuments,
   readRequestDocuments, recordLoanBatchEvent, type StoredLoanDocument,
 } from "./loan-requests";
-import { activeAgency } from "./request-assessment";
 import { LoanRequestError, parseInput, positiveId } from "./request-input";
+import { handoffStatus, readSuccessorHandoff } from "./payroll-handoff-store";
+import { activeEmployee } from "./request-assessment";
 
 type Enrollment = Awaited<ReturnType<typeof readStagedEnrollment>>;
 type Command = ReturnType<typeof loanCommand>;
 
 export async function listEnrollmentVerification(params: URLSearchParams, actor: AgencyActor): Promise<VerificationQueue> {
   const filters = new URLSearchParams(params);
-  filters.set("status", "ENROLLED");
+  const status = parseInput(z.enum(verificationStatuses), filters.get("status") ?? "ENROLLED");
+  filters.set("status", status);
   const [result, openMonth] = await Promise.all([listEnrollmentRecords(filters), readOpenMonth()]);
   const documents = await readLoanDocuments(result.items.map(row => row.id));
   return { hasMore: result.hasMore, openMonth, items: result.items.flatMap(row => {
@@ -39,49 +39,21 @@ export async function listEnrollmentVerification(params: URLSearchParams, actor:
     const required = requiredEnrollmentEvidence(enrollment, row.form.applicationType === "RENEWAL");
     return [{
       ...enrollmentListItem(row), enrollment, revision: row.revision,
-      canDecide: !isEnrollmentPreparer(enrollment, actor.actorId),
+      canDecide: status === "ENROLLED" && !isEnrollmentPreparer(enrollment, actor.actorId),
       documentsPresent: required.filter(kind => documents.some(file => file.request_id === row.id && file.kind === kind)).length,
       documentsRequired: required.length,
     }];
   }) };
 }
 
-async function checkLiveReference(row: Enrollment) {
-  const { employeeId, agencyId, program } = row.form;
-  const reference = normalizedReference(row.enrollment.agencyReference);
-  const agency = await activeAgency(agencyId);
-  if (!employeeId || !agency || !agency.programs.includes(program)) {
-    throw new LoanRequestError(422, "Confirm the employee and active agency program before verification.");
-  }
-  const code = enrollmentBenefitCode(agency);
-  if (!code) throw new LoanRequestError(422, "Confirm a Payroll agency mapping before verification.");
-  const [reservations, references, owners] = await Promise.all([
-    readReservedReferences([reference]), readPayrollReferences([reference]),
-    row.payroll_loan_id ? readLinkedPayrollLoans([row.payroll_loan_id]) : [],
-  ]);
-  if (row.live_reference_key !== reference || reservations.some(item => item.id !== row.id)) {
-    throw new LoanRequestError(422, "The agency reference is already in use or its reservation changed. Return the enrollment for correction.");
-  }
-  const match = matchPayrollEnrollment(references.get(reference) ?? [], { ...row.enrollment, employeeId, program }, code, Boolean(row.payroll_loan_id));
-  if (match.conflict) throw new LoanRequestError(422, match.conflict);
-  if (match.loanId !== row.payroll_loan_id || (row.enrollment.payrollLoanId ?? null) !== row.payroll_loan_id || owners.some(item => item.id !== row.id)) {
-    throw new LoanRequestError(422, "The linked Payroll loan changed or is already linked elsewhere. Return the enrollment for correction.");
-  }
-  if (row.enrollment.priorLoanId) {
-    if (row.enrollment.priorLoanId === row.payroll_loan_id) {
-      throw new LoanRequestError(422, "Choose a prior loan distinct from the enrollment's Payroll loan.");
-    }
-    await validatePriorLoan(row.enrollment.priorLoanId, employeeId, code);
-  }
-  return match.warnings;
-}
-
 async function verificationChecks(row: Enrollment, documents: StoredLoanDocument[]) {
-  const [openMonth, payroll] = await Promise.all([
+  const [openMonth, payroll, employee, successor] = await Promise.all([
     readOpenMonth().catch(() => null),
-    checkLiveReference(row).then(warnings => ({ warnings, reason: null })).catch(error => ({
-      warnings: [], reason: error instanceof LoanRequestError ? error.message : "Could not check the current agency reference. Try again.",
+    checkLiveEnrollmentReference(row).then(mapping => ({ ...mapping, reason: null })).catch(error => ({
+      code: null, warnings: [], reason: error instanceof LoanRequestError ? error.message : "Could not check the current agency reference. Try again.",
     })),
+    activeEmployee(row.form.employeeId, todayManila()),
+    row.enrollment.priorLoanId ? readSuccessorHandoff(row.enrollment.priorLoanId) : null,
   ]);
   const required = requiredEnrollmentEvidence(row.enrollment, row.form.applicationType === "RENEWAL");
   const evidence: { id: number; kind: string; fileId: string; sha256: string }[] = [];
@@ -96,24 +68,30 @@ async function verificationChecks(row: Enrollment, documents: StoredLoanDocument
   }
   if (row.form.applicationType === "RENEWAL" && !row.enrollment.priorLoanId) {
     checks.push({ label: "Prior loan", reason: "Choose the prior loan for this renewal." });
+  } else if (successor) {
+    checks.push({ label: "Prior loan", reason: "Another renewal already reserves this prior Payroll loan." });
   }
+  checks.push({ label: "Active employee", reason: employee ? null : "Confirm the employee is active before verification." });
   checks.push({
     label: "First deduction month",
     reason: !openMonth ? "The current open month could not be confirmed." :
       canStartInOpenPeriod(row.enrollment.firstDeductionMonth, openMonth) ? null : `Choose a first deduction month of ${openMonth} or later.`,
   }, { label: "Live reference and Payroll mapping", reason: payroll.reason });
-  return { checks, evidence, openMonth, warnings: payroll.warnings };
+  return { checks, evidence, openMonth, warnings: payroll.warnings, code: payroll.code };
 }
 
 export async function getEnrollmentVerification(id: number, actor: AgencyActor): Promise<VerificationReview> {
   const row = await readStagedEnrollment(id);
   const documents = await readRequestDocuments(id);
   const [record, validation] = await Promise.all([
-    enrollmentDetail(row, documents), row.status === "ENROLLED" ? verificationChecks(row, documents) : null,
+    enrollmentDetail(row, documents), ["ENROLLED", "VERIFIED"].includes(row.status) ? verificationChecks(row, documents) : null,
   ]);
+  const canReview = !isEnrollmentPreparer(row.enrollment, actor.actorId);
   return {
     record: { ...record, enrollment: row.enrollment },
-    canDecide: row.status === "ENROLLED" && !isEnrollmentPreparer(row.enrollment, actor.actorId),
+    canDecide: row.status === "ENROLLED" && canReview,
+    canActivate: row.status === "VERIFIED" && canReview,
+    canManageHandoff: Boolean(record.payrollHandoff && record.payrollHandoff.state !== "ACCEPTED" && canReview),
     checks: validation?.checks ?? [], payrollWarnings: validation?.warnings ?? row.enrollment.payrollWarnings ?? [],
   };
 }
@@ -126,26 +104,49 @@ function assertCanDecide(row: Enrollment, revision: number, actor: AgencyActor) 
 }
 
 async function verifyEnrollment(row: Enrollment, command: Command, batchKey?: string) {
-  const { checks, evidence, openMonth, warnings } = await verificationChecks(row, await readRequestDocuments(row.id));
+  const { checks, evidence, openMonth, warnings, code } = await verificationChecks(row, await readRequestDocuments(row.id));
   const blocker = checks.find(check => check.reason);
   if (blocker) throw new LoanRequestError(422, `${blocker.label}. ${blocker.reason}`);
+  if (!code) throw new LoanRequestError(422, "Confirm a Payroll agency mapping before verification.");
   const now = new Date().toISOString();
   const enrollment = {
-    ...row.enrollment, externalReferenceCheck: "VERIFIED", payrollWarnings: warnings,
-    verifiedAt: now, verifiedBy: { id: command.actor.actorId, name: command.actor.actorName },
+    ...row.enrollment, externalReferenceCheck: "VERIFIED" as const, payrollWarnings: warnings,
+    verifiedAt: row.enrollment.verifiedAt ?? now,
+    verifiedBy: row.enrollment.verifiedBy ?? { id: command.actor.actorId, name: command.actor.actorName },
   };
-  return commitRequestRevision(command, "ENROLLMENT_VERIFIED", row, { status: "VERIFIED", enrollment },
-    { status: row.status }, {
-      status: "VERIFIED", reference: enrollmentListItem(row).reference, enrollment, evidence, openMonth,
-      liveReference: row.live_reference_key, payrollLoanId: row.payroll_loan_id,
-      ...(batchKey ? { batchKey } : {}),
-    }, now);
+  return commitEnrollmentActivation(row, command, code, enrollment, {
+    reference: enrollmentListItem(row).reference, evidence, openMonth,
+    liveReference: row.live_reference_key, payrollLoanId: row.payroll_loan_id,
+    ...(batchKey ? { batchKey } : {}),
+  }, now);
 }
 
 const decisionInput = z.strictObject({
   expectedRevision: positiveId, decision: z.enum(enrollmentDecisions), reason: z.string().trim().max(500).default(""),
 });
-const decisionResult = z.object({ status: z.enum(["VERIFIED", "RETURNED"]) });
+const decisionResult = z.object({ status: z.enum(["ACTIVE", "VERIFIED", "RETURNED"]) });
+
+const activationInput = z.strictObject({ expectedRevision: positiveId });
+const activationResult = z.object({ status: z.enum(["ACTIVATING", "ACTIVE"]), handoffId: z.uuid(), state: handoffStatus });
+
+export async function activateLoanEnrollment(id: number, body: unknown, key: string | null, actor: AgencyActor) {
+  const { expectedRevision } = parseInput(activationInput, body);
+  const command = loanCommand(key, { operation: "activate", expectedRevision }, actor, id);
+  async function activate() {
+    const row = await readStagedEnrollment(id);
+    if (row.revision !== expectedRevision || row.status !== "VERIFIED" || !row.enrollment.verifiedAt || !row.enrollment.verifiedBy) {
+      throw new LoanRequestError(409, "Choose a verified enrollment awaiting activation.");
+    }
+    if (isEnrollmentPreparer(row.enrollment, actor.actorId)) throw preparer();
+    return verifyEnrollment(row, command);
+  }
+  const receipt = await readCommandReceipt(command) ?? await activate().catch(async error => {
+    const replay = await readCommandReceipt(command);
+    if (replay) return replay;
+    throw error;
+  });
+  return { id: receipt.request_id, revision: receipt.revision, ...activationResult.parse(receipt.after_values) };
+}
 
 export async function decideEnrollmentVerification(id: number, body: unknown, key: string | null, actor: AgencyActor) {
   const input = parseInput(decisionInput, body);

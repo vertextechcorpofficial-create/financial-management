@@ -7,12 +7,13 @@ export const GOVERNMENT_LOAN_REQUEST_HISTORY = "government_loan_request_history"
 export const GOVERNMENT_LOAN_REQUEST_DOCUMENTS = "government_loan_request_documents";
 export const GOVERNMENT_LOAN_SETTINGS = "government_loan_settings";
 export const GOVERNMENT_LOAN_IMPORT_BATCHES = "government_loan_import_batches";
+export const GOVERNMENT_LOAN_PAYROLL_HANDOFFS = "government_loan_payroll_handoffs";
 
 export type GovernmentLoansCollection = "user" | "modules" | "user_access_modules" | "benefit_loans"
-  | "department" | "employment_status" | "user_wage_management"
+  | "department" | "employment_status" | "user_wage_management" | "cutoff_settings"
   | typeof GOVERNMENT_LOAN_AGENCIES | typeof GOVERNMENT_LOAN_AGENCY_HISTORY
   | typeof GOVERNMENT_LOAN_REQUESTS | typeof GOVERNMENT_LOAN_REQUEST_HISTORY | typeof GOVERNMENT_LOAN_REQUEST_DOCUMENTS
-  | typeof GOVERNMENT_LOAN_SETTINGS | typeof GOVERNMENT_LOAN_IMPORT_BATCHES;
+  | typeof GOVERNMENT_LOAN_SETTINGS | typeof GOVERNMENT_LOAN_IMPORT_BATCHES | typeof GOVERNMENT_LOAN_PAYROLL_HANDOFFS;
 
 export class GovernmentLoansDirectusError extends Error {
   constructor(readonly status: number, readonly code?: string) {

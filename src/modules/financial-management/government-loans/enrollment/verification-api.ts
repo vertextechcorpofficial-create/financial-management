@@ -1,4 +1,5 @@
 import { RequestApiError } from "../requests/request-api";
+import type { HandoffResult } from "../payroll-handoff/types";
 import type { EnrollmentEvidenceKind } from "../requests/types";
 import type { BulkVerificationResult, EnrollmentDecision, VerificationQueue, VerificationReview, VerificationSelection } from "./verification-types";
 
@@ -21,5 +22,16 @@ export const listVerification = (query: string, signal: AbortSignal) => request<
 export const getVerification = (id: number, signal: AbortSignal) => request<VerificationReview>(`/${id}`, { signal });
 export const verificationEvidenceUrl = (id: number, kind: EnrollmentEvidenceKind) => `${endpoint}/${id}/evidence/${kind}`;
 export const decideVerification = (id: number, expectedRevision: number, decision: EnrollmentDecision, reason: string, key: string) =>
-  request<{ id: number; revision: number; status: "VERIFIED" | "RETURNED" }>(`/${id}/decision`, post({ expectedRevision, decision, reason }, key));
+  request<{ id: number; revision: number; status: "ACTIVE" | "VERIFIED" | "RETURNED" }>(`/${id}/decision`, post({ expectedRevision, decision, reason }, key));
 export const bulkVerify = (items: VerificationSelection[], key: string) => request<BulkVerificationResult>("/bulk-verify", post({ items }, key));
+export const activateEnrollment = (id: number, expectedRevision: number, key: string) =>
+  request<HandoffResult>(`/${id}/activate`, post({ expectedRevision }, key));
+export const payrollEvidenceUrl = (id: number, revision: number) => `${endpoint}/${id}/payroll-handoff?revision=${revision}`;
+
+export function importPayrollAcknowledgement(id: number, revision: number, file: File) {
+  return request<HandoffResult & { reason: string | null }>(`/${id}/payroll-handoff`, {
+    method: "POST", body: file, headers: {
+      "Content-Type": "text/csv", "If-Match": String(revision), "X-Payroll-File-Name": encodeURIComponent(file.name),
+    },
+  });
+}
