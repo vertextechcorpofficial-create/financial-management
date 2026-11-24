@@ -272,7 +272,7 @@ export default function MembersModule() {
               <NativeSelect id="cooperative-member-account" value={account} onChange={event => changeFilter(setAccount)(event.target.value)} className="h-9 w-full">
                 <option value="">Any</option>
                 {Object.entries(memberLoanAccountFilters).map(([value, label]) => (
-                  <option key={value} value={value} disabled={!loanSource || loanSource.state === "pending_rollout"}>{label}</option>
+                  <option key={value} value={value} disabled={!loanSource}>{label}</option>
                 ))}
                 <option value={memberWithdrawalAccountFilter} disabled={!withdrawalSource || withdrawalSource.state === "pending_rollout"}>
                   With withdrawal request
@@ -294,12 +294,10 @@ export default function MembersModule() {
           </div>
         </div>
 
-        {loanSource && loanSource.state !== "ready" && (
+        {loanSource?.state === "unavailable" && (
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <p role={loanSource.state === "unavailable" ? "alert" : "status"}>{loanSource.message}</p>
-            {loanSource.state === "unavailable" && (
-              <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => setAttempt(value => value + 1)}>Retry loan data</Button>
-            )}
+            <p role="alert">{loanSource.message}</p>
+            <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => setAttempt(value => value + 1)}>Retry loan data</Button>
           </div>
         )}
         {withdrawalSource && withdrawalSource.state !== "ready" && (

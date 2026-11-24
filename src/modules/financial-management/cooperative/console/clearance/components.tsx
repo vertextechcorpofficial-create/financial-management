@@ -35,15 +35,15 @@ export function ClearanceRow({ row, onOpen }: { row: Row; onOpen: () => void }) 
       <TableCell className="whitespace-normal">
         <p className="font-mono text-sm font-medium">{row.reference}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">{CLEARANCE_REASONS[row.reason]}</p>
-        <p className="mt-1 text-xs text-muted-foreground sm:hidden">
+        <p className="mt-1 text-xs text-muted-foreground lg:hidden">
           {row.member.name} · {row.member.employeeNumber}
           {row.member.department ? ` · ${row.member.department}` : ""}
         </p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground sm:hidden">
+        <p className="mt-0.5 text-[11px] text-muted-foreground lg:hidden">
           Owed {owed ?? "unavailable"} · Savings {peso(row.savings)}
         </p>
       </TableCell>
-      <TableCell className="hidden w-60 max-w-60 whitespace-normal sm:table-cell">
+      <TableCell className="hidden w-60 max-w-60 whitespace-normal lg:table-cell">
         <div className="flex min-w-0 items-center gap-3">
           <PersonAvatar name={row.member.name} />
           <div className="min-w-0">
@@ -65,12 +65,12 @@ export function ClearanceRow({ row, onOpen }: { row: Row; onOpen: () => void }) 
             <StatusChip status={documentStatus} label={`${documents.onFile}/${documents.required} on file`} />
           </span>}
       </TableCell>
-      <TableCell className="hidden text-right font-mono tabular-nums md:table-cell">
+      <TableCell className="hidden text-right font-mono tabular-nums lg:table-cell">
         {owed ?? <span className="text-xs text-muted-foreground">Unavailable</span>}
       </TableCell>
       <TableCell className="hidden text-right font-mono tabular-nums min-[1400px]:table-cell">{peso(row.savings)}</TableCell>
       <TableCell className="whitespace-nowrap">{caseStatusChip(row.status)}</TableCell>
-      <TableCell>
+      <TableCell className="hidden sm:table-cell">
         <ChevronRight className="size-4 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
       </TableCell>
     </TableRow>
@@ -88,7 +88,7 @@ export function ClearanceRegisterSkeleton() {
               <div className="h-2.5 w-20 animate-pulse rounded bg-muted" />
             </div>
           </TableCell>
-          <TableCell className="hidden w-60 max-w-60 sm:table-cell">
+          <TableCell className="hidden w-60 max-w-60 lg:table-cell">
             <div className="flex items-center gap-3">
               <div className="size-10 animate-pulse rounded-full bg-muted" />
               <div className="space-y-2">
@@ -99,10 +99,10 @@ export function ClearanceRegisterSkeleton() {
           </TableCell>
           <TableCell className="hidden xl:table-cell"><div className="h-4 w-20 animate-pulse rounded bg-muted" /></TableCell>
           <TableCell className="hidden xl:table-cell"><div className="h-5 w-20 animate-pulse rounded-full bg-muted" /></TableCell>
-          <TableCell className="hidden md:table-cell"><div className="ml-auto h-4 w-20 animate-pulse rounded bg-muted" /></TableCell>
+          <TableCell className="hidden lg:table-cell"><div className="ml-auto h-4 w-20 animate-pulse rounded bg-muted" /></TableCell>
           <TableCell className="hidden min-[1400px]:table-cell"><div className="ml-auto h-4 w-20 animate-pulse rounded bg-muted" /></TableCell>
           <TableCell><div className="h-5 w-24 animate-pulse rounded-full bg-muted" /></TableCell>
-          <TableCell />
+          <TableCell className="hidden sm:table-cell" />
         </TableRow>
       ))}
     </>

@@ -23,6 +23,7 @@ import { PayablesSection } from "./PayablesSection";
 import { StickyTableWrapper } from "./StickyTableWrapper";
 import { replaceEmptyPayablePlaceholders } from "@/modules/financial-management/treasury/components/payable-line-state";
 import { getPendingMemoUsage } from "@/modules/financial-management/treasury/components/memo-cap";
+import { availablePurchaseOrders, findDuplicateVoucherReference, referenceKey, toggleRecordSelection } from "../utils/references";
 import { getMemoPayableAmount, isMemoPayableLine, normalizeMemoReference, stripMemoLineMetadata } from "@/modules/financial-management/treasury/components/memo-payable-line";
 
 export interface ExtendedDisbursement extends Disbursement {
@@ -98,13 +99,14 @@ export function DisbursementCreateSheet({
     const [loadingDocNo, setLoadingDocNo] = useState(false);
     const [localSubmitting, setLocalSubmitting] = useState(false);
     const submitLockRef = useRef(false);
-    const isBusy = loading || loadingDocNo || localSubmitting;
+    const isBusy = loading || loadingDocNo || localSubmitting || uploadingFile;
 
     const totalAmount = useMemo(() => payables.reduce((sum, line) => sum + (Number(line.amount) || 0), 0), [payables]);
     const availableMemos = useMemo(
         () => memos.filter((memo) =>
             Number(memo.supplier_id) === Number(payeeId)
             && [1, 2].includes(Number(memo.type))
+            && !payables.some(line => referenceKey(line.referenceNo) === referenceKey(memo.memo_number))
             && (Number(memo.remaining_amount ?? memo.amount) > 0.01
                 || Boolean(memo.is_locked)
                 || payables.some((payable) => normalizeMemoReference(payable.referenceNo) === normalizeMemoReference(memo.memo_number))),
@@ -369,6 +371,8 @@ export function DisbursementCreateSheet({
         if (!nextOpen) {
             poAbortControllerRef.current?.abort();
             poRequestIdRef.current += 1;
+            setSelectedPoIds([]);
+            setTaxTypes({});
             setLoadingPos(false);
         }
     }, []);
@@ -447,13 +451,14 @@ export function DisbursementCreateSheet({
     }, []);
 
     const handleImportPos = useCallback(() => {
-        const selected = unpaidPos.filter(po => selectedPoIds.includes(po.uniqueKey));
+        const selected = availablePurchaseOrders(unpaidPos, payables).filter(po => selectedPoIds.includes(po.uniqueKey));
         const newPayables = calculateTaxedPayables(selected, taxTypes, today);
 
-        setPayables((prev) => replaceEmptyPayablePlaceholders(prev, newPayables));
-        setIsPoModalOpen(false);
+        setPayables((prev) => replaceEmptyPayablePlaceholders(prev, newPayables.filter(line => !prev.some(p => referenceKey(p.referenceNo) === referenceKey(line.referenceNo)))));
+        setSelectedPoIds([]);
+        handlePoModalOpenChange(false);
         toast.success(`Imported ${selected.length} record(s) successfully`);
-    }, [unpaidPos, selectedPoIds, taxTypes, today, calculateTaxedPayables]);
+    }, [unpaidPos, payables, selectedPoIds, taxTypes, today, calculateTaxedPayables, handlePoModalOpenChange]);
 
     const handleOpenMemoModal = () => {
         if (!payeeId) return toast.error("Please select a Payee first.");
@@ -485,7 +490,7 @@ export function DisbursementCreateSheet({
         }
         const finalAmount = getMemoPayableAmount(memo.type, requestedAmount);
 
-        setPayables((previous) => [...previous, {
+        setPayables((previous) => previous.some(line => referenceKey(line.referenceNo) === referenceKey(memo.memo_number)) ? previous : [...previous, {
             isMemo: true,
             memoId: memo.id,
             memoType: memo.type,
@@ -507,6 +512,8 @@ export function DisbursementCreateSheet({
         if (!transactionTypeId) return toast.error("Transaction Type is required.");
         if (!payeeId) return toast.error("Please select a Payee.");
         if (!departmentId) return toast.error("Department is required.");
+        const duplicateReference = findDuplicateVoucherReference(payables);
+        if (duplicateReference) return toast.error(`Reference ${duplicateReference} is already applied to this voucher.`);
         if (totalAmount <= 0) return toast.error("Voucher total must be greater than 0.");
         if (memoSupplierMismatchIndices.size > 0) {
             return toast.error("Remove and reapply memo lines that belong to a different supplier.");
@@ -551,6 +558,10 @@ export function DisbursementCreateSheet({
         }
     };
 
+    const availablePos = availablePurchaseOrders(unpaidPos, payables);
+    const selectedPoCount = availablePos.filter(po => selectedPoIds.includes(po.uniqueKey)).length;
+    const filteredPos = availablePos.filter(po => `${po.poNo} ${po.receiptNo}`.toLowerCase().includes(poSearchQuery.toLowerCase()));
+
     return (
         <>
             <Dialog open={open} onOpenChange={onOpenChange}>
@@ -580,6 +591,7 @@ export function DisbursementCreateSheet({
                         <div className="md:col-span-4 border-r border-border bg-muted/5 flex flex-col h-full overflow-y-auto scrollbar-thin">
                             <div className="p-5 space-y-5">
                                 <VoucherDetailsSection
+                                    key={`${open}-${editData?.id ?? "new"}`}
                                     transactionTypeId={transactionTypeId}
                                     setTransactionTypeId={setTransactionTypeId}
                                     transactionDate={transactionDate}
@@ -711,43 +723,21 @@ export function DisbursementCreateSheet({
                                                           className="h-24 text-center text-sm font-medium text-destructive">
                                         {poLoadError}
                                     </TableCell></TableRow>
-                                ) : unpaidPos.filter(po => {
-                                    const matchesSearch = po.poNo.toLowerCase().includes(poSearchQuery.toLowerCase()) ||
-                                        (po.receiptNo && po.receiptNo.toLowerCase().includes(poSearchQuery.toLowerCase()));
-                                    const isAlreadyImported = payables.some(p => p.referenceNo.startsWith(`${po.poNo} / ${po.receiptNo}`));
-                                    return matchesSearch && !isAlreadyImported;
-                                }).length === 0 ? (
+                                ) : filteredPos.length === 0 ? (
                                     <TableRow><TableCell colSpan={5}
                                                          className="h-24 text-center text-sm font-medium text-muted-foreground">No
                                         matching records found.</TableCell></TableRow>
                                 ) : (
-                                    unpaidPos.filter(po => {
-                                        const matchesSearch = po.poNo.toLowerCase().includes(poSearchQuery.toLowerCase()) ||
-                                            (po.receiptNo && po.receiptNo.toLowerCase().includes(poSearchQuery.toLowerCase()));
-                                        const isAlreadyImported = payables.some(p => p.referenceNo.startsWith(`${po.poNo} / ${po.receiptNo}`));
-                                        return matchesSearch && !isAlreadyImported;
-                                    }).map(po => (
+                                    filteredPos.map(po => (
                                         <TableRow key={po.uniqueKey}
                                                   className="cursor-pointer hover:bg-muted/50 border-border"
                                                   onClick={() => {
-                                                      const isChecking = !selectedPoIds.includes(po.uniqueKey);
-                                                      setSelectedPoIds(prev => isChecking ? [...prev, po.uniqueKey] : prev.filter(id => id !== po.uniqueKey));
-                                                      if (isChecking && !taxTypes[po.uniqueKey]) {
-                                                          setTaxTypes(prev => ({...prev, [po.uniqueKey]: "VAT"}));
-                                                      }
+                                                      setSelectedPoIds(prev => toggleRecordSelection(prev, po.uniqueKey));
                                                   }}>
                                             <TableCell className="text-center" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                                                 <Checkbox checked={selectedPoIds.includes(po.uniqueKey)}
                                                           onCheckedChange={(checked: boolean | "indeterminate") => {
-                                                              if (checked === true) {
-                                                                  setSelectedPoIds(prev => prev.includes(po.uniqueKey) ? prev : [...prev, po.uniqueKey]);
-                                                                  if (!taxTypes[po.uniqueKey]) setTaxTypes(prev => ({
-                                                                      ...prev,
-                                                                      [po.uniqueKey]: "VAT"
-                                                                  }));
-                                                              } else {
-                                                                  setSelectedPoIds(prev => prev.filter(id => id !== po.uniqueKey));
-                                                              }
+                                                              setSelectedPoIds(prev => toggleRecordSelection(prev, po.uniqueKey, checked === true));
                                                           }}/>
                                             </TableCell>
                                             <TableCell
@@ -790,11 +780,11 @@ export function DisbursementCreateSheet({
                     </StickyTableWrapper>
 
                     <DialogFooter className="mt-4 border-t border-border pt-4">
-                        <Button variant="outline" onClick={() => setIsPoModalOpen(false)}
+                        <Button variant="outline" onClick={() => handlePoModalOpenChange(false)}
                                 className="text-[10px] font-black uppercase tracking-widest">Cancel</Button>
-                        <Button onClick={handleImportPos} disabled={selectedPoIds.length === 0}
+                        <Button onClick={handleImportPos} disabled={selectedPoCount === 0}
                                 className="text-[10px] font-black uppercase tracking-widest bg-amber-500 hover:bg-amber-600 text-white">
-                            Import {selectedPoIds.length} Record(s)
+                            Import {selectedPoCount} Record(s)
                         </Button>
                     </DialogFooter>
                 </DialogContent>

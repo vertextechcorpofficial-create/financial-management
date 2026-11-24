@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
 export const runtime = "nodejs";
 
@@ -6,12 +7,16 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN || "";
 
 export async function POST(req: Request) {
+    if (!(await cookies()).get("vos_access_token")?.value) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     try {
         const formData = await req.formData();
         const file = formData.get("file") as File;
 
-        if (!file) {
+        if (!(file instanceof File)) {
             return NextResponse.json({ message: "No file uploaded" }, { status: 400 });
+        }
+        if (file.size > 5 * 1024 * 1024 || (file.type !== "application/pdf" && !file.type.startsWith("image/"))) {
+            return NextResponse.json({ message: "Upload a PDF or image no larger than 5 MB." }, { status: 400 });
         }
 
         // Forward to Directus /files
@@ -33,6 +38,9 @@ export async function POST(req: Request) {
         }
 
         const data = await res.json();
+        if (typeof data?.data?.id !== "string" || !data.data.id.trim()) {
+            return NextResponse.json({ message: "The storage service returned no file ID. Please retry." }, { status: 502 });
+        }
         return NextResponse.json(data);
     } catch (err: unknown) {
         console.error("BFF upload error:", err);
@@ -44,6 +52,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+    if (!(await cookies()).get("vos_access_token")?.value) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     try {
         const { searchParams } = new URL(req.url);
         const id = searchParams.get("id");

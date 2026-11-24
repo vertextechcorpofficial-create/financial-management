@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { AlertTriangle, Banknote, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { memberFetch, MemberApiError } from "../../members/client";
 import { date } from "../../members/format";
+import { memberFetch, MemberApiError } from "../../members/client";
+import { ConsoleDialog } from "../components/ui";
 import { cashEvidenceLabels, type CashEvidenceContext } from "./types";
 
 export function CashEvidenceDialog({ evidence, onClose, onSave, onRefresh }: {
@@ -17,6 +18,7 @@ export function CashEvidenceDialog({ evidence, onClose, onSave, onRefresh }: {
 }) {
   const correcting = evidence.revision > 0;
   const label = cashEvidenceLabels[evidence.purpose].toLowerCase();
+  const Icon = evidence.purpose === "CASH_ON_HAND" ? Banknote : Landmark;
   const [amount, setAmount] = useState(evidence.amount ?? "");
   const [reference, setReference] = useState(evidence.reference ?? "");
   const [reason, setReason] = useState("");
@@ -49,37 +51,50 @@ export function CashEvidenceDialog({ evidence, onClose, onSave, onRefresh }: {
     }
   }
 
-  return <Dialog open onOpenChange={open => { if (!open && !saving) onClose(); }}>
-    <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
-      <DialogTitle>{correcting ? "Correct " : "Record "}{label}</DialogTitle>
-      <DialogDescription>{evidence.accountLabel} · As of {date(evidence.periodEnd)}</DialogDescription>
-      <form className="space-y-4" onSubmit={event => { event.preventDefault(); void save(); }}>
-        <label className="block space-y-1 text-sm font-medium">
-          <span className="block">Verified amount (PHP)</span>
-          <Input value={amount} inputMode="decimal" maxLength={14} required
+  return <ConsoleDialog open onOpenChange={open => { if (!open && !saving) onClose(); }}
+    title={correcting ? "Correct " + label : "Record " + label}
+    description="Month-end reconciliation evidence"
+    footer={<>
+      <Button variant="outline" type="button" disabled={saving} onClick={onClose}>Cancel</Button>
+      {error?.stale
+        ? <Button type="button" onClick={onRefresh}>Refresh worksheet</Button>
+        : <Button type="submit" form="cash-evidence" disabled={!canSave}>{saving ? "Saving…" : "Save verified evidence"}</Button>}
+    </>}>
+    <form className="space-y-4" id="cash-evidence" onSubmit={event => { event.preventDefault(); void save(); }}>
+      <div className="flex items-start gap-3 rounded-xl border bg-muted/20 p-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-background text-muted-foreground"><Icon className="size-4" /></span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{cashEvidenceLabels[evidence.purpose]}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{evidence.accountLabel} · Month-end {date(evidence.periodEnd)}</p>
+        </div>
+      </div>
+
+      {error && <div role="alert" className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+        <p className="min-w-0 break-words">{error.message}</p>
+      </div>}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block space-y-1.5 text-sm">Verified amount (PHP)
+          <Input value={amount} inputMode="decimal" maxLength={14} required disabled={saving}
             aria-invalid={Boolean(amount && !validAmount)} onChange={event => { setAmount(event.target.value); setConfirmed(false); }} />
+          <span className="block text-xs text-muted-foreground">Enter the amount shown on the verified {label}.</span>
         </label>
-        <label className="block space-y-1 text-sm font-medium">
-          <span className="block">Source reference</span>
-          <Input value={reference} maxLength={160} required onChange={event => { setReference(event.target.value); setConfirmed(false); }} />
+        <label className="block space-y-1.5 text-sm">Source reference
+          <Input value={reference} maxLength={160} required disabled={saving}
+            onChange={event => { setReference(event.target.value); setConfirmed(false); }} />
         </label>
-        {correcting && <label className="block space-y-1 text-sm font-medium">
-          <span className="block">Correction reason</span>
-          <Textarea value={reason} onChange={event => setReason(event.target.value)} maxLength={500} required rows={2} />
-        </label>}
-        <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" className="mt-1 accent-primary" checked={confirmed}
-            onChange={event => setConfirmed(event.target.checked)} />
-          <span>I verified this amount against the {label} as of the selected month end.</span>
-        </label>
-        {error && <p role="alert" className="text-sm text-destructive">{error.message}</p>}
-        <DialogFooter>
-          <Button variant="outline" type="button" disabled={saving} onClick={onClose}>Cancel</Button>
-          {error?.stale
-            ? <Button type="button" onClick={onRefresh}>Refresh worksheet</Button>
-            : <Button type="submit" disabled={!canSave}>{saving ? "Saving…" : "Save verified evidence"}</Button>}
-        </DialogFooter>
-      </form>
-    </DialogContent>
-  </Dialog>;
+      </div>
+
+      {correcting && <label className="block space-y-1.5 text-sm">Correction reason
+        <Textarea value={reason} onChange={event => setReason(event.target.value)} maxLength={500} required rows={2} disabled={saving} />
+      </label>}
+
+      <label className="flex items-start gap-2 rounded-xl border bg-muted/20 p-3 text-sm">
+        <input type="checkbox" className="mt-1 accent-primary" checked={confirmed} disabled={saving}
+          onChange={event => setConfirmed(event.target.checked)} />
+        <span>I verified this amount against the {label} as of the selected month end.</span>
+      </label>
+    </form>
+  </ConsoleDialog>;
 }

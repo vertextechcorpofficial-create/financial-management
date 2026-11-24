@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createConsoleState } from "./seed";
-import { applyPayment, buildSchedule, dividendModel, loanTotals, settlementFor } from "./calculations";
+import { applyPayment, buildSchedule, loanTotals, settlementFor } from "./calculations";
 import { round2 } from "./format";
 import {
   CONSOLE_TODAY,
@@ -48,8 +48,6 @@ type ConsoleActions = {
   updateClearance: (clearanceId: string, patch: Partial<Pick<Clearance, "reason" | "separationDate" | "finalPay" | "notes">>) => void;
   completeClearance: (clearanceId: string) => void;
   cancelClearance: (clearanceId: string) => void;
-  postDividends: () => void;
-  updateDividend: (key: "surplus" | "reservePercent" | "educationPercent" | "savingsSharePercent", value: number) => void;
   addDocument: (input: { ownerType: DocumentOwner; ownerId: string; category: string; name: string; size: number; mime: string }) => void;
   removeDocument: (documentId: string) => void;
 };
@@ -401,36 +399,6 @@ export function CooperativeConsoleProvider({ children }: { children: ReactNode }
               history: [...entry.history, { date: CONSOLE_TODAY, text: "Clearance cancelled" }],
             }
           : entry),
-      })),
-      postDividends: () => setState(current => {
-        if (current.dividend.posted) return current;
-        const model = dividendModel(current);
-        const journal = [...current.journal];
-        for (const row of model.rows) {
-          if (row.total <= 0) continue;
-          journal.push({
-            id: `J${Date.now()}-${row.memberId}`,
-            date: CONSOLE_TODAY,
-            memberId: row.memberId,
-            kind: "DIVIDEND",
-            amount: row.total,
-            channel: "system",
-            reference: "FY2026 dividend",
-          });
-        }
-        return {
-          ...current,
-          dividend: { ...current.dividend, posted: true },
-          members: current.members.map(member => {
-            const row = model.rows.find(entry => entry.memberId === member.id);
-            return row ? { ...member, savings: round2(member.savings + row.total) } : member;
-          }),
-          journal,
-        };
-      }),
-      updateDividend: (key, value) => setState(current => ({
-        ...current,
-        dividend: { ...current.dividend, [key]: Math.max(0, value) },
       })),
       addDocument: input => setState(current => ({
         ...current,

@@ -8,6 +8,7 @@ import { cooperativeAuditEvent, cooperativeAuditTime } from "./audit";
 import type { SettlementJournalDraft } from "./clearance-journals";
 import { ClearanceError, type ClearanceRow } from "./clearance-store";
 import { cooperativeDirectus, CooperativeDirectusError } from "./directus";
+import { dividendSourceChange } from "./dividend-source";
 import { loanDigest, nextRemittanceJournals, prepareCooperativeJournal, type GlLine, type LoanActor } from "./loan-commands";
 import type { MemberLoanView } from "./loans";
 import { todayManila } from "./member-read";
@@ -69,7 +70,7 @@ export async function commitSettlement(command: Command, actor: LoanActor, prepa
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...clearance, revision: result.revision, updated_at: at, updated_by: actor.actorId,
-          last_event_id: audit,
+          last_event_id: { ...audit, ...await dividendSourceChange() },
           last_command_id: {
             clearance_id: row.id, command_type: command.type, idempotency_key: command.key, request_hash: command.hash,
             actor_user_id: actor.actorId, result, created_at: at, journal_series_id: series,

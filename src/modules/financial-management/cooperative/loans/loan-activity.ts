@@ -2,7 +2,7 @@ import { amountToCents, centsToAmount, installmentStatus, loanTotals, type LoanI
 
 export type LoanSource<T> =
   | { state: "ready"; data: T }
-  | { state: "pending_rollout" | "unavailable"; message: string };
+  | { state: "unavailable"; message: string };
 
 type PostingReference = { journalId: number; journalNo: string; date: string; postedAt: string };
 type Allocation = { installmentId: number; principal: string; interest: string; penalty: string };
