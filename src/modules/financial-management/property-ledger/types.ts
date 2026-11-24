@@ -33,7 +33,7 @@ export const policySchema = z.object({
     .default([{ name: "Structure", share: 70, life: 40, salvage: 10 }, { name: "Roof", share: 6, life: 20, salvage: 0 }, { name: "Electrical & plumbing", share: 12, life: 25, salvage: 0 }, { name: "Elevators & HVAC", share: 12, life: 15, salvage: 0 }]),
 });
 export const portfolioSchema = z.object({
-  entities: z.array(z.object({ id, name })).min(1).max(50), policies: policySchema,
+  entities: z.array(z.object({ id, name })).min(1).max(1000), policies: policySchema,
   assets: z.array(assetSchema).max(1000),
 }).superRefine((p, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: "custom", message });
@@ -52,7 +52,6 @@ export const portfolioSchema = z.object({
       if (!Number.isFinite(value) || value < 0 || (["storeys", "yearBuilt"].includes(key) && !Number.isInteger(value))) issue(`${a.name}: invalid ${key}`);
       else if (key === "yearBuilt" && (value < 1800 || value > new Date().getFullYear() + 5)) issue(`${a.name}: Year built looks off — use a 4-digit year.`);
     }
-    if (a.kind === "building" && !a.parts.length) issue(`${a.name}: at least one component is required`);
     if (a.kind === "land" && (a.parts.length || a.landId)) issue(`${a.name}: land cannot contain components or link to land`);
     if (a.landId && !p.assets.some(l => l.id === a.landId && l.kind === "land" && l.entityId === a.entityId)) issue(`${a.name}: linked land must belong to the same entity`);
     if (a.sale && a.sale.date < a.acquired) issue(`${a.name}: disposal precedes acquisition`);
@@ -77,7 +76,7 @@ export type Part = z.infer<typeof partSchema>;
 export type LedgerEvent = z.infer<typeof eventSchema>;
 export type Portfolio = z.infer<typeof portfolioSchema>;
 export type Policies = Portfolio["policies"];
-export type LedgerState = { revision: number; portfolio: Portfolio; canManage: boolean; history: HistoryEntry[]; allowedPages?: string[] };
+export type LedgerState = { revision: number; portfolio: Portfolio; canManage: boolean; allowedPages?: string[]; editPages?: string[] };
 export type HistoryEntry = { id: number; actor: string; created_at: string; summary: string };
 export const INITIAL_ENTITY = "00000000-0000-4000-8000-000000000001";
 export function emptyPortfolio(): Portfolio {
