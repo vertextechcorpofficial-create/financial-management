@@ -53,14 +53,14 @@ const FEATURES: FeatureLink[] = [
     href: "/fm/lgu-asset-management-system/registration",
     description: "PPE register with automatic classification and property numbering.",
   },
+  {
+    title: "Custody",
+    href: "/fm/lgu-asset-management-system/custody",
+    description: "PAR and ICS issuance, transfers, returns, and the movement log.",
+  },
 ];
 
 const UPCOMING: FeatureLink[] = [
-  {
-    title: "Custody",
-    href: "#",
-    description: "PAR and ICS issuance with the movement log.",
-  },
   {
     title: "Physical count",
     href: "#",
