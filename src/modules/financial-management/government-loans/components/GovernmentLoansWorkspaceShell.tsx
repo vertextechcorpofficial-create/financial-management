@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LoanApprovalModule } from "../approval/LoanApprovalModule";
 import { AgenciesModule } from "../remittances/agencies/AgenciesModule";
 import { LoanRequestsModule } from "../requests/LoanRequestsModule";
 import type { GovernmentLoansTab, GovernmentLoansWorkspace, GovernmentLoansWorkspaceKey } from "../workspaces";
@@ -29,7 +30,8 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs }: {
   const Icon = workspaceIcons[workspace.key] ?? Landmark;
   const hasAgencies = workspace.key === "remittances";
   const hasRequests = workspace.key === "loan-applications";
-  const isScaffold = !hasAgencies && !hasRequests;
+  const hasApprovals = workspace.key === "loan-approval";
+  const isScaffold = !hasAgencies && !hasRequests && !hasApprovals;
 
   return <main className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
     <section className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-xs sm:p-5">
@@ -70,7 +72,8 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs }: {
         </div>
         {tabs.map(tab => <TabsContent key={tab.key} value={tab.key} className="mt-0">
           {hasAgencies && tab.key === "agencies" ? <AgenciesModule /> :
-            hasRequests && tab.key === "requests" ? <LoanRequestsModule /> : <div className="rounded-xl border border-dashed bg-muted/20 p-6">
+            hasRequests && tab.key === "requests" ? <LoanRequestsModule /> :
+            hasApprovals && tab.key === "loan-requests" ? <LoanApprovalModule /> : <div className="rounded-xl border border-dashed bg-muted/20 p-6">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold">{tab.title}</h3>
               <Badge variant="outline">Pending delivery</Badge>

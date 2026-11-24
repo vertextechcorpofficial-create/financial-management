@@ -9,6 +9,7 @@ import { ErrorBox, Paging } from "./components/OnboardingCommon";
 import { FormSkeleton, StatsSkeleton, TableSkeleton } from "./components/PettyCashSkeletons";
 import { VoucherEditor } from "./components/VoucherEditor";
 import { FundSelect } from "./components/FundSelect";
+import { PettyCashPageHeader } from "./components/PettyCashPageHeader";
 import { dateOnly } from "./utils/dateTime";
 
 const DRAFT_HEADERS = ["Voucher", "Date", "Payee / Particulars", "Gross", "Net cash payable", "Status", "Details"];
@@ -19,7 +20,7 @@ export default function PettyCashVoucherDraftsModule({ canEdit }: { canEdit: boo
   const [fundId, setFundId] = useState<number | null>(null), [search, setSearch] = useState(""), [page, setPage] = useState(1), [editor, setEditor] = useState<number | "new" | null>(null);
   const selected = funds.data?.find(fund => fund.id === fundId) || funds.data?.[0] || null;
   const register = useVoucherRead<Page<Voucher>>(selected ? `vouchers?${new URLSearchParams({ fundId: String(selected.id), search, page: String(page), pageSize: "25" })}` : null, 250);
-  return <section className="space-y-5"><div><h1 className="text-2xl font-semibold tracking-tight">Disbursement</h1><p className="mt-2 text-sm text-muted-foreground">Prepare complete unpaid voucher drafts. Saving a draft reserves its receipts; cash and the ledger remain unchanged.</p></div>
+  return <section className="space-y-5"><PettyCashPageHeader title="Disbursement" description="Prepare complete unpaid voucher drafts. Saving a draft reserves its receipts; cash and the ledger remain unchanged." />
     <ErrorBox error={funds.error} retry={funds.refresh} />{funds.loading && <><div className="max-w-xl"><FormSkeleton label="Loading Active funds" fields={1} /></div><StatsSkeleton label="Loading fund limits" count={3} /></>}
     {funds.data?.length === 0 && <div className="rounded-xl border bg-card p-5"><h2 className="font-medium">No Active funds available</h2><p className="mt-2 text-sm text-muted-foreground">Fund approval and activation are required before voucher preparation. Pending fund requests cannot pay vouchers.</p></div>}
     {selected && <><div className="space-y-3 rounded-xl border bg-card p-5"><FundSelect label="Active fund" funds={funds.data || []} value={selected.id} onChange={value => { if (value === null) return; setFundId(value); setPage(1); setSearch(""); }} /><div className="grid gap-3 text-sm sm:grid-cols-3"><p>Per-voucher hard limit<br /><strong>{voucherMoney(selected.perVoucherLimit)}</strong></p><p>Approval required above<br /><strong>{voucherMoney(selected.approvalThreshold)}</strong></p><p>Expected cash<br /><strong>{voucherMoney(selected.expectedCash)}</strong></p></div><p className="text-xs text-muted-foreground">The gross voucher total controls the hard limit. Cash availability and payment approval are checked when finalization is implemented.</p></div>
