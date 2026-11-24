@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { cooperativeAuditEvent } from "./audit";
 import { cooperativeDirectus, readDirectusItems } from "./directus";
+import { dividendSourceChange, readDividendSourceRevision, isCooperativeWriteCollision } from "./dividend-source";
 import { policyFieldLabel, policyValue } from "../policies/policy-labels";
 import {
   accountPurposes, accountSchema, documentRuleSchema, documentTypeSchema, mappingSchema, policyAreas, productSchema, settingsSchema,
@@ -26,7 +27,7 @@ const pageSize = 50;
 const manila = new Intl.DateTimeFormat("en-PH", {
   timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short",
 });
-const isActive = (value: unknown) => value === true || value === 1 || value === "1";
+export const isActive = (value: unknown) => value === true || value === 1 || value === "1";
 const flag = (value: boolean) => value ? 1 : 0;
 const normalized = (value: string) => value.normalize("NFKC").trim().toLowerCase();
 const asRows = z.object({ data: z.array(z.record(z.string(), z.unknown())) });
@@ -49,7 +50,7 @@ async function revision() {
 }
 
 const fields = {
-  settings: "id,membership_fee,minimum_savings_per_cutoff,maintaining_balance,withdrawals_per_year,floor_mode,floor_fixed_amount,floor_percent,payment_order",
+  settings: "id,membership_fee,minimum_savings_per_cutoff,maintaining_balance,withdrawals_per_year,floor_mode,floor_fixed_amount,floor_percent,payment_order,exit_savings_annual_rates",
   products: [
     "id,product_code,number_prefix,name,short_name,description,kind,is_open",
     "monthly_rate_min,monthly_rate_max,monthly_rate_default,interest_methods,goods_markup_percent",
@@ -60,15 +61,21 @@ const fields = {
   ].join(","),
 };
 
+export async function readDocumentTypes() {
+  return rows("cooperative_document_types", "id,code,name,is_active", { sort: "name,id" });
+}
+
 async function readPolicies() {
-  const latest = await revision();
-  const [settingsResult, rawProducts, types, rules, accounts, mappings] = await Promise.all([
-    readDirectusItems("cooperative_policy_settings", new URLSearchParams({ fields: fields.settings })),
-    rows("cooperative_loan_products", fields.products, { sort: "name,id" }),
-    rows("cooperative_document_types", "id,code,name,is_active", { sort: "name,id" }),
-    rows("cooperative_policy_document_requirements", "id,scope,document_type_id,enforcement,is_active", { sort: "scope,document_type_id" }),
-    rows("cooperative_gl_accounts", "id,code,name,classification,is_contra,is_active", { sort: "code,id" }),
-    rows("cooperative_account_mappings", "id,purpose,account_id", { sort: "purpose" }),
+  const [latest, [settingsResult, rawProducts, types, rules, accounts, mappings]] = await Promise.all([
+    revision(),
+    Promise.all([
+      readDirectusItems("cooperative_policy_settings", new URLSearchParams({ fields: fields.settings })),
+      rows("cooperative_loan_products", fields.products, { sort: "name,id" }),
+      readDocumentTypes(),
+      rows("cooperative_policy_document_requirements", "id,scope,document_type_id,enforcement,is_active", { sort: "scope,document_type_id" }),
+      rows("cooperative_gl_accounts", "id,code,name,classification,is_contra,is_active", { sort: "code,id" }),
+      rows("cooperative_account_mappings", "id,purpose,account_id", { sort: "purpose" }),
+    ]),
   ]);
   const { data: setting } = z.object({ data: z.record(z.string(), z.unknown()).nullable() }).parse(settingsResult);
   const settings = setting?.id ? settingsSchema.parse({
@@ -76,6 +83,7 @@ async function readPolicies() {
     maintainingBalance: decimalText(setting.maintaining_balance), withdrawalsPerYear: setting.withdrawals_per_year,
     floorMode: setting.floor_mode, floorFixedAmount: decimalText(setting.floor_fixed_amount),
     floorPercent: decimalText(setting.floor_percent), paymentOrder: setting.payment_order,
+    exitSavingsAnnualRates: setting.exit_savings_annual_rates ?? {},
   }) : null;
 
   const nested = z.array(z.record(z.string(), z.unknown()));
@@ -223,15 +231,17 @@ async function prepare(command: PolicySave, state: Awaited<ReturnType<typeof rea
   const { view } = state;
   if (command.section === "settings") {
     const { data } = command;
+    const exitSavingsAnnualRates = data.exitSavingsAnnualRates ?? view.settings?.exitSavingsAnnualRates ?? {};
     return {
       collection: "cooperative_policy_settings", key: "1", subject: "POLICY_SETTINGS", title: "Savings and membership settings",
-      before: view.settings ?? undefined, after: data,
+      before: view.settings ?? undefined, after: { ...data, exitSavingsAnnualRates },
       payload: {
         ...(view.settings ? {} : { id: 1 }),
         membership_fee: data.membershipFee, minimum_savings_per_cutoff: data.minimumSavings,
         maintaining_balance: data.maintainingBalance, withdrawals_per_year: data.withdrawalsPerYear,
         floor_mode: data.floorMode, floor_fixed_amount: data.floorFixedAmount, floor_percent: data.floorPercent,
         payment_order: data.paymentOrder,
+        ...(data.exitSavingsAnnualRates === undefined ? {} : { exit_savings_annual_rates: exitSavingsAnnualRates }),
       },
     };
   }
@@ -325,17 +335,21 @@ export async function savePolicies(command: PolicySave, actor: Actor, userAgent:
     policy_summary: [save.title.replace(/\s+/g, " "), ...changed].join("\n").slice(0, 6000),
   };
   const method = save.id || save.collection === "cooperative_policy_settings" ? "PATCH" : "POST";
-  try {
-    const response = await cooperativeDirectus(`/items/${save.collection}${save.id ? `/${save.id}` : ""}?fields=id`, {
-      method, headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...save.payload, last_policy_event_id: event }),
-    }, 30_000);
-    await response.body?.cancel();
-  } catch (error) {
-    if (await revision().catch(() => state.view.revision) !== state.view.revision) throw stalePolicy();
-    throw error;
+  for (let attempt = 0; ; attempt++) {
+    const source = save.subject === "ACCOUNT_MAPPING" || save.subject === "GL_ACCOUNT" ? await dividendSourceChange() : {};
+    try {
+      const response = await cooperativeDirectus(`/items/${save.collection}${save.id ? `/${save.id}` : ""}?fields=id`, {
+        method, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...save.payload, last_policy_event_id: { ...event, ...source } }),
+      }, 30_000);
+      await response.body?.cancel();
+      return { revision: next, saved: true };
+    } catch (error) {
+      if (await revision().catch(() => state.view.revision) !== state.view.revision) throw stalePolicy();
+      if (attempt >= 2 || !isCooperativeWriteCollision(error) || !source.dividend_source_revision ||
+        await readDividendSourceRevision() < source.dividend_source_revision) throw error;
+    }
   }
-  return { revision: next, saved: true };
 }
 
 export async function getPolicyHistory(query: URLSearchParams) {

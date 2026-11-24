@@ -14,6 +14,7 @@ import { fieldErrorsFrom, MemberApiError, memberFetch, newRequestKey } from "../
 import { date, peso } from "../members/format";
 import type { PayableLoans } from "../server/loan-payment-register";
 import type { LoanPaymentPreview, LoanPaymentResult, LoanPaymentSummary } from "../server/loan-payments";
+import { PayrollRunSelect } from "../transactions/PayrollRunSelect";
 
 export function LoanPaymentDialog({ endpoint, loanId, onClose, onPosted }: {
   endpoint: string;
@@ -28,6 +29,8 @@ export function LoanPaymentDialog({ endpoint, loanId, onClose, onPosted }: {
   const [channel, setChannel] = useState<"OTC" | "PAYROLL">("OTC");
   const [reference, setReference] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [payrollRunId, setPayrollRunId] = useState<number>();
+  const [deductionReference, setDeductionReference] = useState("");
   const [review, setReview] = useState<{ preview: LoanPaymentPreview; key: string }>();
   const [result, setResult] = useState<LoanPaymentResult>();
   const [working, setWorking] = useState(false);
@@ -47,6 +50,8 @@ export function LoanPaymentDialog({ endpoint, loanId, onClose, onPosted }: {
       setChannel(data.channel);
       setReference("");
       setConfirmed(false);
+      setPayrollRunId(undefined);
+      setDeductionReference("");
     }).catch(cause => {
       if (!request.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load the loan balance.");
     });
@@ -70,7 +75,7 @@ export function LoanPaymentDialog({ endpoint, loanId, onClose, onPosted }: {
     setWorking(true);
     setError("");
     setFields({});
-    const input = { amount, receiptDate, channel, reference, confirmed };
+    const input = { amount, receiptDate, channel, reference, confirmed, payrollRunId, deductionReference };
     const request = (body: Record<string, unknown>) => ({
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, ...body }),
     });
@@ -85,7 +90,7 @@ export function LoanPaymentDialog({ endpoint, loanId, onClose, onPosted }: {
         setReview({ preview, key: newRequestKey() });
       }
     } catch (cause) {
-      if (cause instanceof MemberApiError && ["STALE_LOAN_REVIEW", "LOAN_DUE_UPDATED"].includes(cause.payload?.code ?? "")) {
+      if (cause instanceof MemberApiError && ["STALE_LOAN_REVIEW", "LOAN_DUE_UPDATED", "STALE_REMITTANCE"].includes(cause.payload?.code ?? "")) {
         setReview(undefined);
         try {
           const preview = await memberFetch<LoanPaymentPreview>(paymentUrl, request({ action: "preview" }));
@@ -128,7 +133,7 @@ export function LoanPaymentDialog({ endpoint, loanId, onClose, onPosted }: {
             {review ? "Edit payment" : "Cancel"}
           </Button>
           <Button
-            disabled={working || !summary || !amount || !receiptDate || (channel === "PAYROLL" && (!confirmed || !reference.trim()))}
+            disabled={working || !summary || !amount || !receiptDate || (channel === "PAYROLL" && (!confirmed || !reference.trim() || !payrollRunId))}
             onClick={() => void submit()}
           >
             {working && <Loader2 className="size-4 animate-spin" />}
@@ -212,15 +217,24 @@ export function LoanPaymentDialog({ endpoint, loanId, onClose, onPosted }: {
                     </label>
                     <label className="block space-y-1 text-sm">
                       {channel === "PAYROLL" ? "Bank remittance reference" : "Reference (optional)"}
-                      <Input value={reference} onChange={event => setReference(event.target.value)} maxLength={120} disabled={working} aria-invalid={Boolean(fields.reference)} />
+                      <Input value={reference} onChange={event => setReference(event.target.value)} maxLength={channel === "PAYROLL" ? 80 : 120}
+                        disabled={working} aria-invalid={Boolean(fields.reference || fields.bankReference)} />
                     </label>
-                    {fields.reference && <p className="text-xs text-destructive">{fields.reference}</p>}
-                    {channel === "PAYROLL" && (
+                    {(fields.reference || fields.bankReference) && <p className="text-xs text-destructive">{fields.reference || fields.bankReference}</p>}
+                    {channel === "PAYROLL" && <>
+                      <PayrollRunSelect endpoint={paymentUrl} value={payrollRunId} disabled={working} onChange={value => {
+                        setPayrollRunId(value); setConfirmed(false);
+                      }} />
+                      <label className="block space-y-1 text-sm">Payroll deduction reference (optional)
+                        <Input value={deductionReference} maxLength={120} disabled={working}
+                          placeholder="Required if this run has multiple deductions for the loan"
+                          onChange={event => setDeductionReference(event.target.value)} />
+                      </label>
                       <label className="flex items-start gap-2 rounded-lg border bg-muted/20 p-2.5 text-sm">
                         <input type="checkbox" className="mt-1" checked={confirmed} disabled={working} onChange={event => setConfirmed(event.target.checked)} />
                         I confirm the payroll remittance was received in the bank.
                       </label>
-                    )}
+                    </>}
                   </div>
                 </div>
               </Panel>

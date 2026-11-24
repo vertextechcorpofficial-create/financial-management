@@ -22,7 +22,7 @@ import type { LoanEnrollmentResult } from "../server/loan-enrollment-save";
 import { LoanEnrollmentDialog } from "./LoanEnrollmentDialog";
 import { LoanPaymentDialog } from "./LoanPaymentDialog";
 import { LoanDecisionPanel, LoanReleaseDetails } from "./LoanDecisionPanel";
-import type { LoanDecisionResult } from "../server/loan-decisions";
+import type { LoanDecisionPreview, LoanDecisionResult } from "../server/loan-decisions";
 import { amountToCents, installmentStatus } from "./loan-schedule";
 import { DetailSkeleton, RegisterSkeleton } from "./components";
 
@@ -543,6 +543,8 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, i
   const [attempt, setAttempt] = useState(0);
   const [tab, setTab] = useState<string>(initialTab);
   const [decision, setDecision] = useState<LoanDecisionResult>();
+  const [decisionPreview, setDecisionPreview] = useState<LoanDecisionPreview>();
+  const [decisionPreviewLoading, setDecisionPreviewLoading] = useState(false);
   const [paying, setPaying] = useState(false);
 
   useEffect(() => {
@@ -562,6 +564,29 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, i
   }, [endpoint, attempt]);
 
   const loan = detail?.loan;
+  const reviewLoanId = loan?.id;
+  const reviewLoanStatus = loan?.status;
+
+  // Load the review checks alongside the detail so opening the Review tab does not wait for both.
+  useEffect(() => {
+    if (!decisionEndpoint || !reviewLoanId || (reviewLoanStatus !== "PENDING" && reviewLoanStatus !== "APPROVED")) {
+      setDecisionPreview(undefined);
+      setDecisionPreviewLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setDecisionPreviewLoading(true);
+    fetch(decisionEndpoint, { cache: "no-store", signal: controller.signal })
+      .then(async response => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload) throw new Error(payload?.message || "Unable to load the loan checks.");
+        return payload as LoanDecisionPreview;
+      })
+      .then(payload => { if (!controller.signal.aborted) setDecisionPreview(payload); })
+      .catch(() => undefined)
+      .finally(() => { if (!controller.signal.aborted) setDecisionPreviewLoading(false); });
+    return () => controller.abort();
+  }, [decisionEndpoint, reviewLoanId, reviewLoanStatus]);
   const docs = loan?.documents;
   const status = decision?.status ?? loan?.status;
   const showReview = decisionEndpoint && (status === "PENDING" || status === "APPROVED");
@@ -799,7 +824,7 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, i
           </TabsContent>
 
           <TabsContent value="documents" className="mt-4 space-y-3">
-            {showReview && approveAndRelease && status === "PENDING" && (
+            {showReview && status === "PENDING" && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm">
                 <span>{docs?.blocks.length ? "Attach the required documents, then review the payout." : "The signed loan is filed. Review and confirm payout when ready."}</span>
                 <Button type="button" variant="outline" disabled={!!docs?.blocks.length || loading} onClick={() => setTab("review")}>Continue to release</Button>
@@ -846,6 +871,8 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, i
               <LoanDecisionPanel
                 key={attempt}
                 endpoint={decisionEndpoint}
+                initialPreview={decisionPreview}
+                initialPreviewLoading={decisionPreviewLoading}
                 approveAndRelease={approveAndRelease && status === "PENDING"}
                 onChanged={result => {
                   setDecision(result);

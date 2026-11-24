@@ -11,3 +11,9 @@ export const BUILDING_DETAILS = [
   ["taxDecNo", "Tax declaration no."],
 ] as const;
 export const DETAIL_LABELS: Record<string, string> = Object.fromEntries([...LAND_DETAILS, ...BUILDING_DETAILS]);
+export const DETAIL_OPTIONS: Record<string, string[]> = {
+  zoning: ["Residential", "Commercial", "Industrial", "Agricultural", "Institutional", "Mixed-use", "Other"],
+  construction: ["Reinforced concrete", "Steel frame", "Concrete & steel", "Masonry", "Wood", "Mixed", "Other"],
+  use: ["Office", "Warehouse", "Retail / commercial", "Residential", "Industrial / plant", "Mixed-use", "Other"],
+  condition: ["New", "Good", "Fair", "Needs repair", "Poor"],
+};

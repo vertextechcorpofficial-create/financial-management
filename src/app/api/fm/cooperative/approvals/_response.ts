@@ -1,6 +1,8 @@
 import { requireCooperativeWorkspace } from "@/modules/financial-management/cooperative/server/access";
 import { ApprovalError } from "@/modules/financial-management/cooperative/server/approvals";
 import { LoanError } from "@/modules/financial-management/cooperative/server/loans";
+import { WithdrawalError } from "@/modules/financial-management/cooperative/server/withdrawal-store";
+import { SavingsCommandError } from "@/modules/financial-management/cooperative/server/savings-commands";
 
 type Access = Extract<Awaited<ReturnType<typeof requireCooperativeWorkspace>>, { ok: true }>;
 
@@ -13,9 +15,9 @@ export async function withApprovals(handler: (actor: Access) => Promise<unknown>
     try {
       response = Response.json(await handler(access));
     } catch (error) {
-      response = error instanceof ApprovalError || error instanceof LoanError
+      response = error instanceof ApprovalError || error instanceof LoanError || error instanceof WithdrawalError || error instanceof SavingsCommandError
         ? Response.json({ message: error.message, code: error.code,
-          fieldErrors: error instanceof LoanError ? error.fieldErrors : undefined }, { status: error.status })
+          fieldErrors: error instanceof LoanError || error instanceof WithdrawalError ? error.fieldErrors : undefined }, { status: error.status })
         : Response.json({ message: "Approvals are temporarily unavailable. Please try again." }, { status: 503 });
     }
   }

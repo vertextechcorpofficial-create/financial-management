@@ -1,6 +1,18 @@
 import type { Product } from "../policies/policy-types";
 import { amountToCents, centsToAmount, lastDayOfMonth, type LoanFrequency, type LoanInstallment } from "./loan-schedule";
 
+export type LoanAssessmentCheck = {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+  severity?: "warning";
+};
+
+export function passesLoanChecks(checks: readonly LoanAssessmentCheck[]) {
+  return checks.every(check => check.ok || check.severity === "warning");
+}
+
 export type SalaryLoanRoom =
   | { state: "ready"; amount: string }
   | { state: "unlimited" }
@@ -61,7 +73,7 @@ function deductionAmount(value: unknown) {
 
 // Dedicated Cooperative rows and VOS employee loans can coexist in a posted pay result.
 // Use the matched portions of the dedicated deductions already carried in net pay.
-export function payrollOverlap(posted: PostedCooperativeDeductions, commitments: readonly PayrollCommitment[]) {
+export function postedCooperativeItems(posted: PostedCooperativeDeductions) {
   let snapshot = posted.breakdown_json;
   if (typeof snapshot === "string") {
     try { snapshot = JSON.parse(snapshot) as unknown; }
@@ -72,7 +84,7 @@ export function payrollOverlap(posted: PostedCooperativeDeductions, commitments:
     { field: "coop_savings", table: "cooperative_memberships", otherTable: "coop_savings_membership" },
     { field: "coop_loan", table: "cooperative_loans", otherTable: "employee_loan" },
   ] as const;
-  const byCommitment = new Map<string, bigint>();
+  const verified: Array<PayrollCommitment & { key: string }> = [];
   const seen = new Set<string>();
   for (const { field, table, otherTable } of totals) {
     const amount = deductionAmount(posted[field]);
@@ -93,10 +105,20 @@ export function payrollOverlap(posted: PostedCooperativeDeductions, commitments:
       seen.add(key);
       sum += cents;
       if (sourceTable !== table) continue;
-      const commitmentKey = table + ":" + sourceId;
-      byCommitment.set(commitmentKey, (byCommitment.get(commitmentKey) ?? 0n) + cents);
+      verified.push({ table, id: sourceId, key, cents });
     }
     if (sum !== amount) return null;
+  }
+  return verified;
+}
+
+export function payrollOverlap(posted: PostedCooperativeDeductions, commitments: readonly PayrollCommitment[]) {
+  const items = postedCooperativeItems(posted);
+  if (items === null) return null;
+  const byCommitment = new Map<string, bigint>();
+  for (const item of items) {
+    const key = item.table + ":" + item.id;
+    byCommitment.set(key, (byCommitment.get(key) ?? 0n) + item.cents);
   }
   return commitments.reduce((overlap, commitment) => {
     const deducted = byCommitment.get(commitment.table + ":" + commitment.id) ?? 0n;

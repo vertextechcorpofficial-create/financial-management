@@ -21,6 +21,7 @@ const foundationCollections = [
 type Collection =
   | typeof foundationCollections[number]
   | "cooperative_documents"
+  | "cooperative_clearances"
   | "cooperative_loans"
   | "cooperative_loan_installments"
   | "cooperative_loan_payments"
@@ -28,6 +29,13 @@ type Collection =
   | "cooperative_memberships"
   | "cooperative_membership_agreements"
   | "cooperative_savings_entries"
+  | "cooperative_transaction_entries"
+  | "cooperative_payroll_remittance_batches"
+  | "cooperative_payroll_remittance_lines"
+  | "cooperative_reconciliation_evidence"
+  | "cooperative_dividend_drafts"
+  | "cooperative_dividend_runs"
+  | "cooperative_withdrawal_requests"
   | "cooperative_official_receipts"
   | "payroll_run"
   | "payroll_run_employee"
@@ -77,6 +85,34 @@ export async function readDirectusItems(collection: Collection, query: URLSearch
     headers: { Accept: "application/json" },
   });
   return response.json();
+}
+
+export async function readDirectusPages<T extends z.ZodType>(
+  collection: Collection, schema: T, query: Record<string, string>,
+): Promise<z.output<T>[]> {
+  const size = 100;
+  const parameters = new URLSearchParams({ sort: "id", ...query, limit: String(size) });
+  const pageSchema = z.object({ data: z.array(schema).max(size) });
+  const rows: z.output<T>[] = [];
+  for (let offset = 0; ; offset += size) {
+    parameters.set("offset", String(offset));
+    const { data } = pageSchema.parse(await readDirectusItems(collection, parameters));
+    rows.push(...data);
+    if (data.length < size) return rows;
+  }
+}
+
+export async function readDirectusByIds<T extends z.ZodType>(
+  collection: Collection, schema: T, fields: string, field: string, ids: readonly number[], filter: object = {},
+) {
+  const unique = [...new Set(ids)];
+  const rows: z.output<T>[] = [];
+  for (let offset = 0; offset < unique.length; offset += 50) {
+    rows.push(...await readDirectusPages(collection, schema, {
+      fields, filter: JSON.stringify({ ...filter, [field]: { _in: unique.slice(offset, offset + 50) } }),
+    }));
+  }
+  return rows;
 }
 
 export async function isCooperativeDataReady() {

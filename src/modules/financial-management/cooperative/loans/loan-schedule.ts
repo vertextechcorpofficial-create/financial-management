@@ -17,6 +17,7 @@ export type LoanInstallment = {
   penaltyAssessedOn?: string | null;
   accrualProcessedOn?: string | null;
   accrualJournalId?: number | null;
+  settlementWaiver?: { amount: string; date: string; reference: string; reversedOn: string | null } | null;
   penaltyPaid: string;
   status: InstallmentStatus;
 };
@@ -98,7 +99,7 @@ export function centsToAmount(cents: bigint) {
   return `${cents < 0n ? "-" : ""}${absolute / 100n}.${String(absolute % 100n).padStart(2, "0")}`;
 }
 
-function percentMicros(value: string | number | null | undefined) {
+export function percentMicros(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return 0n;
   const text = String(value).trim();
   const match = /^(\d{1,3})(?:\.(\d{1,6}))?$/.exec(text);
@@ -106,7 +107,7 @@ function percentMicros(value: string | number | null | undefined) {
   return BigInt(match[1]) * 1_000_000n + BigInt((match[2] ?? "").padEnd(6, "0"));
 }
 
-function divideRoundHalfUp(numerator: bigint, denominator: bigint) {
+export function divideRoundHalfUp(numerator: bigint, denominator: bigint) {
   if (denominator <= 0n) throw new Error("The percentage denominator is invalid.");
   return (2n * numerator + denominator) / (2n * denominator);
 }

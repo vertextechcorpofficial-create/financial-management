@@ -12,10 +12,11 @@ const pageSize = 50;
 const manila = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Manila", dateStyle: "short", timeStyle: "medium",
 });
-const auditFields = z.object({
+export const cooperativeAuditFields = z.object({
   id: z.number(),
   actor_user_id: z.number(),
   actor_role: z.string().nullable(),
+  actor_name: z.string().nullish(),
   action: z.string(),
   entity_type: z.string(),
   entity_id: z.string(),
@@ -72,18 +73,19 @@ export async function readCooperativeAuditHistory(subject: Subject, page = 1) {
     throw new RangeError("Invalid audit history page.");
   }
   const query = new URLSearchParams({
-    fields: Object.keys(auditFields.shape).join(","),
+    fields: Object.keys(cooperativeAuditFields.shape).join(","),
     filter: JSON.stringify({ entity_type: { _eq: subject.type }, entity_id: { _eq: String(subject.id) } }),
     sort: "-occurred_at,-id",
     limit: String(pageSize + 1),
     offset: String((page - 1) * pageSize),
   });
-  const { data } = z.object({ data: z.array(auditFields) }).parse(await readDirectusItems("cooperative_audit_events", query));
+  const { data } = z.object({ data: z.array(cooperativeAuditFields) }).parse(await readDirectusItems("cooperative_audit_events", query));
   return {
     items: data.slice(0, pageSize).map(row => ({
       id: row.id,
       actorId: row.actor_user_id,
       actorRole: row.actor_role,
+      actorName: row.actor_name ?? null,
       action: row.action,
       recordType: row.entity_type,
       recordId: row.entity_id,
