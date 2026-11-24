@@ -1,5 +1,6 @@
 import { listItems } from "./directus";
 import { asBoolean, asNumber, asNumberOrNull, asString } from "./directus";
+import { buildBridge } from "./bridge";
 import { DEFAULT_POLICY, healthScore, statusOf } from "./engine";
 import { phtToday } from "../pht";
 import type {
@@ -176,6 +177,7 @@ export async function loadOverview(params: { company?: string; asOf?: string }):
         stale: point ? point.actual !== null && point.period < periods[periods.length - 1] : false,
         missingActual: point?.actual === null || point?.actual === undefined,
         missingTarget: point?.target === null || point?.target === undefined,
+        points,
       };
     })
     .sort((a, b) => {
@@ -198,11 +200,49 @@ export async function loadOverview(params: { company?: string; asOf?: string }):
       kpiName: sample?.name ?? slug,
       cells: operating.map((row) => {
         const kpi = coreKpis.find((candidate) => candidate.company_id === row.id && candidate.kpi_key.endsWith(`.${slug}`));
-        if (!kpi) return { code: row.code, status: "NO_DATA" as StatusCode };
-        return { code: row.code, status: statusFor(kpi).status.code };
+        if (!kpi) {
+          return { code: row.code, status: "NO_DATA" as StatusCode, varianceText: null, unfavorable: false, confirmed: false };
+        }
+        const computed = statusFor(kpi).status;
+        return {
+          code: row.code,
+          status: computed.code,
+          varianceText: computed.deviation?.text ?? null,
+          unfavorable: computed.deviation?.unfavorable ?? false,
+          confirmed: computed.code === "CONFIRMED",
+        };
       }),
     };
   });
+
+  const allExceptionsMapped = exceptionRows.rows.map(mapException);
+  const companyScorecard = companies
+    .filter((entry) => entry.kind !== "GROUP")
+    .map((entry) => {
+      const entityKpis = kpis.filter((kpi) => kpi.company_id === entry.id);
+      const statuses = entityKpis.map((kpi) => ({ kpi, status: statusFor(kpi).status }));
+      const worst = statuses
+        .filter((s) => s.status.code === "CONFIRMED" && s.status.deviation)
+        .sort((a, b) => (b.status.deviation?.ratio ?? 0) - (a.status.deviation?.ratio ?? 0))[0];
+      const entityEsc = allExceptionsMapped.filter(
+        (ex) => ex.company_id === entry.id && ex.status === "ESCALATED",
+      ).length;
+      return {
+        id: entry.id,
+        code: entry.code,
+        name: entry.name,
+        industry: entry.industry ?? (entry.kind === "HOLDINGS" ? "Parent company" : "Operating"),
+        revenueWeight: entry.revenue_weight,
+        health: healthScore(statuses.map((s) => s.status)),
+        onTrack: statuses.filter((s) => s.status.code === "ON_TRACK" || s.status.code === "FAVORABLE").length,
+        watch: statuses.filter((s) => s.status.code === "WATCH" || s.status.code === "PROVISIONAL").length,
+        breach: statuses.filter((s) => s.status.code === "CONFIRMED").length,
+        escalated: entityEsc,
+        topIssue: worst
+          ? { kpiName: worst.kpi.name, varianceText: worst.status.deviation?.text ?? "" }
+          : null,
+      };
+    });
 
   const kpiById = new Map(kpis.map((kpi) => [kpi.id, kpi]));
   const companyById = new Map(companies.map((row) => [row.id, row]));
@@ -218,6 +258,13 @@ export async function loadOverview(params: { company?: string; asOf?: string }):
     })
     .filter((row) => !company || company.id === 0 || row.company_id === company.id);
 
+  // The bridge consolidates the operating companies, so it only means anything on the group view.
+  const settings = new Map(settingRows.rows.map((row) => [asString(row.setting_key), asString(row.value)]));
+  const bridge =
+    company && company.kind === "GROUP"
+      ? buildBridge({ asOf, companies, kpis, settings, actuals })
+      : null;
+
   const now = Date.now();
   const sources = sourceRows.rows.map((row) => {
     const lastSync = row.last_sync_at ? asString(row.last_sync_at) : null;
@@ -226,5 +273,5 @@ export async function loadOverview(params: { company?: string; asOf?: string }):
     return { code: asString(row.code), name: asString(row.name), state: asString(row.state), last_sync_at: lastSync, sla_minutes: sla, stale };
   });
 
-  return { asOf, companies, company, rows, health, counts, exceptions, heat, sources };
+  return { asOf, companies, company, rows, health, counts, exceptions, companyScorecard, heat, sources, bridge };
 }

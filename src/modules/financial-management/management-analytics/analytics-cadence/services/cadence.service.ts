@@ -1,8 +1,8 @@
 import "server-only";
 
 import { asNumber, asNumberOrNull, asString, listItems } from "./directus";
-import { DEFAULT_POLICY, healthScore, statusOf } from "./engine";
-import type { CadencePayload, CadenceRow, KpiRow, PeriodPoint, Policy, RhythmRow, Rollup } from "../types";
+import { DEFAULT_POLICY, forecast, healthScore, statusOf } from "./engine";
+import type { CadencePayload, CadenceRow, KpiRow, PeriodPoint, Policy, RhythmRow, Rollup, StatusCode } from "../types";
 
 type Json = Record<string, unknown>;
 
@@ -50,8 +50,19 @@ function mapKpi(row: Json): KpiRow {
   };
 }
 
-async function loadPolicy(): Promise<Policy> {
-  const rows = await listItems<Json>("ma_setting", { fields: ["setting_key", "value"], limit: 200 });
+function monthIndex(month: string): number {
+  const [year, index] = month.split("-").map(Number);
+  return year * 12 + (index - 1);
+}
+
+/** The month next to the one asked for, so an empty board can point at a month that has rows. */
+function nearestMonth(periods: string[], wanted: string): string | null {
+  if (periods.length === 0) return null;
+  const target = monthIndex(wanted);
+  return periods.reduce((best, month) => (Math.abs(monthIndex(month) - target) < Math.abs(monthIndex(best) - target) ? month : best));
+}
+
+async function loadPolicy(): Promise<Policy> {  const rows = await listItems<Json>("ma_setting", { fields: ["setting_key", "value"], limit: 200 });
   const map = new Map<string, string>();
   for (const row of rows.rows) map.set(asString(row.setting_key), asString(row.value));
   const flag = (key: string, fallback: boolean) => {
@@ -100,7 +111,11 @@ export async function loadCadence(requested?: string): Promise<CadencePayload> {
   }
 
   const periods = [...new Set(readingRows.rows.map((row) => asString(row.period)))].sort();
-  const period = requested && periods.includes(requested) ? requested : (periods.at(-1) ?? "");
+  // An empty month is answered as the month that was asked for. Swapping in the newest month
+  // silently makes the reader read a different month than the one in the toolbar.
+  const wanted = requested && /^\d{4}-(0[1-9]|1[0-2])$/.test(requested) ? requested : null;
+  const period = wanted ?? periods.at(-1) ?? "";
+  const nearestPeriod = wanted && !periods.includes(wanted) ? nearestMonth(periods, wanted) : null;
 
   const series = new Map<number, PeriodPoint[]>();
   for (const row of readingRows.rows) {
@@ -115,6 +130,13 @@ export async function loadCadence(requested?: string): Promise<CadencePayload> {
     series.set(kpiId, list);
   }
   for (const list of series.values()) list.sort((a, b) => a.period.localeCompare(b.period));
+
+  // The weekly card's forecast line, over the series already read: a measure is at risk when the
+  // model gives a breach better than even-ish odds in the next month (the reference's 60% cut).
+  const forecastRisk = kpis.filter((kpi) => {
+    const result = forecast(series.get(kpi.id) ?? [], kpi, 1);
+    return result.breachProbability !== null && result.breachProbability > 0.6;
+  }).length;
 
   const codes = new Map<number, { code: string; name: string; kind: string }>();
   for (const row of companyRows.rows) {
@@ -141,8 +163,9 @@ export async function loadCadence(requested?: string): Promise<CadencePayload> {
   }
 
   const rows: CadenceRow[] = [];
+  // Every company with measures is listed, group included: dropping the group's six measures made
+  // the per-row counts add up to 87 while the screen claimed 93 read.
   for (const [companyId, info] of codes) {
-    if (info.kind === "GROUP") continue;
     const own = kpis.filter((kpi) => kpi.company_id === companyId);
     const statuses = own
       .map((kpi) => {
@@ -174,6 +197,39 @@ export async function loadCadence(requested?: string): Promise<CadencePayload> {
   const readings = kpis.filter((kpi) =>
     (series.get(kpi.id) ?? []).some((point) => point.period === period),
   ).length;
+
+  // The monthly heatmap: companies down, core measures across, using the same status vocabulary the
+  // company rows and the pack already use. A measure with no reading for the month is NO_DATA, not
+  // on track, so an empty cell can never look healthy.
+  const coreKpis = kpis.filter((kpi) => kpi.tier === "CORE");
+  const heatKeys: Array<{ key: string; name: string }> = [];
+  const seenKeys = new Set<string>();
+  // Keyed by measure name, not by kpi_key: every company carries its own key for the same core
+  // measure, so keying by kpi_key turned the grid into a diagonal of 36 one-company columns.
+  for (const kpi of [...coreKpis].sort((a, b) => a.sort - b.sort)) {
+    if (!kpi.name || seenKeys.has(kpi.name)) continue;
+    seenKeys.add(kpi.name);
+    heatKeys.push({ key: kpi.name, name: kpi.name });
+  }
+  const heatmap = Array.from(codes.entries())
+    .flatMap(([companyId, info]) => {
+      const ownCore = coreKpis.filter((kpi) => kpi.company_id === companyId);
+      if (ownCore.length === 0 || heatKeys.length === 0) return [];
+      const own = new Map(ownCore.map((kpi) => [kpi.name, kpi]));
+      return [
+        {
+          code: info.code,
+          name: info.name,
+          cells: heatKeys.map<StatusCode>((column) => {
+            const kpi = own.get(column.key);
+            if (!kpi) return "NO_DATA";
+            const points = series.get(kpi.id) ?? [];
+            const index = points.findIndex((point) => point.period === period);
+            return index < 0 ? "NO_DATA" : statusOf(kpi, points, index, policy).code;
+          }),
+        },
+      ];
+    });
 
   const sources = sourceRows.rows.map((row) => {
     const lastSync = asString(row.last_sync_at) || null;
@@ -234,14 +290,17 @@ export async function loadCadence(requested?: string): Promise<CadencePayload> {
   return {
     period,
     periods,
+    nearestPeriod,
     rows,
     rhythms,
+    heatmap: { keys: heatKeys, rows: heatmap },
     totals: {
       health,
       exceptionsOpen: totalOpen,
       memoOverdue: totalOverdue,
       readings,
       expected,
+      forecastRisk,
       staleSources,
     },
     sources,

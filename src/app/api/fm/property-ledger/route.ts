@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { portfolioSchema } from "@/modules/financial-management/property-ledger/types";
 import { assertTransition } from "@/modules/financial-management/property-ledger/utils/locks";
-import { authorize, assertWriteAccess, commit, describeChange, history, latest, LedgerError } from "@/modules/financial-management/property-ledger/services/server";
+import { authorize, assertWriteAccess, commit, describeChange, latest, workspace, LedgerError } from "@/modules/financial-management/property-ledger/services/server";
 import { LEDGER_PAGES, type LedgerPage } from "@/modules/financial-management/property-ledger/navigation";
+import { assertRegistrations } from "@/modules/financial-management/property-ledger/utils/registration";
+import { mergeCompanyChanges } from "@/modules/financial-management/property-ledger/utils/companies";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,15 +22,18 @@ function requestedPage(request: NextRequest): LedgerPage {
 export async function GET(request: NextRequest) {
   try {
     const user = await authorize(requestedPage(request));
-    const [state, entries] = await Promise.all([latest(), history()]);
-    return NextResponse.json({ ...state, canManage: user.canManage, allowedPages: user.pages, history: entries }, { headers: { "Cache-Control": "no-store" } });
+    const state = await latest();
+    const { visible } = await workspace(state.portfolio, user);
+    return NextResponse.json({ ...state, history: [], portfolio: visible, canManage: user.canManage, allowedPages: user.pages, editPages: user.editPages }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return failure(error); }
 }
 export async function POST(request: NextRequest) {
   try {
     // Cookie-authenticated writes must come from this application's origin.
     if (request.headers.get("origin") !== request.nextUrl.origin) throw new LedgerError("Invalid request origin", 403);
-    const user = await authorize(requestedPage(request));
+    const page = requestedPage(request);
+    if (!["land-register", "building-register", "accounting-policies"].includes(page)) throw new LedgerError("This Property Ledger view is read-only. Use a registration submodule to save changes.", 403);
+    const user = await authorize(page);
     if (Number(request.headers.get("content-length") ?? 0) > 2_000_000) throw new LedgerError("Portfolio is too large", 413);
     const text = await request.text();
     if (text.length > 2_000_000) throw new LedgerError("Portfolio is too large", 413);
@@ -37,12 +42,18 @@ export async function POST(request: NextRequest) {
     const input = z.object({ revision: z.number().int().nonnegative(), portfolio: portfolioSchema }).parse(json);
     const previous = await latest();
     if (input.revision !== previous.revision) throw new LedgerError("The ledger changed. Refresh before saving your changes.", 409);
-    assertWriteAccess(previous.portfolio, input.portfolio, user);
-    try { assertTransition(previous.portfolio, input.portfolio, user.canManage); }
+    const { full, visible } = await workspace(previous.portfolio, user);
+    assertWriteAccess(visible, input.portfolio, user);
+    assertRegistrations(visible, input.portfolio);
+    let next;
+    try {
+      next = portfolioSchema.parse(mergeCompanyChanges(full, visible, input.portfolio));
+      assertTransition(full, next, user.canManage);
+    }
     catch (error) { throw new LedgerError(error instanceof Error ? error.message : "Closed period", 422); }
-    const summary = describeChange(previous.portfolio, input.portfolio);
+    const summary = describeChange(full, next);
     if (summary === "No changes") return NextResponse.json({ revision: previous.revision });
-    const revision = await commit(input.revision, input.portfolio, user.actor, summary);
+    const revision = await commit(input.revision, next, user.actor, summary);
     return NextResponse.json({ revision }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return failure(error); }
 }

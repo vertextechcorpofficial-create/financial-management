@@ -977,7 +977,7 @@ export async function reverseChange(id: number, reason: string | null, actorId: 
   const loan = await readLoan(change.loanId);
   if (loan.scheduleVersion !== change.scheduleVersion) {
     throw new LoanConflictError(
-      `${change.changeNo} produced version ${change.scheduleVersion ?? "—"}, but the loan now runs on version ${loan.scheduleVersion}. Only the most recent change can be reversed.`,
+      `${change.changeNo} produced version ${change.scheduleVersion ?? "none"}, but the loan now runs on version ${loan.scheduleVersion}. Only the most recent change can be reversed.`,
     );
   }
 

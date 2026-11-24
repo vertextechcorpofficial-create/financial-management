@@ -39,7 +39,7 @@ function SearchSelect<T extends string | number>({ options, value, onSelect, pla
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
-                <Button variant="outline" role="combobox" aria-label={placeholder} aria-expanded={open} className={cn("justify-between w-full h-9 text-xs font-bold uppercase bg-background px-2.5", className)}>
+                <Button variant="outline" role="combobox" aria-expanded={open} className={cn("justify-between w-full h-9 text-xs font-bold uppercase bg-background px-2.5", className)}>
                     <span className="truncate text-left">{selectedLabel}</span>
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-55" />
                 </Button>
@@ -657,9 +657,9 @@ export default function LedgerSubmodule() {
                         </div>
                     ) : (
                         /* VOUCHER HEADER LIST */
-                        <StickyTableWrapper className="max-h-[640px] overflow-auto">
+                        <StickyTableWrapper className="max-h-[640px]">
                             <Table>
-                                <TableHeader className="bg-muted sticky top-0 z-10 shadow-[0_1px_0_0_hsl(var(--border))]">
+                                <TableHeader className="bg-muted/80 backdrop-blur-md sticky top-0 z-10 shadow-[0_1px_0_0_hsl(var(--border))]">
                                     <TableRow className="hover:bg-transparent border-b border-border/80">
                                         <TableHead className="text-[9px] font-black uppercase tracking-widest text-muted-foreground pl-6 w-[120px]">Date</TableHead>
                                         <TableHead className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-[130px]">Doc No</TableHead>
@@ -718,7 +718,7 @@ export default function LedgerSubmodule() {
                     )}
 
                     {/* Pagination */}
-                    <div className="relative shrink-0 flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border-t border-border/50 bg-card">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border-t border-border/50 bg-card/95 backdrop-blur-md sticky bottom-0 z-10">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Rows per page:</span>
                             <select 
@@ -768,7 +768,18 @@ export default function LedgerSubmodule() {
                 open={isViewOpen}
                 onOpenChange={setIsViewOpen}
                 disbursement={selectedDisbursement}
-                onUpdateStatus={async () => false}
+                onUpdateStatus={async (id, status) => {
+                    try {
+                        await disbursementProvider.updateStatus(id, status);
+                        toast.success(`Status updated to ${status}`);
+                        fetchLedger();
+                        return true;
+                    } catch (err: unknown) {
+                        const msg = err instanceof Error ? err.message : "Status update failed";
+                        toast.error(msg);
+                        return false;
+                    }
+                }}
                 onEdit={() => {}} // Read-only from Ledger submodule, edit not permitted
                 loading={false}
                 readOnly={true}

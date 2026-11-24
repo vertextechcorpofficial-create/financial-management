@@ -1,6 +1,12 @@
 import "server-only";
 
-import type { ExpenseBreakdown, IntercompanyMatch, QuarterFigures, RegistryCompany } from "../types";
+import type {
+  ExpenseBreakdown,
+  ExpenseBucket,
+  IntercompanyMatch,
+  QuarterFigures,
+  RegistryCompany,
+} from "../types";
 import { VAT_RATE } from "../constants";
 import { listRows, sumFields, CompanyRequestError, groupedByDate } from "./companyClient";
 import { listItems } from "./directus";
@@ -44,7 +50,17 @@ function plain(text: string): string {
  */
 const DEDUCTIBLE_TYPES = new Set(["7", "8", "9", "10"]);
 
-async function loadDeductibleAccounts(company: RegistryCompany): Promise<number[] | null> {
+/** The two of those four that belong to line 3 (cost of sales), not line 6. */
+const COST_TYPES = new Set(["7", "8"]);
+
+interface DeductibleAccounts {
+  /** Every account a return may subtract, cost of sales included. */
+  ids: number[];
+  /** The cost-of-sales and cost-of-services accounts, which go to line 3. */
+  cost: Set<number>;
+}
+
+async function loadDeductibleAccounts(company: RegistryCompany): Promise<DeductibleAccounts | null> {
   try {
     const rows = await listRows<{ coa_id?: number | string; account_type?: string | number | null }>(
       company.baseUrl,
@@ -53,11 +69,17 @@ async function loadDeductibleAccounts(company: RegistryCompany): Promise<number[
       "chart_of_accounts",
       { fields: ["coa_id", "account_type"], limit: -1 },
     );
-    const ids = rows
-      .filter((row) => DEDUCTIBLE_TYPES.has(String(row.account_type ?? "").trim()))
-      .map((row) => Number(row.coa_id))
-      .filter((id) => Number.isFinite(id) && id > 0);
-    return ids.length > 0 ? ids : null;
+    const ids: number[] = [];
+    const cost = new Set<number>();
+    for (const row of rows) {
+      const type = String(row.account_type ?? "").trim();
+      if (!DEDUCTIBLE_TYPES.has(type)) continue;
+      const id = Number(row.coa_id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      ids.push(id);
+      if (COST_TYPES.has(type)) cost.add(id);
+    }
+    return ids.length > 0 ? { ids, cost } : null;
   } catch {
     return null;
   }
@@ -74,6 +96,7 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
   "8": "Cost of services",
   "9": "Operating expenses",
   "10": "Finance costs",
+  "11": "Other income",
 };
 
 interface AccountDirectory {
@@ -109,37 +132,62 @@ async function loadAccountDirectory(company: RegistryCompany): Promise<AccountDi
  * Where the deduction line comes from, account type by account type.
  *
  * The disbursement ledger carries everything that left the bank: stock, loan repayments, tax
- * payments, asset purchases. Only the income-statement types are deductions, so the panel has
- * to show both halves — what was disbursed and which part of it the return may subtract.
+ * payments, asset purchases. Only cost of sales, cost of services, operating expense and
+ * finance cost reach the return, so the panel shows all three buckets — what was disbursed,
+ * which part lands on line 3, which on line 6, and what stays a balance-sheet movement.
+ *
+ * The itemized Spring view is read first because it carries the account on every line; when it
+ * answers with nothing, the same ledger the engine summed is walked directly, so the panel
+ * always describes the source the figures actually came from.
  */
 export async function loadExpenseBreakdown(
   company: RegistryCompany,
   taxYear: number,
   options: { springToken?: string | null } = {},
 ): Promise<ExpenseBreakdown | null> {
-  if (!company.springUrl || !options.springToken) return null;
   const directory = await loadAccountDirectory(company);
   if (!directory) return null;
 
-  const spring = await loadSpringExpenses(company, options.springToken, taxYear);
-  if (!spring.lines || spring.lines.length === 0) return null;
+  // The itemized view needs its own token; without one the ledger below answers instead.
+  const spring =
+    company.springUrl && options.springToken
+      ? await loadSpringExpenses(company, options.springToken, taxYear)
+      : { lines: null };
+
+  if (!spring.lines || spring.lines.length === 0) {
+    return loadLedgerBreakdown(company, taxYear, directory);
+  }
 
   const byType = new Map<string, number>();
   const byAccount = new Map<number, number>();
-  let total = 0;
   for (const line of spring.lines) {
     const type = directory.typeById.get(line.coaId) ?? "";
     byType.set(type, (byType.get(type) ?? 0) + line.amount);
-    total += line.amount;
     if (DEDUCTIBLE_TYPES.has(type)) byAccount.set(line.coaId, (byAccount.get(line.coaId) ?? 0) + line.amount);
   }
+  return summariseBreakdown(byType, byAccount, directory, "SPRING");
+}
 
+function bucketOf(type: string): ExpenseBucket {
+  if (COST_TYPES.has(type)) return "COST_OF_SALES";
+  if (DEDUCTIBLE_TYPES.has(type)) return "DEDUCTIONS";
+  if (type === "6" || type === "11") return "INCOME_ADJUSTMENT";
+  if (!type) return "UNCLASSIFIED";
+  return "BALANCE_SHEET";
+}
+
+function summariseBreakdown(
+  byType: Map<string, number>,
+  byAccount: Map<number, number>,
+  directory: AccountDirectory,
+  source: ExpenseBreakdown["source"],
+): ExpenseBreakdown {
   const rows = [...byType.entries()]
     .map(([type, amount]) => ({
       type,
       label: ACCOUNT_TYPE_LABELS[type] ?? (type ? `Other (type ${type})` : "Not classified in the chart of accounts"),
       amount: Math.round(amount * 100) / 100,
-      deductible: DEDUCTIBLE_TYPES.has(type),
+      bucket: bucketOf(type),
     }))
     .sort((left, right) => right.amount - left.amount);
 
@@ -152,8 +200,78 @@ export async function loadExpenseBreakdown(
     .sort((left, right) => right.amount - left.amount)
     .slice(0, 8);
 
-  const deductible = rows.filter((row) => row.deductible).reduce((sum, row) => sum + row.amount, 0);
-  return { total: Math.round(total * 100) / 100, deductible: Math.round(deductible * 100) / 100, rows, accounts, source: "SPRING" };
+  const total = rows.reduce((sum, row) => sum + row.amount, 0);
+  const costOfSales = rows.filter((row) => row.bucket === "COST_OF_SALES").reduce((sum, row) => sum + row.amount, 0);
+  const deductible = rows.filter((row) => row.bucket === "DEDUCTIONS").reduce((sum, row) => sum + row.amount, 0);
+  return {
+    total: Math.round(total * 100) / 100,
+    costOfSales: Math.round(costOfSales * 100) / 100,
+    deductible: Math.round(deductible * 100) / 100,
+    rows,
+    accounts,
+    source,
+  };
+}
+
+const IN_CHUNK_SIZE = 100;
+
+function chunkIds<T>(items: T[], size = IN_CHUNK_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+/** The same breakdown from the ledger the engine summed, for instances with no itemized view. */
+async function loadLedgerBreakdown(
+  company: RegistryCompany,
+  taxYear: number,
+  directory: AccountDirectory,
+): Promise<ExpenseBreakdown | null> {
+  const from = `${taxYear}-01-01`;
+  const to = `${taxYear}-12-31`;
+  try {
+    const vouchers = await listRows<{ id?: number | string | null; transaction_date?: string | null }>(
+      company.baseUrl,
+      company.token,
+      company.code,
+      "disbursement",
+      {
+        fields: ["id", "transaction_date"],
+        filter: { _and: [{ transaction_date: { _gte: from } }, { transaction_date: { _lte: to } }] },
+        limit: -1,
+      },
+    );
+    const ids = vouchers.map((voucher) => Number(voucher.id)).filter((id) => Number.isFinite(id) && id > 0);
+    if (ids.length === 0) return null;
+
+    // Chunk `_in` arrays to keep GET query strings well under HTTP 431 header limits.
+    const lines: Array<{ amount?: number | string | null; coa_id?: number | string | null }> = [];
+    for (const batch of chunkIds(ids)) {
+      const part = await listRows<{ amount?: number | string | null; coa_id?: number | string | null }>(
+        company.baseUrl,
+        company.token,
+        company.code,
+        "disbursement_payables",
+        { fields: ["amount", "coa_id"], filter: { disbursement_id: { _in: batch } }, limit: -1 },
+      );
+      lines.push(...part);
+    }
+    if (lines.length === 0) return null;
+
+    const byType = new Map<string, number>();
+    const byAccount = new Map<number, number>();
+    for (const line of lines) {
+      const coaId = Number(line.coa_id);
+      if (!Number.isFinite(coaId)) continue;
+      const type = directory.typeById.get(coaId) ?? "";
+      const amount = Number(line.amount) || 0;
+      byType.set(type, (byType.get(type) ?? 0) + amount);
+      if (DEDUCTIBLE_TYPES.has(type)) byAccount.set(coaId, (byAccount.get(coaId) ?? 0) + amount);
+    }
+    return summariseBreakdown(byType, byAccount, directory, "LEDGER");
+  } catch {
+    return null;
+  }
 }
 
 export interface FigureResult {
@@ -175,6 +293,7 @@ function emptyQuarter(): QuarterFigures {
     purchases: 0,
     purchasesVat: 0,
     cogsProductCost: 0,
+    cogsLedger: 0,
     expenses: 0,
     cwt: 0,
     icSales: 0,
@@ -248,7 +367,7 @@ async function payableRowsByDisbursementDate(
   company: RegistryCompany,
   from: string,
   to: string,
-  coaIds: number[],
+  accounts: DeductibleAccounts,
 ): Promise<Array<{ date: string; sums: Record<string, number> }>> {
   const vouchers = await listRows<{ id: number; transaction_date: string | null }>(
     company.baseUrl,
@@ -267,26 +386,35 @@ async function payableRowsByDisbursementDate(
   }
   if (dateOf.size === 0) return [];
 
-  const lines = await listRows<{ disbursement_id: number; amount: number | string | null; coa_id: number | null }>(
-    company.baseUrl,
-    company.token,
-    company.code,
-    "disbursement_payables",
-    {
-      fields: ["disbursement_id", "amount", "coa_id"],
-      filter: { _and: [{ disbursement_id: { _in: [...dateOf.keys()] } }, { coa_id: { _in: coaIds } }] },
-      limit: -1,
-    },
-  );
+  // Chunk `_in` arrays so high-volume entities never exceed GET URL / header size (HTTP 431).
+  const lines: Array<{ disbursement_id: number; amount: number | string | null; coa_id: number | null }> = [];
+  for (const batch of chunkIds([...dateOf.keys()])) {
+    const part = await listRows<{ disbursement_id: number; amount: number | string | null; coa_id: number | null }>(
+      company.baseUrl,
+      company.token,
+      company.code,
+      "disbursement_payables",
+      {
+        fields: ["disbursement_id", "amount", "coa_id"],
+        filter: { _and: [{ disbursement_id: { _in: batch } }, { coa_id: { _in: accounts.ids } }] },
+        limit: -1,
+      },
+    );
+    lines.push(...part);
+  }
 
-  const byDate = new Map<string, number>();
+  const byDate = new Map<string, { amount: number; costAmount: number }>();
   for (const line of lines) {
     const date = dateOf.get(Number(line.disbursement_id));
     if (!date) continue;
-    byDate.set(date, (byDate.get(date) ?? 0) + (Number(line.amount) || 0));
+    const amount = Number(line.amount) || 0;
+    const current = byDate.get(date) ?? { amount: 0, costAmount: 0 };
+    current.amount += amount;
+    if (accounts.cost.has(Number(line.coa_id))) current.costAmount += amount;
+    byDate.set(date, current);
   }
 
-  return [...byDate.entries()].map(([date, amount]) => ({ date, sums: { amount } }));
+  return [...byDate.entries()].map(([date, sums]) => ({ date, sums }));
 }
 
 function bucket(  figures: QuarterFigures[],
@@ -457,8 +585,9 @@ export async function loadFigures(
     notices.push(`Sales invoices could not be read: ${plain(error instanceof Error ? error.message : String(error))}`);
   }
 
-  // Cost of sales has no ledger in this ERP. The two readings the desk shows are the
-  // product standard cost (quantity × `products.cost_per_unit`) and purchase orders.
+  // The ledger answer (cost of goods sold and cost of services accounts) is loaded below with
+  // the deductions; this block adds the product standard cost reading (quantity ×
+  // `products.cost_per_unit`) for instances whose sales detail carries a unit cost.
   try {
     const lines = await groupedByDate(
       company.baseUrl,
@@ -511,8 +640,15 @@ export async function loadFigures(
       }
       if (salesSource !== "STT_VIEW") salesSource = "INVOICE_LINES";
     }
-  } catch {
-    notices.push("The sales detail lines could not be read, so product standard cost is zero.");
+  } catch (error) {
+    // Falling back to the purchase-order basis is fine; falling back silently is not, so the
+    // failure is named in the payload instead of leaving a zero that looks like a real cost.
+    failed.push("sales detail lines");
+    notices.push(
+      `The sales detail lines could not be read (${plain(
+        error instanceof Error ? error.message : String(error),
+      )}), so product standard cost is zero and line 5 uses purchase orders.`,
+    );
   }
 
   try {
@@ -541,10 +677,10 @@ export async function loadFigures(
   }
 
   /**
-   * Deductions, not disbursements. Men2's 2026 disbursement ledger holds ₱24.6M across 58
-   * accounts, but ₱21.1M of it is "Dummy Inventories", ₱2.2M input VAT and ₱1.5M loan and
-   * payable settlements − none of which a return deducts. Only lines posted to cost of sales,
-   * cost of services, operating expense or finance-cost accounts are counted.
+   * Line 3 and line 6, not one pooled "deductions" figure. Cost of sales and cost of services
+   * are account types 7 and 8, and the deck puts them on line 3 because gross income (and the
+   * MCIT base that follows it) is sales less cost of sales, not sales less every expense.
+   * Settlements of inventory, receivables, loans and taxes stay out: they move the balance sheet.
    */
   const deductibleAccounts = await loadDeductibleAccounts(company);
   let expenseBooked = false;
@@ -552,33 +688,37 @@ export async function loadFigures(
   if (deductibleAccounts && company.springUrl && options.springToken) {
     const spring = await loadSpringExpenses(company, options.springToken, taxYear);
     if (spring.lines && spring.lines.length > 0) {
-      const allowed = new Set(deductibleAccounts);
+      const allowed = new Set(deductibleAccounts.ids);
       for (const line of spring.lines) {
         if (!allowed.has(line.coaId)) continue;
         const quarter = quarterIndex(line.date);
-        if (quarter >= 0) figures[quarter].expenses += line.amount;
+        if (quarter < 0) continue;
+        if (deductibleAccounts.cost.has(line.coaId)) figures[quarter].cogsLedger += line.amount;
+        else figures[quarter].expenses += line.amount;
       }
       expenseBooked = true;
       notices.push(
-        `Deductions come from the itemized disbursement view, counting only the ${deductibleAccounts.length} ` +
-          "cost of sales, cost of services, operating expense and finance-cost accounts. Settlements of inventory, " +
-          "receivables, loans and taxes are balance-sheet movements and are excluded.",
+        `Cost of sales and cost of services come from the itemized disbursement view: ${deductibleAccounts.cost.size} ` +
+          `account${deductibleAccounts.cost.size === 1 ? "" : "s"} of ${deductibleAccounts.ids.length} deductible ones ` +
+          "reach line 3, the rest reach line 6. Inventory, receivables, loans and tax settlements are excluded.",
       );
     } else if (spring.reason) {
       notices.push(`The itemized disbursement view was not used because ${spring.reason}.`);
     }
   }
 
-  if (deductibleAccounts) {
+  if (!expenseBooked && deductibleAccounts) {
     try {
       const payables = await payableRowsByDisbursementDate(company, from, to, deductibleAccounts);
       if (payables.length > 0) {
         bucket(figures, payables, (quarter, sums) => {
-          quarter.expenses += sums.amount ?? 0;
+          quarter.cogsLedger += sums.costAmount ?? 0;
+          quarter.expenses += (sums.amount ?? 0) - (sums.costAmount ?? 0);
         });
         expenseBooked = true;
         notices.push(
-          `Deductions count only the ${deductibleAccounts.length} expense, cost of sales and finance-cost accounts. ` +
+          `The disbursement ledger supplies line 3 (cost of sales and cost of services, ${deductibleAccounts.cost.size} ` +
+            `accounts) and line 6 (operating and finance costs, ${deductibleAccounts.ids.length - deductibleAccounts.cost.size} accounts). ` +
             "Payments that settled inventory, receivables, loans or taxes are balance-sheet movements and are excluded.",
         );
       }
@@ -703,6 +843,7 @@ export async function loadYearTotals(company: RegistryCompany, taxYear: number, 
     purchases: 0,
     purchasesVat: 0,
     cogsProductCost: 0,
+    cogsLedger: 0,
     expenses: 0,
     cwt: 0,
     salesSource: "INVOICE_HEADERS" as FigureResult["salesSource"],
@@ -813,7 +954,11 @@ export async function loadYearTotals(company: RegistryCompany, taxYear: number, 
   if (deductibleAccounts) {
     try {
       const rows = await payableRowsByDisbursementDate(company, from, to, deductibleAccounts);
-      totals.expenses = rows.reduce((total, row) => total + (row.sums.amount ?? 0), 0);
+      totals.cogsLedger = rows.reduce((total, row) => total + (row.sums.costAmount ?? 0), 0);
+      totals.expenses = rows.reduce(
+        (total, row) => total + (row.sums.amount ?? 0) - (row.sums.costAmount ?? 0),
+        0,
+      );
     } catch {
       // Falls back to the expense register below.
     }

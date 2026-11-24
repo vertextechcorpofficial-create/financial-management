@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Choice } from "../onboarding-types";
 import { VOUCHER_DOCUMENTS, type Voucher, type VoucherAmounts, type VoucherAttachment, type VoucherFund, type VoucherInput, type VoucherLine, type VoucherLineInput, type VoucherOperations } from "../voucher-types";
@@ -164,9 +163,8 @@ function EditorForm({ initial, fund, canEdit, onClose, onBusy, operational, onFi
     <fieldset disabled={busy || !canEdit} className="min-w-0 space-y-4"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><Field label="Voucher date" id="voucher-date" type="date" value={date} onChange={setDate} required error={onboardingFieldError(preview.error || command.error, "date")} />
       <VoucherChoice label="Payee" path={lookup("payees")} selected={payee} onSelect={choice => {
         setPayee(choice); setCashConfirmed(false); clearFeedback();
-        const defaultAccount = choice?.details.defaultExpenseAccount as Choice | undefined;
-        setLines(current => current.map(line => ({ ...line, ...(!line.gross.trim() && defaultAccount?.eligible ? { account: defaultAccount, expenseCoaId: defaultAccount.id } : {}), ...(!choice?.details.vatRegistered || !choice?.details.tin ? { vatIncluded: false, vatRuleId: null, vatChoice: null } : {}), ...(payee?.classification !== choice?.classification ? { ewtRuleId: null, ewtChoice: null } : {}) })));
-      }} disabled={busy || !canEdit} error={onboardingFieldError(preview.error || command.error, "payeeProfileId")} /><div className="space-y-2"><label htmlFor="voucher-tin" className="text-sm font-medium">Supplier TIN</label><Input id="voucher-tin" readOnly value={String(payee?.details.tin || "")} placeholder="Filled from payee" /></div><Field label="Particulars / Purpose" id="voucher-particulars" value={particulars} onChange={setParticulars} maxLength={1000} required error={onboardingFieldError(preview.error || command.error, "particulars")} /></div>
+        setLines(current => current.map(line => ({ ...line, ...(!choice?.details.vatRegistered || !choice?.details.tin ? { vatIncluded: false, vatRuleId: null, vatChoice: null } : {}), ...(payee?.classification !== choice?.classification ? { ewtRuleId: null, ewtChoice: null } : {}) })));
+      }} disabled={busy || !canEdit} error={onboardingFieldError(preview.error || command.error, "payeeProfileId")} /><div className="space-y-2"><span id="voucher-tin-label" className="text-sm font-medium">Supplier TIN</span><div aria-labelledby="voucher-tin-label" className="flex h-9 min-w-0 cursor-default select-none items-center rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground"><span className={payee?.details.tin ? "truncate font-mono text-foreground" : "truncate"}>{String(payee?.details.tin || "Filled from payee")}</span></div></div><Field label="Particulars / Purpose" id="voucher-particulars" value={particulars} onChange={setParticulars} maxLength={1000} required error={onboardingFieldError(preview.error || command.error, "particulars")} /></div>
       {payee && <p className="text-xs text-muted-foreground">TIN: {String(payee.details.tin || "Not supplied")} · {String(payee.details.vatRegistered ? "VAT registered" : "Non-VAT")} · {payee.classification}. Missing TIN is not a tax exemption.</p>}
       <p className="text-xs text-muted-foreground">Cash advances, IOUs, loans, salaries/payroll and personal cheque encashment are prohibited.</p>
       <div className="space-y-3">{lines.map((line, index) => {

@@ -5,6 +5,7 @@ import { loadExpenseBreakdown, loadFigures } from "./companyFigures";
 import { loadProfile } from "./profile.service";
 import { loadTaxRates } from "./taxRates.service";
 import { loadCarryoverInput } from "./carryovers.service";
+import { applyManualValues, loadManualValues, manualFlags } from "./manual.service";
 import { buildLines, computeTax, computeVat } from "./taxEngine";
 import type { EntitySnapshot, QuarterFigures, RegistryCompany } from "../types";
 
@@ -27,6 +28,13 @@ export class TaxonomyLookupError extends Error {
 export async function listCompanies(): Promise<RegistryCompany[]> {
   return listRegistryCompaniesWithHealth();
 }
+
+/** Named for the banner, so a failed source never reads as "purchase orders" by default. */
+const FAILED_SOURCE_LABELS: Record<string, string> = {
+  sales: "sales invoices",
+  purchases: "purchase orders",
+  "sales detail lines": "the sales detail lines behind product standard cost",
+};
 
 /**
  * The registry row minus everything the browser must never hold. The token opens that
@@ -53,6 +61,7 @@ function emptyFigures(): QuarterFigures[] {
     purchases: 0,
     purchasesVat: 0,
     cogsProductCost: 0,
+    cogsLedger: 0,
     expenses: 0,
     cwt: 0,
     icSales: 0,
@@ -150,10 +159,16 @@ async function buildEntitySnapshot(
   }
 
   const expenseBreakdown = await loadExpenseBreakdown(company, taxYear, { springToken });
-  const { figures, matches, notices, failed, salesSource } = await loadFigures(company, taxYear, peers, {
+  const loaded = await loadFigures(company, taxYear, peers, {
     vatRate: rates.vat,
     springToken,
   });
+  const { matches, notices, failed, salesSource } = loaded;
+
+  // Manual entry replaces ledger figures before the arithmetic, so the tax due on screen is
+  // built from what the preparer typed by the same engine, never a second hand-made path.
+  const manual = await loadManualValues(companyId, taxYear);
+  const figures = applyManualValues(loaded.figures, manual.values, profile.priorYearExcessCredit);
   const computation = computeTax(figures, profile, rates, carryovers.input);
   const vat = computeVat(figures, profile, rates);
 
@@ -163,12 +178,20 @@ async function buildEntitySnapshot(
     figures,
     computation,
     vat,
-    lines: buildLines(figures, computation, profile),
+    lines: buildLines(figures, computation, profile).map((line) => {
+      const manualLine = manualFlags(line, manual.values);
+      return manualLine ? { ...line, manual: manualLine } : line;
+    }),
     matches,
-    notices: [...notices, ...(carryovers.notice ? [carryovers.notice] : []), ...computation.notices],
+    notices: [
+      ...notices,
+      ...(carryovers.notice ? [carryovers.notice] : []),
+      ...(manual.notice ? [manual.notice] : []),
+      ...computation.notices,
+    ],
     // Gross income is the headline; without the sales register the whole sheet is unknown.
     figuresAvailable: !failed.includes("sales"),
-    failedSources: failed.map((source) => (source === "sales" ? "sales invoices" : "purchase orders")),
+    failedSources: failed.map((source) => FAILED_SOURCE_LABELS[source] ?? source),
     salesSource,
     expenseBreakdown,
     carryovers: carryovers.panel,

@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn, formatCurrency, formatDateTime, formatNumber } from "@/lib/utils";
+import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 
 import {
   DIRECTION_LABELS,
@@ -19,6 +19,7 @@ import {
   certificateStatusLabel,
   effectiveRatePercent,
 } from "../constants";
+import { phtDisplayDate, phtDisplayStamp } from "../pht";
 import type { CertificateRow } from "../types";
 import { StatusBadge } from "./StatusBadge";
 
@@ -40,11 +41,6 @@ function Detail({ label, children, className }: { label: string; children: React
 /** Read-only view of one 2307 certificate; editing lives in CertificateDialog. */
 function Missing() {
   return <span className="text-muted-foreground">not recorded</span>;
-}
-
-function recordedAt(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : formatDateTime(date);
 }
 
 interface Props {
@@ -99,7 +95,7 @@ export function CertificateDetailDialog({ certificate, onOpenChange }: Props) {
                   {formatCurrency(certificate.taxWithheld)}
                 </Detail>
                 <Detail label="Date received" className="tabular-nums">
-                  {certificate.dateReceived ?? <Missing />}
+                  {certificate.dateReceived ? phtDisplayDate(certificate.dateReceived) : <Missing />}
                 </Detail>
                 <Detail label="Matched status">
                   <StatusBadge status={certificate.status} label={certificateStatusLabel(certificate.status)} />
@@ -109,7 +105,7 @@ export function CertificateDetailDialog({ certificate, onOpenChange }: Props) {
                   {certificate.sourceRef ?? <Missing />}
                 </Detail>
                 <Detail label="Recorded" className="tabular-nums">
-                  {recordedAt(certificate.createdAt)}
+                  {phtDisplayStamp(certificate.createdAt)}
                 </Detail>
                 {certificate.remarks ? (
                   <Detail label="Remarks" className="col-span-2 sm:col-span-3">

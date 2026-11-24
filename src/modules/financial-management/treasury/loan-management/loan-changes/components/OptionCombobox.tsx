@@ -91,7 +91,12 @@ export function OptionCombobox({
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[340px] max-w-[calc(100vw-2rem)] p-0" align="start">
+      {/* Radix publishes the trigger width, so the list matches a two-column field instead of
+          clipping labels at 340px against a 670px trigger. The floor keeps narrow fields usable. */}
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] min-w-[340px] max-w-[calc(100vw-2rem)] p-0"
+        align="start"
+      >
         <Command>
           <CommandInput
             placeholder={searchPlaceholder}

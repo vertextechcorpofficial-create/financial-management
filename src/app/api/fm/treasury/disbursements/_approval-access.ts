@@ -13,10 +13,7 @@ type ModuleAccessRow = {
     } | null;
 };
 
-const DISBURSEMENT_APPROVAL_BASE_PATHS = new Set([
-    "/fm/treasury/cash-issuance/approval",
-    "/fm/treasury/disbursement/approval",
-]);
+const DISBURSEMENT_APPROVAL_BASE_PATH = "/fm/treasury/cash-issuance/approval";
 
 function isAdmin(user: DirectusUser): boolean {
     return user.role === "ADMIN" || user.isAdmin === true || Number(user.isAdmin) === 1;
@@ -43,7 +40,7 @@ function normalizeModulePath(value: unknown): string {
 }
 
 export function isDisbursementApprovalModule(module: ModuleAccessRow["module_id"]): boolean {
-    return DISBURSEMENT_APPROVAL_BASE_PATHS.has(normalizeModulePath(module?.base_path))
+    return normalizeModulePath(module?.base_path) === DISBURSEMENT_APPROVAL_BASE_PATH
         || isDisbursementApprovalSlug(module?.slug);
 }
 

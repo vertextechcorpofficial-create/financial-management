@@ -44,11 +44,15 @@ async function requestJson<T>(baseUrl: string, token: string, path: string, comp
 
   const text = await response.text().catch(() => "");
   if (!response.ok) {
-    throw new CompanyRequestError(
-      `${companyCode} refused the request (${response.status})`,
-      response.status,
-      companyCode,
-    );
+    const reason =
+      response.status === 431
+        ? "the query exceeded the server's request header limit"
+        : response.status === 401 || response.status === 403
+          ? "the instance rejected the request credentials or field access"
+          : response.status === 429
+            ? "the instance rate-limited the request"
+            : "the instance returned an unexpected error";
+    throw new CompanyRequestError(`${companyCode} could not fulfill the request (${reason})`, response.status, companyCode);
   }
   return (text ? JSON.parse(text) : {}) as T;
 }

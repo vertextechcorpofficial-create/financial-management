@@ -1,4 +1,4 @@
-import type { AlertState, AlertsPayload } from "../types";
+import type { AlertState, AlertsPayload, Policy } from "../types";
 
 async function read<T>(response: Response, fallback: string): Promise<T> {
   const body = (await response.json()) as { success: true; data: T } | { success: false; error?: string };
@@ -40,4 +40,20 @@ export async function setAlertPolicy(id: number, body: { isEnabled?: boolean; ch
     body: JSON.stringify(body),
   });
   return read(response, "The delivery rule could not be saved.");
+}
+
+export interface VariancePolicyResult {
+  changed: Array<{ setting: string; label: string; from: string; to: string }>;
+  missing: string[];
+  changeRequestId: number | null;
+  policy: Policy;
+}
+
+export async function saveVariancePolicy(policy: Policy): Promise<VariancePolicyResult> {
+  const response = await fetch("/api/fm/management-analytics/alerts/policy", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(policy),
+  });
+  return read(response, "The variance policy could not be saved.");
 }

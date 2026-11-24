@@ -1,15 +1,19 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { COOKIE_NAME, decodeJwtPayload } from "@/lib/auth-utils";
-import { emptyPortfolio, portfolioSchema, type Asset, type HistoryEntry, type LedgerEvent, type Part, type Portfolio } from "../types";
-import { LEDGER_PAGES, ledgerPath, type LedgerPage } from "../navigation";
+import { emptyPortfolio, portfolioSchema, readablePortfolioSchema, type Asset, type HistoryEntry, type LedgerEvent, type Part, type Portfolio } from "../types";
+import { type LedgerPage } from "../navigation";
 import { assetSeries } from "../utils/engine";
+import { ledgerAccess, type ModuleGrant } from "../utils/access";
+import { companyWorkspace, type MasterCompany } from "../utils/companies";
+import { ledgerChanges, visibleAudit } from "../utils/audit";
+import { cents } from "../utils/money";
+export { describeChange } from "../utils/audit";
 
 export class LedgerError extends Error {
   constructor(message: string, public status = 500) { super(message); }
 }
 const COLLECTION = "property_ledger_revisions";
-const PATH = "/fm/property-ledger";
 
 type DirectusError = {
   message?: string;
@@ -89,24 +93,15 @@ export async function authorize(page: LedgerPage = "dashboard") {
   const claims = decodeJwtPayload(token);
   const userId = claims?.id ?? claims?.user_id ?? claims?.sub;
   if (!userId) throw new LedgerError("Session has no user identity", 401);
-  const canManage = claims?.role === "ADMIN";
-  let allowedPaths: string[] = [];
-  let permissionRows: { userId: number; subsystemSlug: string; basePath?: string; status?: string; permission?: string; access?: string; canEdit?: boolean; canLock?: boolean }[] = [];
-  if (!canManage) {
-    const response = await fetch(`${spring}/api/view-user-authorized-module/all?subsystem_slug=fm`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(10000) });
-    if (!response.ok) throw new LedgerError("Module access could not be verified", 503);
-    const rows: typeof permissionRows = await response.json();
-    permissionRows = Array.isArray(rows) ? rows : [];
-    const activeRows = permissionRows.filter(r => String(r.userId) === String(userId) && r.subsystemSlug === "fm" && r.status === "active");
-    allowedPaths = activeRows.map(r => r.basePath ?? "");
-    if (!allowedPaths.includes(PATH) && !allowedPaths.includes(ledgerPath(page))) throw new LedgerError("You do not have access to this Property Ledger submodule", 403);
-  }
-  const pages = canManage || allowedPaths.includes(PATH) ? LEDGER_PAGES.map(p => p.slug) : LEDGER_PAGES.filter(p => allowedPaths.includes(ledgerPath(p.slug))).map(p => p.slug);
-  const editPages = canManage || allowedPaths.includes(PATH) ? pages : pages.filter(slug => {
-    const row = permissionRows.find(r => String(r.userId) === String(userId) && r.basePath === ledgerPath(slug));
-    return !row || row.canEdit === true || row.permission === "edit" || row.access === "edit";
-  });
-  return { actor: String(userId), canManage, pages, editPages };
+  const { data: user } = await directus<{ data: { role?: string; isAdmin?: boolean | number; company_id?: number | null } }>(`/items/user/${encodeURIComponent(String(userId))}?fields=role,isAdmin,company_id`);
+  if (!user) throw new LedgerError("Session has no active ERP user", 401);
+  const canManage = user.role === "ADMIN" || user.isAdmin === true || user.isAdmin === 1;
+  const grants = canManage ? [] : (await directus<{ data: { module_id: ModuleGrant | null }[] }>(
+    `/items/user_access_modules?filter[user_id][_eq]=${encodeURIComponent(String(userId))}&fields=module_id.base_path,module_id.status&limit=-1`
+  )).data.map(row => row.module_id).filter((grant): grant is ModuleGrant => !!grant);
+  const { pages, editPages } = ledgerAccess(grants, canManage);
+  if (!pages.includes(page)) throw new LedgerError("You do not have access to this Property Ledger submodule", 403);
+  return { actor: String(userId), canManage, companyId: user.company_id == null ? null : Number(user.company_id), pages, editPages };
 }
 
 export function assertWriteAccess(before: Portfolio, after: Portfolio, user: Awaited<ReturnType<typeof authorize>>) {
@@ -134,6 +129,7 @@ export async function directus<T>(path: string, init?: RequestInit): Promise<T> 
     const message = body.errors?.[0]?.message;
     throw new LedgerError(message ? `Property Ledger storage request failed: ${message}` : `Property Ledger storage request failed (${response.status})`, 502);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 type Revision = HistoryEntry & { payload: Portfolio };
@@ -149,11 +145,26 @@ async function relational() {
   }
   return detectedRelational;
 }
-const cents = (value: number) => Math.round(value * 100);
 const pesos = (value: number | null | undefined) => (value ?? 0) / 100;
 const asArray = <T>(value: { data?: T[] }) => value.data ?? [];
 async function createItems(collection: string, rows: Record<string, unknown>[]) {
   for (const row of rows) await directus(`/items/${collection}`, { method: "POST", body: JSON.stringify(row) });
+}
+async function deleteItemsById(collection: string, ids: Array<string | number>) {
+  for (const id of [...new Set(ids.map(String))]) {
+    await directus(`/items/${collection}/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+}
+export async function workspace(portfolio: Portfolio, user: Awaited<ReturnType<typeof authorize>>) {
+  const companies: MasterCompany[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const { data } = await directus<{ data: MasterCompany[] }>(`/items/company_list?fields=company_id,company_name,is_default,status&sort=company_id&limit=100&offset=${offset}`);
+    companies.push(...data);
+    if (data.length < 100) break;
+  }
+  const result = companyWorkspace(portfolio, companies, user);
+  if (!result.visible.entities.length) throw new LedgerError("No active companies are assigned to your ERP account. Ask an administrator to check your company access.", 403);
+  return result;
 }
 function normalizeCentavos(portfolio: Portfolio): Portfolio {
   return portfolioSchema.parse({
@@ -210,7 +221,7 @@ async function latestRelational() {
   });
   return {
     revision: policy.revision ?? 0,
-    portfolio: portfolioSchema.parse({
+    portfolio: readablePortfolioSchema.parse({
       entities: asArray(entities).map(e => ({ id: e.id, name: e.name })),
       assets: resultAssets,
       policies: {
@@ -235,33 +246,28 @@ export async function latest() {
 async function latestLegacy() {
   const { data } = await directus<{ data: Revision[] }>(`/items/${COLLECTION}?fields=id,payload,actor,created_at,summary&sort=-id&limit=1`);
   const row = data[0];
-  return { revision: row?.id ?? 0, portfolio: row ? portfolioSchema.parse(row.payload) : emptyPortfolio() };
+  return { revision: row?.id ?? 0, portfolio: row ? readablePortfolioSchema.parse(row.payload) : emptyPortfolio() };
 }
-export async function history() {
+export async function history(entities?: string[]) {
   if (await relational()) {
-    const { data } = await directus< { data: { id: number; actor: string; date_created: string; detail: string }[] } >("/items/property_ledger_audit?fields=id,actor,date_created,detail&sort=-id&limit=400");
-    return data.map(row => ({ id: row.id, actor: row.actor, created_at: row.date_created, summary: row.detail }));
+    const { data } = await directus<{ data: { id: number; actor: string; date_created: string; detail: string; action: string; item_name: string; before_value: unknown; after_value: unknown }[] }>("/items/property_ledger_audit?fields=id,actor,date_created,detail,action,item_name,before_value,after_value&sort=-id&limit=400");
+    return data.filter(row => !entities || visibleAudit(row.before_value, entities) || visibleAudit(row.after_value, entities))
+      .map(row => ({
+        id: row.id, actor: row.actor, created_at: /(?:Z|[+-]\d{2}:?\d{2})$/i.test(row.date_created) ? row.date_created : `${row.date_created.replace(" ", "T")}Z`,
+        // Old audit rows used a portfolio-wide summary; do not reveal its other assets.
+        summary: entities && ["edit", "register", "delete"].includes(row.action) ? `${row.action}: ${row.item_name}` : row.detail,
+        action: row.action, item_name: row.item_name,
+      }));
   }
   const { data } = await directus<{ data: HistoryEntry[] }>(`/items/${COLLECTION}?fields=id,actor,created_at,summary&sort=-id&limit=400`);
   // MySQL DATETIME is timezone-naive; this module always writes UTC timestamps.
   return data.map(row => ({
     ...row,
+    ...(entities ? { summary: "Legacy portfolio revision; cross-company details restricted." } : {}),
     created_at: /(?:Z|[+-]\d{2}:?\d{2})$/i.test(row.created_at)
       ? row.created_at
       : `${row.created_at.replace(" ", "T")}Z`,
   }));
-}
-export function describeChange(before: Portfolio, after: Portfolio) {
-  const changes: string[] = [];
-  for (const a of after.assets) {
-    const old = before.assets.find(x => x.id === a.id);
-    if (!old) changes.push(`Registered ${a.kind}: ${a.name}`);
-    else if (JSON.stringify(old) !== JSON.stringify(a)) changes.push(`Updated ${a.kind}: ${a.name}`);
-  }
-  for (const a of before.assets) if (!after.assets.some(x => x.id === a.id)) changes.push(`Removed ${a.kind}: ${a.name}`);
-  if (JSON.stringify(before.policies) !== JSON.stringify(after.policies)) changes.push("Changed accounting policies");
-  if (JSON.stringify(before.entities) !== JSON.stringify(after.entities)) changes.push("Changed entities");
-  return changes.join("; ").slice(0, 2000) || "No changes";
 }
 /** Append-only immutable snapshots: unique integer IDs provide compare-and-swap across concurrent writers. */
 export async function commit(revision: number, portfolio: Portfolio, actor: string, summary: string) {
@@ -282,8 +288,24 @@ export async function commit(revision: number, portfolio: Portfolio, actor: stri
       building_model: next.policies.buildingModel, lock_through: next.policies.lockThrough || null, cap_threshold_centavos: cents(next.policies.capThreshold),
       projection_end_year: next.policies.projectionEndYear, component_split: next.policies.componentSplit,
     }) });
-    await directus("/items/property_ledger_assets?filter[portfolio_id][_eq]=1", { method: "DELETE" });
-    await directus("/items/property_ledger_entities?filter[portfolio_id][_eq]=1", { method: "DELETE" });
+    // Directus does not accept a bare DELETE with only a filter. Fetch the
+    // current keys and delete each item through the supported item endpoint.
+    // Children must be removed before their assets, and assets before entities.
+    const [entityRows, existingAssetRows, partRows, eventRows] = await Promise.all([
+      directus<{ data: { id: string }[] }>("/items/property_ledger_entities?filter[portfolio_id][_eq]=1&fields=id&limit=1000"),
+      directus<{ data: { id: string; land_id?: string | null }[] }>("/items/property_ledger_assets?filter[portfolio_id][_eq]=1&fields=id,land_id&limit=1000"),
+      directus<{ data: { id: string }[] }>("/items/property_ledger_parts?fields=id&limit=10000"),
+      directus<{ data: { id: string }[] }>("/items/property_ledger_events?fields=id&limit=10000"),
+    ]);
+    await deleteItemsById("property_ledger_events", (eventRows.data ?? []).map(row => row.id));
+    await deleteItemsById("property_ledger_parts", (partRows.data ?? []).map(row => row.id));
+    // Assets have a self-referencing land_id foreign key. Delete linked
+    // buildings before the land rows they reference.
+    const existingAssetIds = [...(existingAssetRows.data ?? [])]
+      .sort((left, right) => Number(Boolean(right.land_id)) - Number(Boolean(left.land_id)))
+      .map(row => row.id);
+    await deleteItemsById("property_ledger_assets", existingAssetIds);
+    await deleteItemsById("property_ledger_entities", (entityRows.data ?? []).map(row => row.id));
     if (versioned.entities.length) await createItems("property_ledger_entities", versioned.entities.map(e => ({ id: e.id, portfolio_id: 1, name: e.name })));
     const assetRows = [...versioned.assets.filter(a => a.kind === "land"), ...versioned.assets.filter(a => a.kind === "building")];
     if (assetRows.length) await createItems("property_ledger_assets", assetRows.map(a => ({
@@ -295,14 +317,11 @@ export async function commit(revision: number, portfolio: Portfolio, actor: stri
     const events = versioned.assets.flatMap(a => a.events.map(e => ({ id: e.id, asset_id: a.id, kind: e.kind, event_month: e.date, amount_centavos: cents(e.amount), note: e.note, vendor: e.vendor, improvement_id: e.improvementId ?? null })));
     if (parts.length) await createItems("property_ledger_parts", parts);
     if (events.length) await createItems("property_ledger_events", events);
-    const auditRows = [
-      ...versioned.assets.map(asset => {
-        const before = current.portfolio.assets.find(item => item.id === asset.id);
-        return before && JSON.stringify(before) === JSON.stringify(asset) ? null : { portfolio_id: 1, actor, action: before ? "edit" : "register", asset_id: asset.id, item_name: asset.name, detail: summary, before_value: before ?? null, after_value: asset, date_created: now };
-      }),
-      ...current.portfolio.assets.filter(asset => !versioned.assets.some(item => item.id === asset.id)).map(asset => ({ portfolio_id: 1, actor, action: "delete", asset_id: asset.id, item_name: asset.name, detail: summary, before_value: asset, after_value: null, date_created: now })),
-      ...(JSON.stringify(current.portfolio.policies) !== JSON.stringify(versioned.policies) ? [{ portfolio_id: 1, actor, action: "policy", item_name: "Accounting policies", detail: summary, before_value: current.portfolio.policies, after_value: versioned.policies, date_created: now }] : []),
-    ].filter(Boolean);
+    const auditRows = ledgerChanges(current.portfolio, versioned).map(change => ({
+      portfolio_id: 1, actor, action: change.action, asset_id: change.assetId ?? null, item_name: change.item,
+      detail: change.detail, before_value: { entityId: change.entityId, value: change.before },
+      after_value: { entityId: change.entityId, value: change.after }, date_created: now,
+    }));
     if (auditRows.length) await createItems("property_ledger_audit", auditRows as Record<string, unknown>[]);
     return revision + 1;
   }

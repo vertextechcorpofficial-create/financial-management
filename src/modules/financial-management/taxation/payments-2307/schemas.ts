@@ -1,7 +1,7 @@
 import { periodsForForm } from "./constants";
 import { z } from "zod";
 
-import { PAYMENT_FORMS, PAYMENT_PERIOD_KEYS, PERIOD_KEYS } from "./constants";
+import { PAYMENT_FORMS, PAYMENT_PERIOD_KEYS, PERIOD_KEYS, isStatutoryRate } from "./constants";
 import type {
   CertificateDirection,
   PaymentPeriodKey,
@@ -56,7 +56,13 @@ export const certificateBodySchema = z.object({
   counterpartyTin: z.string().trim().max(30).nullable().optional(),
   incomeType: INCOME_TYPE_ENUM,
   incomeAmount: money,
-  taxRate: z.number().min(0).max(100),
+  // Only ATC rates exist on a 2307. A stored 1.01% means the withheld amount was computed on a
+  // VAT-inclusive base, so the record is refused until the base is put right.
+  taxRate: z
+    .number()
+    .min(0)
+    .max(100)
+    .refine(isStatutoryRate, "Use a withholding rate: 1%, 2%, 5%, 10% or 15% of the VAT-exclusive income"),
   taxWithheld: money,
   dateReceived: z.string().regex(DATE_PATTERN).nullable().optional(),
   remarks: z.string().trim().max(300).nullable().optional(),
@@ -122,16 +128,49 @@ export const certificateFormSchema = z
     direction: DIRECTION_ENUM,
     incomeType: INCOME_TYPE_ENUM,
     counterpartyName: z.string().trim().min(2, "Name the counterparty").max(180),
-    counterpartyTin: z.string().trim().max(30),
+    // A 2307 without a TIN cannot be matched to the payor's books, so it is not a certificate yet.
+    counterpartyTin: z
+      .string()
+      .trim()
+      .max(30)
+      .refine(
+        (value) => value.replace(/\D/g, "").length >= 9,
+        "Enter the counterparty's TIN as issued by BIR (9 to 14 digits)",
+      ),
     incomeAmount: amountText,
-    taxRate: rateText,
+    taxRate: rateText.refine(
+      (value) => isStatutoryRate(Number(value)),
+      "Use a withholding rate: 1%, 2%, 5%, 10% or 15% of the VAT-exclusive income",
+    ),
     taxWithheld: amountText,
-    dateReceived: z.string().trim().refine((value) => value === "" || isRealDate(value), "Use a real date"),
+    // The date received/issued is what turns a claim into a substantiated certificate.
+    dateReceived: z.string().trim(),
     remarks: z.string().trim().max(300),
   })
-  .refine((values) => Number(values.taxWithheld) <= Number(values.incomeAmount), {
-    path: ["taxWithheld"],
-    message: "Withheld cannot exceed the income amount",
+  .superRefine((values, ctx) => {
+    if (!values.dateReceived) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateReceived"],
+        message:
+          values.direction === "ISSUED"
+            ? "Pick the date the certificate was issued"
+            : "Pick the date the certificate was received",
+      });
+    } else if (!isRealDate(values.dateReceived)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateReceived"],
+        message: "Use a real date",
+      });
+    }
+    if (Number(values.taxWithheld) > Number(values.incomeAmount)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["taxWithheld"],
+        message: "Withheld cannot exceed the income amount",
+      });
+    }
   });
 
 export type CertificateFormValues = z.infer<typeof certificateFormSchema>;
@@ -140,10 +179,20 @@ export const paymentFormSchema = z.object({
   periodKey: paymentPeriodKeySchema,
   formCode: PAYMENT_FORM_ENUM,
   paidOn: z.string().trim().refine(isRealDate, "Pick the date the payment was made"),
-  amount: amountText.refine((value) => Number(value) > 0, "Enter a positive amount"),
+  // Zero is allowed: a nil return is filed with the BIR like any other, and the reference number
+  // is what proves it was. Every other amount is money that moved, so it must be above zero.
+  amount: amountText,
   referenceNo: z.string().trim().max(80),
   remarks: z.string().trim().max(300),
 }).superRefine((values, ctx) => {
+  const amount = Number(values.amount);
+  if (amount === 0 && values.referenceNo.trim() === "") {
+    ctx.addIssue({
+      code: "custom",
+      path: ["referenceNo"],
+      message: "A nil return needs the BIR filing reference number",
+    });
+  }
   // A stored payment must sit under a pair the form is actually filed for. Repointing it silently
   // would record money against a period nobody chose, so this rejects instead.
   if (!periodsForForm(values.formCode).includes(values.periodKey)) {

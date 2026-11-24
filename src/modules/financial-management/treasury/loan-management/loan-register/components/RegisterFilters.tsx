@@ -31,7 +31,7 @@ export function RegisterFilters({
         <Input
           value={filters.q}
           onChange={(event) => onChange({ q: event.target.value })}
-          placeholder="Loan no., lender or account"
+          placeholder="Loan no., lender or loan account"
           aria-label="Search loans"
           className="h-9 pl-8"
         />

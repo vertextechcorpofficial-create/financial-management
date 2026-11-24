@@ -73,7 +73,7 @@ export async function PageShell({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="relative z-10 flex h-14 shrink-0 items-center justify-between overflow-hidden border-b bg-background shadow-sm sm:h-16">
+      <header className="relative z-10 flex h-14 shrink-0 items-center justify-between gap-2 overflow-hidden border-b bg-background shadow-sm sm:h-16">
         <div className="flex h-full min-w-0 items-center gap-2 overflow-hidden px-3 sm:px-4">
           <SidebarTrigger className="-ml-1 shrink-0" />
           <Separator orientation="vertical" className="mr-2 hidden shrink-0 data-[orientation=vertical]:h-4 sm:block" />
@@ -101,7 +101,7 @@ export async function PageShell({
                   </Fragment>
                 ) : null}
                 <BreadcrumbItem className="min-w-0 overflow-hidden">
-                  <BreadcrumbPage className="max-w-[56vw] truncate sm:max-w-[60vw] md:max-w-none">{title}</BreadcrumbPage>
+                  <BreadcrumbPage title={title} className="max-w-full truncate md:max-w-none">{title}</BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>

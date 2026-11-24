@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { portfolioSchema, type LedgerState, type Portfolio } from "../types";
 import { ledgerService } from "../services/client";
 import type { LedgerPage } from "../navigation";
+import { assertRegistrations } from "../utils/registration";
 
 export function usePropertyLedger(page: LedgerPage = "dashboard") {
   const [state, setState] = useState<LedgerState | null>(null);
@@ -25,15 +26,18 @@ export function usePropertyLedger(page: LedgerPage = "dashboard") {
   }, [page, refreshKey]);
   async function save(portfolio: Portfolio) {
     if (!state || busy.current || loading) { toast.info("Wait for the current request to finish"); return false; }
+    if (!["land-register", "building-register", "accounting-policies"].includes(page)) { toast.error("This view is read-only. Open the appropriate register to save changes."); return false; }
     const parsed = portfolioSchema.safeParse(portfolio);
     if (!parsed.success) { toast.error(parsed.error.issues[0].message); return false; }
+    try { assertRegistrations(state.portfolio, parsed.data); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Invalid registration"); return false; }
     busy.current = true; setSaving(true);
     try {
       const result = await ledgerService.save(state.revision, parsed.data, page);
       setState({ ...state, revision: result.revision, portfolio: parsed.data });
       toast.success("Property Ledger saved");
-      // Reload history without discarding the successfully saved local state on read failure.
-      try { setState(await ledgerService.load(page)); } catch { toast.warning("Saved. Refresh to load the latest change history."); }
+      // Refresh master-company data without discarding a successful save on read failure.
+      try { setState(await ledgerService.load(page)); } catch { toast.warning("Saved. Refresh to load the latest ledger data."); }
       return true;
     } catch (e) { toast.error(e instanceof Error ? e.message : "Unable to save ledger"); return false; }
     finally { busy.current = false; setSaving(false); }

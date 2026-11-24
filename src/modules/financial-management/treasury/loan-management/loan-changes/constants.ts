@@ -4,11 +4,15 @@ export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "acce
 
 export const TONE_CLASS: Record<Tone, string> = {
   neutral: "bg-muted text-muted-foreground",
-  success: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  warning: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  danger: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
-  info: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-  accent: "bg-primary/10 text-primary",
+  success: "bg-success/15 text-success",
+  warning: "bg-warning/15 text-warning",
+  // Red and primary cannot carry their own hue as 11px text on a 15% wash: measured 3.11:1
+  // (light) and 2.38:1 (dark) for destructive, 5.70 / 3.57 for primary. The wash keeps the
+  // colour, the text uses the foreground token: 16.34 / 17.13 and 17.06 / 16.91. Success,
+  // warning and info keep their hue because they pass in the dark theme the QA measures.
+  danger: "bg-destructive/15 text-foreground ring-1 ring-inset ring-destructive/40",
+  info: "bg-info/15 text-info",
+  accent: "bg-primary/10 text-foreground ring-1 ring-inset ring-primary/40",
 };
 
 /** One accent per page, borrowed from the treasury family so loan pages read as siblings. */

@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { FundingAccountChoice } from "./FundingAccountChoice";
 import { DecisionConfirm } from "./DecisionConfirm";
@@ -18,7 +17,7 @@ import { onboardingFieldError } from "../utils/onboardingFeedback";
 import { voucherMoney as money } from "../utils/voucherMoney";
 import { dateOnly } from "../utils/dateTime";
 
-export function FundChangeReview({ id, actorName, canDecide, onClose, onChanged }: { id: string; actorName: string; canDecide: boolean; onClose: () => void; onChanged: (message?: string) => void }) {
+export function FundChangeReview({ id, canDecide, onClose, onChanged }: { id: string; canDecide: boolean; onClose: () => void; onChanged: (message?: string) => void }) {
   const [funding, setFunding] = useState<Choice | null>(null), [remarks, setRemarks] = useState(""), [confirmed, setConfirmed] = useState(false), [confirming, setConfirming] = useState(false), [decision, setDecision] = useState<"approve" | "reject" | null>(null);
   const read = useFundRead<ChangePreview>(`onboarding-approval/changes/${id}${funding ? `?fundingAccountId=${funding.id}` : ""}`), command = useFundDecision<ChangePreview>(), data = read.data, locked = command.busy || command.uncertain;
   const conflict = command.error instanceof OnboardingError && command.error.status === 409;
@@ -43,7 +42,7 @@ export function FundChangeReview({ id, actorName, canDecide, onClose, onChanged 
       {data.change.type === "CUSTODIAN" && <p className="text-sm text-muted-foreground">No journal entry or cash movement. Custody changes only after approval.</p>}
       {data.blockers.length > 0 && <OnboardingFeedback tone="warning" title="Approval is blocked">{data.blockers.map(blocker => <p key={blocker}>{blocker}</p>)}</OnboardingFeedback>}
       {data.change.state === "PENDING" && !canDecide && <OnboardingFeedback tone="info" title="Review only"><p>You can review this request, but only users with approval access can approve or reject it.</p></OnboardingFeedback>}
-      {data.change.state === "PENDING" && <><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><label htmlFor="change-approver" className="text-sm font-medium">Approver</label><Input id="change-approver" readOnly value={actorName} /></div><Field label="Remarks (required to reject)" id="change-remarks" value={remarks} maxLength={1000} disabled={locked} error={remarksError} onChange={value => { setRemarks(value); command.clearError(); }} /></div></>}
+      {data.change.state === "PENDING" && <Field label="Remarks (required to reject)" id="change-remarks" value={remarks} maxLength={1000} disabled={locked} error={remarksError} onChange={value => { setRemarks(value); command.clearError(); }} />}
       {command.uncertain && <OnboardingFeedback tone="warning" title="Decision outcome is unconfirmed"><p>Retry the same decision to check its status and safely complete it.</p></OnboardingFeedback>}
     {confirming && data?.change.state === "PENDING" && !command.uncertain && <DecisionConfirm title={`Approve ${data.change.docNo}?`} description="This approves the fund change and posts the entry where one is required. It cannot be undone." items={[["Change", `${data.change.docNo} · ${CHANGE_TYPES[data.change.type as keyof typeof CHANGE_TYPES]}`], ["Fund", `${data.fund.docNo} · ${data.fund.name}`], ["Detail", data.change.newImprest ? `${money(data.change.requestedFund.imprest)} → ${money(data.change.newImprest)}` : data.change.newCustodian || "Return counted cash and close"], ["Funding account", funding ? `${funding.code} · ${funding.name}` : data.fundingRequired ? "Not selected" : "Not required"], ["Cash confirmation", data.cashRequired ? "Confirmed" : "Not required"]]} confirmLabel="Approve change" busy={command.busy} onCancel={() => setConfirming(false)} onConfirm={() => { setConfirming(false); void decide("approve"); }} />}
     </>}

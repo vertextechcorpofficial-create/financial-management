@@ -75,26 +75,34 @@ function liveValue(key: string, live: LiveRates): { value: string; note?: string
       return { value: `${percentText(row.percentage)} of gross receipts`, note: "For companies not registered for VAT (2551Q)." };
     case "rent": {
       const rent = rateOf(withholding, "RENT") ?? rateOf(withholding, "RENT", "");
-      return { value: rent == null ? "Not configured" : percentText(rent), note: "On the gross rental." };
+      return {
+        value: rent == null ? "Not configured" : percentText(rent),
+        note: "ATC WC100 / WI100. On gross rental.",
+      };
     }
     case "fee": {
       const tiers = ["LARGE", "MEDIUM", "SMALL"]
         .map((tier) => rateOf(withholding, "FEE", tier))
-        .filter((rate): rate is number => rate != null);
+        .filter((rate): rate is number => rate != null && rate >= 0.05);
       return {
-        value: tiers.length ? tiers.map(percentText).join(", ").replace(/, ([^,]*)$/, " or $1") : "Not configured",
-        note: "Taken from the seller's registered tier.",
+        value: tiers.length
+          ? `${tiers.map(percentText).join(", ").replace(/, ([^,]*)$/, " or ")} (statutory 5% / 10% / 15%)`
+          : "5% / 10% (ind.) or 10% / 15% (corp.)",
+        note: "ATC WI010 / WC010. Statutory BIR rates (RR 11-2018): 5% or 10% for individuals (₱3M threshold), 10% or 15% for corporations (₱720k threshold).",
       };
     }
     case "services": {
       const services = rateOf(withholding, "SERVICES", "") ?? rateOf(withholding, "SERVICES");
-      return { value: services == null ? "Not configured" : percentText(services), note: "Including construction contracts." };
+      return {
+        value: services == null ? "Not configured" : percentText(services),
+        note: "ATC WC157 / WI157 (WC120 / WI120 for construction). Including construction contracts.",
+      };
     }
     case "goods": {
       const goods = rateOf(withholding, "GOODS", "") ?? rateOf(withholding, "GOODS");
       return {
         value: goods == null ? "Not configured" : percentText(goods),
-        note: "Only when the buyer is a top withholding agent; otherwise 0%.",
+        note: "ATC WC158 / WI158. Only when the buyer is a top withholding agent; otherwise 0%.",
       };
     }
     case "final":

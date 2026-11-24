@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn, formatCurrency } from "@/lib/utils";
 import { PERIOD_KEYS, PERIOD_LABELS } from "../constants";
+import { phtDisplayDate } from "../pht";
 import type { CertificateRegister, PeriodKey } from "../types";
 import { TablePager } from "./TablePager";
 
@@ -132,8 +133,23 @@ export function CertificatePanel({ register }: { register: CertificateRegister }
         </Table>
       </div>
 
-      <div aria-label="2307 certificate filters" hidden={register.rows.length === 0} className="mt-4 border-b border-border/50 px-4 py-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto]">
+      {register.rows.length > 0 && (
+        // A credit is tax a payor documented; an invoice estimate is not, and adding the two
+        // would overstate the year's creditable withholding.
+        <p className="mt-3 px-4 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground tabular-nums">{formatCurrency(register.verifiedTotal)}</span> verified on
+          certificates
+          {register.pendingCount > 0 ? (
+            <>
+              {" · "}
+              <span className="font-medium text-foreground tabular-nums">{formatCurrency(register.pendingTotal)}</span> pending
+              across {register.pendingCount} row{register.pendingCount === 1 ? "" : "s"} still waiting for a 2307
+            </>
+          ) : null}
+        </p>
+      )}
+
+      <div aria-label="2307 certificate filters" hidden={register.rows.length === 0} className="mt-4 border-b border-border/50 px-4 py-3">        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto]">
           <div className="space-y-1.5">
             <Label
               htmlFor="certificate-filter-search"
@@ -150,7 +166,7 @@ export function CertificatePanel({ register }: { register: CertificateRegister }
                 id="certificate-filter-search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Payee, TIN, income type or reference"
+                placeholder="Payor, TIN, income type or reference"
                 className="pl-8"
               />
             </div>
@@ -219,26 +235,27 @@ export function CertificatePanel({ register }: { register: CertificateRegister }
             <TableRow>
               <TableHead>Received</TableHead>
               <TableHead>Period</TableHead>
-              <TableHead>Payee</TableHead>
+              <TableHead>Payor / customer</TableHead>
               <TableHead>TIN</TableHead>
               <TableHead>Income type</TableHead>
               <TableHead className={numeric}>Income amount</TableHead>
               <TableHead className={numeric}>Rate</TableHead>
               <TableHead className={numeric}>Tax withheld</TableHead>
+              <TableHead>Status</TableHead>
               <TableHead>Source</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {visible.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={10} className="py-6 text-center text-sm text-muted-foreground">
                   {emptyMessage}
                 </TableCell>
               </TableRow>
             ) : (
               visible.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="tabular-nums">{row.dateReceived ?? "—"}</TableCell>
+                  <TableCell className="tabular-nums">{phtDisplayDate(row.dateReceived)}</TableCell>
                   <TableCell className="max-w-24 truncate" title={row.periodLabel}>
                     {row.periodLabel}
                   </TableCell>
@@ -252,8 +269,34 @@ export function CertificatePanel({ register }: { register: CertificateRegister }
                     {row.incomeType}
                   </TableCell>
                   <TableCell className={numeric}>{formatCurrency(row.incomeAmount)}</TableCell>
-                  <TableCell className={numeric}>{row.taxRate ? `${row.taxRate}%` : "—"}</TableCell>
+                  <TableCell
+                    className={cn(numeric, !row.statutory && "text-amber-700 dark:text-amber-400")}
+                    title={
+                      row.impliedRate === null
+                        ? "No income amount to derive a rate from"
+                        : row.statutory
+                          ? `${row.impliedRate.toFixed(2)}% of the income amount`
+                          : `${row.impliedRate.toFixed(2)}% of the income amount, which is not a published EWT rate: the withholding was likely computed on a base that already includes the tax`
+                    }
+                  >
+                    {row.impliedRate === null ? "—" : `${row.impliedRate.toFixed(2)}%`}
+                  </TableCell>
                   <TableCell className={numeric}>{formatCurrency(row.taxWithheld)}</TableCell>
+                  <TableCell>
+                    <span
+                      className={cn(
+                        "text-xs font-medium",
+                        row.verified ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground",
+                      )}
+                      title={
+                        row.verified
+                          ? "TIN, certificate number and date received are all on file"
+                          : "No certificate yet: an invoice estimate, not a credit"
+                      }
+                    >
+                      {row.verified ? "Verified" : "Pending"}
+                    </span>
+                  </TableCell>
                   <TableCell className="max-w-40 truncate" title={row.sourceRef ?? row.remarks ?? undefined}>
                     {row.sourceRef ?? row.remarks ?? "—"}
                   </TableCell>
@@ -279,7 +322,7 @@ export function CertificatePanel({ register }: { register: CertificateRegister }
                     {row.periodLabel} · {row.incomeType}
                   </p>
                 </div>
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{row.dateReceived ?? "—"}</span>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{phtDisplayDate(row.dateReceived)}</span>
               </div>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 <div className="flex justify-between gap-2">
@@ -292,7 +335,18 @@ export function CertificatePanel({ register }: { register: CertificateRegister }
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">Rate</dt>
-                  <dd className="tabular-nums">{row.taxRate ? `${row.taxRate}%` : "—"}</dd>
+                  <dd
+                    className={cn("tabular-nums", !row.statutory && "text-amber-700 dark:text-amber-400")}
+                    title={row.statutory ? undefined : "Not a published EWT rate: the base likely includes the tax"}
+                  >
+                    {row.impliedRate === null ? "—" : `${row.impliedRate.toFixed(2)}%`}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Certificate</dt>
+                  <dd className={row.verified ? "font-medium text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}>
+                    {row.verified ? "Verified" : "Pending"}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">TIN</dt>

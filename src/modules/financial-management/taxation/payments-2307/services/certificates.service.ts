@@ -7,6 +7,7 @@ import {
   QUARTER_KEYS,
   isQuarterPast,
   quarterOf,
+  statutoryRateNear,
 } from "../constants";
 import { phtStamp, phtToday } from "../pht";
 import type {
@@ -255,17 +256,21 @@ function buildExpected(
   for (const direction of DIRECTIONS) {
     const known = direction === "RECEIVED" ? ledger.receivedKnown : ledger.issuedKnown;
     const quarters = direction === "RECEIVED" ? ledger.received : ledger.issued;
-    const yearTotal = roundMoney(quarters.reduce((sum, value) => sum + value, 0));
-    const yearPast = isQuarterPast(taxYear, 3, today);
 
-    for (const periodKey of PERIOD_KEYS) {
+    // A 2307 is filed for a quarter, never for the year (P78), so an annual row here would repeat
+    // the four quarter figures and charge every peso of variance a second time.
+    for (const periodKey of QUARTER_KEYS) {
       const quarterIndex = QUARTER_KEYS.indexOf(periodKey);
-      const expected = periodKey === "ANNUAL" ? yearTotal : (quarters[quarterIndex] ?? 0);
+      const expected = quarters[quarterIndex] ?? 0;
+      // Only substantiated certificates (with a counterparty TIN and received/issued date) count
+      // toward recorded coverage; unreceived invoice estimates remain tracked apart.
       const matching = certificates.filter(
-        (certificate) => certificate.periodKey === periodKey && certificate.direction === direction,
+        (certificate) =>
+          certificate.periodKey === periodKey &&
+          certificate.direction === direction &&
+          Boolean(certificate.counterpartyTin?.trim() && certificate.dateReceived?.trim()),
       );
       const recorded = roundMoney(matching.reduce((sum, certificate) => sum + certificate.taxWithheld, 0));
-      const past = periodKey === "ANNUAL" ? yearPast : isQuarterPast(taxYear, quarterIndex, today);
 
       periods.push({
         periodKey,
@@ -273,7 +278,13 @@ function buildExpected(
         expected,
         recorded,
         certificateCount: matching.length,
-        status: deriveStatus({ expected, recorded, count: matching.length, known, past }),
+        status: deriveStatus({
+          expected,
+          recorded,
+          count: matching.length,
+          known,
+          past: isQuarterPast(taxYear, quarterIndex, today),
+        }),
         known,
       });
     }
@@ -513,9 +524,9 @@ function pushAggregate(
 
 /**
  * Reads the year's sales invoices and purchase orders and drafts one certificate per
- * counterparty per quarter. Nothing is invented: income is `total_amount - vat_amount`
- * and the withheld figure is the ledger's own column. Income type defaults to "Other"
- * because the ledger does not classify it.
+ * counterparty per quarter. Nothing is invented: income is the VAT-exclusive amount the
+ * certificate carries and the withheld figure is the ledger's own column. Income type
+ * defaults to "Other" because the ledger does not classify it.
  */
 export async function prefillCertificates(
   company: RegistryCompany,
@@ -561,8 +572,12 @@ export async function prefillCertificates(
       if (index === null) continue;
       const code = asString(row.customer_code);
       const customer = customerByCode.get(code);
-      const income = asNumber(row.total_amount) - asNumber(row.vat_amount);
       const withheld = asNumber(row.ewt_amount);
+      // `total_amount` is what the customer pays: the VAT-exclusive income plus VAT less the tax
+      // they withheld. Taking total − VAT therefore lands on income × (1 − rate), and a 1% EWT
+      // then reads back as 1.01%. Add the withheld peso back to reach the income the certificate
+      // must carry.
+      const income = asNumber(row.total_amount) - asNumber(row.vat_amount) + withheld;
       if (income <= 0 || withheld <= 0) continue;
 
       pushAggregate(
@@ -673,6 +688,7 @@ export async function prefillCertificates(
 
   let created = 0;
   let skipped = 0;
+  const offRate: string[] = [];
 
   for (const [key, draft] of aggregates) {
     if (taken.has(key)) {
@@ -680,7 +696,12 @@ export async function prefillCertificates(
       continue;
     }
 
-    const rate = draft.incomeAmount > 0 ? roundMoney((draft.taxWithheld / draft.incomeAmount) * 100) : 0;
+    const derived = draft.incomeAmount > 0 ? (draft.taxWithheld / draft.incomeAmount) * 100 : 0;
+    // A derived figure is only a rate when it lands on a statutory one. Anything else came from a
+    // different base, so it is stored as read and reported instead of being rounded into a fiction.
+    const statutory = statutoryRateNear(derived);
+    const rate = statutory ?? roundMoney(derived);
+    if (statutory === null) offRate.push(`${draft.counterpartyName} (${draft.periodKey})`);
     const source: CertificateSource = draft.direction === "RECEIVED" ? "SALES_INVOICE" : "PURCHASE_ORDER";
 
     try {
@@ -732,6 +753,16 @@ export async function prefillCertificates(
     } catch (error) {
       notices.push(`Could not draft a certificate for ${draft.counterpartyName}: ${describe(error)}`);
     }
+  }
+
+  if (offRate.length > 0) {
+    notices.push(
+      `${offRate.length} prefilled ${
+        offRate.length === 1 ? "certificate carries" : "certificates carry"
+      } a withheld amount that is not a statutory rate on the VAT-exclusive income: ${offRate
+        .slice(0, 3)
+        .join(", ")}${offRate.length > 3 ? ` and ${offRate.length - 3} more` : ""}. Those invoices probably withheld on the VAT-inclusive total, so the rate is not an ATC rate: correct the base, then set the rate.`,
+    );
   }
 
   return { created, skipped, notices };

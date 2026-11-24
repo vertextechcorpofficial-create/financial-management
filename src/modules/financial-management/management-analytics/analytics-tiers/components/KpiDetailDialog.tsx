@@ -12,8 +12,18 @@ import {
 } from "@/components/ui/dialog";
 import { DOMAIN_LABEL, STATUS_META, TIER_LABEL, toneClass, type Tone } from "../constants";
 import { formatValue, ruleText, signedMagnitude } from "../services/engine";
-import type { CatalogDetail, PeriodPoint } from "../types";
+import { TrendChart, type Tone as ChartTone } from "@/modules/financial-management/management-analytics/shared/Charts";
+import type { CatalogDetail } from "../types";
 import { StatusBadge } from "./StatusBadge";
+
+const CHART_TONE: Record<Tone, ChartTone> = {
+  neutral: "muted",
+  success: "success",
+  warning: "warning",
+  danger: "danger",
+  info: "info",
+  accent: "primary",
+};
 
 function Tile({ label, value, tone }: { label: string; value: string; tone?: Tone }) {
   return (
@@ -43,31 +53,6 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
       </header>
       <dl className="divide-y divide-border/50">{children}</dl>
     </section>
-  );
-}
-
-/** Two lines on one scale: the readings solid, the targets dashed behind them. */
-function Spark({ points }: { points: PeriodPoint[] }) {
-  const values = points.flatMap((point) => [point.actual, point.target]).filter((value): value is number => value !== null);
-  if (values.length < 2) {
-    return <p className="px-4 py-6 text-sm text-muted-foreground">Not enough months to draw a line yet.</p>;
-  }
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const x = (index: number) => (points.length === 1 ? 0 : (index / (points.length - 1)) * 300) + 10;
-  const y = (value: number) => 70 - ((value - min) / span) * 60;
-  const path = (key: "actual" | "target") =>
-    points
-      .map((point, index) => (point[key] === null ? null : `${x(index)},${y(point[key] as number)}`))
-      .filter((value): value is string => value !== null)
-      .join(" ");
-
-  return (
-    <svg viewBox="0 0 320 80" className="h-24 w-full" role="img" aria-label="Twelve months of readings against target">
-      <polyline points={path("target")} fill="none" stroke="currentColor" strokeDasharray="3 3" className="text-muted-foreground/50" strokeWidth={1.5} />
-      <polyline points={path("actual")} fill="none" stroke="currentColor" className="text-primary" strokeWidth={2} />
-    </svg>
   );
 }
 
@@ -110,7 +95,7 @@ export function KpiDetailDialog({
             <Tile label="Rule" value={ruleText(row.kpi)} />
             <Tile
               label="Next three months"
-              value={forecast ? formatValue(forecast.points.at(-1) ?? 0, row.kpi) : "—"}
+              value={forecast ? formatValue(forecast.points.at(-1) ?? 0, row.kpi) : "no forecast"}
               tone={forecast?.breachProbability !== null && forecast?.breachProbability !== undefined && forecast.breachProbability >= 0.5 ? "danger" : undefined}
             />
           </div>
@@ -119,11 +104,21 @@ export function KpiDetailDialog({
             <header className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-4 py-2">
               <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Readings against target</span>
               <span className="mt-0.5 text-xs text-muted-foreground">
-                breach odds {forecast?.breachProbability === null || forecast?.breachProbability === undefined ? "—" : `${Math.round(forecast.breachProbability * 100)}%`}
+                breach odds{" "}
+                {forecast?.breachProbability === null || forecast?.breachProbability === undefined
+                  ? "not modelled yet"
+                  : `${Math.round(forecast.breachProbability * 100)}%`}
               </span>
             </header>
             <div className="px-2 py-3">
-              <Spark points={points} />
+              <TrendChart
+                points={points}
+                dp={row.kpi.dp}
+                height={200}
+                tone={CHART_TONE[meta.tone]}
+                bandPct={row.kpi.rule_type === "PCT" && row.kpi.threshold !== null ? Math.abs(row.kpi.threshold) / 100 : undefined}
+                forecast={forecast}
+              />
             </div>
           </section>
 
@@ -136,8 +131,8 @@ export function KpiDetailDialog({
               <Row label="Roll-up" value={row.kpi.rollup} />
             </Group>
             <Group title="Ownership">
-              <Row label="Owner position" value={row.kpi.owner_position ?? "—"} />
-              <Row label="Sources" value={row.kpi.source_codes ?? "—"} />
+              <Row label="Owner position" value={row.kpi.owner_position ?? "unassigned"} />
+              <Row label="Sources" value={row.kpi.source_codes ?? "none declared"} />
               <Row label="Key" value={row.kpi.kpi_key} />
               <Row label="Memo required" value={row.memoRequired ? "Yes" : "No"} />
             </Group>
@@ -164,17 +159,17 @@ export function KpiDetailDialog({
                     <tr key={point.period} className="border-b border-border/40 last:border-0">
                       <td className="px-4 py-2 tabular-nums">{point.period}</td>
                       <td className="px-4 py-2 text-right tabular-nums">
-                        {point.actual === null ? "—" : formatValue(point.actual, row.kpi)}
+                        {point.actual === null ? "no reading" : formatValue(point.actual, row.kpi)}
                       </td>
                       <td className="px-4 py-2 text-right tabular-nums">
-                        {point.target === null ? "—" : formatValue(point.target, row.kpi)}
+                        {point.target === null ? "no target" : formatValue(point.target, row.kpi)}
                       </td>
                       <td
                         className={`px-4 py-2 text-right tabular-nums ${
                           difference === null ? "" : Math.abs(difference) < 1e-9 ? "text-muted-foreground" : ""
                         }`}
                       >
-                        {difference === null ? "—" : signedMagnitude(difference, row.kpi.unit, row.kpi.dp)}
+                        {difference === null ? "not comparable" : signedMagnitude(difference, row.kpi.unit, row.kpi.dp)}
                       </td>
                     </tr>
                   );

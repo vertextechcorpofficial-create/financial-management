@@ -2,15 +2,15 @@ import "server-only";
 
 import { phtStamp } from "../pht";
 import type { PaymentForm } from "../schemas";
-import type { LoanOption } from "../types";
 import type {
   AllocationRow,
   InstallmentRow,
+  LoanHistoryRow,
   LoanPaymentRow,
   PaymentAccountRow,
   PaymentContext,
   PaymentListRow,
-  PaymentsSummary,
+  PaymentLoanRow,
 } from "../types";
 import {
   daysBetween,
@@ -25,6 +25,7 @@ import { LoanConflictError, LoanNotFoundError, LoanValidationError } from "./err
 const LOAN_FIELDS = [
   "id",
   "loan_no",
+  "account_no",
   "lender_name",
   "principal",
   "installment_amount",
@@ -39,6 +40,7 @@ const LOAN_FIELDS = [
 
 const SCHEDULE_FIELDS = [
   "id",
+  "loan_id",
   "period_no",
   "due_date",
   "payment_due_date",
@@ -87,6 +89,7 @@ function num(value: unknown): number {
 interface LoanContextRow {
   id: number;
   loan_no: string;
+  account_no: string | null;
   lender_name: string;
   principal: number;
   installment_amount: number;
@@ -101,6 +104,7 @@ interface LoanContextRow {
 
 interface ScheduleDbRow {
   id: number;
+  loan_id: number;
   period_no: number;
   due_date: string;
   payment_due_date: string;
@@ -164,13 +168,8 @@ async function getLoanRow(loanId: number): Promise<LoanContextRow> {
   };
 }
 
-async function getSchedule(loan: LoanContextRow): Promise<ScheduleDbRow[]> {
-  const { rows } = await listItems<ScheduleDbRow>("loan_schedule", {
-    fields: SCHEDULE_FIELDS,
-    filter: { _and: [{ loan_id: { _eq: loan.id } }, { version: { _eq: loan.schedule_version } }] },
-    sort: "period_no",
-    limit: 400,
-  });
+/** Directus hands DECIMAL columns back as strings; a schedule row must reach the maths as numbers. */
+function normaliseSchedule(rows: ScheduleDbRow[]): ScheduleDbRow[] {
   return rows.map((row) => ({
     ...row,
     period_no: Number(row.period_no),
@@ -183,13 +182,27 @@ async function getSchedule(loan: LoanContextRow): Promise<ScheduleDbRow[]> {
   }));
 }
 
+async function getSchedule(loan: LoanContextRow): Promise<ScheduleDbRow[]> {
+  const { rows } = await listItems<ScheduleDbRow>("loan_schedule", {
+    fields: SCHEDULE_FIELDS,
+    filter: { _and: [{ loan_id: { _eq: loan.id } }, { version: { _eq: loan.schedule_version } }] },
+    sort: "period_no",
+    limit: 400,
+  });
+  return normaliseSchedule(rows);
+}
+
 /**
  * The penalty each unpaid installment has run up by the given date.
  *
  * Charged only past the grace period, on the interest and principal still outstanding, at the
  * loan's monthly penalty rate divided by thirty: the document's rule, not a daily 365 basis.
  */
-function penaltiesAt(loan: LoanContextRow, schedule: ScheduleDbRow[], asOf: string) {
+function penaltiesAt(
+  loan: Pick<LoanContextRow, "grace_days" | "penalty_rate_monthly">,
+  schedule: ScheduleDbRow[],
+  asOf: string,
+) {
   return schedule.map((row) => {
     const interestOutstanding = round2(row.interest - row.paid_interest);
     const principalOutstanding = round2(row.principal - row.paid_principal);
@@ -221,32 +234,226 @@ export type PaymentBody = Omit<PaymentForm, "checkNo" | "checkDate" | "lenderRec
   remarks?: string | null;
 };
 
-/** Loans that can take a payment today: the service refuses anything but an open loan. */
-export async function listLoanOptions(): Promise<LoanOption[]> {
-  const { rows } = await listItems<{
-    id: number;
-    loan_no: string;
-    lender_name: string;
-    principal: string;
-    installment_amount: string;
-    status: string;
-    advance_balance: string;
-  }>("loan", {
-    fields: ["id", "loan_no", "lender_name", "principal", "installment_amount", "status", "advance_balance"],
-    filter: { status: { _in: ["CURRENT", "OVERDUE"] } },
+const DIRECTORY_FIELDS = [
+  "id",
+  "loan_no",
+  "account_no",
+  "lender_name",
+  "lender_type",
+  "principal",
+  "release_date",
+  "maturity_date",
+  "status",
+  "repayment_method",
+  "installment_amount",
+  "advance_balance",
+  "grace_days",
+  "penalty_rate_monthly",
+  "schedule_version",
+];
+
+interface DirectoryDbRow {
+  id: number;
+  loan_no: string;
+  account_no: string | null;
+  lender_name: string;
+  lender_type: string;
+  principal: number;
+  release_date: string | null;
+  maturity_date: string | null;
+  status: string;
+  repayment_method: string;
+  installment_amount: number;
+  advance_balance: number;
+  grace_days: number;
+  penalty_rate_monthly: number;
+  schedule_version: number;
+}
+
+/**
+ * The landing list: every loan in the book with what it still owes today.
+ *
+ * `amountDueNow` counts the interest, principal and accrued penalty of each installment whose
+ * payable date has passed, which is the same rule the record-payment dialog allocates by. The
+ * schedules are read one query per distinct schedule version rather than one per loan.
+ */
+export async function listLoanDirectory(filters: {
+  q?: string;
+  status?: string;
+  lenderType?: string;
+  method?: string;
+  page: number;
+  pageSize: number;
+}): Promise<{ rows: PaymentLoanRow[]; total: number }> {
+  const filter: Record<string, unknown> = {};
+  if (filters.status) filter.status = { _eq: filters.status };
+  if (filters.lenderType) filter.lender_type = { _eq: filters.lenderType };
+  if (filters.method) filter.repayment_method = { _eq: filters.method };
+  if (filters.q) {
+    filter._or = [
+      { loan_no: { _contains: filters.q } },
+      { lender_name: { _contains: filters.q } },
+      { account_no: { _contains: filters.q } },
+    ];
+  }
+
+  const { rows, total } = await listItems<DirectoryDbRow>("loan", {
+    fields: DIRECTORY_FIELDS,
+    filter,
     sort: "-id",
+    limit: filters.pageSize,
+    page: filters.page,
+  });
+
+  const byVersion = new Map<number, number[]>();
+  for (const loan of rows) {
+    const version = Number(loan.schedule_version) || 1;
+    byVersion.set(version, [...(byVersion.get(version) ?? []), loan.id]);
+  }
+
+  const schedules = new Map<number, ScheduleDbRow[]>();
+  for (const [version, ids] of byVersion) {
+    const { rows: scheduleRows } = await listItems<ScheduleDbRow>("loan_schedule", {
+      fields: SCHEDULE_FIELDS,
+      filter: { _and: [{ loan_id: { _in: ids } }, { version: { _eq: version } }] },
+      sort: "period_no",
+      limit: Math.min(5000, Math.max(400, ids.length * 400)),
+    });
+    for (const row of normaliseSchedule(scheduleRows)) {
+      schedules.set(Number(row.loan_id), [...(schedules.get(Number(row.loan_id)) ?? []), row]);
+    }
+  }
+
+  const today = phtStamp().slice(0, 10);
+  const list: PaymentLoanRow[] = rows.map((raw) => {
+    const loan = {
+      ...raw,
+      principal: num(raw.principal),
+      installment_amount: num(raw.installment_amount),
+      advance_balance: num(raw.advance_balance),
+      grace_days: num(raw.grace_days),
+      penalty_rate_monthly: num(raw.penalty_rate_monthly),
+      schedule_version: num(raw.schedule_version),
+    };
+    const open = penaltiesAt(loan, schedules.get(loan.id) ?? [], today).filter(
+      (item) => item.interestOutstanding > 0 || item.principalOutstanding > 0 || item.penalty > 0,
+    );
+    const sum = (items: typeof open) =>
+      round2(items.reduce((total, item) => total + item.interestOutstanding + item.principalOutstanding + item.penalty, 0));
+    const overdue = open.filter((item) => item.overdue);
+    const dueToday = open.filter((item) => !item.overdue && item.row.payment_due_date <= today);
+
+    return {
+      id: loan.id,
+      loanNo: loan.loan_no,
+      accountNo: loan.account_no,
+      lenderName: loan.lender_name,
+      lenderType: loan.lender_type,
+      principal: loan.principal,
+      releaseDate: loan.release_date,
+      maturityDate: loan.maturity_date,
+      status: loan.status,
+      repaymentMethod: loan.repayment_method,
+      installmentAmount: loan.installment_amount,
+      advanceBalance: loan.advance_balance,
+      amountDueNow: round2(sum(overdue) + sum(dueToday)),
+      overdueAmount: sum(overdue),
+      overdueCount: overdue.length,
+      nextDueDate: open.map((item) => item.row.payment_due_date).sort()[0] ?? null,
+    };
+  });
+
+  return { rows: list, total };
+}
+
+/**
+ * Names for the numeric ids these tables store.
+ *
+ * The directory is the platform's own `user` table; `/items/directus_users` answers 403 on this
+ * instance, and a failed read leaves a dash rather than failing the screen, so this never throws.
+ * Same shape as `loan-approvals/services/approvals.service.ts`.
+ */
+async function loadActorNames(ids: number[]): Promise<Map<number, string>> {
+  const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  if (unique.length === 0) return new Map();
+  try {
+    const { rows } = await listItems<Record<string, unknown>>("user", {
+      fields: ["user_id", "user_fname", "user_mname", "user_lname", "user_email"],
+      filter: { user_id: { _in: unique } },
+      limit: unique.length,
+    });
+    const map = new Map<number, string>();
+    for (const row of rows) {
+      const id = num(row.user_id);
+      const name = [row.user_fname, row.user_mname, row.user_lname]
+        .map((part) => (typeof part === "string" ? part.trim() : ""))
+        .filter(Boolean)
+        .join(" ");
+      map.set(id, name || (typeof row.user_email === "string" ? row.user_email : "") || `User ${id}`);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+/** One loan's payment history, newest first, with the labels the desk reads it by. */
+export async function listLoanPaymentHistory(
+  loanId: number,
+  filters: { accountId?: number; from?: string; to?: string },
+): Promise<LoanHistoryRow[]> {
+  const filter: Record<string, unknown> = { loan_id: { _eq: loanId } };
+  if (filters.accountId) filter.account_id = { _eq: filters.accountId };
+  if (filters.from) filter.payment_date = { ...(filter.payment_date as object), _gte: filters.from };
+  if (filters.to) filter.payment_date = { ...(filter.payment_date as object), _lte: filters.to };
+
+  const { rows } = await listItems<LoanPaymentRow>("loan_payment", {
+    fields: PAYMENT_FIELDS,
+    filter,
+    sort: "-payment_date,-id",
     limit: 200,
   });
+  if (rows.length === 0) return [];
+
+  const paymentIds = rows.map((row) => row.id);
+  const accounts = await listPaymentAccounts();
+  const names = await loadActorNames(rows.map((row) => num(row.created_by)));
+  const allocations = (
+    await listItems<AllocationRow>("loan_payment_allocation", {
+      fields: ["id", "payment_id", "installment_id", "bucket", "amount"],
+      filter: { payment_id: { _in: paymentIds } },
+      limit: paymentIds.length * 6,
+    })
+  ).rows;
+
+  const accountLabel = new Map(accounts.map((item) => [item.id, item.name]));
 
   return rows.map((row) => ({
     id: row.id,
-    loanNo: row.loan_no,
-    lenderName: row.lender_name,
-    principal: num(row.principal),
-    installmentAmount: num(row.installment_amount),
-    advanceBalance: num(row.advance_balance),
+    payment_no: row.payment_no,
+    payment_date: row.payment_date,
+    amount: num(row.amount),
+    method: row.method,
+    accountLabel: accountLabel.get(num(row.account_id)) ?? null,
+    lenderReceipt: row.lender_receipt,
     status: row.status,
+    reversedById: row.reversed_by_id === null ? null : num(row.reversed_by_id),
+    recordedBy: names.get(num(row.created_by)) ?? null,
+    bankCharge: num(row.bank_charge),
+    ...bucketSums(allocations, row.id),
   }));
+}
+
+function bucketSums(allocations: AllocationRow[], paymentId: number) {
+  const own = allocations.filter((line) => num(line.payment_id) === paymentId);
+  const sum = (bucket: string) =>
+    round2(own.filter((line) => line.bucket === bucket).reduce((total, line) => total + num(line.amount), 0));
+  return {
+    penaltyAmount: sum("PENALTY"),
+    interestAmount: sum("INTEREST"),
+    principalAmount: sum("PRINCIPAL"),
+    advanceAmount: sum("ADVANCE"),
+  };
 }
 
 export async function loadContext(loanId: number): Promise<PaymentContext> {
@@ -256,34 +463,36 @@ export async function loadContext(loanId: number): Promise<PaymentContext> {
   const today = phtStamp().slice(0, 10);
   const computed = penaltiesAt(loan, schedule, today);
 
-  const installments = computed
-    .filter((item) => item.interestOutstanding > 0 || item.principalOutstanding > 0 || item.penalty > 0)
-    .map((item) => ({
-      id: item.row.id,
-      periodNo: item.row.period_no,
-      dueDate: item.row.due_date,
-      paymentDueDate: item.row.payment_due_date,
-      interestOutstanding: item.interestOutstanding,
-      principalOutstanding: item.principalOutstanding,
-      penalty: item.penalty,
-      totalOutstanding: round2(item.interestOutstanding + item.principalOutstanding + item.penalty),
-      // The stored status only moves when the schedule is refreshed, so an installment whose
-      // due date has passed would still read UPCOMING here. Derive the reading from the date.
-      status:
-        item.row.status === "PAID" || item.row.status === "PARTLY_PAID"
-          ? item.row.status
-          : item.overdue
-            ? "OVERDUE"
-            : item.row.payment_due_date <= today
-              ? "DUE"
-              : "UPCOMING",
-      overdue: item.overdue,
-    }));
+  const installments = computed.map((item) => ({
+    id: item.row.id,
+    periodNo: item.row.period_no,
+    dueDate: item.row.due_date,
+    paymentDueDate: item.row.payment_due_date,
+    payment: round2(item.row.payment),
+    interest: round2(item.row.interest),
+    principal: round2(item.row.principal),
+    paidAmount: round2(item.row.paid_interest + item.row.paid_principal),
+    interestOutstanding: item.interestOutstanding,
+    principalOutstanding: item.principalOutstanding,
+    penalty: item.penalty,
+    totalOutstanding: round2(item.interestOutstanding + item.principalOutstanding + item.penalty),
+    // The stored status only moves when the schedule is refreshed, so an installment whose
+    // due date has passed would still read UPCOMING here. Derive the reading from the date.
+    status:
+      item.row.status === "PAID" || item.row.status === "PARTLY_PAID"
+        ? item.row.status
+        : item.overdue
+          ? "OVERDUE"
+          : item.row.payment_due_date <= today
+            ? "DUE"
+            : "UPCOMING",
+    overdue: item.overdue,
+  }));
 
   const next = installments.find((item) => item.totalOutstanding > 0);
   const payoff = round2(installments.reduce((sum, item) => sum + item.totalOutstanding, 0));
   const notices: string[] = [];
-  if (installments.length === 0) notices.push("This loan has nothing left to pay.");
+  if (installments.every((item) => item.totalOutstanding <= 0)) notices.push("This loan has nothing left to pay.");
   if (next && next.penalty > 0) {
     notices.push(`Installment ${next.periodNo} carries a ₱${next.penalty.toFixed(2)} penalty already accrued to today.`);
   }
@@ -292,6 +501,7 @@ export async function loadContext(loanId: number): Promise<PaymentContext> {
     loan: {
       id: loan.id,
       loan_no: loan.loan_no,
+      account_no: loan.account_no ?? null,
       lender_name: loan.lender_name,
       principal: loan.principal,
       installment_amount: loan.installment_amount,
@@ -592,116 +802,6 @@ export async function recordPayment(body: PaymentBody, actorId: number | null): 
   return { ...payment, journal_entry_id: entryId };
 }
 
-export async function listPayments(filters: {
-  q?: string;
-  loanId?: number;
-  method?: string;
-  status?: string;
-  page: number;
-  pageSize: number;
-}): Promise<{ rows: PaymentListRow[]; total: number; summary: PaymentsSummary }> {
-  const filter: Record<string, unknown> = {};
-  if (filters.loanId) filter.loan_id = { _eq: filters.loanId };
-  if (filters.method) filter.method = { _eq: filters.method };
-  if (filters.status) filter.status = { _eq: filters.status };
-  if (filters.q) {
-    filter._or = [
-      { payment_no: { _contains: filters.q } },
-      { check_no: { _contains: filters.q } },
-      { lender_receipt: { _contains: filters.q } },
-    ];
-  }
-
-  const { rows, total } = await listItems<LoanPaymentRow>("loan_payment", {
-    fields: PAYMENT_FIELDS,
-    filter,
-    sort: "-payment_date,-id",
-    limit: filters.pageSize,
-    page: filters.page,
-  });
-
-  const loanIds = [...new Set(rows.map((row) => row.loan_id))];
-  const paymentIds = rows.map((row) => row.id);
-
-  const loans = loanIds.length
-    ? (await listItems<{ id: number; loan_no: string; lender_name: string }>("loan", {
-        fields: ["id", "loan_no", "lender_name"],
-        filter: { id: { _in: loanIds } },
-        limit: loanIds.length,
-      })).rows
-    : [];
-  const accounts = await listPaymentAccounts();
-  const entries = rows.some((row) => row.journal_entry_id)
-    ? (await listItems<{ id: number; entry_no: string }>("loan_journal_entry", {
-        fields: ["id", "entry_no"],
-        filter: { id: { _in: rows.filter((row) => row.journal_entry_id).map((row) => row.journal_entry_id) } },
-        limit: rows.length,
-      })).rows
-    : [];
-  const allocations = paymentIds.length
-    ? (await listItems<AllocationRow>("loan_payment_allocation", {
-        fields: ["id", "payment_id", "installment_id", "bucket", "amount"],
-        filter: { payment_id: { _in: paymentIds } },
-        limit: paymentIds.length * 6,
-      })).rows
-    : [];
-
-  const loanLabel = new Map(loans.map((loan) => [loan.id, loan]));
-  const accountLabel = new Map(accounts.map((item) => [item.id, item.name]));
-  const entryLabel = new Map(entries.map((entry) => [entry.id, entry.entry_no]));
-
-  const list: PaymentListRow[] = rows.map((rawRow) => {
-    const row = {
-      ...rawRow,
-      loan_id: num(rawRow.loan_id),
-      amount: num(rawRow.amount),
-      account_id: num(rawRow.account_id),
-      charge_amount: num(rawRow.charge_amount),
-    bank_charge: num(rawRow.bank_charge),
-      advance_created: num(rawRow.advance_created),
-      journal_entry_id: rawRow.journal_entry_id === null ? null : num(rawRow.journal_entry_id),
-    };
-    const own = allocations
-      .filter((line) => num(line.payment_id) === row.id)
-      .map((line) => ({ ...line, amount: num(line.amount), installment_id: line.installment_id === null ? null : num(line.installment_id) }));
-    const sum = (bucket: string) => round2(own.filter((line) => line.bucket === bucket).reduce((total, line) => total + line.amount, 0));
-    return {
-      ...row,
-      loan_no: loanLabel.get(row.loan_id)?.loan_no ?? null,
-      lenderName: loanLabel.get(row.loan_id)?.lender_name ?? null,
-      accountLabel: accountLabel.get(row.account_id) ?? null,
-      entryNo: row.journal_entry_id ? entryLabel.get(row.journal_entry_id) ?? null : null,
-      penaltyAmount: sum("PENALTY"),
-      interestAmount: sum("INTEREST"),
-      principalAmount: sum("PRINCIPAL"),
-      advanceAmount: sum("ADVANCE"),
-    };
-  });
-
-  const thisMonth = phtStamp().slice(0, 7);
-  // The header describes the book, not the page: computing it from `list` made every figure
-  // change when the reader turned a page.
-  const booked = (await listItems<{ status: string; payment_date: string; amount: number; charge_amount: number }>(
-    "loan_payment",
-    { fields: ["status", "payment_date", "amount", "charge_amount"], filter: { status: { _eq: "POSTED" } }, limit: 5000 },
-  )).rows;
-  const advances = (await listItems<{ advance_balance: number }>("loan", {
-    fields: ["advance_balance"],
-    limit: 1000,
-  })).rows;
-  const summary: PaymentsSummary = {
-    posted: booked.length,
-    amountThisMonth: round2(
-      booked
-        .filter((row) => String(row.payment_date ?? "").slice(0, 10).startsWith(thisMonth))
-        .reduce((sum, row) => sum + num(row.amount), 0),
-    ),
-    penaltyCharged: round2(booked.reduce((sum, row) => sum + num(row.charge_amount), 0)),
-    advanceHeld: round2(advances.reduce((sum, loan) => sum + num(loan.advance_balance), 0)),
-  };
-
-  return { rows: list, total, summary };
-}
 
 export async function getPayment(id: number): Promise<{ payment: PaymentListRow; allocations: AllocationRow[]; reversible: { allowed: boolean; reason: string | null } }> {
   const { rows } = await listItems<LoanPaymentRow>("loan_payment", {

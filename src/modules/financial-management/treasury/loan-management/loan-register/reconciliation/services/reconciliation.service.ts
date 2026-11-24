@@ -338,7 +338,40 @@ type RawReconciliation = {
   created_at: string | null;
 };
 
-function toRow(raw: RawReconciliation, names: Map<number, string>): ReconciliationRow {
+type EntryStamp = { entry_date: string; created_at: string | null };
+
+/**
+ * Which saved periods the ledger has outrun.
+ *
+ * A saved roll-forward is a snapshot of postings that existed when it was recorded. Posting a
+ * backdated entry afterwards leaves the stored close describing a ledger that no longer exists,
+ * so a stale row is flagged rather than trusted: the figures still read ₱0.00 difference against
+ * the ledger balance of the day they were taken.
+ */
+async function stalePeriods(rows: RawReconciliation[]): Promise<Set<number>> {
+  const stale = new Set<number>();
+  if (rows.length === 0) return stale;
+  const { rows: entries } = await listItems<EntryStamp>("loan_journal_entry", {
+    fields: ["id", "entry_date", "created_at"],
+    sort: "-created_at",
+    limit: 2000,
+  });
+  for (const row of rows) {
+    if (!row.created_at) continue;
+    const recordedAt = Date.parse(row.created_at);
+    if (Number.isNaN(recordedAt)) continue;
+    const moved = entries.some((entry) => {
+      if (!entry.created_at) return false;
+      const postedAt = Date.parse(entry.created_at);
+      if (Number.isNaN(postedAt) || postedAt <= recordedAt) return false;
+      return entry.entry_date <= row.period_end;
+    });
+    if (moved) stale.add(row.id);
+  }
+  return stale;
+}
+
+function toRow(raw: RawReconciliation, names: Map<number, string>, stale: Set<number>): ReconciliationRow {
   return {
     id: raw.id,
     periodStart: raw.period_start,
@@ -358,6 +391,7 @@ function toRow(raw: RawReconciliation, names: Map<number, string>): Reconciliati
     signedByName: raw.signed_by ? (names.get(raw.signed_by) ?? null) : null,
     signedAt: raw.signed_at,
     createdAt: raw.created_at,
+    stale: stale.has(raw.id),
   };
 }
 
@@ -433,7 +467,8 @@ export async function listReconciliations(input: {
     page,
   });
   const names = await namesFor(rows.map((row) => Number(row.signed_by ?? 0)));
-  return { rows: rows.map((row) => toRow(row, names)), total, page, pageSize };
+  const stale = await stalePeriods(rows);
+  return { rows: rows.map((row) => toRow(row, names, stale)), total, page, pageSize };
 }
 
 export async function listAllReconciliations(): Promise<ReconciliationRow[]> {
@@ -443,7 +478,8 @@ export async function listAllReconciliations(): Promise<ReconciliationRow[]> {
     limit: 2000,
   });
   const names = await namesFor(rows.map((row) => Number(row.signed_by ?? 0)));
-  return rows.map((row) => toRow(row, names));
+  const stale = await stalePeriods(rows);
+  return rows.map((row) => toRow(row, names, stale));
 }
 
 /**
@@ -501,7 +537,7 @@ export async function saveReconciliation(
       });
 
   const names = await namesFor([Number(saved.signed_by ?? 0)]);
-  return toRow(saved, names);
+  return toRow(saved, names, await stalePeriods([saved]));
 }
 
 /** Sign-off: the actor and the PHT wall clock, written once. */
@@ -520,6 +556,13 @@ export async function signOffReconciliation(
 
   if (row.period_end && row.signed_at) {
     throw new LoanConflictError(`The period ending ${row.period_end} is already signed off.`);
+  }
+  // A snapshot the ledger has since outrun cannot be signed: the sign-off would certify figures
+  // the current postings no longer reproduce.
+  if ((await stalePeriods([row])).has(row.id)) {
+    throw new LoanConflictError(
+      `The period ending ${row.period_end} was recorded before later postings dated inside it, so its figures no longer describe the ledger. Rebuild the period, then sign it off.`,
+    );
   }
   const difference = num(row.difference);
   if (row.result !== "RECONCILED" || Math.abs(difference) >= 0.005) {
@@ -543,7 +586,7 @@ export async function signOffReconciliation(
     updated_by: actorId,
   });
   const names = await namesFor([actorId]);
-  return toRow(saved, names);
+  return toRow(saved, names, await stalePeriods([saved]));
 }
 
 /** Today in the PHT wall clock, so the UI can default its period without asking the server. */

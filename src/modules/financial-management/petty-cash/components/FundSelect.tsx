@@ -4,10 +4,9 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { fundDisplayLabel as fundLabel, fundMatchesSearch, normalizeFundSearch } from "../utils/fundSearch";
 
 export type FundOption = { id: number; docNo: string; name: string; custodian?: string; custodianName?: string };
-const fundDetail = (fund: FundOption) => fund.custodianName || fund.custodian || "";
-const fundLabel = (fund: FundOption) => `${fund.docNo} - ${fund.name}${fundDetail(fund) ? ` - ${fundDetail(fund)}` : ""}`;
 
 export function FundSelect({ label = "Fund", funds, value, onChange, includeAll = false, disabled = false, error, size = "default", searchPlaceholder = "Search fund number, name, or custodian...", pageSize }: {
   label?: string;
@@ -23,8 +22,8 @@ export function FundSelect({ label = "Fund", funds, value, onChange, includeAll 
 }) {
   const id = useId(), errorId = error ? `${id}-error` : undefined, [open, setOpen] = useState(false), [search, setSearch] = useState(""), [page, setPage] = useState(1);
   const selected = funds.find(fund => fund.id === value) || null;
-  const normalized = search.trim().toLowerCase();
-  const filtered = useMemo(() => funds.filter(fund => `${fund.docNo} ${fund.name} ${fundDetail(fund)}`.toLowerCase().includes(normalized)), [funds, normalized]);
+  const normalized = normalizeFundSearch(search);
+  const filtered = useMemo(() => funds.filter(fund => fundMatchesSearch(fund, search)), [funds, search]);
   const totalPages = pageSize ? Math.max(1, Math.ceil(filtered.length / pageSize)) : 1, currentPage = Math.min(page, totalPages);
   const choices = pageSize ? filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize) : filtered;
   const showAll = includeAll && (!normalized || "all funds".includes(normalized));
