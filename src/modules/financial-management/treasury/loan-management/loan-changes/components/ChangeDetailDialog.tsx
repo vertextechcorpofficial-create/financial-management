@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
 import { CHANGE_KIND_LABEL, CHANGE_KIND_TONE, CHANGE_STATUS_LABEL, CHANGE_STATUS_TONE, PREPAYMENT_OPTION_LABEL } from "../constants";
+import { formatDateMDY } from "../pht";
 import { reverseChangeRequest } from "../providers/changesApi";
 import type { ChangeListRow } from "../types";
 import { Notice } from "./Notice";
@@ -37,6 +38,11 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="tabular-nums">{value}</span>
     </div>
   );
+}
+
+/** One value when nothing moved, otherwise "before → after": an unchanged pair says nothing. */
+function moved(before: string, after: string): string {
+  return before === after ? after : `${before} → ${after}`;
 }
 
 export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
@@ -87,7 +93,7 @@ export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
           </div>
           <DialogDescription className="line-clamp-2 max-w-md">
             {change
-              ? `${change.loanNo ?? "No loan"} · ${change.lenderName ?? "No lender"} · effective ${change.effectiveDate}`
+              ? `${change.loanNo ?? "No loan"} · ${change.lenderName ?? "No lender"} · effective ${formatDateMDY(change.effectiveDate)}`
               : ""}
           </DialogDescription>
         </DialogHeader>
@@ -101,29 +107,29 @@ export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
                     <p className="text-sm font-semibold tabular-nums">
                       {change.kind === "PREPAYMENT" || change.kind === "PAYOFF"
                         ? change.amount === null
-                          ? "—"
+                          ? "not recorded"
                           : formatCurrency(change.amount)
                         : change.newRate === null
-                          ? "—"
+                          ? "not recorded"
                           : `${change.newRate}%`}
                     </p>
                   </div>
                   <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Penalty</p>
                     <p className="text-sm font-semibold tabular-nums">
-                      {change.penaltyAmount === 0 ? "—" : formatCurrency(change.penaltyAmount)}
+                      {change.penaltyAmount === 0 ? "none" : formatCurrency(change.penaltyAmount)}
                     </p>
                   </div>
                   <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Gain / loss</p>
                     <p className="text-sm font-semibold tabular-nums">
-                      {change.gainLoss === 0 ? "—" : formatCurrency(change.gainLoss)}
+                      {change.gainLoss === 0 ? "none" : formatCurrency(change.gainLoss)}
                     </p>
                   </div>
                   <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Installment after</p>
                     <p className="text-sm font-semibold tabular-nums">
-                      {change.newInstallment === null ? "—" : formatCurrency(change.newInstallment)}
+                      {change.newInstallment === null ? "not recorded" : formatCurrency(change.newInstallment)}
                     </p>
                   </div>
                 </div>
@@ -133,11 +139,11 @@ export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
                     <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Before and after</h3>
                   </div>
                   <div className="divide-y divide-border/50">
-                  <Row label="Installment" value={`${change.oldInstallment === null ? "—" : formatCurrency(change.oldInstallment)} → ${change.newInstallment === null ? "—" : formatCurrency(change.newInstallment)}`} />
-                  <Row label="Maturity" value={`${change.oldMaturity ?? "—"} → ${change.newMaturity ?? "—"}`} />
-                  <Row label="Amount prepaid" value={change.amount === null ? "—" : formatCurrency(change.amount)} />
-                  <Row label="Penalty" value={change.penaltyAmount === 0 ? "—" : `${formatCurrency(change.penaltyAmount)} at ${change.penaltyRate ?? 0}%`} />
-                  <Row label="Rate" value={change.newRate === null ? "—" : `${change.currentBorrowingRate ?? "—"}% → ${change.newRate}%`} />
+                  <Row label="Installment" value={moved(change.oldInstallment === null ? "not recorded" : formatCurrency(change.oldInstallment), change.newInstallment === null ? "not recorded" : formatCurrency(change.newInstallment))} />
+                  <Row label="Maturity" value={moved(change.oldMaturity ? formatDateMDY(change.oldMaturity) : "not recorded", change.newMaturity ? formatDateMDY(change.newMaturity) : "not recorded")} />
+                  <Row label="Amount prepaid" value={change.amount === null ? "not recorded" : formatCurrency(change.amount)} />
+                  <Row label="Penalty" value={change.penaltyAmount === 0 ? "none" : `${formatCurrency(change.penaltyAmount)} at ${change.penaltyRate ?? 0}%`} />
+                  <Row label="Rate" value={moved(change.currentBorrowingRate === null ? "not recorded" : `${change.currentBorrowingRate}%`, change.newRate === null ? "not recorded" : `${change.newRate}%`)} />
                   {change.prepaymentOption ? (
                     <Row label="Option" value={PREPAYMENT_OPTION_LABEL[change.prepaymentOption]} />
                   ) : null}
@@ -150,9 +156,9 @@ export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
                       value={`${change.restructureTestPct.toFixed(2)}% · ${change.restructureSubstantial ? "substantial" : "not substantial"}`}
                     />
                   ) : null}
-                  <Row label="Gain / loss" value={change.gainLoss === 0 ? "—" : formatCurrency(change.gainLoss)} />
-                  <Row label="Money account" value={change.accountLabel ?? "—"} />
-                    <Row label="Notes" value={change.notes ?? "—"} />
+                  <Row label="Gain / loss" value={change.gainLoss === 0 ? "none" : formatCurrency(change.gainLoss)} />
+                  <Row label="Money account" value={change.accountLabel ?? "not recorded"} />
+                    <Row label="Notes" value={change.notes ?? "none"} />
                   </div>
                 </div>
               </>

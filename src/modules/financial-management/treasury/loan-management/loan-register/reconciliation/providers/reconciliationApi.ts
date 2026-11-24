@@ -6,6 +6,14 @@ import type {
   StatementVariance,
 } from "../types";
 
+const REQUEST_TIMEOUT_MS = 20000;
+
+// A dropped connection must not leave the screen on skeletons forever.
+function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+}
+
+
 const BASE = "/api/fm/treasury/loan-management/loan-register/reconciliation";
 
 async function readError(response: Response): Promise<string> {
@@ -24,14 +32,14 @@ async function readError(response: Response): Promise<string> {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, { cache: "no-store" });
+  const response = await fetchWithTimeout(path, { cache: "no-store" });
   if (!response.ok) throw new Error(await readError(response));
   const body = (await response.json()) as { success: boolean; data: T };
   return body.data;
 }
 
 async function sendJson<T>(path: string, method: "POST", payload: unknown): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetchWithTimeout(path, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

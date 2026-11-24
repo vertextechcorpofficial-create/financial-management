@@ -20,7 +20,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ k
     const parsed = mappingBodySchema.safeParse(body);
     if (!parsed.success) return handleRouteError(parsed.error, "PATCH GL mapping", "The mapping could not be saved.");
 
-    return ok(await updateMapping(mappingKey, parsed.data.coaId, await currentUserId()));
+    return ok(await updateMapping(mappingKey, parsed.data.coaId, parsed.data.description ?? "", await currentUserId()));
   } catch (error) {
     return handleRouteError(error, "PATCH GL mapping", "The mapping could not be saved.");
   }

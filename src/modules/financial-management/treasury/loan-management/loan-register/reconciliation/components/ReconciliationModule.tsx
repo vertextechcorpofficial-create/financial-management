@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ACCENT, RECONCILIATION_PAGE_SIZE, RECONCILIATION_STORAGE_KEY } from "../constants";
 import { useReconciliation } from "../hooks/useReconciliation";
 import { useStatements } from "../hooks/useStatements";
+import { formatDateMDY } from "../pht";
 import { ReconciliationTable } from "./ReconciliationTable";
 import { Notice } from "./Notice";
 import { RollForwardPanel } from "./RollForwardPanel";
@@ -40,7 +41,7 @@ export function ReconciliationModule() {
         </div>
         <p className="text-xs text-muted-foreground">
           {reconciliation.context?.lockedThrough
-            ? `Books closed through ${reconciliation.context.lockedThrough}`
+            ? `Books closed through ${formatDateMDY(reconciliation.context.lockedThrough)}`
             : "No period is closed"}
         </p>
       </div>

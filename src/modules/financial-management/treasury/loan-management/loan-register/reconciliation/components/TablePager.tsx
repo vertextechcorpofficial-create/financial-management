@@ -134,8 +134,8 @@ export function TablePager({
 
   return (
     <div className={cn("flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground", className)}>
-      <span aria-live="polite">
-        Showing {formatNumber(first)}–{formatNumber(last)} of {formatNumber(total)}
+      <span className="whitespace-nowrap" aria-live="polite">
+        Showing {formatNumber(first)}-{formatNumber(last)} of {formatNumber(total)}
       </span>
 
       <div className="flex flex-wrap items-center gap-3">

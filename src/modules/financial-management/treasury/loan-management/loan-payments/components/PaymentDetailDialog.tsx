@@ -15,7 +15,7 @@ import {
   PAYMENT_STATUS_LABEL,
   PAYMENT_STATUS_TONE,
 } from "../constants";
-import { phtDisplayStamp } from "../pht";
+import { mdy, phtDisplayStamp } from "../pht";
 import { fetchPayment, reversePayment } from "../providers/paymentsApi";
 import type { AllocationRow, PaymentListRow } from "../types";
 import { StatusBadge } from "./StatusBadge";
@@ -118,9 +118,9 @@ export function PaymentDetailDialog({ paymentId, onOpenChange, onChanged }: Prop
                 <Tile label="Amount" value={formatCurrency(payment.amount)} />
                 <Tile
                   label="Penalty"
-                  value={payment.charge_amount > 0 ? formatCurrency(payment.charge_amount) : "—"}
+                  value={payment.charge_amount > 0 ? formatCurrency(payment.charge_amount) : "none"}
                 />
-                <Tile label="Bank charge" value={payment.bank_charge > 0 ? formatCurrency(payment.bank_charge) : "—"} />
+                <Tile label="Bank charge" value={payment.bank_charge > 0 ? formatCurrency(payment.bank_charge) : "none"} />
                 <Tile label="Money out" value={formatCurrency(moneyOut)} />
               </div>
 
@@ -128,28 +128,28 @@ export function PaymentDetailDialog({ paymentId, onOpenChange, onChanged }: Prop
                 <Group title="Payment">
                   <Row
                     label="Loan"
-                    value={`${payment.loan_no ?? "—"}${payment.lenderName ? ` · ${payment.lenderName}` : ""}`}
+                    value={`${payment.loan_no ?? "not recorded"}${payment.lenderName ? ` · ${payment.lenderName}` : ""}`}
                   />
-                  <Row label="Paid on" value={payment.payment_date} />
-                  <Row label="From" value={payment.accountLabel ?? "—"} />
-                  <Row label="Lender receipt" value={payment.lender_receipt ?? "—"} />
+                  <Row label="Paid on" value={mdy(payment.payment_date)} />
+                  <Row label="From" value={payment.accountLabel ?? "not recorded"} />
+                  <Row label="Lender receipt" value={payment.lender_receipt ?? "not recorded"} />
                   {payment.method === "CHECK" ? (
                     <>
-                      <Row label="Check number" value={payment.check_no ?? "—"} />
-                      <Row label="Check date" value={payment.check_date ?? "—"} />
+                      <Row label="Check number" value={payment.check_no ?? "not recorded"} />
+                      <Row label="Check date" value={payment.check_date ? mdy(payment.check_date) : "not recorded"} />
                     </>
                   ) : null}
                 </Group>
 
                 <Group title="Posting">
-                  <Row label="Journal entry" value={payment.entryNo ?? "—"} />
+                  <Row label="Journal entry" value={payment.entryNo ?? "not posted"} />
                   <Row label="Recorded" value={phtDisplayStamp(payment.created_at)} />
                   <Row
                     label="Reversal"
                     value={reversible.allowed ? "Allowed" : (reversible.reason ?? "Not available")}
                     title={reversible.reason ?? undefined}
                   />
-                  <Row label="Remarks" value={payment.remarks ?? "—"} title={payment.remarks ?? undefined} />
+                  <Row label="Remarks" value={payment.remarks ?? "none"} title={payment.remarks ?? undefined} />
                 </Group>
               </div>
 
@@ -177,7 +177,7 @@ export function PaymentDetailDialog({ paymentId, onOpenChange, onChanged }: Prop
                         <tr key={line.id}>
                           <td className="px-4 py-2">{BUCKET_LABEL[line.bucket]}</td>
                           <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
-                            {line.installment_id ? `#${line.installment_id}` : "—"}
+                            {line.installment_id ? `#${line.installment_id}` : "unapplied"}
                           </td>
                           <td className="px-4 py-2 text-right tabular-nums">{formatCurrency(line.amount)}</td>
                         </tr>
@@ -195,16 +195,28 @@ export function PaymentDetailDialog({ paymentId, onOpenChange, onChanged }: Prop
             Close
           </Button>
           {payment && payment.status === "POSTED" ? (
-            <span title={reversible.allowed ? undefined : reversible.reason ?? undefined} className="inline-flex">
+            <div className="flex flex-col items-end gap-1">
+              {reversible.allowed ? null : (
+                <p id="reverse-blocked" className="max-w-[320px] text-right text-xs text-muted-foreground">
+                  {reversible.reason ?? "This payment cannot be reversed."}
+                </p>
+              )}
+              {/* A blocked control says so in its own attributes, and stops wearing the loudest colour. */}
               <Button
                 type="button"
-                variant="destructive"
-                onClick={() => void reverse()}
-                disabled={isSaving || !reversible.allowed}
+                variant={reversible.allowed ? "destructive" : "outline"}
+                aria-disabled={isSaving || !reversible.allowed}
+                aria-describedby={reversible.allowed || !reversible.reason ? undefined : "reverse-blocked"}
+                title={reversible.allowed ? undefined : (reversible.reason ?? "This payment cannot be reversed.")}
+                className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+                onClick={() => {
+                  if (isSaving || !reversible.allowed) return;
+                  void reverse();
+                }}
               >
                 {isSaving ? "Reversing…" : "Reverse payment"}
               </Button>
-            </span>
+            </div>
           ) : null}
         </DialogFooter>
       </DialogContent>

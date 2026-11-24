@@ -58,6 +58,12 @@ export type ReconciliationRow = {
   signedByName: string | null;
   signedAt: string | null;
   createdAt: string | null;
+  /**
+   * A saved period is a snapshot. If a posting dated inside (or before) the period was
+   * recorded after the snapshot, the stored figures no longer describe the ledger, so the
+   * row says so instead of presenting an out-of-date close as current.
+   */
+  stale: boolean;
 };
 
 export type StatementRow = {

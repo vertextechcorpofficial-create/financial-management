@@ -1,30 +1,12 @@
 import { NextRequest } from "next/server";
 
-import {
-  paymentBodySchema,
-  paymentFilterSchema,
-} from "@/modules/financial-management/treasury/loan-management/loan-payments/schemas";
-import {
-  listPayments,
-  recordPayment,
-} from "@/modules/financial-management/treasury/loan-management/loan-payments/services/payments.service";
+import { paymentBodySchema } from "@/modules/financial-management/treasury/loan-management/loan-payments/schemas";
+import { recordPayment } from "@/modules/financial-management/treasury/loan-management/loan-payments/services/payments.service";
 
 import { currentUserId, fail, handleRouteError, ok, readJson } from "../_lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-export async function GET(request: NextRequest) {
-  try {
-    const parsed = paymentFilterSchema.safeParse(Object.fromEntries(request.nextUrl.searchParams));
-    if (!parsed.success) return fail("Some filters need attention.", 400);
-
-    const result = await listPayments(parsed.data);
-    return ok(result);
-  } catch (error) {
-    return handleRouteError(error, "GET payments", "The payments could not be read.");
-  }
-}
 
 export async function POST(request: NextRequest) {
   try {
