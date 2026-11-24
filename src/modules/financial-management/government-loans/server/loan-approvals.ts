@@ -147,8 +147,8 @@ const bulkInput = z.strictObject({
 const outcomeRow = z.object({ id: positiveId, reference: z.string(), outcome: z.enum(["approved", "skipped"]), reason: z.string().nullable() });
 const batchResult = z.object({ approved: z.number().int().nonnegative(), skipped: z.number().int().nonnegative(), items: z.array(outcomeRow) });
 
-function bulkItemKey(batchKey: string, id: number) {
-  const hash = createHash("sha256").update(`${batchKey}:${id}`).digest("hex");
+function bulkReceiptKey(batchKey: string, part: number | "result") {
+  const hash = createHash("sha256").update(`${batchKey}:${part}`).digest("hex");
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-8${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
@@ -157,7 +157,7 @@ function skipOutcome(id: number, reason: string): ApprovalOutcome {
 }
 
 async function evaluateBulkItem(batch: Command, item: ApprovalSelection, remarks: string): Promise<Receipt | null> {
-  const command = loanCommand(bulkItemKey(batch.key, item.id), { operation: "bulk-approve-item", batch: batch.hash, ...item }, batch.actor, item.id);
+  const command = loanCommand(bulkReceiptKey(batch.key, item.id), { operation: "bulk-approve-item", batch: batch.hash, ...item }, batch.actor, item.id);
   const existing = await readCommandReceipt(command);
   if (existing) return existing;
   const row = await readRequest(item.id).catch(error => {
@@ -183,28 +183,44 @@ async function evaluateBulkItem(batch: Command, item: ApprovalSelection, remarks
   }
 }
 
+async function startApprovalBatch(command: Command, items: ApprovalSelection[]) {
+  const existing = await readCommandReceipt(command);
+  if (existing) return existing;
+  const ids = items.map(item => item.id);
+  const query = new URLSearchParams({ fields: "id,revision", limit: "1", sort: "id", filter: JSON.stringify({
+    id: { _in: ids }, status: { _neq: "DRAFT" }, requested_at: { _nnull: true },
+  }) });
+  const { data: [request] } = z.object({ data: z.array(requestRow.pick({ id: true, revision: true })).max(1) })
+    .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+  return request ? recordBulkApprovalEvent(command, "BULK_APPROVAL_STARTED", request, { requestIds: ids }) : null;
+}
+
 export async function bulkApproveLoanRequests(body: unknown, key: string | null, actor: AgencyActor): Promise<BulkApprovalResult> {
   const { items, remarks } = parseInput(bulkInput, body);
   const batch = loanCommand(key, { operation: "bulk-approve", items, remarks }, actor);
-  const existing = await readCommandReceipt(batch);
+  const started = await startApprovalBatch(batch, items);
+  if (!started) return { approved: 0, skipped: items.length, items: items.map(item => skipOutcome(item.id, "The filed request could not be found.")) };
+  // The earlier writer saved completed results under the original batch key.
+  if (started.action === "BULK_APPROVAL_COMPLETED") return batchResult.parse(started.after_values);
+
+  const completion = loanCommand(bulkReceiptKey(batch.key, "result"), { operation: "bulk-approve-result", batch: batch.hash }, actor);
+  const existing = await readCommandReceipt(completion);
   if (existing) return batchResult.parse(existing.after_values);
 
   const outcomes: ApprovalOutcome[] = [];
-  let anchor: { id: number; revision: number } | undefined;
   for (const item of items) {
     const receipt = await evaluateBulkItem(batch, item, remarks);
     if (!receipt) {
       outcomes.push(skipOutcome(item.id, "The filed request could not be found."));
       continue;
     }
-    anchor ??= { id: receipt.request_id, revision: receipt.revision };
     outcomes.push(receipt.action === "REQUEST_APPROVED"
       ? { id: item.id, reference: referenceFor(item.id), outcome: "approved", reason: null }
       : outcomeRow.parse(receipt.after_values));
   }
   const approved = outcomes.filter(item => item.outcome === "approved").length;
   const result = { approved, skipped: outcomes.length - approved, items: outcomes };
-  if (!anchor) return result;
-  const summary = await recordBulkApprovalEvent(batch, "BULK_APPROVAL_COMPLETED", anchor, result);
+  const summary = await recordBulkApprovalEvent(completion, "BULK_APPROVAL_COMPLETED",
+    { id: started.request_id, revision: started.revision }, result);
   return batchResult.parse(summary.after_values);
 }

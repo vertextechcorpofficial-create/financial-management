@@ -3,7 +3,7 @@ import { positiveMoney, positiveTerm } from "../requests/request-rules";
 import { purposes, type FieldErrors, type RequestForm } from "../requests/types";
 
 export class LoanRequestError extends Error {
-  constructor(readonly status: number, message: string, readonly fieldErrors?: FieldErrors) {
+  constructor(readonly status: number, message: string, readonly fieldErrors?: Record<string, string>) {
     super(message);
   }
 }

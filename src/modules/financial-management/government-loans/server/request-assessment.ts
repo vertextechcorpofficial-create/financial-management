@@ -31,7 +31,7 @@ const employeeRow = employeeChoiceRow.extend({
 });
 const department = z.object({ department_id: positiveId, department_name: z.string().nullable() });
 const employmentStatus = z.object({ id: positiveId, name: z.string() });
-const employeeName = (employee: z.infer<typeof employeeChoiceRow>) =>
+export const employeeName = (employee: z.infer<typeof employeeChoiceRow>) =>
   [employee.user_fname, employee.user_mname, employee.user_lname].filter(part => part?.trim()).join(" ") || "Employee " + employee.user_id;
 
 async function getDepartments(choices: z.infer<typeof employeeChoiceRow>[]) {
@@ -79,7 +79,7 @@ export async function listRequestEmployees(params: URLSearchParams) {
 function agencyChoice(record: Agency): AgencyChoice {
   return {
     id: record.id, shortCode: record.shortCode, name: record.fullName, agencyType: record.agencyType,
-    programs: record.programs, payoutOptions: record.payoutOptions,
+    programs: record.programs, payoutOptions: record.payoutOptions, referenceExample: record.referenceExample,
   };
 }
 
@@ -88,7 +88,7 @@ export async function listRequestAgencies(params: URLSearchParams) {
   return { items: agencies.map(agencyChoice), hasMore };
 }
 
-async function activeAgency(id: number | null) {
+export async function activeAgency(id: number | null) {
   if (!id) return null;
   try {
     const record = await readAgency(id);
@@ -99,7 +99,7 @@ async function activeAgency(id: number | null) {
   }
 }
 
-async function activeEmployee(id: number | null, day: string) {
+export async function activeEmployee(id: number | null, day: string) {
   if (!id) return null;
   const [employee] = await rows("user", employeeRow, employeeFields, { user_id: { _eq: id } }, { limit: 1 });
   if (!employee || !employee.is_employee || employee.is_deleted || employee.is_blocked ||

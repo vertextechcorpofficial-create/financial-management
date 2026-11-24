@@ -80,13 +80,13 @@ export function PettyCashWorkspace({ workspace }: { workspace?: PettyCashWorkspa
   if (!context.workspaces.some(item => item.key === workspace)) return <div role="alert" className="rounded-xl border p-6"><h1 className="text-xl font-semibold">Access denied</h1><p className="mt-2">You do not have access to this Petty Cash workspace.</p></div>;
   const capabilities = context.workspaces.find(item => item.key === workspace)?.capabilities;
   if (workspace === "reports" && capabilities?.includes("READ_REPORTS")) return <PettyCashReportsModule />;
-  if (workspace === "disbursement-approval" && capabilities?.includes("READ_VOUCHER_APPROVALS")) return <PettyCashDisbursementApprovalModule actorName={context.actorName} />;
+  if (workspace === "disbursement-approval" && capabilities?.includes("READ_VOUCHER_APPROVALS")) return <PettyCashDisbursementApprovalModule />;
   if (workspace === "cash-count" && capabilities?.includes("READ_CASH_COUNTS")) return <PettyCashCashCountModule actorId={context.actorId} actorName={context.actorName} />;
-  if (workspace === "replenishment-approval" && capabilities?.includes("READ_REPLENISHMENT_APPROVALS")) return <PettyCashReplenishmentApprovalModule actorName={context.actorName} />;
+  if (workspace === "replenishment-approval" && capabilities?.includes("READ_REPLENISHMENT_APPROVALS")) return <PettyCashReplenishmentApprovalModule />;
   if (workspace === "replenishment" && capabilities?.includes("READ_REPLENISHMENT")) return <PettyCashReplenishmentModule />;
-  if (workspace === "onboarding" && capabilities?.includes("READ_ONBOARDING")) return <PettyCashOnboardingModule requesterName={context.actorName} canSubmitFund={capabilities.includes("SUBMIT_FUND_REQUEST")} canEditFunds={capabilities.includes("EDIT_PENDING_FUNDS")} canDeleteFunds={capabilities.includes("DELETE_PENDING_FUNDS")} canEditSettings={capabilities.includes("EDIT_SETTINGS")} />;
-  if (workspace === "disbursement" && capabilities?.includes("READ_VOUCHER_DRAFTS")) return <PettyCashDisbursementModule canEdit={capabilities.includes("EDIT_VOUCHER_DRAFTS")} operational={capabilities.includes("OPERATE_VOUCHERS")} actorName={context.actorName} />;
-  if (workspace === "onboarding-approval" && capabilities?.includes("READ_FUND_APPROVALS")) return <PettyCashOnboardingApprovalModule actorName={context.actorName} canDecide={capabilities.includes("DECIDE_FUND_REQUESTS")} changesEnabled={capabilities.includes("DECIDE_FUND_CHANGES")} />;
+  if (workspace === "onboarding" && capabilities?.includes("READ_ONBOARDING")) return <PettyCashOnboardingModule canSubmitFund={capabilities.includes("SUBMIT_FUND_REQUEST")} canEditFunds={capabilities.includes("EDIT_PENDING_FUNDS")} canDeleteFunds={capabilities.includes("DELETE_PENDING_FUNDS")} canEditSettings={capabilities.includes("EDIT_SETTINGS")} />;
+  if (workspace === "disbursement" && capabilities?.includes("READ_VOUCHER_DRAFTS")) return <PettyCashDisbursementModule canEdit={capabilities.includes("EDIT_VOUCHER_DRAFTS")} operational={capabilities.includes("OPERATE_VOUCHERS")} />;
+  if (workspace === "onboarding-approval" && capabilities?.includes("READ_FUND_APPROVALS")) return <PettyCashOnboardingApprovalModule canDecide={capabilities.includes("DECIDE_FUND_REQUESTS")} changesEnabled={capabilities.includes("DECIDE_FUND_CHANGES")} />;
   if (workspace === "master-list" && capabilities?.includes("READ_FUND_MASTER")) return <Suspense fallback={<PageSkeleton label="Loading Master List" workspace="master-list" />}><PettyCashFundsModule canRequest={capabilities.includes("REQUEST_FUND_CHANGES")} /></Suspense>;
   return <section className="space-y-4">
     <PettyCashPageHeader title={PETTY_CASH_WORKSPACES[workspace].title} description={PETTY_CASH_WORKSPACES[workspace].description} />
