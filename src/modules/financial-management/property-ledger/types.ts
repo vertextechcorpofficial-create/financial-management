@@ -76,7 +76,7 @@ export type Part = z.infer<typeof partSchema>;
 export type LedgerEvent = z.infer<typeof eventSchema>;
 export type Portfolio = z.infer<typeof portfolioSchema>;
 export type Policies = Portfolio["policies"];
-export type LedgerState = { revision: number; portfolio: Portfolio; canManage: boolean; allowedPages?: string[]; editPages?: string[] };
+export type LedgerState = { revision: number; portfolio: Portfolio; canManage: boolean; history: HistoryEntry[]; allowedPages?: string[]; editPages?: string[] };
 export type HistoryEntry = { id: number; actor: string; created_at: string; summary: string };
 export const INITIAL_ENTITY = "00000000-0000-4000-8000-000000000001";
 export function emptyPortfolio(): Portfolio {
