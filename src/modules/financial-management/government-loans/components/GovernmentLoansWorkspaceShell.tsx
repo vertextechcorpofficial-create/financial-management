@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LoanApprovalModule } from "../approval/LoanApprovalModule";
 import { LoanEnrollmentModule } from "../enrollment/LoanEnrollmentModule";
+import { LoanVerificationModule } from "../enrollment/LoanVerificationModule";
 import { AgenciesModule } from "../remittances/agencies/AgenciesModule";
 import { LoanRequestsModule } from "../requests/LoanRequestsModule";
 import type { GovernmentLoansTab, GovernmentLoansWorkspace, GovernmentLoansWorkspaceKey } from "../workspaces";
@@ -75,7 +76,8 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs }: {
           {hasAgencies && tab.key === "agencies" ? <AgenciesModule /> :
             hasRequests && tab.key === "requests" ? <LoanRequestsModule /> :
             hasRequests && tab.key === "enrollment" ? <LoanEnrollmentModule /> :
-            hasApprovals && tab.key === "loan-requests" ? <LoanApprovalModule /> : <div className="rounded-xl border border-dashed bg-muted/20 p-6">
+            hasApprovals && tab.key === "loan-requests" ? <LoanApprovalModule /> :
+            hasApprovals && tab.key === "enrollment-verification" ? <LoanVerificationModule /> : <div className="rounded-xl border border-dashed bg-muted/20 p-6">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold">{tab.title}</h3>
               <Badge variant="outline">Pending delivery</Badge>
