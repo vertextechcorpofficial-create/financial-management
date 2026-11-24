@@ -1,5 +1,6 @@
 import type { Asset, Portfolio } from "../types";
 import { assetSeries, monthIndex, monthString, portfolioSeries, schedule, snapshot, type Snapshot } from "./engine";
+import { formatMonth } from "./dates";
 
 export type ScheduleKind = "land" | "building" | "all";
 export type ScheduleRow = Snapshot & { assetName?: string; assetKind?: "land" | "building"; total: number };
@@ -30,7 +31,7 @@ export function reviewFlags(portfolio: Portfolio, month: string) {
     const flags: { asset: Asset; level: string; note: string }[] = [];
     if (asset.kind === "land") {
       const latest = asset.events.filter(e => e.kind === "appraisal" && e.date <= month).map(e => e.date).sort().at(-1) ?? asset.acquired;
-      if (monthIndex(month) - monthIndex(latest) >= 36) flags.push({ asset, level: "Due soon", note: `Appraisal ${latest === asset.acquired ? "not recorded since acquisition" : "last recorded"} ${latest}` });
+      if (monthIndex(month) - monthIndex(latest) >= 36) flags.push({ asset, level: "Due soon", note: `Appraisal ${latest === asset.acquired ? "not recorded since acquisition" : "last recorded"} ${formatMonth(latest)}` });
       if (!Number(asset.details.area)) flags.push({ asset, level: "Missing info", note: "No lot area recorded" });
     } else {
       const due: string[] = [];

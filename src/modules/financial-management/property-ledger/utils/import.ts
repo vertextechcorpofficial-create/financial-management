@@ -1,4 +1,5 @@
-import { assetSchema, type Asset } from "../types";
+import { type Asset } from "../types";
+import { registrationSchema } from "./registration";
 import { newLedgerId } from "./id";
 
 export function importMonth(value = "") {
@@ -40,7 +41,7 @@ export function parseRegistrations(text: string, kind: Asset["kind"], entityId: 
     return cleaned ? Number(cleaned) : fallback;
   };
   const drafts = text.split(/\r?\n/).flatMap((line, index) => {
-    const [name, second = "", groups = "", date, price, sixth, seventh, eighth, ninth, tenth, eleventh] = columns(line);
+    const [name, second = "", groups = "", date, price, sixth, seventh, eighth, ninth, tenth, eleventh, location] = columns(line);
     const acquired = importMonth(date);
     if (!name || name.toLowerCase() === "name" || !acquired) return [];
     const tags = [...new Map(groups.split(";").map(tag => tag.trim()).filter(Boolean).map(tag => [tag.toLowerCase(), tag])).values()];
@@ -48,18 +49,18 @@ export function parseRegistrations(text: string, kind: Asset["kind"], entityId: 
     const methodText = eighth?.toLowerCase() ?? "";
     const method = /150/.test(methodText) ? "db150" : /double|ddb|200/.test(methodText) ? "ddb" : /sum|syd/.test(methodText) ? "syd" : "sl";
     return [{ index, asset: {
-      id: newLedgerId(), kind, name, entityId, tags, acquired, cost, location: kind === "land" ? second : "",
+      id: newLedgerId(), kind, name, entityId, tags, acquired, cost, location: kind === "land" ? second : location ?? "",
       landId: kind === "building" && second ? existing.find(a => a.kind === "land" && a.entityId === entityId && a.name.toLowerCase() === second.toLowerCase())?.id ?? "" : "",
       growth: "compound", rate: kind === "land" ? number(sixth, 5) : 5, method, notes: "", events: [], sale: null,
       parts: kind === "building" ? [{ id: newLedgerId(), name: "Whole building", date: acquired, cost, life: number(sixth, 25) || 25, salvage: number(seventh, 10) }] : [],
-      details: kind === "land" ? { area: seventh ? String(number(seventh, 0)) : "", titleNo: eighth ?? "", taxDec: ninth ?? "" }
+      details: kind === "land" ? { area: seventh ? String(number(seventh, 0)) : "", titleNo: eighth ?? "", taxDecNo: ninth ?? "" }
         : { floorArea: ninth ? String(number(ninth, 0)) : "", storeys: tenth ? String(number(tenth, 0)) : "", yearBuilt: eleventh ? String(number(eleventh, 0)) : "" },
     } }];
   });
   const closed = lockThrough ? drafts.filter(({ asset }) => asset.acquired <= lockThrough).length : 0;
   if (closed) throw new Error(`${closed} rows are dated in the locked period (through ${lockThrough}).`);
   return drafts.map(({ asset, index }) => {
-    const parsed = assetSchema.safeParse(asset);
+    const parsed = registrationSchema.safeParse(asset);
     if (!parsed.success) throw new Error(`Row ${index + 1}: ${parsed.error.issues[0].message}`);
     return parsed.data;
   });
