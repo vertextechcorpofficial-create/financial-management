@@ -7,11 +7,12 @@ import { OnboardingPayees } from "./components/OnboardingPayees";
 import { OnboardingFunds } from "./components/OnboardingFunds";
 import { OnboardingConfiguration } from "./components/OnboardingConfiguration";
 import { ErrorBox } from "./components/OnboardingCommon";
+import { PettyCashPageHeader } from "./components/PettyCashPageHeader";
 
 export default function PettyCashOnboardingModule({ requesterName, canSubmitFund, canEditFunds, canDeleteFunds, canEditSettings }: { requesterName: string; canSubmitFund: boolean; canEditFunds: boolean; canDeleteFunds: boolean; canEditSettings: boolean }) {
   const links = useOnboardingRead<MasterLinks>("master-links");
   const [settingsRevision, setSettingsRevision] = useState(0);
-  return <section className="space-y-5"><div><h1 className="text-2xl font-semibold tracking-tight">Onboarding</h1><p className="mt-2 text-sm text-muted-foreground">Request new funds and maintain registered payees. A new fund stays inactive until it is approved.</p></div>
+  return <section className="space-y-5"><PettyCashPageHeader title="Onboarding" description="Request new funds and maintain registered payees. A new fund stays inactive until it is approved." />
     {canEditSettings && <OnboardingConfiguration onChanged={() => setSettingsRevision(value => value + 1)} />}
     <ErrorBox error={links.error} retry={links.refresh} title="Could not load onboarding links" />
     <Tabs defaultValue="funds"><TabsList className="h-auto w-fit max-w-full flex-wrap justify-start gap-1">

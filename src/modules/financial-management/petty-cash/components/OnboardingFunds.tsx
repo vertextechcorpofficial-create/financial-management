@@ -6,7 +6,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import type { Choice, Fund, FundReference, Page, Settings } from "../onboarding-types";
 import { useOnboardingCommand, useOnboardingRead } from "../hooks/useOnboarding";
-import { usePettyCashRefresh } from "../hooks/usePettyCashRefresh";
 import { OnboardingChoice } from "./OnboardingChoice";
 import { ErrorBox, Field, NativeSelect, OnboardingFeedback, Paging } from "./OnboardingCommon";
 import { FundStatusBadge } from "./FundStatusBadge";
@@ -36,7 +35,6 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
   const filtersActive = Boolean(search.trim() || department || custodian || statusFilter !== "ALL");
   const query = fundFilterParams({ page, search: debouncedSearch, departmentId: department?.id, custodianId: custodian?.id, status: statusFilter }).toString();
   const { data, loading, refreshing, updatedAt, error, refresh } = useOnboardingRead<Page<Fund>>(`funds?${query}`);
-  usePettyCashRefresh(refresh, loading || refreshing);
   const headers = ["Fund", "Department", "Custodian", "Imprest", "Per voucher", "Approval above", "Requested by", "Status", ...(canEdit || canDelete ? [""] : [])];
   function clearFilters() { setSearch(""); setDebouncedSearch(""); setDepartment(null); setCustodian(null); setStatusFilter("ALL"); setPage(1); }
   function changeDepartment(value: Choice | null) { setDepartment(value); setPage(1); }
@@ -51,7 +49,7 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
     setPage(1);
     refresh();
   }
-  return <div className="space-y-4 rounded-xl border bg-card p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Fund requests</h2><div className="flex flex-wrap items-center gap-3"><UpdatedAgo at={updatedAt} onRefresh={refresh} />{canSubmit && <Button onClick={() => setEditor("new")}>+ New fund request</Button>}</div></div>
+  return <div className="space-y-4 rounded-xl border bg-card p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Fund requests</h2><div className="flex flex-wrap items-center gap-3"><UpdatedAgo at={updatedAt} />{canSubmit && <Button onClick={() => setEditor("new")}>+ New fund request</Button>}</div></div>
     <div role="search" aria-label="Fund request filters" className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3">
       <div className="min-w-56 flex-1 space-y-2"><label htmlFor="fund-search" className="text-sm font-medium">Search</label><Input id="fund-search" type="search" aria-label="Search funds" placeholder="Fund name, PCF #, or requester" value={search} onChange={event => setSearch(event.target.value)} /></div>
       <div className="w-full sm:w-52"><OnboardingChoice label="Department" resource="departments" selected={department} onSelect={changeDepartment} placeholder="All departments" /></div>

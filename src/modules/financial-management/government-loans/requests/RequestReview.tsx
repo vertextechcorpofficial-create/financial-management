@@ -59,7 +59,7 @@ export function RequestDetails({ record, documentHref }: { record: LoanRequest; 
           <p className="text-xs text-muted-foreground">
             {event.actorName} · {event.fromStatus && requestStatusLabels[event.fromStatus] + " → "}{requestStatusLabels[event.toStatus]}
           </p>
-          {event.reason && <p className="whitespace-pre-wrap break-words">{event.reason}</p>}
+          {(event.reason || event.remarks) && <p className="whitespace-pre-wrap break-words">{event.reason || event.remarks}</p>}
         </li>)}
       </ol> : <p className="text-sm text-muted-foreground">No decisions recorded.</p>}
     </RequestSection>
