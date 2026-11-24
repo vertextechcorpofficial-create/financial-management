@@ -8,13 +8,46 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 
 import { EXCEPTION_STATUS_LABEL, EXCEPTION_STATUS_TONE } from "../constants";
 import { phtDisplayStamp, phtToday } from "../pht";
+import { displayDay } from "@/modules/financial-management/management-analytics/shared/dates";
 import { runLabel } from "./ExceptionTable";
 import { formatNumber, magnitudeText } from "../services/engine";
-import type { ExceptionDetail } from "../types";
+import type { ExceptionDetail, ExceptionReadingRow } from "../types";
+
+/** Signed deviation per reading, drawn from a centre line; the longest bar here is the full half-width. */
+function DeviationBars({ readings, unit, dp }: { readings: ExceptionReadingRow[]; unit: string | null; dp: number }) {
+  const peak = Math.max(...readings.map((reading) => Math.abs(reading.deviation)), 0);
+  return (
+    <div className="space-y-1.5 border-b border-border/60 px-4 py-3">
+      {readings.map((reading) => {
+        const share = peak > 0 ? Math.abs(reading.deviation) / peak : 0;
+        const positive = reading.deviation >= 0;
+        const tone = reading.over_limit ? "bg-destructive" : "bg-primary";
+        return (
+          <div key={reading.id} className="flex items-center gap-2 text-xs">
+            <span className="w-14 shrink-0 tabular-nums text-muted-foreground">{reading.period}</span>
+            <span className="flex h-2 min-w-0 flex-1 items-center gap-px">
+              <span className="flex h-full w-1/2 justify-end rounded-l-sm bg-muted">
+                {positive ? null : <span className={`h-full rounded-l-sm ${tone}`} style={{ width: `${share * 100}%` }} />}
+              </span>
+              <span className="flex h-full w-1/2 rounded-r-sm bg-muted">
+                {positive ? <span className={`h-full rounded-r-sm ${tone}`} style={{ width: `${share * 100}%` }} /> : null}
+              </span>
+            </span>
+            <span className="w-20 shrink-0 text-right tabular-nums">{magnitudeText(reading.deviation, unit, dp)}</span>
+          </div>
+        );
+      })}
+      <p className="text-[11px] text-muted-foreground">
+        Deviation under this run&apos;s rule; the longest bar sets the scale. Red bars are over the limit.
+      </p>
+    </div>
+  );
+}
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -139,11 +172,42 @@ export function ExceptionDetailDialog({
             <div className="flex shrink-0 items-center gap-2">
               <StatusBadge tone={EXCEPTION_STATUS_TONE[row.status] ?? "neutral"}>{EXCEPTION_STATUS_LABEL[row.status] ?? row.status}</StatusBadge>
               {row.escalated_level > 0 ? (
-                <StatusBadge tone="danger" title={`Escalated on ${row.escalated_at ?? "—"}`}>
-                  Level {row.escalated_level}
+                <StatusBadge tone="danger" title={`Escalated on ${row.escalated_at ? phtDisplayStamp(row.escalated_at) : "a date that was never recorded"}`}>
+                  {row.escalated_level >= 2 ? "→ Group Executive Committee" : `→ General Manager, ${row.companyCode}`}
                 </StatusBadge>
               ) : null}
             </div>
+          </div>
+          {/* 4-step remediation workflow stepper matching reference #register */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            {(["Confirmed", "Owner + memo", "Monitoring", "Closed"] as const).map((stepLabel, idx) => {
+              const stageIdx =
+                row.status === "CLOSED"
+                  ? 3
+                  : row.status === "MONITORING" || row.status === "RECURRENCE"
+                    ? 2
+                    : row.memo_at
+                      ? 1
+                      : 0;
+              const done = idx < stageIdx || (row.status === "CLOSED" && idx <= 3);
+              const now = idx === stageIdx && row.status !== "CLOSED";
+              return (
+                <span
+                  key={stepLabel}
+                  className={cn(
+                    "rounded-md px-2 py-0.5 text-[11px] font-medium",
+                    done
+                      ? "bg-primary/15 text-primary"
+                      : now
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {done ? "✓ " : ""}
+                  {stepLabel}
+                </span>
+              );
+            })}
           </div>
         </DialogHeader>
 
@@ -151,7 +215,7 @@ export function ExceptionDetailDialog({
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
               { label: "Deviation", value: magnitudeText(row.deviation, row.unit, row.dp) },
-              { label: "Memo due", value: row.memo_due_date ?? "—" },
+              { label: "Memo due", value: row.memo_due_date ? displayDay(row.memo_due_date) : "not set" },
               { label: "Readings", value: String(detail.readings.length) },
               { label: "Moved", value: row.direction === "UP" ? "Above target" : "Below target" },
             ].map((tile) => (
@@ -164,10 +228,10 @@ export function ExceptionDetailDialog({
 
           <Group title="Why it is on the board">
             <dl className="divide-y divide-border/50">
-              <Row label="Reason" value={row.reason ?? "—"} />
+              <Row label="Reason" value={row.reason ?? "no reason recorded"} />
               <Row label="Memo" value={row.memo_at ? `Filed ${phtDisplayStamp(row.memo_at)}` : "Not filed"} />
-              <Row label="Closed" value={row.closed_at ? phtDisplayStamp(row.closed_at) : "—"} />
-              <Row label="Close note" value={row.close_note ?? "—"} />
+              <Row label="Closed" value={row.closed_at ? phtDisplayStamp(row.closed_at) : "not closed"} />
+              <Row label="Close note" value={row.close_note ?? "no close note"} />
             </dl>
           </Group>
 
@@ -175,7 +239,9 @@ export function ExceptionDetailDialog({
             {detail.readings.length === 0 ? (
               <p className="px-4 py-3 text-sm text-muted-foreground">No reading has been recorded yet.</p>
             ) : (
-              <Table>
+              <>
+                <DeviationBars readings={detail.readings} unit={row.unit} dp={row.dp} />
+                <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="pl-4">Period</TableHead>
@@ -199,6 +265,7 @@ export function ExceptionDetailDialog({
                   ))}
                 </TableBody>
               </Table>
+              </>
             )}
             <div className="flex flex-wrap items-end gap-2 border-t border-border/60 px-4 py-3">
               <label className="flex flex-col gap-1">

@@ -17,6 +17,19 @@ import { PaymentsTab } from "./PaymentsTab";
 
 type TabKey = "certificates" | "payments" | "locks";
 
+/**
+ * A notice is read by whoever has to fix the figure, so the platform's own words are cut off and
+ * what remains is the part that names the source and what it could not include.
+ */
+const PLATFORM_NOISE =
+  /(HTTP\s*\d{3}|status\s*(?:code\s*)?\d{3}|Failed to fetch|fetch failed|ECONN[A-Z]+|ETIMEDOUT|TypeError|AbortError|NetworkError|Cannot read properties|is not a function)/i;
+
+function readableNotice(text: string): string {
+  const cut = text.search(PLATFORM_NOISE);
+  const head = cut === -1 ? text : text.slice(0, cut);
+  return head.replace(/[\s:;,·—–-]+$/, "").trim();
+}
+
 export function Payments2307Module() {
   const [tab, setTab] = useState<TabKey>("certificates");
   const desk = usePayments2307();
@@ -24,6 +37,7 @@ export function Payments2307Module() {
   const companyValue = desk.companyId === null ? "" : String(desk.companyId);
   const showSkeleton = desk.isLoading && desk.companies.length === 0;
   const lockedPeriods = new Set(desk.locks.filter((lock) => lock.unlockedAt === null).map((lock) => lock.periodKey)).size;
+  const notices = desk.notices.map(readableNotice).filter((notice) => notice !== "");
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-6">
@@ -71,17 +85,22 @@ export function Payments2307Module() {
         </div>
       </div>
 
-      {desk.notices.length > 0 ? (
-        <div
+      {notices.length > 0 ? (
+        <section
           role="status"
-          className="rounded-2xl border border-border/50 bg-card px-4 py-3 text-xs text-muted-foreground shadow-sm"
+          aria-label="What these figures leave out"
+          className="rounded-2xl border border-border/50 bg-card px-4 py-3 shadow-sm"
         >
-          <ul className="list-disc space-y-1 pl-4">
-            {desk.notices.map((notice) => (
-              <li key={notice}>{notice}</li>
+          <h2 className="text-sm font-semibold">What these figures leave out</h2>
+          <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+            {notices.map((notice, index) => (
+              <li key={`${index}-${notice}`}>{notice}</li>
             ))}
           </ul>
-        </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Each line names a source this desk could not read. Fix it at the source, then refresh.
+          </p>
+        </section>
       ) : null}
 
       {desk.error ? (

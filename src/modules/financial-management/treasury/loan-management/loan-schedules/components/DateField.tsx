@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 
@@ -63,8 +64,11 @@ export function DateField({
 
   const blocked = [...(min ? [{ before: min }] : []), ...(max ? [{ after: max }] : [])];
 
+  // A picked day closes the calendar: leaving it open covers the field it was meant to fill (QA.md 5.2a).
+  const [open, setOpen] = useState(false);
+
   return (
-    <Popover modal={inDialog}>
+    <Popover open={open} onOpenChange={setOpen} modal={inDialog}>
       <PopoverTrigger asChild>
         <Button
           id={id}
@@ -81,7 +85,7 @@ export function DateField({
           )}
         >
           <CalendarIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="truncate">{selected ? format(selected, "LLL dd, y") : placeholder}</span>
+          <span className="truncate">{selected ? format(selected, "MM/dd/yyyy") : placeholder}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
@@ -91,7 +95,9 @@ export function DateField({
           defaultMonth={selected}
           disabled={blocked.length > 0 ? blocked : undefined}
           onSelect={(date) => {
-            if (date) onChange(formatDateValue(date));
+            if (!date) return;
+            onChange(formatDateValue(date));
+            setOpen(false);
           }}
         />
       </PopoverContent>

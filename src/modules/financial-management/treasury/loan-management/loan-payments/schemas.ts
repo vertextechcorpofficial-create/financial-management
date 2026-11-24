@@ -41,7 +41,7 @@ export type PaymentForm = z.input<typeof paymentFormSchema>;
 /**
  * The route trusts nothing: the body is revalidated here, not only in the dialog.
  * `kind` defaults to NORMAL and the check fields accept null, because that is what the
- * dialog sends when the method is not CHECK — JSON has no place for `undefined`.
+ * dialog sends when the method is not CHECK, and JSON has no place for `undefined`.
  */
 export const paymentBodySchema = paymentShape
   .extend({
@@ -53,13 +53,20 @@ export const paymentBodySchema = paymentShape
   })
   .superRefine(checkRules);
 
-export const paymentFilterSchema = z.object({
+export const loanDirectoryFilterSchema = z.object({
   q: z.string().trim().optional(),
-  loanId: z.coerce.number().int().positive().optional(),
-  method: z.enum(["CASH", "CHECK", "TRANSFER", "EWALLET"]).optional(),
-  status: z.enum(["POSTED", "REVERSED"]).optional(),
+  status: z.string().trim().optional(),
+  lenderType: z.string().trim().optional(),
+  method: z.string().trim().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
+});
+
+export const loanHistoryFilterSchema = z.object({
+  loanId: z.coerce.number().int().positive("Choose a loan first."),
+  accountId: z.coerce.number().int().positive().optional(),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
 });
 
 export function fieldErrorsFromZod(error: z.ZodError): Record<string, string[]> {

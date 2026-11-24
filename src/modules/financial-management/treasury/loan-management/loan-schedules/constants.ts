@@ -18,16 +18,21 @@ export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "acce
 
 export const TONE_CLASS: Record<Tone, string> = {
   neutral: "bg-muted text-muted-foreground",
-  success: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  warning: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  danger: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
-  info: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  success: "bg-success/15 text-success",
+  warning: "bg-warning/15 text-warning",
+  danger: "bg-destructive/15 text-destructive",
+  info: "bg-info/15 text-info",
   accent: "bg-primary/10 text-primary",
 };
 
+/**
+ * `src/components/ui/select.tsx` forces `*:data-[slot=select-value]:flex`, and `truncate` does nothing
+ * to a flex box, so a long selected label wraps out of the 36px trigger. This restores block layout.
+ */
+export const SELECT_VALUE_CLIP = "[&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate";
+
 /** One accent per page, borrowed from the treasury family so loan pages read as siblings. */
-export const ACCENT = {
-  rail: "border-t-primary/40",
+export const ACCENT = {  rail: "border-t-primary/40",
   tile: "border-l-primary/60 from-primary/5",
 } as const;
 
@@ -119,12 +124,12 @@ export const DST_TREATMENT_LABEL: Record<DstTreatment, string> = {
 export const LOAN_STATUSES: LoanStatus[] = [
   "PENDING_APPROVAL",
   "REJECTED",
-  "PENDING_RELEASE",
   "CURRENT",
   "OVERDUE",
   "PAID_OFF",
   "PREPAID",
 ];
+// PENDING_RELEASE is retired as a stage; the label stays so an older row still prints a name.
 export const LOAN_STATUS_LABEL: Record<LoanStatus, string> = {
   PENDING_APPROVAL: "Pending approval",
   REJECTED: "Rejected",
@@ -157,9 +162,8 @@ export const PAS23_TYPE_LABEL: Record<string, string> = {
   GENERAL: "General borrowing",
 };
 
-/** Which loan statuses can still be edited, released, prepaid or deactivated. */
-export const EDITABLE_STATUSES: LoanStatus[] = ["PENDING_APPROVAL", "REJECTED", "PENDING_RELEASE"];
-export const RELEASABLE_STATUSES: LoanStatus[] = ["PENDING_RELEASE"];
+/** Loans an edit dialog may still open: a decided loan is history, not a draft. */
+export const EDITABLE_STATUSES: LoanStatus[] = ["PENDING_APPROVAL", "REJECTED"];
 export const OPEN_STATUSES: LoanStatus[] = ["CURRENT", "OVERDUE"];
 
 // ---------------------------------------------------------------------------
@@ -211,9 +215,9 @@ export const SCHEDULE_PAGE_SIZE = 25;
 /** Bucket order the aging panel and the portfolio table both follow. */
 export const AGING_BUCKETS = [
   { key: "current", label: "Current", hint: "Not yet past its payment date." },
-  { key: "d1_30", label: "1–30 days", hint: "Past the payment date by up to 30 days." },
-  { key: "d31_60", label: "31–60 days", hint: "Past the payment date by 31 to 60 days." },
-  { key: "d61_90", label: "61–90 days", hint: "Past the payment date by 61 to 90 days." },
-  { key: "d91_180", label: "91–180 days", hint: "Past the payment date by 91 to 180 days." },
+  { key: "d1_30", label: "1-30 days", hint: "Past the payment date by up to 30 days." },
+  { key: "d31_60", label: "31-60 days", hint: "Past the payment date by 31 to 60 days." },
+  { key: "d61_90", label: "61-90 days", hint: "Past the payment date by 61 to 90 days." },
+  { key: "d91_180", label: "91-180 days", hint: "Past the payment date by 91 to 180 days." },
   { key: "over180", label: "Over 180 days", hint: "Past the payment date by more than 180 days." },
 ] as const;

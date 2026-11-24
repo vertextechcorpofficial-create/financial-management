@@ -81,7 +81,7 @@ export const MAPPING_SECTIONS: { title: string; keys: string[] }[] = [
 ];
 
 export const MAPPING_LABELS: Record<string, string> = {
-  LOAN_PRINCIPAL: "Loans payable — principal",
+  LOAN_PRINCIPAL: "Loans payable: principal",
   UNAMORTIZED_COSTS: "Unamortized debt issue costs",
   CAPITALIZED_BORROWING_COSTS: "Capitalized borrowing costs",
   DST_PAYABLE: "Documentary stamp tax payable",

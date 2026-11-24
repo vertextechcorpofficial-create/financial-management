@@ -35,6 +35,8 @@ export interface QuarterFigures {
   purchasesVat: number;
   /** Σ(line quantity × product standard cost), allocated across the quarter by line amount. */
   cogsProductCost: number;
+  /** The ledger basis is not loaded here, so the engine never sees one. */
+  cogsLedger: number;
   expenses: number;
   cwt: number;
   icSales: number;
@@ -82,7 +84,7 @@ export interface TaxRates {
 }
 
 /** Two defensible readings of "cost of sales", both shown rather than one chosen. */
-export type CostBasis = "PRODUCT_COST" | "PURCHASES";
+export type CostBasis = "PRODUCT_COST" | "PURCHASES" | "LEDGER";
 
 /** One carryover lot the desk can still use, with the year it came from. */
 export interface CarryoverLot {
@@ -104,15 +106,25 @@ export interface CarryoverInput {
   actualPaid: (number | null)[];
 }
 
+export type TaxArbitrage = "REGULAR" | "MCIT";
+
 export interface TaxScenario {
   basis: CostBasis;
   label: string;
   grossIncome: number[];
   deductions: number[];
+  /** NOLCO applied in each quarter; the running total is what line 8 prints. */
   nolcoUsed: number[];
+  /** Running taxable income at each quarter, the same basis line 10 is computed on. */
   netTaxableIncome: number[];
   taxDue: number[];
   payable: number[];
+  /** Cumulative regular income tax per quarter. */
+  regular: number[];
+  /** Cumulative minimum corporate income tax per quarter; zero when the 2% does not apply. */
+  mcit: number[];
+  /** The higher of the two each quarter, i.e. what line 10 printed. */
+  arbitrage: TaxArbitrage[];
   annual: {
     grossIncome: number;
     deductions: number;
@@ -123,6 +135,10 @@ export interface TaxScenario {
     netPosition: number;
   };
   mcitApplied: boolean;
+  /** False while the company is still inside its first three years of operations. */
+  mcitApplicable: boolean;
+  /** 2% of year-to-date gross income, shown even when the MCIT is dormant so the gap is visible. */
+  mcitOnGross: number;
   smallCorporation: boolean;
   rate: number;
 }
@@ -213,7 +229,11 @@ export interface Paginated<T> {
   total: number;
 }
 
-export type CalendarStatus = "PAID" | "DUE" | "OVERDUE" | "UNKNOWN";
+/**
+ * `UNVERIFIED` means the company's own registers refused to answer: the obligation is listed,
+ * but nothing was read, so lateness cannot be judged and it is not called overdue.
+ */
+export type CalendarStatus = "PAID" | "DUE" | "OVERDUE" | "UNKNOWN" | "UNVERIFIED";
 
 export type CalendarCategory = "INCOME" | "VAT" | "WITHHOLDING" | "OTHER";
 
@@ -230,7 +250,12 @@ export interface CalendarObligation {
   dueDate: string;
   estimated: number | null;
   status: CalendarStatus;
+  /** What the form itself is, not why its date moved. */
   note: string | null;
+  /** Why the filing's due date left the statutory date; null when it did not move. */
+  moveReason: string | null;
+  /** The statutory date the filing moved from; null when it did not move. */
+  movedFrom: string | null;
 }
 
 /** One deadline as a month-grid cell draws it: no company id, no internal key. */
@@ -252,5 +277,7 @@ export interface CalendarFilter {
   status: string;
   from: string;
   to: string;
+  /** Free text over form code, company and period. */
+  q: string;
 }
 

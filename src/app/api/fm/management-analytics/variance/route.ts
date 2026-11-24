@@ -18,6 +18,8 @@ export async function GET(request: Request) {
     });
     return ok(board);
   } catch (error) {
+    // A filter value that does not exist is the caller's mistake, not a broken register.
+    if (error instanceof Error && error.name === "BadRequestError") return fail(error.message, 400);
     if (error instanceof Error === false) return fail("The register could not be read.", 500);
     return handleRouteError(error, "GET /variance", "The register could not be read.");
   }

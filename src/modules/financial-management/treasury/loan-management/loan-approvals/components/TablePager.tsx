@@ -149,7 +149,9 @@ export function TablePager({
               <SelectTrigger className="h-8 w-[84px]" aria-label="Rows per page">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="max-h-60">
+              {/* `[&>div]:h-auto` undoes select.tsx:79's popper-only viewport height (the trigger's
+                  32px), which otherwise clips the size list to a single row. */}
+              <SelectContent position="popper" className="max-h-60 [&>div]:h-auto">
                 {sizes.map((size) => (
                   <SelectItem key={size} value={String(size)}>
                     {size}

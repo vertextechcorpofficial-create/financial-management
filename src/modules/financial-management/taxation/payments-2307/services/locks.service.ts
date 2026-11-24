@@ -2,7 +2,7 @@ import "server-only";
 
 import { lockPeriodOf, PERIOD_KEYS } from "../constants";
 import { phtStamp } from "../pht";
-import type { PaymentPeriodKey, PeriodKey, PeriodLockRow } from "../types";
+import type { LockTrailEntry, PaymentPeriodKey, PeriodKey, PeriodLockRow } from "../types";
 import type { Actor } from "./actor";
 import { loadUserNames } from "./actor";
 import { appendChangeLog, formatValues } from "./changeLog";
@@ -70,6 +70,7 @@ function mapLock(raw: Record<string, unknown>): PeriodLockRow {
     unlockReason: asString(raw.unlock_reason) || null,
     unlockedAt: asString(raw.unlocked_at) || null,
     unlockedBy: raw.unlocked_by == null ? null : asNumber(raw.unlocked_by),
+    unlockedByName: null,
   };
 }
 
@@ -82,13 +83,20 @@ export async function loadLocks(companyId: number, taxYear: number): Promise<Loc
       limit: -1,
     });
     const locks = rows.map(mapLock);
-    // Older rows carry only an id, and a bare number is not a person's name in a lock trail.
-    const actorNames = await loadUserNames(locks.map((lock) => lock.lockedBy));
+    // Older rows carry only an id, and a bare number is not a person's name in a lock trail. The
+    // stored name is written from the token, which has no middle name, so the user table wins when
+    // it can be read: the Payments tab names the same person in full.
+    const actorNames = await loadUserNames([
+      ...locks.map((lock) => lock.lockedBy),
+      ...locks.map((lock) => lock.unlockedBy),
+    ]);
     return {
       locks: locks.map((lock) => ({
         ...lock,
         lockedByName:
-          lock.lockedByName ?? (lock.lockedBy === null ? null : (actorNames.get(lock.lockedBy) ?? null)),
+          lock.lockedBy === null ? lock.lockedByName : (actorNames.get(lock.lockedBy) ?? lock.lockedByName),
+        unlockedByName:
+          lock.unlockedBy === null ? null : (actorNames.get(lock.unlockedBy) ?? null),
       })),
       notices: [],
     };
@@ -102,6 +110,39 @@ export async function loadLocks(companyId: number, taxYear: number): Promise<Loc
       ],
     };
   }
+}
+
+/**
+ * The lock table keeps one row per period, so relocking overwrites the unlock before it. The whole
+ * trail lives in the change log: every LOCKED and UNLOCKED step, with the reason as it was typed.
+ */
+export async function loadLockTrail(
+  companyId: number,
+  taxYear: number,
+  periodKey: PeriodKey,
+): Promise<LockTrailEntry[]> {
+  const { rows } = await listItems<Record<string, unknown>>("tax_change_log", {
+    fields: ["id", "occurred_at", "actor_name", "field", "before_value", "after_value", "reason"],
+    filter: {
+      _and: [
+        { company_id: { _eq: companyId } },
+        { tax_year: { _eq: taxYear } },
+        { entity: { _eq: "tax_period_lock" } },
+        { entity_ref: { _eq: `${taxYear}-${periodKey}` } },
+      ],
+    },
+    sort: "-occurred_at,-id",
+    limit: 100,
+  });
+  return rows.map((raw) => ({
+    id: asNumber(raw.id),
+    occurredAt: asString(raw.occurred_at),
+    actorName: asString(raw.actor_name) || null,
+    action: asString(raw.field) || "CHANGED",
+    reason: asString(raw.reason) || null,
+    beforeValue: asString(raw.before_value) || null,
+    afterValue: asString(raw.after_value) || null,
+  }));
 }
 
 async function findLock(companyId: number, taxYear: number, periodKey: PeriodKey): Promise<PeriodLockRow | null> {

@@ -33,13 +33,29 @@ function assertConfigured() {
   if (!TOKEN) throw new Error("DIRECTUS_STATIC_TOKEN is not configured");
 }
 
-export async function directusFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  assertConfigured();
+/** Backoff between attempts at a read that never reached the host. */
+const RETRY_DELAYS_MS = [300];
 
-  const url = `${BASE_URL}${path.startsWith("/") ? "" : "/"}${path}`;
+/** A host that has not answered in six seconds is not about to answer this request either. */
+const REQUEST_TIMEOUT_MS = 12000;
+
+/**
+ * A failed connect arrives from undici as a bare `TypeError: fetch failed` and a silent host as an
+ * abort; anything Directus itself answered is a `DirectusError`, and repeating it repeats the answer.
+ */
+function isTransportFailure(error: unknown): boolean {
+  return error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function requestOnce<T>(url: string, path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     cache: "no-store",
     ...init,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${TOKEN}`,
@@ -53,6 +69,25 @@ export async function directusFetch<T>(path: string, init?: RequestInit): Promis
     throw new DirectusError(`Directus request failed (${response.status}) on ${path.split("?")[0]}`, response.status, text);
   }
   return (text ? JSON.parse(text) : {}) as T;
+}
+
+export async function directusFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  assertConfigured();
+
+  const url = `${BASE_URL}${path.startsWith("/") ? "" : "/"}${path}`;
+  // Reads retry a transport failure, because a dropped connection says nothing about the data and the
+  // desk read it as "the data desk could not be read" about one load in three. Writes do not retry: a
+  // write that did land would land twice.
+  const attempts = (init?.method ?? "GET").toUpperCase() === "GET" ? RETRY_DELAYS_MS.length + 1 : 1;
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await requestOnce<T>(url, path, init);
+    } catch (error) {
+      if (!isTransportFailure(error) || attempt >= attempts - 1) throw error;
+      await delay(RETRY_DELAYS_MS[attempt] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1]);
+    }
+  }
 }
 
 export function queryString(params: Record<string, string | number | undefined>): string {

@@ -7,6 +7,7 @@ import { StatusBadge } from "./StatusBadge";
 
 import { EXCEPTION_STATUS_LABEL, EXCEPTION_STATUS_TONE } from "../constants";
 import { magnitudeText } from "../services/engine";
+import { displayDay } from "@/modules/financial-management/management-analytics/shared/dates";
 import type { ExceptionListRow } from "../types";
 
 const COLUMNS = 7;
@@ -21,11 +22,11 @@ export function runLabel(row: ExceptionListRow): string {
 }
 
 function memoCell(row: ExceptionListRow) {
-  if (!row.memo_due_date) return <span className="text-muted-foreground">—</span>;
+  if (!row.memo_due_date) return <span className="text-muted-foreground">not set</span>;
   const overdue = ["OPEN", "MONITORING"].includes(row.status) && row.memo_due_date < new Date().toISOString().slice(0, 10);
   return (
     <span className={overdue ? "text-destructive" : undefined} title={overdue ? "The memo deadline has passed." : undefined}>
-      {row.memo_due_date}
+      {displayDay(row.memo_due_date)}
     </span>
   );
 }
@@ -133,7 +134,7 @@ export function ExceptionTable({
               </div>
               <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                 <span className="tabular-nums">{formatDeviation(row)}</span>
-                <span>Memo due {row.memo_due_date ?? "—"}</span>
+                <span>Memo due {row.memo_due_date ? displayDay(row.memo_due_date) : "not set"}</span>
               </div>
             </button>
           </li>

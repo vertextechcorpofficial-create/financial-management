@@ -1,10 +1,11 @@
 "use client";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, cn } from "@/lib/utils";
 
 import type { StatementRow } from "../types";
-import { STATEMENT_RESULT_LABEL, STATEMENT_RESULT_TONE } from "../constants";
+import { STATEMENT_RESULT_LABEL, STATEMENT_RESULT_TONE, RECONCILIATION_TOLERANCE } from "../constants";
+import { formatDateMDY } from "../pht";
 import { StatusBadge } from "./StatusBadge";
 
 const COLUMNS = 9;
@@ -16,44 +17,62 @@ type Props = {
   onOpen: (row: StatementRow) => void;
 };
 
+/** The four figures a lender statement and our schedule can disagree on. */
+function metricPairs(row: StatementRow): Array<[string, number, number]> {
+  return [
+    ["Principal", row.lenderPrincipal, row.ourPrincipal],
+    ["Interest", row.lenderInterest, row.ourInterest],
+    ["Penalties", row.lenderPenalties, row.ourPenalties],
+    ["Advances", row.lenderAdvances, row.ourAdvances],
+  ];
+}
+
+/** Only the metrics that moved; an agreeing statement says so in one word. */
+function differingPairs(row: StatementRow): Array<readonly [string, number]> {
+  return metricPairs(row)
+    .map(([label, lender, ours]) => [label, Number((lender - ours).toFixed(2))] as const)
+    .filter(([, delta]) => Math.abs(delta) >= RECONCILIATION_TOLERANCE);
+}
+
+/** One labelled delta per line: three figures in one truncated sentence is a tooltip, not a column. */
+function VarianceLines({ row }: { row: StatementRow }) {
+  const differing = differingPairs(row);
+  if (differing.length === 0) return <span className="text-xs text-muted-foreground">none</span>;
+  return (
+    <dl className="space-y-0.5 text-xs">
+      {differing.map(([label, delta]) => (
+        <div key={label} className="flex items-baseline justify-between gap-2">
+          <dt className="text-muted-foreground">{label}</dt>
+          <dd className="shrink-0 tabular-nums text-destructive">{formatCurrency(delta)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 /** Lender figure on top, ours underneath. A reader comparing a statement needs both on one line. */
 function Pair({ lender, ours }: { lender: number; ours: number }) {
-  const delta = Number((lender - ours).toFixed(2));
-  const tone =
-    Math.abs(delta) < 0.005
-      ? "text-muted-foreground"
-      : delta > 0
-        ? "text-destructive"
-        : "text-destructive";
+  const differs = Math.abs(lender - ours) >= RECONCILIATION_TOLERANCE;
   return (
     <span className="block whitespace-nowrap text-right">
       <span className="block tabular-nums">{formatCurrency(lender)}</span>
-      <span className={`block text-xs tabular-nums ${tone}`} title={`Ours ${formatCurrency(ours)}`}>
+      <span
+        className={cn("block text-xs tabular-nums", differs ? "text-destructive" : "text-muted-foreground")}
+        title={`Ours ${formatCurrency(ours)}`}
+      >
         ours {formatCurrency(ours)}
       </span>
     </span>
   );
 }
 
-function varianceText(row: StatementRow) {
-  const pairs: [string, number, number][] = [
-    ["Principal", row.lenderPrincipal, row.ourPrincipal],
-    ["Interest", row.lenderInterest, row.ourInterest],
-    ["Penalties", row.lenderPenalties, row.ourPenalties],
-    ["Advances", row.lenderAdvances, row.ourAdvances],
-  ];
-  const differing = pairs
-    .map(([label, lender, ours]) => [label, Number((lender - ours).toFixed(2))] as const)
-    .filter(([, delta]) => Math.abs(delta) >= 0.005);
-  if (differing.length === 0) return "—";
-  return differing.map(([label, delta]) => `${label} ${formatCurrency(delta)}`).join(" · ");
-}
-
 export function StatementsTable({ rows, isLoading, isFiltered, onOpen }: Props) {
   return (
     <>
       <div className="hidden overflow-x-auto min-[1300px]:block">
-        <table className="w-full min-w-[1180px] border-collapse text-sm">
+        {/* No min-width: the nine columns are sized by content and the variance cell wraps, so the
+            table fits the 1384 content width instead of pushing VARIANCE past the edge. */}
+        <table className="w-full border-collapse text-sm">
           <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="px-4 py-2.5 text-left font-medium">Statement date</th>
@@ -64,7 +83,7 @@ export function StatementsTable({ rows, isLoading, isFiltered, onOpen }: Props) 
               <th className="px-3 py-2.5 text-right font-medium">Penalties</th>
               <th className="px-3 py-2.5 text-right font-medium">Advances</th>
               <th className="px-3 py-2.5 text-left font-medium">Result</th>
-              <th className="px-4 py-2.5 text-left font-medium">Variance</th>
+              <th className="w-[190px] px-4 py-2.5 text-left font-medium">Variance</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60">
@@ -93,11 +112,11 @@ export function StatementsTable({ rows, isLoading, isFiltered, onOpen }: Props) 
                   className="cursor-pointer transition-colors hover:bg-muted/30"
                   onClick={() => onOpen(row)}
                 >
-                  <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{row.statementDate}</td>
+                  <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{formatDateMDY(row.statementDate)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{row.loanNo}</td>
                   <td className="px-3 py-2.5">
-                    <span className="block max-w-[180px] truncate" title={row.lenderName ?? undefined}>
-                      {row.lenderName ?? "—"}
+                    <span className="block max-w-[140px] truncate" title={row.lenderName ?? undefined}>
+                      {row.lenderName ?? "not recorded"}
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
@@ -115,10 +134,8 @@ export function StatementsTable({ rows, isLoading, isFiltered, onOpen }: Props) 
                   <td className="px-3 py-2.5">
                     <StatusBadge tone={STATEMENT_RESULT_TONE[row.result]}>{STATEMENT_RESULT_LABEL[row.result]}</StatusBadge>
                   </td>
-                  <td className="px-4 py-2.5">
-                    <span className="block max-w-[240px] truncate text-xs" title={varianceText(row)}>
-                      {varianceText(row)}
-                    </span>
+                  <td className="px-4 py-2.5 align-top">
+                    <VarianceLines row={row} />
                   </td>
                 </tr>
               ))
@@ -149,31 +166,37 @@ export function StatementsTable({ rows, isLoading, isFiltered, onOpen }: Props) 
               onClick={() => onOpen(row)}
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-sm font-medium tabular-nums">{row.statementDate}</span>
+                <span className="text-sm font-medium tabular-nums">{formatDateMDY(row.statementDate)}</span>
                 <StatusBadge tone={STATEMENT_RESULT_TONE[row.result]}>{STATEMENT_RESULT_LABEL[row.result]}</StatusBadge>
               </div>
               <div className="mt-0.5 text-xs text-muted-foreground">
-                {row.loanNo} · {row.lenderName ?? "—"}
+                {row.loanNo} · {row.lenderName ?? "not recorded"}
               </div>
-              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                {(
-                  [
-                    ["Principal", row.lenderPrincipal, row.ourPrincipal],
-                    ["Interest", row.lenderInterest, row.ourInterest],
-                    ["Penalties", row.lenderPenalties, row.ourPenalties],
-                    ["Advances", row.lenderAdvances, row.ourAdvances],
-                  ] as const
-                ).map(([label, lender, ours]) => (
-                  <div key={label} className="flex items-baseline justify-between gap-2">
-                    <dt className="text-muted-foreground">{label}</dt>
-                    <dd className="text-right tabular-nums">
-                      {formatCurrency(lender)}
-                      <span className="block text-muted-foreground">ours {formatCurrency(ours)}</span>
-                    </dd>
-                  </div>
-                ))}
+              {/* One shape per metric: label on its own line, then the lender figure, then ours. The
+                  old label-beside-value row wrapped per card, so the pair columns never lined up. */}
+              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                {metricPairs(row).map(([label, lender, ours]) => {
+                  const differs = Math.abs(lender - ours) >= RECONCILIATION_TOLERANCE;
+                  return (
+                    <div key={label}>
+                      <dt className="text-muted-foreground">{label}</dt>
+                      <dd className="tabular-nums">{formatCurrency(lender)}</dd>
+                      <dd
+                        className={cn(
+                          "text-[11px] tabular-nums",
+                          differs ? "text-destructive" : "text-muted-foreground",
+                        )}
+                      >
+                        ours {formatCurrency(ours)}
+                      </dd>
+                    </div>
+                  );
+                })}
               </dl>
-              <p className="mt-1 text-xs text-muted-foreground">Variance: {varianceText(row)}</p>
+              <div className="mt-2 text-xs">
+                <p className="text-muted-foreground">Variance</p>
+                <VarianceLines row={row} />
+              </div>
             </li>
           ))
         )}

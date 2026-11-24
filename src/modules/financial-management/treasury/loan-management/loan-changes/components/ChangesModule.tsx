@@ -68,15 +68,25 @@ export function ChangesModule() {
           <div>
             <h2 className="text-sm font-semibold">Changes</h2>
             <p className="text-xs text-muted-foreground">
-              Posted {formatNumber(changes.summary.posted)} · reversed {formatNumber(changes.summary.reversed)} · prepaid{" "}
-              {formatCurrency(changes.summary.prepaymentsTotal)} · {formatNumber(changes.summary.payoffsTotal)} payoff
-              {changes.summary.payoffsTotal === 1 ? "" : "s"} · gain or loss {formatCurrency(changes.summary.gainLossTotal)}
+              {changes.error
+                ? "The totals are unavailable while the table cannot be read."
+                : changes.isLoading
+                  ? "Reading the changes…"
+                  : `Posted ${formatNumber(changes.summary.posted)} · reversed ${formatNumber(
+                      changes.summary.reversed,
+                    )} · prepaid ${formatCurrency(changes.summary.prepaymentsTotal)} · ${formatNumber(
+                      changes.summary.payoffsTotal,
+                    )} payoff${changes.summary.payoffsTotal === 1 ? "" : "s"} · gain or loss ${formatCurrency(
+                      changes.summary.gainLossTotal,
+                    )}`}
             </p>
           </div>
           <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium tabular-nums text-muted-foreground">
-            {isFiltered
-              ? `${formatNumber(changes.total)} matching`
-              : `${formatNumber(changes.total)} change${changes.total === 1 ? "" : "s"}`}
+            {changes.isLoading || changes.error
+              ? "—"
+              : isFiltered
+                ? `${formatNumber(changes.total)} matching`
+                : `${formatNumber(changes.total)} change${changes.total === 1 ? "" : "s"}`}
           </span>
         </div>
 

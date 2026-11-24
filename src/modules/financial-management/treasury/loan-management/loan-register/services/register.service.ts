@@ -15,7 +15,8 @@ import {
   type ScheduleRow,
   type AmortizedRow,
 } from "./loanEngine";
-import { phtStamp } from "../pht";
+import { phtStamp, phtToday } from "../pht";
+import { deriveLoanStatus, type StatusRow } from "../../loan-schedules/services/aging";
 import type { LoanBody } from "../schemas";
 import type {
   LoanListRow,
@@ -35,6 +36,7 @@ const LOAN_FIELDS = [
   "contact_phone",
   "contact_email",
   "account_no",
+  "remarks",
   "purpose",
   "security",
   "security_value",
@@ -161,9 +163,17 @@ export async function listBankNames(): Promise<Array<{ id: number; name: string 
     sort: "bank_name",
     limit: 400,
   });
-  return rows
-    .map((row) => ({ id: asNumber(row.id), name: asString(row.bank_name) }))
-    .filter((row) => row.name.length > 0);
+  // The registry holds the same bank several times (MayBank appears six times), and a picker
+  // keyed by name renders duplicate children. One row per name, trimmed and case-insensitive,
+  // keeping the lowest id so a repeat request always resolves to the same bank.
+  const seen = new Map<string, { id: number; name: string }>();
+  for (const row of rows) {
+    const name = asString(row.bank_name).trim();
+    if (name.length === 0) continue;
+    const key = name.toLowerCase();
+    if (!seen.has(key)) seen.set(key, { id: asNumber(row.id), name });
+  }
+  return Array.from(seen.values());
 }
 
 /** Holidays in the booking table plus the built-in Philippine set is the calendar's job; this
@@ -207,17 +217,29 @@ export async function loadRegister(query: RegisterQuery): Promise<{ rows: LoanLi
       ],
     });
   }
-  if (query.status) conditions.push({ status: { _eq: query.status } });
+  // Overdue is a fact about dates, not a stored flag: the column only moves when a payment is
+  // recorded, so a loan whose grace period passed yesterday still reads CURRENT in the database.
+  // The filter therefore takes the loans still marked current and derives the answer from their
+  // schedules, which is the same rule the badge uses.
+  // CURRENT and OVERDUE are derived from the dates, so the stored column cannot be trusted to
+  // narrow either list: both are read together and the page is cut after deriving.
+  // ponytail: reads at most 1000 loans per filter (Directus caps a page); past roughly a thousand
+  // live loans the list would silently truncate, and the fix is a stored status kept current by the
+  // refresh action rather than a bigger in-memory page.
+  const deriveStatus = query.status === "OVERDUE" || query.status === "CURRENT";
+  if (query.status) {
+    conditions.push({ status: deriveStatus ? { _in: ["OVERDUE", "CURRENT"] } : { _eq: query.status } });
+  }
   if (query.lenderType) conditions.push({ lender_type: { _eq: query.lenderType } });
 
   const filter = conditions.length === 0 ? undefined : conditions.length === 1 ? conditions[0] : { _and: conditions };
 
-  const { rows, total } = await listItems<Record<string, unknown>>("loan", {
+  const { rows, total: storedTotal } = await listItems<Record<string, unknown>>("loan", {
     fields: LOAN_FIELDS,
     filter,
     sort: "-created_at",
-    limit: query.pageSize,
-    page: query.page,
+    limit: deriveStatus ? 1000 : query.pageSize,
+    page: deriveStatus ? 1 : query.page,
   });
 
   const loans = rows.map(mapLoan);
@@ -229,7 +251,7 @@ export async function loadRegister(query: RegisterQuery): Promise<{ rows: LoanLi
     const { rows: scheduleRows } = await listItems<Record<string, unknown>>("loan_schedule", {
       fields: SCHEDULE_FIELDS,
       filter: { loan_id: { _in: loans.map((loan) => loan.id) } },
-      limit: loans.length * 600,
+      limit: Math.min(5000, loans.length * 600),
     });
     schedules = scheduleByLoan(
       scheduleRows.map((row) => ({
@@ -246,7 +268,7 @@ export async function loadRegister(query: RegisterQuery): Promise<{ rows: LoanLi
     );
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = phtToday();
 
   const listRows: LoanListRow[] = loans.map((loan) => {
     const schedule = (schedules.get(loan.id) ?? []).filter((row) => row.version === loan.schedule_version);
@@ -260,7 +282,6 @@ export async function loadRegister(query: RegisterQuery): Promise<{ rows: LoanLi
       .filter((row) => row.principal - row.paid_principal > 0.005)
       .sort((a, b) => a.payment_due_date.localeCompare(b.payment_due_date));
     const next = open[0] ?? null;
-    const overdue = open.filter((row) => row.payment_due_date < today);
     // A loan the board rejected, or one not released yet, owes nothing: printing a next due
     // date for it reads as a demand the desk should not act on.
     const owesNothing = !loan.released_at || loan.status === "REJECTED" || loan.status === "PAID_OFF" || loan.status === "PREPAID";
@@ -272,26 +293,36 @@ export async function loadRegister(query: RegisterQuery): Promise<{ rows: LoanLi
       paidToDate: Math.round(paidToDate * 100) / 100,
       nextDueDate: owesNothing ? null : (next?.payment_due_date ?? null),
       nextDueAmount: owesNothing || !next ? null : Math.round((next.principal - next.paid_principal + next.penalty_accrued - next.paid_penalty) * 100) / 100,
-      status: overdue.length > 0 && loan.status === "CURRENT" ? "OVERDUE" : loan.status,
+      // The badge is derived from the schedule, not read off the stored column: that column only
+      // moves when something writes it, so it read CURRENT long after the installments were late.
+      status: deriveLoanStatus(loan.status, open, loan.grace_days, today),
     };
   });
 
-  return { rows: listRows, total };
+  if (!deriveStatus) return { rows: listRows, total: storedTotal };
+
+  const matched = listRows.filter((row) => row.status === query.status);
+  const start = (query.page - 1) * query.pageSize;
+  return { rows: matched.slice(start, start + query.pageSize), total: matched.length };
 }
 
 export async function loadSummary(): Promise<RegisterSummary> {
   const { rows } = await listItems<Record<string, unknown>>("loan", {
-    fields: ["id", "status", "approval_status", "principal", "nominal_rate", "advance_balance", "schedule_version"],
+    fields: ["id", "status", "approval_status", "principal", "nominal_rate", "advance_balance", "schedule_version", "grace_days"],
     limit: 1000,
   });
   const loans = rows.map(mapLoan);
 
-  const monthKey = new Date().toISOString().slice(0, 7);
+  // The badge is derived from the dates in Philippine time, so the totals have to use the same
+  // day or a month boundary would count one loan twice and another not at all.
+  const today = phtToday();
+  const monthKey = today.slice(0, 7);
   let dueThisMonth = 0;
   let overdueAmount = 0;
   let totalPrincipal = 0;
   let weighted = 0;
   const remainingPrincipal = new Map<number, number>();
+  const liveByLoan = new Map<number, StatusRow[]>();
 
   if (loans.length > 0) {
     const { rows: scheduleRows } = await listItems<Record<string, unknown>>("loan_schedule", {
@@ -311,10 +342,17 @@ export async function loadSummary(): Promise<RegisterSummary> {
       limit: 5000,
     });
     const versions = new Map(loans.map((loan) => [loan.id, loan.schedule_version]));
-    const today = new Date().toISOString().slice(0, 10);
     for (const raw of scheduleRows) {
       const loanId = asNumber(raw.loan_id);
       if (versions.get(loanId) !== asNumber(raw.version, 1)) continue;
+      const statusRow = {
+        payment_due_date: asString(raw.payment_due_date).slice(0, 10),
+        principal: asNumber(raw.principal),
+        paid_principal: asNumber(raw.paid_principal),
+      };
+      const held = liveByLoan.get(loanId);
+      if (held) held.push(statusRow);
+      else liveByLoan.set(loanId, [statusRow]);
       // An installment is money, not principal: what the borrower owes on that date is
       // principal + interest (+ penalty already accrued) less whatever has been paid.
       const dueMoney =
@@ -343,11 +381,20 @@ export async function loadSummary(): Promise<RegisterSummary> {
   }
 
   const round = (value: number) => Math.round(value * 100) / 100;
+  // A loan reads overdue on the register row the moment its grace period passes, but the stored
+  // column only moves when a payment is recorded. The tiles count what the badge shows, so the
+  // disagreement is counted separately instead of being folded into the current total.
+  const derivedStatus = new Map(
+    loans.map((loan) => [
+      loan.id,
+      deriveLoanStatus(loan.status, liveByLoan.get(loan.id) ?? [], loan.grace_days, today),
+    ]),
+  );
 
   return {
     totals: {
       loans: loans.length,
-      current: loans.filter((loan) => loan.status === "CURRENT" || loan.status === "OVERDUE").length,
+      current: loans.filter((loan) => derivedStatus.get(loan.id) === "CURRENT").length,
       pendingReview: loans.filter((loan) => loan.approval_status === "PENDING").length,
       outstandingPrincipal: round(totalPrincipal),
       dueThisMonth: round(dueThisMonth),
@@ -356,6 +403,7 @@ export async function loadSummary(): Promise<RegisterSummary> {
     },
     accounts: await listPaymentAccounts(),
     notices: [],
+    staleOverdue: loans.filter((loan) => derivedStatus.get(loan.id) !== loan.status).length,
   };
 }
 

@@ -11,14 +11,15 @@ import type {
   Security,
 } from "./types";
 
-export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "accent";
+export type Tone =
+  "neutral" | "success" | "warning" | "danger" | "info" | "accent";
 
 export const TONE_CLASS: Record<Tone, string> = {
   neutral: "bg-muted text-muted-foreground",
-  success: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  warning: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  danger: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
-  info: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  success: "bg-success/15 text-success",
+  warning: "bg-warning/15 text-warning",
+  danger: "bg-destructive/15 text-destructive",
+  info: "bg-info/15 text-info",
   accent: "bg-primary/10 text-primary",
 };
 
@@ -34,7 +35,13 @@ export function toneClass(tone: Tone): string {
 
 export const LOAN_PAGE_SIZE = 10;
 
-export const LENDER_TYPES: LenderType[] = ["BANK", "FINANCING", "GOVERNMENT", "RELATED_PARTY", "OTHER"];
+export const LENDER_TYPES: LenderType[] = [
+  "BANK",
+  "FINANCING",
+  "GOVERNMENT",
+  "RELATED_PARTY",
+  "OTHER",
+];
 export const LENDER_TYPE_LABEL: Record<LenderType, string> = {
   BANK: "Bank",
   FINANCING: "Lending company",
@@ -43,7 +50,13 @@ export const LENDER_TYPE_LABEL: Record<LenderType, string> = {
   OTHER: "Other",
 };
 
-export const SECURITIES: Security[] = ["NONE", "REAL_ESTATE_MORTGAGE", "CHATTEL_MORTGAGE", "HOLD_OUT", "OTHER"];
+export const SECURITIES: Security[] = [
+  "NONE",
+  "REAL_ESTATE_MORTGAGE",
+  "CHATTEL_MORTGAGE",
+  "HOLD_OUT",
+  "OTHER",
+];
 export const SECURITY_LABEL: Record<Security, string> = {
   NONE: "None",
   REAL_ESTATE_MORTGAGE: "Real estate mortgage",
@@ -73,14 +86,23 @@ export const REPAYMENT_METHOD_LABEL: Record<RepaymentMethod, string> = {
   FLAT_ADD_ON: "Flat-rate / add-on",
 };
 export const REPAYMENT_METHOD_HINT: Record<RepaymentMethod, string> = {
-  ORDINARY_ANNUITY: "Equal installments at the end of each period; interest on the declining balance.",
-  ANNUITY_DUE: "Equal installments at the start of each period; the first is paid at release and is all principal.",
-  STRAIGHT_LINE: "Equal principal each period plus interest on the declining balance, so installments shrink.",
+  ORDINARY_ANNUITY:
+    "Equal installments at the end of each period; interest on the declining balance.",
+  ANNUITY_DUE:
+    "Equal installments at the start of each period; the first is paid at release and is all principal.",
+  STRAIGHT_LINE:
+    "Equal principal each period plus interest on the declining balance, so installments shrink.",
   BULLET: "Interest only each period, all principal at maturity.",
-  FLAT_ADD_ON: "Interest on the original principal for the whole term, charged evenly. The true cost is higher than the quoted rate.",
+  FLAT_ADD_ON:
+    "Interest on the original principal for the whole term, charged evenly. The true cost is higher than the quoted rate.",
 };
 
-export const PAYMENT_FREQUENCIES: PaymentFrequency[] = ["MONTHLY", "QUARTERLY", "SEMI_ANNUAL", "ANNUAL"];
+export const PAYMENT_FREQUENCIES: PaymentFrequency[] = [
+  "MONTHLY",
+  "QUARTERLY",
+  "SEMI_ANNUAL",
+  "ANNUAL",
+];
 export const PAYMENT_FREQUENCY_LABEL: Record<PaymentFrequency, string> = {
   MONTHLY: "Monthly",
   QUARTERLY: "Quarterly",
@@ -88,25 +110,38 @@ export const PAYMENT_FREQUENCY_LABEL: Record<PaymentFrequency, string> = {
   ANNUAL: "Annual",
 };
 
-export const FIRST_PERIOD_BASES: FirstPeriodBasis[] = ["REGULAR", "ACTUAL_DAYS"];
+export const FIRST_PERIOD_BASES: FirstPeriodBasis[] = [
+  "REGULAR",
+  "ACTUAL_DAYS",
+];
 export const FIRST_PERIOD_BASIS_LABEL: Record<FirstPeriodBasis, string> = {
   REGULAR: "Full regular period",
   ACTUAL_DAYS: "Actual days (Act/365)",
 };
 
-export const BUSINESS_DAY_RULES: BusinessDayRule[] = ["FOLLOWING", "FOLLOWING_SAME_MONTH", "NONE"];
+export const BUSINESS_DAY_RULES: BusinessDayRule[] = [
+  "FOLLOWING",
+  "FOLLOWING_SAME_MONTH",
+  "NONE",
+];
 export const BUSINESS_DAY_RULE_LABEL: Record<BusinessDayRule, string> = {
   FOLLOWING: "Next business day",
   FOLLOWING_SAME_MONTH: "Next business day, same month",
   NONE: "Keep the date",
 };
 export const BUSINESS_DAY_RULE_HINT: Record<BusinessDayRule, string> = {
-  FOLLOWING: "A Saturday due date moves to Monday, even if that lands in the next month.",
-  FOLLOWING_SAME_MONTH: "A Saturday at the end of a month moves back to Friday instead of into the next month.",
+  FOLLOWING:
+    "A Saturday due date moves to Monday, even if that lands in the next month.",
+  FOLLOWING_SAME_MONTH:
+    "A Saturday at the end of a month moves back to Friday instead of into the next month.",
   NONE: "Weekends and holidays are ignored; this is unusual and only right when the note says so.",
 };
 
-export const DST_TREATMENTS: DstTreatment[] = ["DEDUCTED", "PAID_BY_US", "NOT_APPLICABLE"];
+export const DST_TREATMENTS: DstTreatment[] = [
+  "DEDUCTED",
+  "PAID_BY_US",
+  "NOT_APPLICABLE",
+];
 export const DST_TREATMENT_LABEL: Record<DstTreatment, string> = {
   DEDUCTED: "Deducted by the lender",
   PAID_BY_US: "We pay it to the BIR",
@@ -116,7 +151,6 @@ export const DST_TREATMENT_LABEL: Record<DstTreatment, string> = {
 export const LOAN_STATUSES: LoanStatus[] = [
   "PENDING_APPROVAL",
   "REJECTED",
-  "PENDING_RELEASE",
   "CURRENT",
   "OVERDUE",
   "PAID_OFF",
@@ -125,7 +159,6 @@ export const LOAN_STATUSES: LoanStatus[] = [
 export const LOAN_STATUS_LABEL: Record<LoanStatus, string> = {
   PENDING_APPROVAL: "Pending approval",
   REJECTED: "Rejected",
-  PENDING_RELEASE: "Awaiting release",
   CURRENT: "Current",
   OVERDUE: "Overdue",
   PAID_OFF: "Paid off",
@@ -134,14 +167,17 @@ export const LOAN_STATUS_LABEL: Record<LoanStatus, string> = {
 export const LOAN_STATUS_TONE: Record<LoanStatus, Tone> = {
   PENDING_APPROVAL: "info",
   REJECTED: "danger",
-  PENDING_RELEASE: "warning",
   CURRENT: "success",
   OVERDUE: "danger",
   PAID_OFF: "neutral",
   PREPAID: "neutral",
 };
 
-export const APPROVAL_STATUSES: ApprovalStatus[] = ["PENDING", "APPROVED", "REJECTED"];
+export const APPROVAL_STATUSES: ApprovalStatus[] = [
+  "PENDING",
+  "APPROVED",
+  "REJECTED",
+];
 export const APPROVAL_STATUS_LABEL: Record<ApprovalStatus, string> = {
   PENDING: "Pending",
   APPROVED: "Approved",
@@ -154,7 +190,6 @@ export const PAS23_TYPE_LABEL: Record<string, string> = {
   GENERAL: "General borrowing",
 };
 
-/** Which loan statuses can still be edited, released, prepaid or deactivated. */
-export const EDITABLE_STATUSES: LoanStatus[] = ["PENDING_APPROVAL", "REJECTED", "PENDING_RELEASE"];
-export const RELEASABLE_STATUSES: LoanStatus[] = ["PENDING_RELEASE"];
+/** Which loan statuses can still be edited, prepaid or deactivated. */
+export const EDITABLE_STATUSES: LoanStatus[] = ["PENDING_APPROVAL", "REJECTED"];
 export const OPEN_STATUSES: LoanStatus[] = ["CURRENT", "OVERDUE"];

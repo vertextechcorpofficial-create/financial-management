@@ -103,6 +103,26 @@ export const DEFAULT_PROFILE = {
   notes: null,
 } as const;
 
+/**
+ * QA deck item 10: the five figures a preparer may type for a company whose ledgers carry no
+ * history. They are inputs to the engine, not outputs, so every 1702Q formula still runs.
+ */
+export const MANUAL_LINE_KEYS = ["1", "2", "3", "6", "11"] as const;
+
+export type ManualLineKey = (typeof MANUAL_LINE_KEYS)[number];
+
+export const MANUAL_LINE_LABELS: Record<ManualLineKey, string> = {
+  "1": "Sales / receipts",
+  "2": "Returns, allowances, discounts",
+  "3": "Cost of sales",
+  "6": "Operating expenses",
+  "11": "Tax credits, year to date",
+};
+
+export function isManualLineKey(value: string): value is ManualLineKey {
+  return (MANUAL_LINE_KEYS as readonly string[]).includes(value);
+}
+
 export function quarterRange(year: number, index: number): { from: string; to: string } {
   const startMonth = index * 3;
   const from = `${year}-${String(startMonth + 1).padStart(2, "0")}-01`;

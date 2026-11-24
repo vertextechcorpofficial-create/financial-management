@@ -215,6 +215,8 @@ export interface ActionRow {
   review_id: number | null;
   title: string;
   owner_user_id: number | null;
+  /** Resolved from the platform user directory; null when the id has no readable name. */
+  ownerName?: string | null;
   due_date: string | null;
   status: string;
   notes: string | null;

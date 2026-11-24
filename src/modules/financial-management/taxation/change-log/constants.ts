@@ -172,6 +172,7 @@ export const CHANGE_LOG_ENTITIES = [
   "tax_payment",
   "tax_2307",
   "tax_period_lock",
+  "tax_worksheet_manual",
 ] as const;
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -181,11 +182,28 @@ const ENTITY_LABELS: Record<string, string> = {
   tax_payment: "Payment",
   tax_2307: "2307 certificate",
   tax_period_lock: "Period lock",
+  tax_worksheet_manual: "Manual figure",
 };
 
 /** A readable name for a stored entity, falling back to the raw value rather than hiding it. */
 export function entityLabel(entity: string): string {
   return ENTITY_LABELS[entity] ?? entity.replace(/_/g, " ").toLowerCase();
+}
+
+/**
+ * The writings store raw column names, plus three synthetic ones. An audit trail has to read
+ * as "what changed", so the synthetic ones say so; a column name is lowercased and spaced.
+ */
+const FIELD_LABELS: Record<string, string> = {
+  CREATED: "Record created",
+  DELETED: "Record deleted",
+  amount: "Amount",
+};
+
+export function fieldLabel(field: string | null): string {
+  const raw = field?.trim();
+  if (!raw) return "—";
+  return FIELD_LABELS[raw] ?? raw.replace(/_/g, " ");
 }
 
 export const EMPTY_CHANGE_LOG_FILTER = {

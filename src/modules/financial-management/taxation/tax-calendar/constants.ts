@@ -143,12 +143,15 @@ export function statusTone(status: string): Tone {
     case "OPEN":
     case "UPCOMING":
       return "info";
+    case "UNVERIFIED":
+      return "neutral";
     default:
       return "neutral";
   }
 }
 
 export function statusLabel(status: string): string {
+  if (status.toUpperCase() === "UNVERIFIED") return "Source offline";
   return status
     .toLowerCase()
     .split(/[_\s]+/)
@@ -176,6 +179,7 @@ export const CALENDAR_STATUSES = [
   { value: "DUE", label: "Due" },
   { value: "OVERDUE", label: "Overdue" },
   { value: "PAID", label: "Recorded as paid" },
+  { value: "UNVERIFIED", label: "Source offline" },
 ] as const;
 
 /**
@@ -224,6 +228,7 @@ export function formChipClass(formCode: string): string {
 export function chipStateClass(status: CalendarStatus): string {
   if (status === "OVERDUE") return "ring-2 ring-red-500/60 font-semibold";
   if (status === "PAID") return "opacity-70";
+  if (status === "UNVERIFIED") return "opacity-60 ring-1 ring-dashed ring-muted-foreground/50";
   if (status === "UNKNOWN") return "opacity-60";
   return "";
 }

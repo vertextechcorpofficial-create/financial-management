@@ -3,7 +3,8 @@
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
-import { entityLabel } from "../constants";
+import { entityLabel, fieldLabel } from "../constants";
+import { phtDisplayStamp } from "../pht";
 import type { ChangeLogRow } from "../types";
 
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
@@ -32,22 +33,25 @@ export function ChangeLogDetailDialog({
         <div className="flex max-h-[85vh] flex-col overflow-hidden">
           <DialogHeader className="border-b px-6 py-4">
             <DialogTitle className="line-clamp-1">
-              {row ? `${entityLabel(row.entity)} · ${row.field ?? "record"}` : "Change"}
+              {row ? `${entityLabel(row.entity)} · ${fieldLabel(row.field)}` : "Change"}
             </DialogTitle>
             <DialogDescription className="line-clamp-2 max-w-md">
-              {row ? row.occurredAt ?? "No timestamp recorded" : null}
+              {row ? (row.occurredAt ? phtDisplayStamp(row.occurredAt) : "No timestamp recorded") : null}
             </DialogDescription>
           </DialogHeader>
 
           {row ? (
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
               <dl className="grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
-                <Detail label="Company">{companyName ?? `Company ${row.companyId}`}</Detail>
-                <Detail label="Actor">{row.actor ?? "Not recorded"}</Detail>
+                <Detail label="When (PHT)">{phtDisplayStamp(row.occurredAt)}</Detail>
+                <Detail label="Who">{row.actor ?? "Not recorded"}</Detail>
+                <Detail label="Company">
+                  {companyName ?? `Company ${row.companyId}`}
+                  {row.taxYear ? ` · ${row.taxYear}` : ""}
+                </Detail>
                 <Detail label="Entity">{entityLabel(row.entity)}</Detail>
+                <Detail label="What changed">{fieldLabel(row.field)}</Detail>
                 <Detail label="Reference">{row.entityRef ?? "—"}</Detail>
-                <Detail label="Field">{row.field ?? "—"}</Detail>
-                <Detail label="Recorded">{row.occurredAt ?? "—"}</Detail>
               </dl>
 
               <div className="grid gap-3 sm:grid-cols-2">

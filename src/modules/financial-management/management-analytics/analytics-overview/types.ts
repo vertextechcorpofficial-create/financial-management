@@ -119,6 +119,66 @@ export interface OverviewRow {
   stale: boolean;
   missingTarget: boolean;
   missingActual: boolean;
+  /** Up to 24 months of history for Sparklines, 12-month calendar, and 4-tier drill-down drawer. */
+  points: PeriodPoint[];
+}
+
+export interface CompanyScorecardRow {
+  id: number;
+  code: string;
+  name: string;
+  industry: string;
+  revenueWeight: number | null;
+  health: number | null;
+  onTrack: number;
+  watch: number;
+  breach: number;
+  escalated: number;
+  topIssue: { kpiName: string; varianceText: string } | null;
+}
+
+export interface HeatCellItem {
+  code: string;
+  status: StatusCode;
+  varianceText: string | null;
+  unfavorable: boolean;
+  confirmed: boolean;
+}
+
+/** One company's row in the consolidation bridge. Money is ₱M a year. */
+export interface BridgeEntity {
+  code: string;
+  name: string;
+  /**
+   * Baseline revenue from the settings, or null when the company has none. Never zero:
+   * a missing baseline is a gap in the bridge, not a company that earned nothing.
+   */
+  revenue: number | null;
+  /** Annualised EBITDA from the month's readings, or null when a reading is missing. */
+  ebitda: number | null;
+  cmPct: number | null;
+  opexMonthly: number | null;
+  /** Where those figures came from, printed under the row. */
+  basis: string;
+}
+
+export interface OverviewBridge {
+  asOf: string;
+  entities: BridgeEntity[];
+  /** Companies carrying a revenue figure, out of every operating company. */
+  reported: number;
+  total: number;
+  gross: number;
+  eliminations: number;
+  consolidated: number;
+  /** Entity EBITDA before the Holdings fee, then after it. */
+  ebitdaSum: number;
+  holdingsFee: number;
+  groupEbitda: number;
+  /** Intercompany imbalance as the group records it, with the ceiling it is held to. */
+  gap: { value: number; ceiling: number; period: string } | null;
+  /** What keeps the bridge from tying, in words. Null when every row is present. */
+  untied: string | null;
 }
 
 export interface OverviewPayload {
@@ -129,7 +189,14 @@ export interface OverviewPayload {
   health: number | null;
   counts: Record<StatusCode, number>;
   exceptions: Array<ExceptionRow & { kpiName: string; companyName: string }>;
+  /** Per-company health summary for the group Company Scorecard table. */
+  companyScorecard: CompanyScorecardRow[];
   /** Core KPIs across every operating company, for the heatmap. */
-  heat: Array<{ kpiKey: string; kpiName: string; cells: Array<{ code: string; status: StatusCode }> }>;
+  heat: Array<{ kpiKey: string; kpiName: string; cells: HeatCellItem[] }>;
   sources: Array<{ code: string; name: string; state: string; last_sync_at: string | null; sla_minutes: number; stale: boolean }>;
+  /**
+   * Revenue and EBITDA per company reconciled to the consolidated figure. Built only for the
+   * group view, which is the only scope where consolidation means anything.
+   */
+  bridge: OverviewBridge | null;
 }

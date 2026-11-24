@@ -15,6 +15,7 @@ import { formatCurrency } from "@/lib/utils";
 
 import { formatLongDate } from "./calendarDates";
 import { StatusBadge } from "./StatusBadge";
+import { phtDisplayDate } from "../pht";
 import { holidaysFor, nonWorkingReason } from "../services/holidays";
 import type { CalendarDayItem } from "../types";
 
@@ -61,7 +62,9 @@ export function CalendarDayDialog({
                     <TableCell className="font-medium">
                       {item.formCode}
                       {item.movedFrom ? (
-                        <span className="block text-[11px] text-muted-foreground">from {item.movedFrom}</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          from {phtDisplayDate(item.movedFrom)}
+                        </span>
                       ) : null}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{item.period}</TableCell>

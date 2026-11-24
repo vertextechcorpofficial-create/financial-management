@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchAlerts, generateAlerts, setAlertPolicy, setAlertState } from "../providers/alertsApi";
-import type { AlertState, AlertsPayload } from "../types";
+import { fetchAlerts, generateAlerts, saveVariancePolicy, setAlertPolicy, setAlertState } from "../providers/alertsApi";
+import type { AlertState, AlertsPayload, Policy } from "../types";
 
 /** The filter a shared link names, so a copied alerts link shows what it says. */
 function readUrl(): { state: string; type: string } {
@@ -111,5 +111,6 @@ export function useAlerts() {
     generate: () => run(generateAlerts),
     mark: (id: number, next: AlertState) => run(() => setAlertState(id, next)),
     togglePolicy: (id: number, isEnabled: boolean) => run(() => setAlertPolicy(id, { isEnabled })),
+    applyPolicy: (policy: Policy) => run(() => saveVariancePolicy(policy)),
   };
 }

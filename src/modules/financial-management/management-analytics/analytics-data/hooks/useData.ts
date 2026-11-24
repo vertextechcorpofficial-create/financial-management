@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchData, postReading, runChecks, type ReadingInput } from "../providers/dataApi";
+import { fetchData, postReading, refreshSource, runChecks, type ReadingInput } from "../providers/dataApi";
 import type { DataPayload } from "../types";
 
 export function useData(initialPeriod?: string) {
-  const [period, setPeriod] = useState<string | undefined>(initialPeriod);
   const [data, setData] = useState<DataPayload | null>(null);
   const [isLoading, setLoading] = useState(true);
   const [isSaving, setSaving] = useState(false);
@@ -19,7 +18,7 @@ export function useData(initialPeriod?: string) {
       requestSeq.current = seq;
       setLoading(true);
       try {
-        const payload = await fetchData(next ?? period);
+        const payload = await fetchData(next ?? initialPeriod);
         if (requestSeq.current !== seq) return payload;
         setData(payload);
         setError(null);
@@ -31,21 +30,13 @@ export function useData(initialPeriod?: string) {
         if (requestSeq.current === seq) setLoading(false);
       }
     },
-    [period],
+    [initialPeriod],
   );
 
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const changePeriod = useCallback(
-    async (value: string) => {
-      setPeriod(value);
-      await load(value);
-    },
-    [load],
-  );
 
   const saveReading = useCallback(
     async (input: ReadingInput) => {
@@ -73,15 +64,29 @@ export function useData(initialPeriod?: string) {
     }
   }, [data, load]);
 
+  const pullSource = useCallback(
+    async (code: string) => {
+      setSaving(true);
+      try {
+        const result = await refreshSource(code);
+        await load(data?.period);
+        return result;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [data?.period, load],
+  );
+
   return {
-    period: data?.period ?? period ?? "",
+    period: data?.period ?? initialPeriod ?? "",
     data,
     isLoading,
     isSaving,
     error,
     reload: () => load(),
-    changePeriod,
     saveReading,
     checks,
+    pullSource,
   };
 }
