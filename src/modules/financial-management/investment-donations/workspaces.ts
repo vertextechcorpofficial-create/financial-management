@@ -1,6 +1,8 @@
 export const INVESTMENT_DONATIONS_PARENT = {
   title: "Capital & Giving Ledger",
-  slug: "investment-donations",
+  // The deployed Directus registry uses the renamed parent slug; child paths
+  // intentionally retain the existing investment-donations URL segment.
+  slug: "capital-giving-ledger",
   path: "/fm/investment-donations",
   iconName: "Landmark",
 } as const;
@@ -19,9 +21,11 @@ const definitions = [
   ["policy-targets", "Policy & targets", "Setup", "Settings"],
 ] as const;
 
+const CHILD_SLUG_PREFIX = "investment-donations";
+
 export type WorkspaceKey = typeof definitions[number][0];
 export const INVESTMENT_DONATIONS_WORKSPACES = definitions.map(([key, title, group, iconName], index) => ({
   key, title, group, iconName, sort: index + 1,
-  slug: `${INVESTMENT_DONATIONS_PARENT.slug}-${key}`,
-  path: `${INVESTMENT_DONATIONS_PARENT.path}/${INVESTMENT_DONATIONS_PARENT.slug}-${key}`,
+  slug: `${CHILD_SLUG_PREFIX}-${key}`,
+  path: `${INVESTMENT_DONATIONS_PARENT.path}/${CHILD_SLUG_PREFIX}-${key}`,
 }));

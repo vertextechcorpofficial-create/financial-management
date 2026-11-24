@@ -18,7 +18,7 @@ import type { ReconciliationRecord } from "./server/reconciliation-access";
 import type { DonationDocument } from "./server/donation-documents";
 import { TradeForm } from "./TradeForm";
 import { CapitalActions } from "./CapitalActions";
-import { stockReports, taxReports } from "./reporting";
+import { stockReports, taxReports, filingReviewPack } from "./reporting";
 import { pooledBalance } from "./donations";
 import { AnnualReviewForm } from "./AnnualReviewForm";
 import type { ReviewEvent } from "./annual-review";
@@ -632,7 +632,15 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
           </CardContent></Card>
         </>}
         {section === "Tax compliance" && <Card><CardHeader><CardTitle>BIR items</CardTitle></CardHeader><CardContent className="space-y-4">
+          <p role="note" className="text-sm text-muted-foreground">Exports are supporting workpapers, not official SEC or BIR submissions.
+            Filing references do not submit returns. “Filed manually” records an external filing supported by receipt and evidence references.</p>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => {
+              const pack = filingReviewPack(entries, registers, asOf, donationDocuments);
+              const url = URL.createObjectURL(new Blob([JSON.stringify(pack, null, 2)], { type: "application/json" }));
+              const link = document.createElement("a"); link.href = url; link.download = "accountant-review-workpapers.json"; link.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }}><Download /> Accountant review pack</Button>
             {([["tax", "BIR liabilities"], ["giving", "Charitable contributions"], ["dividends", "Dividend withholding"]] as const).map(([key, label]) =>
               <Button key={key} variant="outline" onClick={() => downloadCsv(`${key}-workpaper.csv`, taxReports(entries, registers, donationDocuments)[key])}>
                 <Download /> {label} CSV
@@ -659,18 +667,28 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
           <Grid headers={["CGT entry", "Return", "Due date", "Filing reference"]} rows={entries
             .filter(entry => ["1707", "1707-A"].includes(String(entry.data.taxForm)))
             .map(entry => [`JE-${entry.no}`, String(entry.data.taxForm), String(entry.data.taxDue ?? "—"),
-              canPost && reconciliationRole === "approve" ? <form className="flex gap-2" key={entry.id} onSubmit={async event => {
+              canPost && reconciliationRole === "approve" ? <form className="grid min-w-72 gap-2" key={entry.id} onSubmit={async event => {
                 event.preventDefault();
                 if (saving) return;
                 const fields = new FormData(event.currentTarget);
                 setSaving(true);
                 try {
-                  const result = await submitLedger("cgt-filing", { id: entry.id, reference: fields.get("reference") });
+                  const status = fields.get("status");
+                  const result = await submitLedger("cgt-filing", { id: entry.id, reference: fields.get("reference"), status,
+                    filedOn: status === "filed-manually" ? fields.get("filedOn") : undefined,
+                    receiptReference: status === "filed-manually" ? fields.get("receiptReference") : undefined,
+                    evidenceReference: status === "filed-manually" ? fields.get("evidenceReference") : undefined });
                   setFeedback({ error: !result.ok, text: result.ok ? "Filing reference saved." : result.message });
                   if (result.ok) router.refresh();
                 } finally { setSaving(false); }
               }}>
                 <Input name="reference" aria-label={`Filing reference for JE-${entry.no}`} defaultValue={donationDocuments?.[entry.id]?.reference} required maxLength={200} />
+                <label>Status<select name="status" defaultValue={donationDocuments?.[entry.id]?.status ?? "reference-only"}>
+                  <option value="reference-only">Reference only</option><option value="filed-manually">Filed manually</option>
+                </select></label>
+                <label>External filing date<Input name="filedOn" type="date" defaultValue={donationDocuments?.[entry.id]?.filedOn ?? ""} /></label>
+                <Input name="receiptReference" aria-label="Receipt reference" placeholder="Receipt reference" maxLength={200} defaultValue={donationDocuments?.[entry.id]?.receiptReference ?? ""} />
+                <Input name="evidenceReference" aria-label="Evidence reference" placeholder="Evidence reference" maxLength={200} defaultValue={donationDocuments?.[entry.id]?.evidenceReference ?? ""} />
                 <Button type="submit" disabled={saving}>Save</Button>
               </form> : donationDocuments?.[entry.id]?.reference ?? "Not recorded"])} />
         </CardContent></Card>}

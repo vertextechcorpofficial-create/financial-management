@@ -26,7 +26,11 @@ export async function saveAnnualReview(input: unknown) {
 }
 
 export async function saveDonationDocument(input: unknown, cgt = false) {
-  const parsed = z.object({ id: z.string().min(1).max(64), reference: z.string().trim().min(1).max(200) }).safeParse(input);
+  const parsed = z.object({ id: z.string().min(1).max(64), reference: z.string().trim().min(1).max(200),
+    status: z.enum(["reference-only", "filed-manually"]).optional(),
+    filedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    receiptReference: z.string().trim().min(1).max(200).optional(),
+    evidenceReference: z.string().trim().min(1).max(200).optional() }).safeParse(input);
   if (!parsed.success) return { ok: false as const, message: "Enter a document reference." };
   try {
     const access = await ledgerAccess();
@@ -133,10 +137,11 @@ export async function recordCapitalAction(input: unknown) {
   const id = z.string().min(1).max(64);
   const cert = z.string().trim().regex(/^[A-Za-z0-9-]{1,40}$/);
   const result = z.discriminatedUnion("type", [
-    z.object({ type: z.literal("shareTransfer"), date, target: id, toId: id, shares: z.number().int().positive(),
+    z.object({ type: z.literal("shareTransfer"), date, target: id.optional(), targets: z.array(id).min(1).max(100).optional(), toId: id, shares: z.number().int().positive(),
       price: z.number().min(0).max(1e12), carRef: z.string().trim().min(1).max(120), deedRef: z.string().trim().min(1).max(120),
       buyerNo: cert, balanceNo: cert.optional() }),
-    z.object({ type: z.literal("voidTransfer"), date, target: id, reason: z.string().trim().min(1).max(500) }),
+    z.object({ type: z.literal("voidTransfer"), date, target: id, reason: z.string().trim().min(1).max(500),
+      evidenceRef: z.string().trim().min(1).max(200).optional(), confirmHistorical: z.boolean().optional() }),
     z.object({ type: z.literal("declareDividend"), date, perShare: z.number().positive().max(1e6), confirmUnrestricted: z.literal(true),
       payDate: date }),
     z.object({ type: z.literal("payDividend"), date, target: id, account: z.enum(["1000", "1010", "1020"]) }),

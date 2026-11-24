@@ -21,7 +21,7 @@ export default async function InvestmentDonationsWorkspacePage({ workspace }: { 
     readDirectusLedger(), (mayWrite || (workspace === "overview" && mayReverse)) ? postingAvailable() : false,
     workspace === "monthly-reconciliation" ? readReconciliations() : null,
     workspace === "charitable-giving" || workspace === "overview" || workspace === "tax-compliance" ?
-      readDonationDocuments(workspace === "tax-compliance") : null,
+      readDonationDocuments(workspace === "tax-compliance" ? "all" : false) : null,
     workspace === "annual-review" ? readAnnualReviews() : null,
   ]);
   return <>

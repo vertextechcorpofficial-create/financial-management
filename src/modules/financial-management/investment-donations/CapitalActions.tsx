@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { accounts, peso } from "./ledger";
 import { submitLedger } from "./ledger-api";
 import type { LedgerRegisters } from "./server/registers";
+import { certificateActiveAt } from "./certificates";
 
 type Operation = "shareTransfer" | "voidTransfer" | "declareDividend" | "payDividend";
 
@@ -16,8 +17,8 @@ export function CapitalActions({ registers, defaultDate }: { registers: LedgerRe
   const [type, setType] = useState<Operation | null>(null);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string }>();
-  const active = registers.certs.filter(row => !row.cancelledAt && !row.voidedAt);
-  const reversible = registers.transfers.filter(row => row.sourceCertId && !row.voidedAt);
+  const active = registers.certs.filter(row => certificateActiveAt(row, defaultDate));
+  const reversible = registers.transfers.filter(row => !row.voidedAt);
   const payable = registers.dividends.filter(row => !row.paidAt && !row.cancelled);
   const holder = (id: string) => registers.holders.find(row => row.id === id)?.name ?? id;
   const selectClass = "h-9 rounded-md border bg-background px-2";
@@ -33,10 +34,11 @@ export function CapitalActions({ registers, defaultDate }: { registers: LedgerRe
     if (!type || saving) return;
     const form = new FormData(event.currentTarget);
     const input = type === "shareTransfer" ? {
-      target: form.get("target"), toId: form.get("toId"), shares: Number(form.get("shares")),
+      targets: form.getAll("targets"), toId: form.get("toId"), shares: Number(form.get("shares")),
       price: Number(form.get("price")), carRef: form.get("carRef"), deedRef: form.get("deedRef"),
       buyerNo: form.get("buyerNo"), balanceNo: String(form.get("balanceNo") ?? "").trim() || undefined,
-    } : type === "voidTransfer" ? { target: form.get("target"), reason: form.get("reason") }
+    } : type === "voidTransfer" ? { target: form.get("target"), reason: form.get("reason"),
+      evidenceRef: String(form.get("evidenceRef") ?? "").trim() || undefined, confirmHistorical: form.has("confirmHistorical") }
       : type === "declareDividend" ? { perShare: Number(form.get("perShare")),
         payDate: form.get("payDate"), confirmUnrestricted: form.has("confirmUnrestricted") }
       : { target: form.get("target"), account: form.get("account") };
@@ -51,12 +53,14 @@ export function CapitalActions({ registers, defaultDate }: { registers: LedgerRe
   return <Card>
     <CardHeader><CardTitle>Transfers and dividends</CardTitle></CardHeader>
     <CardContent className="space-y-3">
+      <p className="text-sm text-muted-foreground">Stock and GIS exports are supporting workpapers, not official SEC submissions.
+        Imported-transfer corrections require source evidence and a consistent certificate chain.</p>
       {!type && <div className="flex flex-wrap gap-2">{options.map(([value, label, enabled]) =>
         <Button key={value} variant="outline" disabled={!enabled} onClick={() => { setType(value); setFeedback(undefined); }}>{label}</Button>)}</div>}
       {type && <form onSubmit={submit} className="grid max-w-xl gap-3 sm:grid-cols-2">
         <label>{type === "declareDividend" ? "Declaration and record date" : "Date"}<Input name="date" type="date" required defaultValue={defaultDate} /></label>
         {type === "shareTransfer" && <>
-          <label className="grid gap-1">Surrendered certificate<select name="target" required className={selectClass}>
+          <label className="grid gap-1 sm:col-span-2">Surrendered certificates (one seller; select one or more)<select name="targets" multiple required className="min-h-32 rounded-md border bg-background p-2">
             {active.map(row => <option key={row.id} value={row.id}>{row.no} · {holder(row.holderId)} · {row.shares} shares</option>)}
           </select></label>
           <label className="grid gap-1">Receiving stockholder<select name="toId" required className={selectClass}>
@@ -74,6 +78,9 @@ export function CapitalActions({ registers, defaultDate }: { registers: LedgerRe
             {reversible.map(row => <option key={row.id} value={row.id}>{row.date} · {row.carRef}</option>)}
           </select></label>
           <label>Reason<Input name="reason" maxLength={500} required /></label>
+          <label>Historical correction evidence reference<Input name="evidenceRef" maxLength={200} /></label>
+          <label className="flex items-center gap-2 sm:col-span-2"><input name="confirmHistorical" type="checkbox" />
+            For an imported transfer, I verified the source documents and certificate chain. Subsequent transfers and dividend dependencies still block correction.</label>
         </>}
         {type === "declareDividend" && <>
           <label>Cash dividend per share<Input name="perShare" type="number" min="0.000001" step="0.000001" required /></label>
