@@ -1,28 +1,64 @@
 "use client";
 
 import { useId, type ComponentProps, type FormEventHandler, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
 import { policyFieldLabel, policyValue } from "../policy-labels";
 import type { usePolicyEditor } from "../policy-client";
 
-export function PolicyInput({ label, error, ...props }: ComponentProps<typeof Input> & { label: string; error?: string }) {
+type FieldExtras = { label: string; error?: string; helper?: string; required?: boolean };
+
+function FieldLabel({ htmlFor, label, required }: { htmlFor: string; label: string; required?: boolean }) {
+  return <label htmlFor={htmlFor} className="text-sm font-medium">
+    {label}{required && <span aria-hidden="true" className="text-destructive"> *</span>}
+  </label>;
+}
+
+export function PolicyInput({ label, error, helper, required, ...props }: ComponentProps<typeof Input> & FieldExtras) {
   const id = useId();
+  const errorId = error ? `${id}-error` : undefined;
+  const helperId = helper ? `${id}-help` : undefined;
   return <div className="min-w-0 space-y-1.5">
-    <label htmlFor={id} className="text-sm font-medium">{label}</label>
-    <Input id={id} {...props} aria-invalid={error ? true : props["aria-invalid"]}
-      aria-describedby={error ? `${id}-error` : props["aria-describedby"]} />
-    {error && <p id={`${id}-error`} className="text-sm text-destructive">{error}</p>}
+    <FieldLabel htmlFor={id} label={label} required={required} />
+    <Input {...props} id={id} required={required} aria-required={required || undefined}
+      aria-invalid={error ? true : props["aria-invalid"]}
+      aria-describedby={[errorId, helperId, props["aria-describedby"]].filter(Boolean).join(" ") || undefined} />
+    {helper && !error && <p id={helperId} className="text-xs text-muted-foreground">{helper}</p>}
+    {error && <p id={errorId} className="text-sm text-destructive">{error}</p>}
   </div>;
 }
 
-export function PolicySelect({ label, children, ...props }: ComponentProps<typeof NativeSelect> & { label: string }) {
+export function PolicySelect({ label, error, helper, required, children, ...props }: ComponentProps<typeof NativeSelect> & FieldExtras) {
   const id = useId();
+  const errorId = error ? `${id}-error` : undefined;
+  const helperId = helper ? `${id}-help` : undefined;
   return <div className="min-w-0 space-y-1.5">
-    <label htmlFor={id} className="block text-sm font-medium">{label}</label>
-    <NativeSelect id={id} {...props}>{children}</NativeSelect>
+    <FieldLabel htmlFor={id} label={label} required={required} />
+    <NativeSelect {...props} id={id} required={required} aria-required={required || undefined}
+      aria-invalid={error ? true : props["aria-invalid"]}
+      aria-describedby={[errorId, helperId, props["aria-describedby"]].filter(Boolean).join(" ") || undefined}>
+      {children}
+    </NativeSelect>
+    {helper && !error && <p id={helperId} className="text-xs text-muted-foreground">{helper}</p>}
+    {error && <p id={errorId} className="text-sm text-destructive">{error}</p>}
+  </div>;
+}
+
+export function PolicyTextarea({ label, error, helper, required, ...props }: ComponentProps<typeof Textarea> & FieldExtras) {
+  const id = useId();
+  const errorId = error ? `${id}-error` : undefined;
+  const helperId = helper ? `${id}-help` : undefined;
+  return <div className="min-w-0 space-y-1.5">
+    <FieldLabel htmlFor={id} label={label} required={required} />
+    <Textarea {...props} id={id} required={required} aria-required={required || undefined}
+      aria-invalid={error ? true : props["aria-invalid"]}
+      aria-describedby={[errorId, helperId, props["aria-describedby"]].filter(Boolean).join(" ") || undefined} />
+    {helper && !error && <p id={helperId} className="text-xs text-muted-foreground">{helper}</p>}
+    {error && <p id={errorId} className="text-sm text-destructive">{error}</p>}
   </div>;
 }
 
@@ -51,7 +87,7 @@ export function PolicyFeedback({ editor }: { editor: Editor }) {
   </>;
 }
 
-export function PolicyDialog({ title, description, editor, onClose, onSubmit, children, wide = false }: {
+export function PolicyDialog({ title, description, editor, onClose, onSubmit, children, wide = false, submitDisabled = false }: {
   title: string;
   description: string;
   editor: Editor;
@@ -59,6 +95,7 @@ export function PolicyDialog({ title, description, editor, onClose, onSubmit, ch
   onSubmit: FormEventHandler<HTMLFormElement>;
   children: ReactNode;
   wide?: boolean;
+  submitDisabled?: boolean;
 }) {
   return <Dialog open onOpenChange={open => { if (!open && !editor.busy) onClose(); }}>
     <DialogContent showCloseButton={false}
@@ -76,18 +113,36 @@ export function PolicyDialog({ title, description, editor, onClose, onSubmit, ch
         </div>}
         <DialogFooter className="shrink-0 border-t px-5 py-3">
           <Button type="button" variant="outline" onClick={onClose} disabled={editor.busy}>Cancel</Button>
-          <Button type="submit" disabled={editor.busy || editor.stale}>{editor.busy ? "Saving…" : "Save"}</Button>
+          <Button type="submit" disabled={editor.busy || editor.stale || submitDisabled}>{editor.busy ? "Saving…" : "Save"}</Button>
         </DialogFooter>
       </form>
     </DialogContent>
   </Dialog>;
 }
 
-export function PolicyPager({ page, more, onPage }: { page: number; more: boolean; onPage: (page: number) => void }) {
-  if (page === 1 && !more) return null;
-  return <div className="flex flex-wrap items-center justify-end gap-2">
-    <span className="pr-2 text-sm text-muted-foreground">Page {page}</span>
-    <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</Button>
-    <Button type="button" variant="outline" size="sm" disabled={!more} onClick={() => onPage(page + 1)}>Next</Button>
+export function PolicyPager({ page, more, onPage, from, to, total, noun = "rows", summary }: {
+  page: number;
+  more: boolean;
+  onPage: (page: number) => void;
+  from?: number;
+  to?: number;
+  total?: number;
+  noun?: string;
+  summary?: string;
+}) {
+  const range = total !== undefined && from !== undefined && to !== undefined
+    ? `Showing ${from}–${to} of ${total} ${noun}`
+    : summary ?? `Page ${page}`;
+  return <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
+    <span>{range}</span>
+    {(page > 1 || more) && <div className="flex items-center gap-2">
+      <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+        <ChevronLeft className="size-3.5" /> Previous
+      </Button>
+      <span className="min-w-14 text-center font-medium text-foreground">Page {page}</span>
+      <Button type="button" variant="outline" size="sm" disabled={!more} onClick={() => onPage(page + 1)}>
+        Next <ChevronRight className="size-3.5" />
+      </Button>
+    </div>}
   </div>;
 }

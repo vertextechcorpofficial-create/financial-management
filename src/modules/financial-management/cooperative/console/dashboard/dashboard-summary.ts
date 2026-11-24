@@ -1,5 +1,6 @@
 import { centsAmount, transactionCents } from "@/modules/financial-management/treasury/bank-reconciliation/utils/transactionDisplay";
 import { daysBetween } from "../format";
+import { nextCutoffDate } from "../../loans/loan-schedule";
 import type { CooperativeWorkspaceKey } from "../../workspaces";
 import type {
   DashboardLinks, DashboardMonth, DashboardSection, DashboardSummary, DashboardTransaction, DashboardUnavailable, DashboardWorkItem,
@@ -124,18 +125,21 @@ export function buildDashboardSummary(
   const work = summarize(sources.work, "Waiting for approval, loan release, and clearance records.", rows => {
     const approvals = rows.filter(row => row.kind !== "release" && row.kind !== "clearance").sort(newestFirst);
     const releases = rows.filter(row => row.kind === "release").sort(newestFirst);
-    const waiting = [...approvals.slice(0, 4), ...releases].map(row => ({
+    const clearances = rows.filter(row => row.kind === "clearance").sort(newestFirst);
+    const workspaceFor = (kind: DashboardWorkItem["kind"]) =>
+      kind === "release" ? "loans" : kind === "clearance" ? "exit-clearance" : "approvals";
+    const waiting = [...approvals.slice(0, 4), ...releases, ...clearances].map(row => ({
       ...row,
-      href: allowed.has(row.kind === "release" ? "loans" : "approvals") ? row.href : undefined,
+      href: allowed.has(workspaceFor(row.kind)) ? row.href : undefined,
     }));
     return {
-      approvals: approvals.length, releases: releases.length, clearances: rows.filter(row => row.kind === "clearance").length, waiting,
+      approvals: approvals.length, releases: releases.length, clearances: clearances.length, waiting,
     };
   }, throughToday);
   const recentTransactions = summarize(sources.transactions, "Waiting for the member transaction journal.", rows =>
     [...rows].sort(newestFirst).slice(0, 6), throughToday);
   return {
-    asOf, months, members, savings, portfolio, moneyIn, work, recentTransactions,
+    asOf, nextCutoff: nextCutoffDate(asOf), months, members, savings, portfolio, moneyIn, work, recentTransactions,
     links: {
       approvals: allowed.has("approvals") ? sources.links?.approvals : undefined,
       aging: allowed.has("reports") ? sources.links?.aging : undefined,
