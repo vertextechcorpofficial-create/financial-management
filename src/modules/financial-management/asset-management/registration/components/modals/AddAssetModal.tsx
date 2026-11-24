@@ -108,7 +108,7 @@ export default function AddAssetModal({
   const [warrantyOpen, setWarrantyOpen] = useState(false);
 
   const form = useForm<AssetFormValues>({
-    resolver: zodResolver(assetFormSchema) as any,
+    resolver: zodResolver(assetFormSchema),
     defaultValues: {
       item_name: "",
       item_type: "",

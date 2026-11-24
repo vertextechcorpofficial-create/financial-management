@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { fetchAssets } from "@/modules/financial-management/asset-management/registration/services/asset";
 import { CountItemResult, CountSession } from "@/modules/financial-management/asset-management/physical-count/types";
 
 export async function GET(
@@ -9,8 +8,6 @@ export async function GET(
   try {
     const { id } = await params;
     const sessionId = Number(id);
-
-    const assets = await fetchAssets();
 
     // Mock count session metadata matching Image 3, 4, 5, 6, 7, 8
     const session: CountSession = {
