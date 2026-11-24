@@ -34,7 +34,7 @@ export function StickyTableWrapper({
     });
 
     return (
-        <div ref={ref} className={cn("min-w-0 overflow-auto [&_thead]:bg-muted [&_thead]:backdrop-blur-none", className)}>
+        <div ref={ref} className={cn(className)}>
             {children}
         </div>
     );

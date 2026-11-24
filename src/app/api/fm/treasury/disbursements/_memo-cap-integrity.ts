@@ -395,10 +395,6 @@ export async function validateSupplierMemoCaps(
         }
 
         const matchingLines = lines.filter((line) => normalizedReference(line.referenceNo) === reference);
-        if (matchingLines.length > 1) {
-            return { memoNumber: reference, authorizedAmount: balance.amount, appliedAmount, requestedAmount, remainingAmount: balance.remainingAmount,
-                message: `Supplier memo ${reference} is already applied to this voucher.` };
-        }
         const expectedSign = Number(memo.type) === 2 ? -1 : 1;
         const hasWrongDirection = validateDirection && matchingLines.some((line) => {
             const amount = asNumber(line.amount);

@@ -17,12 +17,25 @@ import { useDisbursement } from "../hooks/useDisbursement";
 import { formatCurrency, getVoucherStepIndex, VOUCHER_STEPS } from "../utils/disbursement-utils";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { useAttachmentPreview } from "../hooks/useAttachmentPreview";
-import { SearchableDropdown } from "../components/SearchableDropdown";
 
 // Attachment preview sub-component
 function AttachmentPreview({ docUrl }: { docUrl: string }) {
-    const { viewUrl, isPdf, loadingPreview, previewFailed, onPreviewError } = useAttachmentPreview(docUrl);
+    const [contentType, setContentType] = useState<string>("");
+    const cleanBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
+    const token = process.env.NEXT_PUBLIC_DIRECTUS_STATIC_TOKEN || "AAKv73dkIV8DfAIA5vEt3eXVdIebzmBW";
+    const viewUrl = docUrl.startsWith("http") ? docUrl : `${cleanBase}/assets/${docUrl}?access_token=${token}`;
+
+    useEffect(() => {
+        if (!viewUrl) return;
+        fetch(viewUrl, { method: "HEAD" })
+            .then((res) => {
+                const type = res.headers.get("content-type");
+                if (type) setContentType(type.toLowerCase());
+            })
+            .catch((err) => console.warn("Failed to fetch document headers:", err));
+    }, [viewUrl]);
+
+    const isPdf = docUrl.toLowerCase().endsWith(".pdf") || viewUrl.toLowerCase().endsWith(".pdf") || contentType.includes("pdf");
 
     return (
         <div className="space-y-3">
@@ -51,7 +64,7 @@ function AttachmentPreview({ docUrl }: { docUrl: string }) {
                     <span>Attachment Preview</span>
                 </div>
                 <div className="p-2 flex justify-center items-center bg-card max-h-[300px] overflow-hidden">
-                    {loadingPreview ? <p className="p-4 text-xs text-muted-foreground">Loading preview…</p> : previewFailed ? <p className="p-4 text-xs text-muted-foreground">Preview unavailable. Use Open to view the document.</p> : isPdf ? (
+                    {isPdf ? (
                         <iframe 
                             src={viewUrl} 
                             className="w-full h-[250px] border-0 rounded-lg" 
@@ -63,7 +76,13 @@ function AttachmentPreview({ docUrl }: { docUrl: string }) {
                             src={viewUrl} 
                             alt="Supporting Document" 
                             className="max-h-[250px] max-w-full object-contain rounded-lg shadow-sm"
-                            onError={onPreviewError}
+                            onError={(e) => {
+                                e.currentTarget.style.display = "none";
+                                const parent = e.currentTarget.parentElement;
+                                if (parent) {
+                                    parent.innerHTML = '<div class="text-[9px] font-black uppercase tracking-widest text-muted-foreground p-4 text-center">Preview not available. Click "Open" above to view.</div>';
+                                }
+                            }}
                         />
                     )}
                 </div>
@@ -113,7 +132,7 @@ export default function ApprovalSubmodule() {
         supplierSearch, setSupplierSearch,
         filterSuppliers,
         applyFilters, clearFilters
-    } = useDisbursement("Submitted");
+    } = useDisbursement();
 
     // Limit approval workspace to 'Submitted' vouchers primarily, but support selecting others
     const [selectedDisbursement, setSelectedDisbursement] = useState<Disbursement | null>(null);
@@ -231,14 +250,16 @@ export default function ApprovalSubmodule() {
                         {/* Payee Filter */}
                         <div className="space-y-1">
                             <Label className="text-[8px] font-black uppercase tracking-wider text-muted-foreground/80">Filter Payee</Label>
-                            <SearchableDropdown
-                                options={[{ value: "", label: "All Payees" }, ...filterSuppliers.map(s => ({ value: s.supplier_name, label: s.supplier_name }))]}
+                            <select
+                                className="h-8 w-full rounded-md border border-border/60 bg-background px-2 text-[9px] font-bold uppercase outline-none focus:ring-1 focus:ring-primary/20 cursor-pointer text-foreground"
                                 value={supplierSearch}
-                                onSelect={setSupplierSearch}
-                                placeholder="All Payees"
-                                ariaLabel="Filter payee"
-                                className="h-8 w-full text-xs"
-                            />
+                                onChange={(e) => setSupplierSearch(e.target.value)}
+                            >
+                                <option value="">All Payees</option>
+                                {filterSuppliers.map(s => (
+                                    <option key={s.id} value={s.supplier_name}>{s.supplier_name}</option>
+                                ))}
+                            </select>
                         </div>
 
                         <div className="flex gap-2 pt-1">
@@ -388,7 +409,7 @@ export default function ApprovalSubmodule() {
                                     </div>
                                     <div>
                                         <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest block mb-1">Particulars / Remarks</span>
-                                         <p className="min-w-0 text-xs font-semibold text-foreground bg-background p-2 rounded border border-border/80 [overflow-wrap:anywhere] whitespace-pre-wrap">
+                                         <p className="text-xs font-semibold text-foreground bg-background p-2 rounded border border-border/80 break-words whitespace-pre-wrap">
                                              {selectedDisbursement.remarks || "No remarks provided."}
                                          </p>
                                     </div>
@@ -498,7 +519,7 @@ export default function ApprovalSubmodule() {
                                                     Cost Center Alignment Check
                                                 </Label>
                                                 <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                                                     The header department and each payable line&apos;s cost division are correct.
+                                                    The cost division and department mapped in the header are correct.
                                                 </p>
                                             </div>
                                         </div>
@@ -561,7 +582,7 @@ export default function ApprovalSubmodule() {
                         </CardContent>
 
                         {/* Audit actions footer */}
-                        <div className="p-6 bg-card border-t border-border shrink-0 flex flex-wrap justify-between items-center gap-3 z-10">
+                        <div className="p-6 bg-card border-t border-border shrink-0 flex justify-between items-center z-10">
                             <Button 
                                 variant="destructive" 
                                 onClick={() => handleAction("Returned for Revision")} 
