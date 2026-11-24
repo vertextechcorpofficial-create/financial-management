@@ -41,7 +41,9 @@ export function QuarterlyVatTable({ figures, vat }: { figures: QuarterFigures[];
     payable: vat.payable[index],
     carryOut: carried[index],
     sales: figures[index]?.sales,
+    vatFree: figures[index]?.vatFreeSales,
   }));
+  const vatFreeTotal = figures.reduce((total, quarter) => total + (quarter.vatFreeSales ?? 0), 0);
 
   return (
     <>
@@ -53,6 +55,9 @@ export function QuarterlyVatTable({ figures, vat }: { figures: QuarterFigures[];
               <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th scope="col" className="px-4 py-2 font-semibold">Quarter</th>
                 <th scope="col" className="px-4 py-2 text-right font-semibold">VATable sales</th>
+                <th scope="col" className="px-4 py-2 text-right font-semibold">Zero-rated sales</th>
+                <th scope="col" className="px-4 py-2 text-right font-semibold">VAT-exempt sales</th>
+                <th scope="col" className="px-4 py-2 text-right font-semibold">Unclassified no-VAT</th>
                 <th scope="col" className="px-4 py-2 text-right font-semibold">Output VAT</th>
                 <th scope="col" className="px-4 py-2 text-right font-semibold">Input VAT</th>
                 <th scope="col" className="px-4 py-2 text-right font-semibold">Carried in</th>
@@ -72,6 +77,9 @@ export function QuarterlyVatTable({ figures, vat }: { figures: QuarterFigures[];
                 >
                   <td className="px-4 py-2.5 font-medium">{row.quarter}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{money(row.sales)}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{formatCurrency(0)}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{formatCurrency(0)}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{money(row.vatFree)}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{money(row.output)}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{money(row.input)}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{money(row.carriedIn)}</td>
@@ -100,6 +108,10 @@ export function QuarterlyVatTable({ figures, vat }: { figures: QuarterFigures[];
                   <dd className="tabular-nums">{money(row.sales)}</dd>
                 </div>
                 <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Sales with no VAT</dt>
+                  <dd className="tabular-nums">{money(row.vatFree)}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">Output VAT</dt>
                   <dd className="tabular-nums">{money(row.output)}</dd>
                 </div>
@@ -125,8 +137,9 @@ export function QuarterlyVatTable({ figures, vat }: { figures: QuarterFigures[];
         </ul>
 
         <p className="border-t px-4 py-3 text-xs text-muted-foreground">
-          The 2550Q zero-rated line is not deducted here: this system records neither zero-rated nor
-          exempt sales, so the term in the payable formula is ₱0.00 rather than a figure read from data.
+          {vatFreeTotal > 0
+            ? `${formatCurrency(vatFreeTotal)} of sales in this year carry no VAT. The 2550Q wants those split into zero-rated and exempt, and this instance records no such classification, so both terms in the payable formula stay ₱0.00 and that money is shown, not deducted. Classify the invoices, then refresh.`
+            : "No sales in this year carry zero VAT, so both 2550Q zero-rated and exempt terms are ₱0.00 and neither is deducted here."}
         </p>
       </section>
 

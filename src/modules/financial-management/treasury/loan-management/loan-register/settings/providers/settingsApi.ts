@@ -1,5 +1,13 @@
-import type { AccountBody, AccountPatch, HolidayBody, HolidayPatch } from "../schemas";
+import type { AccountBody, AccountPatch, HolidayBody, HolidayPatch, LineAccountBody } from "../schemas";
 import type { SettingsData } from "../types";
+
+const REQUEST_TIMEOUT_MS = 20000;
+
+// A dropped connection must not leave the screen on skeletons forever.
+function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+}
+
 
 const BASE = "/api/fm/treasury/loan-management/loan-register/settings";
 
@@ -18,7 +26,7 @@ async function readError(response: Response): Promise<string> {
 }
 
 async function send<T>(path: string, method: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, {
+  const response = await fetchWithTimeout(`${BASE}${path}`, {
     method,
     cache: "no-store",
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
@@ -60,12 +68,22 @@ export function deleteHoliday(id: number) {
   return send<{ id: number }>(`/holidays/${id}`, "DELETE");
 }
 
-export function updateMapping(mappingKey: string, coaId: number | null) {
+export function updateMapping(mappingKey: string, coaId: number | null, description: string) {
   return send<{ mappingKey: string; coaId: number | null; unmappedKeys: string[] }>(
     `/mappings/${encodeURIComponent(mappingKey)}`,
     "PATCH",
-    { coaId },
+    { coaId, description },
   );
+}
+
+export function createMapping(body: LineAccountBody) {
+  return send<{ mappingKey: string; mappingGroup: string; mappingLabel: string }>("/mappings", "POST", {
+    mapping_key: body.mappingKey,
+    coa_id: body.coaId,
+    mapping_group: body.mappingGroup,
+    mapping_label: body.mappingLabel,
+    usage_description: body.mappingDescription,
+  });
 }
 
 export function closeBooks(lockedThrough: string, note: string) {

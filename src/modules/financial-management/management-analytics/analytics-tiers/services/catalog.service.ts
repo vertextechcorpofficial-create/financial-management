@@ -120,12 +120,12 @@ async function buildRows(kpis: Json[], companies: Map<number, CompanyRow>, polic
     const company = companies.get(kpi.company_id);
     return {
       kpi,
-      companyCode: company?.code ?? "—",
+      companyCode: company?.code ?? "unassigned",
       companyName: company?.name ?? "Unknown company",
       period: point?.period ?? null,
       actual: point?.actual ?? null,
-      actualText: point?.actual === null || point?.actual === undefined ? "—" : formatValue(point.actual, kpi),
-      targetText: point?.target === null || point?.target === undefined ? "—" : formatValue(point.target, kpi),
+      actualText: point?.actual === null || point?.actual === undefined ? "no reading" : formatValue(point.actual, kpi),
+      targetText: point?.target === null || point?.target === undefined ? "no target" : formatValue(point.target, kpi),
       rule: ruleText(kpi),
       statusCode: status.code,
       statusLabel: status.label,

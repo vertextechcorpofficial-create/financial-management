@@ -13,6 +13,7 @@ import { formatCurrency } from "@/lib/utils";
 
 import type { StatementRow } from "../types";
 import { STATEMENT_RESULT_LABEL, STATEMENT_RESULT_TONE } from "../constants";
+import { formatDateMDY, phtDisplayStamp } from "../pht";
 import { StatusBadge } from "./StatusBadge";
 
 type Props = {
@@ -32,11 +33,20 @@ function money(value: number) {
   return formatCurrency(Math.abs(value) < 0.005 ? 0 : value);
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+/** A blank or missing value has to say so: an empty cell reads as "nothing here", not "unknown". */
+function text(value: string | null | undefined): string {
+  const trimmed = (value ?? "").trim();
+  return trimmed === "" ? "not recorded" : trimmed;
+}
+
+/** `children` is typed as text on purpose: a truncated node would have no title to read it by. */
+function Row({ label, children }: { label: string; children: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4 px-4 py-2 text-sm">
       <dt className="shrink-0 text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 truncate text-right tabular-nums">{children}</dd>
+      <dd title={children} className="min-w-0 truncate text-right tabular-nums">
+        {children}
+      </dd>
     </div>
   );
 }
@@ -61,6 +71,7 @@ export function StatementDetailDialog({ row, open, onOpenChange }: Props) {
   });
   const netVariance = Number(pairs.reduce((sum, pair) => sum + pair.variance, 0).toFixed(2));
   const agrees = row.result === "AGREES";
+  const lender = text(row.lenderName);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -71,12 +82,12 @@ export function StatementDetailDialog({ row, open, onOpenChange }: Props) {
         <DialogHeader className="space-y-2 border-b border-border px-6 py-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <DialogTitle className="text-base">
-              {row.loanNo} · {row.lenderName ?? "Lender"}
+              {row.loanNo} · {lender}
             </DialogTitle>
             <StatusBadge tone={STATEMENT_RESULT_TONE[row.result]}>{STATEMENT_RESULT_LABEL[row.result]}</StatusBadge>
           </div>
           <DialogDescription>
-            Statement dated {row.statementDate} compared with our figures on the same date.
+            Statement dated {formatDateMDY(row.statementDate)} compared with our figures on the same date.
           </DialogDescription>
         </DialogHeader>
 
@@ -131,9 +142,9 @@ export function StatementDetailDialog({ row, open, onOpenChange }: Props) {
             </h3>
             <dl className="divide-y divide-border/50">
               <Row label="Loan">{row.loanNo}</Row>
-              <Row label="Lender">{row.lenderName ?? "—"}</Row>
-              <Row label="Statement date">{row.statementDate}</Row>
-              <Row label="Recorded">{row.createdAt ? row.createdAt.replace("T", " ") : "—"}</Row>
+              <Row label="Lender">{lender}</Row>
+              <Row label="Statement date">{formatDateMDY(row.statementDate)}</Row>
+              <Row label="Recorded">{row.createdAt ? phtDisplayStamp(row.createdAt) : "not recorded"}</Row>
             </dl>
           </section>
 

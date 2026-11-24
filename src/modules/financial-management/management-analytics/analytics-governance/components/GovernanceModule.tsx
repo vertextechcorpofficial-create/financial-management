@@ -2,9 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -12,20 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
-import { ACCENT } from "../constants";
+import { BoardHeader, Panel, PanelHead, Stat } from "@/modules/financial-management/management-analytics/shared/BoardKit";
+import { BarList } from "@/modules/financial-management/management-analytics/shared/Charts";
 import { useGovernance } from "../hooks/useGovernance";
 import { OptionCombobox } from "./OptionCombobox";
 import { Notice } from "./Notice";
 import { StatusBadge } from "./StatusBadge";
 import { TablePager, pageSlice } from "./TablePager";
 import { phtDisplayStamp } from "../pht";
-import type { AssignmentRow, ChangeRequestRow, GovernancePayload, RoleRow } from "../types";
+import type { AssignmentRow, ChangeRequestRow, GovernancePayload, OrgCompanyRow, RoleRow } from "../types";
 
 const PAGE_SIZE = 10;
-
-function Count({ children }: { children: string }) {
-  return <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">{children}</span>;
-}
 
 /** A stored setting reads as a sentence, not as a column name. */
 function settingLabel(label: string): string {
@@ -47,7 +42,7 @@ function SettingRows({
 }) {
   const shared = rows.length > 1 && rows.every((row) => row.note === rows[0].note) ? rows[0].note : null;
   return (
-    <CardContent className="divide-y divide-border/50 px-4 py-1">
+    <div className="divide-y divide-border/60 px-4">
       {rows.map((row) => {
         const current = draft[row.key] ?? row.value;
         const dirty = current !== row.value;
@@ -90,7 +85,7 @@ function SettingRows({
         );
       })}
       {shared ? <p className="pb-3 text-xs text-muted-foreground">{shared}</p> : null}
-    </CardContent>
+    </div>
   );
 }
 
@@ -101,27 +96,23 @@ function PolicyCard({ data, onSave, busy }: { data: GovernancePayload; busy: boo
 
   return (
     <div className="space-y-4">
-      <Card className="border-border/60">
-        <CardHeader className="border-b border-border/60 px-4 py-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">Variance policy</CardTitle>
-            <Count>{`${policy.length} settings`}</Count>
-          </div>
-          <p className="text-xs text-muted-foreground">These values decide how a reading becomes an exception.</p>
-        </CardHeader>
+      <Panel>
+        <PanelHead
+          title="Variance policy"
+          description="These values decide how a reading becomes an exception."
+          count={policy.length}
+        />
         <SettingRows rows={policy} draft={draft} setDraft={setDraft} busy={busy} onSave={onSave} />
-      </Card>
+      </Panel>
 
-      <Card className="border-border/60">
-        <CardHeader className="border-b border-border/60 px-4 py-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">Scenario baselines</CardTitle>
-            <Count>{`${baselines.length} assumptions`}</Count>
-          </div>
-          <p className="text-xs text-muted-foreground">The planner reads these until the ERP feed is mapped to measures.</p>
-        </CardHeader>
+      <Panel>
+        <PanelHead
+          title="Scenario baselines"
+          description="The planner reads these until the ERP feed is mapped to measures."
+          count={baselines.length}
+        />
         <SettingRows rows={baselines} draft={draft} setDraft={setDraft} busy={busy} onSave={onSave} />
-      </Card>
+      </Panel>
     </div>
   );
 }
@@ -363,21 +354,95 @@ function DecisionDialog({
 }
 
 /** A role's grants read as companies with their domains, not as one chip per pair. */
-function grantLines(role: RoleRow): string[] {
-  if (role.grants.length === 0) return ["No domain is granted to this role yet."];
-  const byCompany = new Map<string, string[]>();
-  for (const grant of role.grants) {
-    const list = byCompany.get(grant.companyCode) ?? [];
-    list.push(grant.domain);
-    byCompany.set(grant.companyCode, list);
+function companyLine(role: RoleRow, companies: OrgCompanyRow[]): string {
+  const codes = [...new Set(role.grants.map((grant) => grant.companyCode))];
+  if (codes.length === 0) return "No company yet";
+  if (codes.includes("ALL")) return "Every company";
+  const names = codes.map((code) => companies.find((row) => row.code === code)?.name ?? code);
+  if (names.length <= 2) return names.join(", ");
+  return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
+}
+
+/** The reference's access matrix: one row per role, one column per domain the grants carry. */
+function AccessMatrix({ roles, companies }: { roles: RoleRow[]; companies: OrgCompanyRow[] }) {
+  const domains = [...new Set(roles.flatMap((role) => role.grants.map((grant) => grant.domain)))].sort();
+  if (roles.length === 0) {
+    return <p className="px-4 py-8 text-center text-sm text-muted-foreground">No role is defined yet.</p>;
   }
-  const everyCompany = byCompany.size === 1 && byCompany.has("ALL");
-  if (everyCompany) {
-    const domains = byCompany.get("ALL") ?? [];
-    return [`Every company · ${domains.length} domain${domains.length === 1 ? "" : "s"}: ${domains.join(", ")}`];
-  }
-  return [...byCompany.entries()].map(
-    ([code, domains]) => `${code === "ALL" ? "Every company" : code} · ${domains.join(", ")}`,
+  return (
+    <>
+      <div className="hidden min-[980px]:block overflow-x-auto">
+      <table className="w-full min-w-[980px] text-sm">
+        <thead>
+          <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
+            <th className="px-4 py-2.5 font-medium">Role</th>
+            <th className="px-4 py-2.5 font-medium">Companies</th>
+            {domains.map((domain) => (
+              <th key={domain} className="whitespace-nowrap px-3 py-2.5 text-center font-medium">
+                {domain}
+              </th>
+            ))}
+            <th className="whitespace-nowrap px-3 py-2.5 text-center font-medium">Transaction detail</th>
+            <th className="whitespace-nowrap px-3 py-2.5 text-center font-medium">Sign off changes</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/50">
+          {roles.map((role) => {
+            const held = new Set(role.grants.map((grant) => grant.domain));
+            const isExec = /exec/i.test(role.name);
+            return (
+              <tr key={role.id} className="hover:bg-muted/30">
+                <td className="px-4 py-2.5">
+                  <p className="font-medium">{role.name}</p>
+                  <p className="mt-0.5 text-xs uppercase tracking-wide text-muted-foreground">{role.scope}</p>
+                </td>
+                <td className="px-4 py-2.5 text-xs text-muted-foreground">{companyLine(role, companies)}</td>
+                {domains.map((domain) => (
+                  <td key={domain} className="px-3 py-2.5 text-center">
+                    {held.has(domain) ? (
+                      <StatusBadge tone="success">Visible</StatusBadge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Hidden</span>
+                    )}
+                  </td>
+                ))}
+                <td className="px-3 py-2.5 text-center text-xs text-muted-foreground">
+                  {isExec ? "Aggregated only" : "✓ Drill-down"}
+                </td>
+                <td className="px-3 py-2.5 text-center text-xs font-medium">
+                  {isExec ? "✓" : "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      </div>
+
+      <ul className="divide-y divide-border min-[980px]:hidden">
+        {roles.map((role) => {
+          const visible = [...new Set(role.grants.map((grant) => grant.domain))];
+          return (
+            <li key={role.id} className="px-4 py-3">
+              <p className="text-sm font-medium">{role.name}</p>
+              <p className="mt-0.5 text-xs uppercase tracking-wide text-muted-foreground">{role.scope}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{companyLine(role, companies)}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {visible.length === 0 ? (
+                  <span className="text-xs text-muted-foreground">No domain visible</span>
+                ) : (
+                  visible.map((domain) => (
+                    <span key={domain} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                      {domain}
+                    </span>
+                  ))
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 
@@ -443,12 +508,62 @@ export function GovernanceModule() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <h1 className="text-lg font-semibold">Access and Governance</h1>
-          <p className="text-sm text-muted-foreground">Who may see which company and measure, the organisation behind the roll-ups, and the policy in force.</p>
-        </div>
-      </div>
+      <BoardHeader
+        title="Access and Governance"
+        subtitle="Who may see which company and measure, the organisation behind the roll-ups, and the policy in force."
+        meta={
+          <>
+            <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium tabular-nums text-muted-foreground">
+              {(data?.roles.length ?? 0)} roles
+            </span>
+            <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium tabular-nums text-muted-foreground">
+              {assignments.length} grant{assignments.length === 1 ? "" : "s"}
+            </span>
+          </>
+        }
+      />
+
+      {data ? (
+        <Panel className="grid gap-4 p-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <Stat
+              label="People with access"
+              value={String(assignments.length)}
+              note={`${new Set(assignments.map((row) => row.userId)).size} distinct people`}
+            />
+            <Stat
+              label="Roles in force"
+              value={String(data.roles.length)}
+              note={`${data.roles.filter((role) => role.scope === "GROUP").length} group-wide`}
+            />
+            <Stat
+              label="Entities"
+              value={String(data.companies.length)}
+              note={`${data.companies.filter((row) => row.isActive).length} active`}
+            />
+            <Stat
+              label="Changes pending"
+              value={String(pendingChanges.length)}
+              tone={pendingChanges.length > 0 ? "warning" : undefined}
+              note={`${changes.length} raised in total`}
+            />
+          </div>
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">Grants carried by each role</p>
+            <div className="mt-2">
+              <BarList
+                rows={data.roles.map((role) => ({
+                  label: role.name,
+                  value: role.grants.length,
+                  tone: role.scope === "GROUP" ? ("primary" as const) : ("muted" as const),
+                }))}
+                dp={0}
+                unit=" grants"
+              />
+            </div>
+          </div>
+        </Panel>
+      ) : null}
 
       {!data && governance.isLoading ? (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -474,19 +589,17 @@ export function GovernanceModule() {
         </TabsList>
 
         <TabsContent value="access" className="space-y-4">
-          <Card className={`border-border/60 ${ACCENT.rail}`}>
-            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 border-b border-border/60 px-4 py-3">
-              <div>
-                <CardTitle className="text-sm font-semibold">Access grants</CardTitle>
-                <p className="text-xs text-muted-foreground">A role carries the domains; the grant fixes the company.</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Count>{`${assignments.length} ${assignments.length === 1 ? "grant" : "grants"}`}</Count>
-                <Button size="sm" className="h-9" onClick={() => setGrantOpen(true)} disabled={!data || data.users.length === 0}>
+          <Panel>
+            <PanelHead
+              title="Access grants"
+              description="A role carries the domains; the grant fixes the company."
+              count={assignments.length}
+              right={
+                <Button size="sm" className="h-8" onClick={() => setGrantOpen(true)} disabled={!data || data.users.length === 0}>
                   Grant access
                 </Button>
-              </div>
-            </CardHeader>
+              }
+            />
             <div className="hidden overflow-x-auto min-[1300px]:block">
               <table className="w-full min-w-[720px] text-sm">
                 <thead>
@@ -560,41 +673,28 @@ export function GovernanceModule() {
               onPageSizeChange={(size) => { storeSize(size); setPageSize(size); setPage(1); }}
               className="border-t border-border/50 px-4 py-3"
             />
-          </Card>
+          </Panel>
 
-          <Card className="border-border/60">
-            <CardHeader className="border-b border-border/60 px-4 py-3">
-              <CardTitle className="text-sm font-semibold">Roles</CardTitle>
-              <p className="text-xs text-muted-foreground">Group roles span every company; company roles stop at their own.</p>
-            </CardHeader>
-            <CardContent className="divide-y divide-border/50 px-4 py-1">
-              {(data?.roles ?? []).map((role) => (
-                <div key={role.id} className="py-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-medium">{role.name}</p>
-                    <Badge variant="outline" className="text-[11px] uppercase tracking-wide">{role.scope}</Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{role.description ?? "No description on file."}</p>
-                  <div className="mt-1.5 space-y-1">
-                    {grantLines(role).map((line) => (
-                      <p key={line} className="text-xs text-muted-foreground">{line}</p>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+          <Panel>
+            <PanelHead
+              title="Roles and what they reach"
+              description="Group roles span every company; company roles stop at their own."
+              count={(data?.roles ?? []).length}
+            />
+            <AccessMatrix roles={data?.roles ?? []} companies={data?.companies ?? []} />
+            <p className="border-t border-border/50 px-4 py-2.5 text-xs text-muted-foreground">
+              A domain is visible when any grant of that role carries it, for one company or for all of them.
+            </p>
+          </Panel>
         </TabsContent>
 
         <TabsContent value="organisation" className="space-y-4">
-          <Card className="border-border/60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border/60 px-4 py-3">
-              <div>
-                <CardTitle className="text-sm font-semibold">Companies</CardTitle>
-                <p className="text-xs text-muted-foreground">The roll-up adds these, minus intercompany sales.</p>
-              </div>
-              <Count>{`${data?.companies.length ?? 0} entities`}</Count>
-            </CardHeader>
+          <Panel>
+            <PanelHead
+              title="Companies"
+              description="The roll-up adds these, minus intercompany sales."
+              count={`${data?.companies.length ?? 0} entities`}
+            />
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
                 <thead>
@@ -624,7 +724,7 @@ export function GovernanceModule() {
                 </tbody>
               </table>
             </div>
-          </Card>
+          </Panel>
         </TabsContent>
 
         <TabsContent value="policy" className="space-y-4">
@@ -632,23 +732,22 @@ export function GovernanceModule() {
         </TabsContent>
 
         <TabsContent value="changes" className="space-y-4">
-          <Card className="border-border/60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border/60 px-4 py-3">
-              <div>
-                <CardTitle className="text-sm font-semibold">Changes raised for sign-off</CardTitle>
-                <p className="text-xs text-muted-foreground">Every method change is recorded here before it takes effect.</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Count>{`${pendingChanges.length} pending`}</Count>
+          <Panel>
+            <PanelHead
+              title="Changes raised for sign-off"
+              description="Every method change is recorded here before it takes effect."
+              count={`${pendingChanges.length} pending`}
+              right={
                 <Button size="sm" className="h-8 text-xs" onClick={() => setRaising(true)} disabled={!data || governance.isSaving}>
                   Raise a change
                 </Button>
-              </div>
-            </CardHeader>
+              }
+            />
             <div className="hidden overflow-x-auto min-[1300px]:block">
               <table className="w-full min-w-[720px] text-sm">
                 <thead>
                   <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
+                    <th className="px-4 py-2.5 font-medium">#</th>
                     <th className="px-4 py-2.5 font-medium">Change</th>
                     <th className="px-4 py-2.5 font-medium">Requested</th>
                     <th className="px-4 py-2.5 font-medium">Status</th>
@@ -658,11 +757,12 @@ export function GovernanceModule() {
                 <tbody className="divide-y divide-border/50">
                   {changes.map((row) => (
                     <tr key={row.id} className="hover:bg-muted/30">
+                      <td className="px-4 py-2.5 font-mono text-xs tabular-nums text-muted-foreground">{row.id}</td>
                       <td className="px-4 py-2.5">
                         <p className="font-medium">{row.summary}</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">{row.entity}{row.entityId != null ? ` #${row.entityId}` : ""}{row.note ? ` · ${row.note}` : ""}</p>
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{row.requestedAt ? phtDisplayStamp(row.requestedAt) : "—"}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground">{row.requestedAt ? phtDisplayStamp(row.requestedAt) : "not recorded"}</td>
                       <td className="px-4 py-2.5">
                         <StatusBadge tone={row.status === "APPROVED" ? "success" : row.status === "REJECTED" ? "danger" : "warning"}>
                           {row.status === "APPROVED" ? "Approved" : row.status === "REJECTED" ? "Rejected" : "Pending"}
@@ -672,14 +772,14 @@ export function GovernanceModule() {
                         {row.status === "PENDING" ? (
                           <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setDeciding(row)}>Decide</Button>
                         ) : (
-                          <span className="text-xs text-muted-foreground">{row.decidedAt ? phtDisplayStamp(row.decidedAt) : "—"}</span>
+                          <span className="text-xs text-muted-foreground">{row.decidedAt ? phtDisplayStamp(row.decidedAt) : "not decided"}</span>
                         )}
                       </td>
                     </tr>
                   ))}
                   {changes.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
                         No change has been raised. Method changes appear here for sign-off.
                       </td>
                     </tr>
@@ -697,7 +797,7 @@ export function GovernanceModule() {
                     </StatusBadge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {row.entity}{row.entityId != null ? ` #${row.entityId}` : ""}
+                    #{row.id} · {row.entity}{row.entityId != null ? ` #${row.entityId}` : ""}
                     {row.requestedAt ? ` · raised ${phtDisplayStamp(row.requestedAt)}` : ""}
                   </p>
                   {row.note ? <p className="text-xs text-muted-foreground">{row.note}</p> : null}
@@ -718,7 +818,7 @@ export function GovernanceModule() {
                 </li>
               ) : null}
             </ul>
-          </Card>
+          </Panel>
         </TabsContent>
       </Tabs>
       ) : null}

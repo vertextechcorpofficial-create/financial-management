@@ -13,7 +13,9 @@ const pad = (value: number) => String(value).padStart(2, "0");
 
 /** PHT parts of an instant. */
 function phtParts(value: Date | number = Date.now()) {
-  const shifted = new Date((typeof value === "number" ? value : value.getTime()) + PHT_OFFSET_MS);
+  const shifted = new Date(
+    (typeof value === "number" ? value : value.getTime()) + PHT_OFFSET_MS,
+  );
   return {
     year: shifted.getUTCFullYear(),
     month: shifted.getUTCMonth() + 1,
@@ -41,18 +43,24 @@ export function phtStamp(value: Date | number = Date.now()): string {
   return `${phtDate(value)}T${phtTime(value)}`;
 }
 
-/** `YYYY-MM-DD HH:mm:ss`, for display and for the audit log. */
-export function phtDisplayStamp(value: string | Date | number | null | undefined): string {
-  if (value == null || value === "") return "—";
+/** `MM/DD/YYYY HH:mm:ss`, for display and for the audit log. */
+export function phtDisplayStamp(
+  value: string | Date | number | null | undefined,
+): string {
+  if (value == null || value === "") return "not recorded";
   const iso = toPhtStampString(value);
-  return iso ? iso.replace("T", " ").slice(0, 19) : "—";
+  if (!iso) return "not recorded";
+  return `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)} ${iso.slice(11, 19)}`;
 }
 
-/** `YYYY-MM-DD HH:mm` for dense table cells. */
-export function phtDisplayShort(value: string | Date | number | null | undefined): string {
-  if (value == null || value === "") return "—";
+/** `MM/DD/YYYY HH:mm` for dense table cells. */
+export function phtDisplayShort(
+  value: string | Date | number | null | undefined,
+): string {
+  if (value == null || value === "") return "not recorded";
   const iso = toPhtStampString(value);
-  return iso ? iso.replace("T", " ").slice(0, 16) : "—";
+  if (!iso) return "not recorded";
+  return `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)} ${iso.slice(11, 16)}`;
 }
 
 /** Today's PHT date, the default for date inputs and date-only filters. */
@@ -90,14 +98,18 @@ export function toPhtStampString(value: string | Date | number): string {
 }
 
 /** `YYYY-MM-DD` of a stored stamp, in PHT. */
-export function toPhtDateString(value: string | Date | number | null | undefined): string {
+export function toPhtDateString(
+  value: string | Date | number | null | undefined,
+): string {
   if (value == null || value === "") return "";
   const iso = toPhtStampString(value);
   return iso ? iso.slice(0, 10) : "";
 }
 
 /** Whole days between a stored stamp and now, in PHT. Negative values mean future. */
-export function daysSince(value: string | Date | number | null | undefined): number {
+export function daysSince(
+  value: string | Date | number | null | undefined,
+): number {
   const date = toPhtDateString(value);
   if (!date) return 0;
   const then = Date.parse(`${date}T00:00:00Z`);
@@ -109,4 +121,12 @@ export function daysSince(value: string | Date | number | null | undefined): num
 export function isUtcStamp(value: string | null | undefined): boolean {
   if (!value) return false;
   return /Z$/i.test(value.trim());
+}
+
+/** mm/dd/yyyy for a date-only value, the format the QA deck asks for. */
+export function formatDateMDY(value: string | null | undefined): string {
+  const date = toPhtDateString(value ?? "");
+  if (!date) return "not recorded";
+  const [year, month, day] = date.split("-");
+  return `${month}/${day}/${year}`;
 }

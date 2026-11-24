@@ -6,7 +6,6 @@ import { fetchCadence } from "../providers/cadenceApi";
 import type { CadencePayload } from "../types";
 
 export function useCadence(initial?: string) {
-  const [period, setPeriod] = useState<string | undefined>(initial);
   const [data, setData] = useState<CadencePayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,8 +28,8 @@ export function useCadence(initial?: string) {
   }, []);
 
   useEffect(() => {
-    void load(period);
-  }, [load, period]);
+    void load(initial);
+  }, [load, initial]);
 
-  return { data, isLoading, error, period, setPeriod, reload: () => load(period) };
+  return { data, isLoading, error, period: data?.period ?? initial ?? "", reload: () => load(initial) };
 }

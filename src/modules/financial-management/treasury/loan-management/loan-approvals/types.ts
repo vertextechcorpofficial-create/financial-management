@@ -16,14 +16,14 @@ export type {
   Security,
 };
 
-export type LenderType = "BANK" | "FINANCING" | "GOVERNMENT" | "RELATED_PARTY" | "OTHER";
+export type LenderType =
+  "BANK" | "FINANCING" | "GOVERNMENT" | "RELATED_PARTY" | "OTHER";
 export type RateType = "FIXED" | "FLOATING";
 export type Pas23Type = "SPECIFIC" | "GENERAL";
 export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED";
 export type LoanStatus =
   | "PENDING_APPROVAL"
   | "REJECTED"
-  | "PENDING_RELEASE"
   | "CURRENT"
   | "OVERDUE"
   | "PAID_OFF"
@@ -129,7 +129,14 @@ export interface LoanScheduleRow {
   paid_penalty: number;
   paid_interest: number;
   paid_principal: number;
-  status: "UPCOMING" | "DUE" | "OVERDUE" | "PARTLY_PAID" | "PAID" | "PAID_IN_ADVANCE" | "RESTRUCTURED";
+  status:
+    | "UPCOMING"
+    | "DUE"
+    | "OVERDUE"
+    | "PARTLY_PAID"
+    | "PAID"
+    | "PAID_IN_ADVANCE"
+    | "RESTRUCTURED";
   paid_on: string | null;
   is_restated: boolean | number;
 }
@@ -159,7 +166,8 @@ export interface LoanGlMappingRow {
 // Approvals
 // ---------------------------------------------------------------------------
 
-export type ApprovalAction = "SUBMITTED" | "RESUBMITTED" | "APPROVED" | "REJECTED";
+export type ApprovalAction =
+  "SUBMITTED" | "RESUBMITTED" | "APPROVED" | "REJECTED";
 export type LoanEventKind =
   | "SUBMITTED"
   | "APPROVED"
@@ -202,8 +210,6 @@ export interface ApprovalQueueRow {
   approvalStatus: ApprovalStatus;
   /** The signed-in reviewer is also the submitter. Stored as a fact for the audit trail; the UI does not warn about it. */
   selfSubmitted: boolean;
-  /** Why release is refused right now, in words. Null when it would go through. */
-  releaseBlockedReason: string | null;
   hasSchedule: boolean;
   proceedsAccountLabel: string | null;
 }
@@ -258,6 +264,20 @@ export interface ApprovalDetail {
   dstAmount: number;
   otherCosts: number;
   eirRate: number;
+  accountOfficer: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  security: Security;
+  securityValue: number | null;
+  guarantor: string | null;
+  rateType: RateType;
+  repaymentMethod: RepaymentMethod;
+  paymentFrequency: PaymentFrequency;
+  firstPaymentDate: string;
+  firstPeriodBasis: FirstPeriodBasis;
+  businessDayRule: BusinessDayRule;
+  pas23Applies: boolean;
+  pas23BorrowingType: Pas23Type | null;
 }
 
 /** Everything the register needs for one company-wide page load. */

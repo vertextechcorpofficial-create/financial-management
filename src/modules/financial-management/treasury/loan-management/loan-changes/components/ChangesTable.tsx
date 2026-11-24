@@ -1,8 +1,11 @@
 "use client";
 
+import { FileClock, SearchX } from "lucide-react";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/utils";
 
+import { formatDateMDY } from "../pht";
 import { CHANGE_KIND_LABEL, CHANGE_KIND_TONE, CHANGE_STATUS_LABEL, CHANGE_STATUS_TONE } from "../constants";
 import type { ChangeListRow } from "../types";
 import { StatusBadge } from "./StatusBadge";
@@ -10,11 +13,11 @@ import { StatusBadge } from "./StatusBadge";
 const COLUMNS = 8;
 
 function stamp(value: string | null) {
-  return value ? value.slice(0, 10) : "—";
+  return formatDateMDY(value);
 }
 
 function money(value: number | null) {
-  return value === null ? "—" : formatCurrency(value);
+  return value === null ? "not recorded" : formatCurrency(value);
 }
 
 interface Props {
@@ -36,11 +39,16 @@ export function ChangesTable({ rows, isLoading, isFiltered, onOpen }: Props) {
   }
 
   if (!isLoading && rows.length === 0) {
+    const Icon = isFiltered ? SearchX : FileClock;
     return (
-      <div className="px-4 py-14 text-center text-sm text-muted-foreground">
-        {isFiltered
-          ? "No change matches these filters. Clear the search or widen the dates."
-          : "No prepayment, rate change, restructure or payoff has been recorded yet. Record one to see it here."}
+      <div className="flex flex-col items-center gap-2 px-4 py-14 text-center">
+        <Icon className="h-6 w-6 text-muted-foreground" aria-hidden />
+        <p className="text-sm font-medium">{isFiltered ? "No change matches these filters." : "No change has been recorded yet."}</p>
+        <p className="text-sm text-muted-foreground">
+          {isFiltered
+            ? "Clear the search or widen the dates."
+            : "Record a prepayment, rate change, restructure or payoff to see it here."}
+        </p>
       </div>
     );
   }
@@ -82,14 +90,14 @@ export function ChangesTable({ rows, isLoading, isFiltered, onOpen }: Props) {
                 <td className="px-4 py-3">
                   <div className="font-medium tabular-nums">{row.changeNo}</div>
                   <div className="text-xs text-muted-foreground">
-                    {row.amount !== null ? formatCurrency(row.amount) : row.newRate !== null ? `${row.newRate}%` : "—"}
+                    {row.amount !== null ? formatCurrency(row.amount) : row.newRate !== null ? `${row.newRate}%` : "not recorded"}
                   </div>
                 </td>
                 <td className="px-4 py-3">
                   <div className="max-w-[200px] truncate" title={`${row.loanNo ?? ""} ${row.lenderName ?? ""}`}>
-                    {row.loanNo ?? "—"}
+                    {row.loanNo ?? "not recorded"}
                   </div>
-                  <div className="max-w-[200px] truncate text-xs text-muted-foreground">{row.lenderName ?? "—"}</div>
+                  <div title={row.lenderName ?? "not recorded"} className="max-w-[200px] truncate text-xs text-muted-foreground">{row.lenderName ?? "not recorded"}</div>
                 </td>
                 <td className="px-4 py-3">
                   <StatusBadge tone={CHANGE_KIND_TONE[row.kind]}>{CHANGE_KIND_LABEL[row.kind]}</StatusBadge>
@@ -106,7 +114,7 @@ export function ChangesTable({ rows, isLoading, isFiltered, onOpen }: Props) {
                     <div className="text-xs text-muted-foreground">from {stamp(row.oldMaturity)}</div>
                   ) : null}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums">{row.gainLoss === 0 ? "—" : formatCurrency(row.gainLoss)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{row.gainLoss === 0 ? "none" : formatCurrency(row.gainLoss)}</td>
                 <td className="px-4 py-3">
                   <StatusBadge tone={CHANGE_STATUS_TONE[row.status]} title={row.entryNo ? `Entry ${row.entryNo}` : undefined}>
                     {CHANGE_STATUS_LABEL[row.status]}
@@ -128,14 +136,31 @@ export function ChangesTable({ rows, isLoading, isFiltered, onOpen }: Props) {
               </div>
               <div className="mt-1 flex items-center justify-between gap-3 text-xs text-muted-foreground">
                 <span className="truncate">
-                  {row.loanNo ?? "—"} · {row.lenderName ?? "—"}
+                  {row.loanNo ?? "not recorded"} · {row.lenderName ?? "not recorded"}
                 </span>
-                <span className="tabular-nums">{stamp(row.effectiveDate)}</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between gap-3 text-sm">
                 <StatusBadge tone={CHANGE_KIND_TONE[row.kind]}>{CHANGE_KIND_LABEL[row.kind]}</StatusBadge>
-                <span className="tabular-nums font-medium">{money(row.newInstallment)}</span>
               </div>
+              {/* The card carries the same facts as the row it stands in for, each with its label. */}
+              <span className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                <span className="text-muted-foreground">Effective</span>
+                <span className="text-right tabular-nums">{stamp(row.effectiveDate)}</span>
+                <span className="text-muted-foreground">Installment</span>
+                <span className="text-right tabular-nums">
+                  {money(row.newInstallment)}
+                  {row.oldInstallment !== null && row.newInstallment !== null && row.oldInstallment !== row.newInstallment ? (
+                    <span className="block text-muted-foreground">was {formatCurrency(row.oldInstallment)}</span>
+                  ) : null}
+                </span>
+                <span className="text-muted-foreground">Maturity</span>
+                <span className="text-right tabular-nums">
+                  {stamp(row.newMaturity)}
+                  {row.oldMaturity && row.newMaturity && row.oldMaturity !== row.newMaturity ? (
+                    <span className="block text-muted-foreground">was {stamp(row.oldMaturity)}</span>
+                  ) : null}
+                </span>
+                <span className="text-muted-foreground">Gain / loss</span>
+                <span className="text-right tabular-nums">{row.gainLoss === 0 ? "none" : formatCurrency(row.gainLoss)}</span>
+              </span>
             </button>
           </li>
         ))}

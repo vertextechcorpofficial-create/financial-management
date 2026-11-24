@@ -239,6 +239,9 @@ export interface SourceRow {
   last_sync_at: string | null;
   ageMinutes: number | null;
   fresh: boolean;
+  readings: number;
+  /** What this source carries for the month on screen: how many measures, across how many companies. */
+  feeds: { kpis: number; companies: number };
 }
 
 export interface CoverageRow {
@@ -275,6 +278,7 @@ export interface RunRow {
 export interface DataPayload {
   period: string;
   periods: string[];
+  nearestPeriod: string | null;
   sources: SourceRow[];
   coverage: CoverageRow;
   gates: GateResult[];

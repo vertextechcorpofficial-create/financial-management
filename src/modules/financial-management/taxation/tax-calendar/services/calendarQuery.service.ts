@@ -72,6 +72,7 @@ function emptyQuarter(): QuarterFigures {
     purchases: 0,
     purchasesVat: 0,
     cogsProductCost: 0,
+    cogsLedger: 0,
     expenses: 0,
     cwt: 0,
     icSales: 0,
@@ -105,7 +106,7 @@ async function buildCompanyInput(
     };
   }
 
-  const [{ figures, failed }, monthlyWithholding, rates] = await Promise.all([
+  const [{ figures, failed, notices }, monthlyWithholding, rates] = await Promise.all([
     loadFigures(company, taxYear, [], { springToken }),
     loadMonthlyWithholding(company, taxYear),
     loadTaxRates(company, taxYear),
@@ -133,6 +134,9 @@ async function buildCompanyInput(
     };
   }
 
+  const productCostGap =
+    notices.find((notice) => /sales detail lines could not be read/i.test(notice)) ?? null;
+
   return {
     input: {
       company,
@@ -142,7 +146,7 @@ async function buildCompanyInput(
       monthlyWithholding,
       quarterlySales: figures.map((quarter) => quarter.sales + quarter.icSales),
     },
-    notice: carryover.notice,
+    notice: [carryover.notice, productCostGap].filter(Boolean).join(" ") || null,
     failure: null,
   };
 }
@@ -212,8 +216,12 @@ async function buildCalendar(
       const { input, notice, failure } = await buildCompanyInput(company, taxYear, springToken);
       const rows = buildObligations(input, taxYear, paidKeys, today);
       // A company whose registers did not answer has no amount; zero would read as a real figure.
+      // Its deadlines also cannot be judged late or current, so they read as unverified instead.
       if (failure !== null) {
-        for (const row of rows) row.estimated = null;
+        for (const row of rows) {
+          row.estimated = null;
+          if (row.status !== "PAID") row.status = "UNVERIFIED";
+        }
       }
       return { companyId: company.companyId, code: company.code, rows, notice, failure };
     } catch (error) {

@@ -79,3 +79,10 @@ export function toPhtDateString(value: string | Date | number | null | undefined
   const iso = toPhtStampString(value);
   return iso ? iso.slice(0, 10) : "";
 }
+
+/** `MM/DD/YYYY`, from a date-only value or any stored stamp. */
+export function phtDisplayDate(value: string | Date | number | null | undefined): string {
+  if (value == null || value === "") return "—";
+  const date = toPhtDateString(value);
+  return date ? `${date.slice(5, 7)}/${date.slice(8, 10)}/${date.slice(0, 4)}` : "—";
+}

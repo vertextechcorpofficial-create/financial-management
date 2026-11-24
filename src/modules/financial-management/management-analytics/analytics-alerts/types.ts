@@ -266,6 +266,8 @@ export interface AlertsPayload {
   pageCount: number;
   counts: { unread: number; read: number; acked: number; high: number };
   policies: AlertPolicyRow[];
+  /** The variance policy the sweep reads, so the card edits the values in force. */
+  policy: Policy;
   types: string[];
   generatedAt: string;
 }

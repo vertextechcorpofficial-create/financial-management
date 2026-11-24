@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import type { AccountBody, AccountPatch, HolidayBody, HolidayPatch } from "../schemas";
+import type { AccountBody, AccountPatch, HolidayBody, HolidayPatch, LineAccountBody } from "../schemas";
 import {
   closeBooks,
   createAccount,
   createHoliday,
+  createMapping,
   deleteHoliday,
   fetchSettings,
   reopenBooks,
@@ -108,11 +109,17 @@ export function useSettings() {
   );
 
   const mapKey = useCallback(
-    (mappingKey: string, coaId: number | null) =>
+    (mappingKey: string, coaId: number | null, description: string) =>
       run(
-        () => updateMapping(mappingKey, coaId),
+        () => updateMapping(mappingKey, coaId, description),
         (result) => (coaId === null ? `${result.mappingKey} unmapped.` : `${result.mappingKey} mapped.`),
       ),
+    [run],
+  );
+
+  const addMapping = useCallback(
+    (body: LineAccountBody) =>
+      run(() => createMapping(body), (result) => `${result.mappingLabel} added to ${result.mappingGroup}.`),
     [run],
   );
 
@@ -140,6 +147,7 @@ export function useSettings() {
     editHoliday,
     removeHoliday,
     mapKey,
+    addMapping,
     lockPeriod,
     reopenPeriod,
   };

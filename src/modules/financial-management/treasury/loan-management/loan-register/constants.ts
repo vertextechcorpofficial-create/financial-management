@@ -15,10 +15,10 @@ export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "acce
 
 export const TONE_CLASS: Record<Tone, string> = {
   neutral: "bg-muted text-muted-foreground",
-  success: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  warning: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  danger: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
-  info: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  success: "bg-success/15 text-success",
+  warning: "bg-warning/15 text-warning",
+  danger: "bg-destructive/15 text-destructive",
+  info: "bg-info/15 text-info",
   accent: "bg-primary/10 text-primary",
 };
 
@@ -72,9 +72,18 @@ export const REPAYMENT_METHOD_LABEL: Record<RepaymentMethod, string> = {
   BULLET: "Bullet / interest only",
   FLAT_ADD_ON: "Flat-rate / add-on",
 };
+/**
+ * The form spells out when the money moves, because the plain name does not say it and the timing
+ * was previously only in the option subtext. Tables, filters and summaries keep the short name.
+ */
+export const REPAYMENT_METHOD_OPTION_LABEL: Record<RepaymentMethod, string> = {
+  ...REPAYMENT_METHOD_LABEL,
+  ORDINARY_ANNUITY: "Ordinary annuity (paid at period end)",
+  ANNUITY_DUE: "Annuity due (paid at period start)",
+};
 export const REPAYMENT_METHOD_HINT: Record<RepaymentMethod, string> = {
-  ORDINARY_ANNUITY: "Equal installments at the end of each period; interest on the declining balance.",
-  ANNUITY_DUE: "Equal installments at the start of each period; the first is paid at release and is all principal.",
+  ORDINARY_ANNUITY: "Equal installments; interest is charged on the declining balance.",
+  ANNUITY_DUE: "Equal installments; the first is paid at release and is all principal.",
   STRAIGHT_LINE: "Equal principal each period plus interest on the declining balance, so installments shrink.",
   BULLET: "Interest only each period, all principal at maturity.",
   FLAT_ADD_ON: "Interest on the original principal for the whole term, charged evenly. The true cost is higher than the quoted rate.",
@@ -116,12 +125,13 @@ export const DST_TREATMENT_LABEL: Record<DstTreatment, string> = {
 export const LOAN_STATUSES: LoanStatus[] = [
   "PENDING_APPROVAL",
   "REJECTED",
-  "PENDING_RELEASE",
   "CURRENT",
   "OVERDUE",
   "PAID_OFF",
   "PREPAID",
 ];
+// PENDING_RELEASE is no longer offered anywhere: approval posts the release and activates the loan
+// in one step. The labels stay so a row left in that state by an older build still prints a name.
 export const LOAN_STATUS_LABEL: Record<LoanStatus, string> = {
   PENDING_APPROVAL: "Pending approval",
   REJECTED: "Rejected",
@@ -154,7 +164,6 @@ export const PAS23_TYPE_LABEL: Record<string, string> = {
   GENERAL: "General borrowing",
 };
 
-/** Which loan statuses can still be edited, released, prepaid or deactivated. */
-export const EDITABLE_STATUSES: LoanStatus[] = ["PENDING_APPROVAL", "REJECTED", "PENDING_RELEASE"];
-export const RELEASABLE_STATUSES: LoanStatus[] = ["PENDING_RELEASE"];
+/** Loans an edit dialog may still open: a decided loan is history, not a draft. */
+export const EDITABLE_STATUSES: LoanStatus[] = ["PENDING_APPROVAL", "REJECTED"];
 export const OPEN_STATUSES: LoanStatus[] = ["CURRENT", "OVERDUE"];

@@ -12,7 +12,7 @@ import type {
   SettingsMapping,
   SettingsValue,
 } from "../types";
-import type { AccountBody, AccountPatch, HolidayBody, HolidayPatch, LockBody } from "../schemas";
+import type { AccountBody, AccountPatch, HolidayBody, HolidayPatch, LockBody, MappingCreateBody } from "../schemas";
 import {
   DirectusError,
   asBoolean,
@@ -39,6 +39,13 @@ const USERS = "user";
 
 const ACCOUNT_FIELDS = ["id", "name", "kind", "coa_id", "charge_pct", "is_active", "sort"];
 const COA_FIELDS = ["coa_id", "gl_code", "account_title"];
+const MAPPING_FIELDS = ["mapping_key", "coa_id", "mapping_group", "mapping_label", "usage_description", "updated_at"];
+
+/** The mapping rows, with the group, label and usage text the GL tab shows. */
+async function loadMappings(): Promise<MappingRowRaw[]> {
+  const { rows } = await listItems<MappingRowRaw>(MAPPINGS, { fields: MAPPING_FIELDS, sort: "mapping_key", limit: 200 });
+  return rows;
+}
 
 interface AccountRow {
   id: number;
@@ -60,6 +67,9 @@ interface HolidayRowRaw {
 interface MappingRowRaw {
   mapping_key: string;
   coa_id: number | null;
+  mapping_group?: string | null;
+  mapping_label?: string | null;
+  usage_description?: string | null;
   updated_at: string | null;
 }
 
@@ -143,11 +153,11 @@ async function paymentCounts(accountIds: number[]): Promise<Map<number, number>>
 }
 
 export async function loadSettings(): Promise<SettingsData> {
-  const [chart, accountPage, holidayPage, mappingPage, lockPage, valuePage] = await Promise.all([
+  const [chart, accountPage, holidayPage, mappingRows, lockPage, valuePage] = await Promise.all([
     loadChart(),
     listItems<AccountRow>(ACCOUNTS, { fields: ACCOUNT_FIELDS, sort: "sort,name", limit: 200 }),
     listItems<HolidayRowRaw>(HOLIDAYS, { fields: ["id", "holiday_date", "name", "kind"], sort: "-holiday_date", limit: 500 }),
-    listItems<MappingRowRaw>(MAPPINGS, { fields: ["mapping_key", "coa_id", "updated_at"], sort: "mapping_key", limit: 100 }),
+    loadMappings(),
     listItems<LockRowRaw>(LOCKS, {
       fields: ["id", "locked_through", "note", "locked_by", "locked_at", "reopened_at"],
       sort: "-locked_through",
@@ -183,7 +193,7 @@ export async function loadSettings(): Promise<SettingsData> {
     kind: (asString(row.kind) as HolidayKind) || "REGULAR",
   }));
 
-  const mappings: SettingsMapping[] = mappingPage.rows.map((row) => {
+  const mappings: SettingsMapping[] = mappingRows.map((row) => {
     const coaId = asNumberOrNull(row.coa_id);
     const coa = coaId == null ? null : byCoa.get(coaId);
     return {
@@ -191,6 +201,9 @@ export async function loadSettings(): Promise<SettingsData> {
       coaId,
       glCode: coa ? asString(coa.gl_code) : null,
       accountTitle: coa ? asString(coa.account_title) : null,
+      mappingGroup: asString(row.mapping_group) || null,
+      mappingLabel: asString(row.mapping_label) || null,
+      description: asString(row.usage_description) || null,
       updatedAt: row.updated_at ? toPhtDateString(row.updated_at) : null,
     };
   });
@@ -341,13 +354,19 @@ export async function deleteHoliday(id: number) {
   return { id };
 }
 
-export async function updateMapping(mappingKey: string, coaId: number | null, actor: number | null) {
+export async function updateMapping(
+  mappingKey: string,
+  coaId: number | null,
+  description: string,
+  actor: number | null,
+) {
   const row = await getItem<{ mapping_key: string }>(MAPPINGS, mappingKey, ["mapping_key", "coa_id"]);
   if (!row) throw new LoanNotFoundError(`There is no GL key called ${mappingKey}.`);
   if (coaId !== null) await requireCoa(coaId);
   await updateItem(MAPPINGS, mappingKey, {
     coa_id: coaId,
-    updated_by_user_id: actor,
+    usage_description: description.trim(),
+    updated_by: actor,
     updated_at: phtStamp(),
   });
   const { rows } = await listItems<MappingRowRaw>(MAPPINGS, { fields: ["mapping_key", "coa_id"], sort: "mapping_key", limit: 100 });
@@ -356,6 +375,33 @@ export async function updateMapping(mappingKey: string, coaId: number | null, ac
     coaId,
     unmappedKeys: rows.filter((item) => asNumberOrNull(item.coa_id) === null).map((item) => asString(item.mapping_key)),
   };
+}
+
+/** Add one line account: a key, the posting account it points at, and the group it sits under. */
+export async function createMapping(body: MappingCreateBody, actor: number | null) {
+  // A filtered list answers "does this key exist" without the 403 that a single-item read
+  // returns for a row that is not there.
+  const { rows } = await listItems<{ mapping_key: string }>(MAPPINGS, {
+    fields: ["mapping_key"],
+    filter: { mapping_key: { _eq: body.mapping_key } },
+    limit: 1,
+  });
+  if (rows.length > 0) throw new LoanConflictError(`There is already a GL key called ${body.mapping_key}.`);
+  await requireCoa(body.coa_id);
+
+  const label = body.mapping_label.trim();
+  const description = body.usage_description?.trim() ?? "";
+  await createItem<{ mapping_key: string }>(MAPPINGS, {
+    mapping_key: body.mapping_key,
+    coa_id: body.coa_id,
+    mapping_group: body.mapping_group,
+    mapping_label: label,
+    usage_description: description,
+    created_by: actor,
+    updated_by: actor,
+    updated_at: phtStamp(),
+  });
+  return { mappingKey: body.mapping_key, mappingGroup: body.mapping_group, mappingLabel: label };
 }
 
 export async function closeBooks(body: LockBody, actor: number | null) {

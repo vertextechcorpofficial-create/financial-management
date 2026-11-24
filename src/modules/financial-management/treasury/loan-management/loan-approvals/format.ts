@@ -1,13 +1,11 @@
 import { daysSince } from "./pht";
 import type { LoanStatus } from "./types";
 
-/** "pending approval", "approved and waiting for its money" — reads inside a sentence. */
+/** "pending approval", "already released and running"; reads inside a sentence. */
 export function statusNoun(status: LoanStatus): string {
   switch (status) {
     case "PENDING_APPROVAL":
       return "pending approval";
-    case "PENDING_RELEASE":
-      return "approved and waiting for its money";
     case "REJECTED":
       return "rejected";
     case "CURRENT":

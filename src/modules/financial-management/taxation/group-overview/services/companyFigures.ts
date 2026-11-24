@@ -29,7 +29,17 @@ const CANCELLED_SALES = ["Cancelled", "Void", "cancelled", "void"];
  */
 const DEDUCTIBLE_TYPES = new Set(["7", "8", "9", "10"]);
 
-async function loadDeductibleAccounts(company: RegistryCompany): Promise<number[] | null> {
+/** The two of those four that belong to line 3 (cost of sales), not line 6. */
+const COST_TYPES = new Set(["7", "8"]);
+
+interface DeductibleAccounts {
+  /** Every account a return may subtract, cost of sales included. */
+  ids: number[];
+  /** The cost-of-sales and cost-of-services accounts, which go to line 3. */
+  cost: Set<number>;
+}
+
+async function loadDeductibleAccounts(company: RegistryCompany): Promise<DeductibleAccounts | null> {
   try {
     const rows = await listRows<{ coa_id?: number | string; account_type?: string | number | null }>(
       company.baseUrl,
@@ -38,11 +48,17 @@ async function loadDeductibleAccounts(company: RegistryCompany): Promise<number[
       "chart_of_accounts",
       { fields: ["coa_id", "account_type"], limit: -1 },
     );
-    const ids = rows
-      .filter((row) => DEDUCTIBLE_TYPES.has(String(row.account_type ?? "").trim()))
-      .map((row) => Number(row.coa_id))
-      .filter((id) => Number.isFinite(id) && id > 0);
-    return ids.length > 0 ? ids : null;
+    const ids: number[] = [];
+    const cost = new Set<number>();
+    for (const row of rows) {
+      const type = String(row.account_type ?? "").trim();
+      if (!DEDUCTIBLE_TYPES.has(type)) continue;
+      const id = Number(row.coa_id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      ids.push(id);
+      if (COST_TYPES.has(type)) cost.add(id);
+    }
+    return ids.length > 0 ? { ids, cost } : null;
   } catch {
     return null;
   }
@@ -67,6 +83,7 @@ function emptyQuarter(): QuarterFigures {
     purchases: 0,
     purchasesVat: 0,
     cogsProductCost: 0,
+    cogsLedger: 0,
     expenses: 0,
     cwt: 0,
     icSales: 0,
@@ -140,7 +157,7 @@ async function payableRowsByDisbursementDate(
   company: RegistryCompany,
   from: string,
   to: string,
-  coaIds: number[],
+  accounts: DeductibleAccounts,
 ): Promise<Array<{ date: string; sums: Record<string, number> }>> {
   const vouchers = await listRows<{ id: number; transaction_date: string | null }>(
     company.baseUrl,
@@ -166,19 +183,23 @@ async function payableRowsByDisbursementDate(
     "disbursement_payables",
     {
       fields: ["disbursement_id", "amount", "coa_id"],
-      filter: { _and: [{ disbursement_id: { _in: [...dateOf.keys()] } }, { coa_id: { _in: coaIds } }] },
+      filter: { _and: [{ disbursement_id: { _in: [...dateOf.keys()] } }, { coa_id: { _in: accounts.ids } }] },
       limit: -1,
     },
   );
 
-  const byDate = new Map<string, number>();
+  const byDate = new Map<string, { amount: number; costAmount: number }>();
   for (const line of lines) {
     const date = dateOf.get(Number(line.disbursement_id));
     if (!date) continue;
-    byDate.set(date, (byDate.get(date) ?? 0) + (Number(line.amount) || 0));
+    const amount = Number(line.amount) || 0;
+    const current = byDate.get(date) ?? { amount: 0, costAmount: 0 };
+    current.amount += amount;
+    if (accounts.cost.has(Number(line.coa_id))) current.costAmount += amount;
+    byDate.set(date, current);
   }
 
-  return [...byDate.entries()].map(([date, amount]) => ({ date, sums: { amount } }));
+  return [...byDate.entries()].map(([date, sums]) => ({ date, sums }));
 }
 
 function bucket(  figures: QuarterFigures[],
@@ -396,8 +417,12 @@ export async function loadFigures(
       }
       if (salesSource !== "STT_VIEW") salesSource = "INVOICE_LINES";
     }
-  } catch {
-    notices.push("The sales detail lines could not be read, so product standard cost is zero.");
+  } catch (error) {
+    // Falling back to the purchase-order basis is fine; falling back silently is not, so the
+    // failure is named here instead of leaving a zero that looks like a real cost.
+    notices.push(
+      `The sales detail lines for ${taxYear} could not be read (${error instanceof Error ? error.message : String(error)}), so product standard cost is zero and line 5 uses purchase orders.`,
+    );
   }
 
   try {
@@ -437,17 +462,19 @@ export async function loadFigures(
   if (deductibleAccounts && company.springUrl && options.springToken) {
     const spring = await loadSpringExpenses(company, options.springToken, taxYear);
     if (spring.lines && spring.lines.length > 0) {
-      const allowed = new Set(deductibleAccounts);
+      const allowed = new Set(deductibleAccounts.ids);
       for (const line of spring.lines) {
         if (!allowed.has(line.coaId)) continue;
         const quarter = quarterIndex(line.date);
-        if (quarter >= 0) figures[quarter].expenses += line.amount;
+        if (quarter < 0) continue;
+        if (deductibleAccounts.cost.has(line.coaId)) figures[quarter].cogsLedger += line.amount;
+        else figures[quarter].expenses += line.amount;
       }
       expenseBooked = true;
       notices.push(
-        `Deductions come from the itemized disbursement view, counting only the ${deductibleAccounts.length} ` +
-          "cost of sales, cost of services, operating expense and finance-cost accounts. Settlements of inventory, " +
-          "receivables, loans and taxes are balance-sheet movements and are excluded.",
+        `Cost of sales and cost of services come from the itemized disbursement view: ${deductibleAccounts.cost.size} ` +
+          `account${deductibleAccounts.cost.size === 1 ? "" : "s"} of ${deductibleAccounts.ids.length} deductible ones ` +
+          "reach line 3, the rest reach line 6. Inventory, receivables, loans and tax settlements are excluded.",
       );
     } else if (spring.reason) {
       notices.push(`The itemized disbursement view was not used because ${spring.reason}.`);
@@ -459,11 +486,13 @@ export async function loadFigures(
       const payables = await payableRowsByDisbursementDate(company, from, to, deductibleAccounts);
       if (payables.length > 0) {
         bucket(figures, payables, (quarter, sums) => {
-          quarter.expenses += sums.amount ?? 0;
+          quarter.cogsLedger += sums.costAmount ?? 0;
+          quarter.expenses += (sums.amount ?? 0) - (sums.costAmount ?? 0);
         });
         expenseBooked = true;
         notices.push(
-          `Deductions count only the ${deductibleAccounts.length} expense, cost of sales and finance-cost accounts. ` +
+          `The disbursement ledger supplies line 3 (cost of sales and cost of services, ${deductibleAccounts.cost.size} ` +
+            `accounts) and line 6 (operating and finance costs, ${deductibleAccounts.ids.length - deductibleAccounts.cost.size} accounts). ` +
             "Payments that settled inventory, receivables, loans or taxes are balance-sheet movements and are excluded.",
         );
       }
@@ -588,6 +617,7 @@ export async function loadYearTotals(company: RegistryCompany, taxYear: number, 
     purchases: 0,
     purchasesVat: 0,
     cogsProductCost: 0,
+    cogsLedger: 0,
     expenses: 0,
     cwt: 0,
     salesSource: "INVOICE_HEADERS" as FigureResult["salesSource"],
@@ -697,7 +727,11 @@ export async function loadYearTotals(company: RegistryCompany, taxYear: number, 
   if (deductibleAccounts) {
     try {
       const rows = await payableRowsByDisbursementDate(company, from, to, deductibleAccounts);
-      totals.expenses = rows.reduce((total, row) => total + (row.sums.amount ?? 0), 0);
+      totals.cogsLedger = rows.reduce((total, row) => total + (row.sums.costAmount ?? 0), 0);
+      totals.expenses = rows.reduce(
+        (total, row) => total + (row.sums.amount ?? 0) - (row.sums.costAmount ?? 0),
+        0,
+      );
     } catch {
       // Falls back to the expense register below.
     }

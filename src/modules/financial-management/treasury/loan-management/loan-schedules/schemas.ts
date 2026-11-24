@@ -16,6 +16,9 @@ export const scheduleQuerySchema = z.object({
   version: positiveInt.optional(),
   asOf: isoDate.optional(),
   status: z.string().trim().min(1).max(32).optional(),
+  /** Inclusive bounds on the payable date. */
+  dueFrom: isoDate.optional(),
+  dueTo: isoDate.optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(0).max(500).default(25),
 });

@@ -13,6 +13,7 @@ import {
 
 import { LOAN_STATUS_LABEL, LOAN_STATUS_TONE, LENDER_TYPE_LABEL } from "../constants";
 import type { LoanListRow } from "../types";
+import { formatDateMDY } from "../pht";
 import { StatusBadge } from "./StatusBadge";
 
 const COLUMNS = 6;
@@ -22,8 +23,8 @@ function money(value: number): string {
 }
 
 function dateLabel(value: string | null): string {
-  if (!value) return "—";
-  return value.slice(0, 10);
+  if (!value) return "not recorded";
+  return formatDateMDY(value);
 }
 
 export function RegisterTable({

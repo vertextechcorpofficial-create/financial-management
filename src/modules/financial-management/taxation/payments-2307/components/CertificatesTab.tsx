@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Download, FileDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { Download, FileDown, Loader2, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -16,6 +16,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatNumber } from "@/lib/utils";
@@ -27,12 +30,15 @@ import {
   WITHHOLDING_LABELS,
   certificateStatusLabel,
   effectiveRatePercent,
+  isStatutoryRate,
 } from "../constants";
+import { phtDisplayDate } from "../pht";
 import type { CertificateBody } from "../schemas";
-import type { CertificateRow, ExpectedPeriod, PrefillResult } from "../types";
+import type { CertificateDirection, CertificateRow, CertificateStatus, ExpectedPeriod, PeriodKey, PrefillResult } from "../types";
 import { CertificateDetailDialog } from "./CertificateDetailDialog";
 import { CertificateDialog } from "./CertificateDialog";
 import { ConfirmDeleteDialog } from "./ConfirmDeleteDialog";
+import { OptionCombobox } from "./OptionCombobox";
 import { StatusBadge } from "./StatusBadge";
 import { TablePager } from "./TablePager";
 import { downloadCertificates } from "../utils/exportWorkbook";
@@ -43,10 +49,21 @@ const SOURCE_LABELS: Record<string, string> = {
   PURCHASE_ORDER: "Purchase order",
 };
 
+const STATUS_KEYS: CertificateStatus[] = ["MATCHED", "SHORT", "OVER", "NOT_ENTERED", "UPCOMING", "UNKNOWN"];
+
 const COLUMN_COUNT = 11;
 
 function periodOrder(periodKey: string): number {
   return PERIOD_KEYS.indexOf(periodKey as (typeof PERIOD_KEYS)[number]);
+}
+
+/**
+ * A prefilled row is the ledger's own estimate until someone confirms the TIN and the date the
+ * certificate arrived. Until then it can be neither claimed as a credit nor reconciled against a
+ * payor's copy, so it is counted apart instead of being totalled with the verified certificates.
+ */
+function isVerified(row: CertificateRow): boolean {
+  return (row.counterpartyTin ?? "").trim() !== "" && (row.dateReceived ?? "") !== "";
 }
 
 /**
@@ -87,6 +104,10 @@ export function CertificatesTab({
   onPrefill,
 }: CertificatesTabProps) {
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [direction, setDirection] = useState<"ALL" | CertificateDirection>("ALL");
+  const [period, setPeriod] = useState<"ALL" | PeriodKey>("ALL");
+  const [status, setStatus] = useState<"ALL" | CertificateStatus>("ALL");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<CertificateRow | null>(null);
   const [deleting, setDeleting] = useState<CertificateRow | null>(null);
@@ -98,25 +119,54 @@ export function CertificatesTab({
   // The register lists certificates only. A period the ledger expects but no certificate covers is
   // reported once, in the panel under the table, instead of as a grey row repeating the same figure.
   const rows = useMemo<CertificateRow[]>(() => {
-    return certificates.slice().sort((left, right) => {
-      const byPeriod = periodOrder(left.periodKey) - periodOrder(right.periodKey);
-      if (byPeriod !== 0) return byPeriod;
-      if (left.direction !== right.direction) return left.direction === "RECEIVED" ? -1 : 1;
-      return left.counterpartyName.localeCompare(right.counterpartyName);
-    });
-  }, [certificates]);
+    const needle = query.trim().toLowerCase();
+    return certificates
+      .filter((row) => direction === "ALL" || row.direction === direction)
+      .filter((row) => period === "ALL" || row.periodKey === period)
+      .filter((row) => status === "ALL" || row.status === status)
+      .filter(
+        (row) =>
+          needle === "" ||
+          row.counterpartyName.toLowerCase().includes(needle) ||
+          (row.counterpartyTin ?? "").toLowerCase().includes(needle),
+      )
+      .sort((left, right) => {
+        const byPeriod = periodOrder(left.periodKey) - periodOrder(right.periodKey);
+        if (byPeriod !== 0) return byPeriod;
+        if (left.direction !== right.direction) return left.direction === "RECEIVED" ? -1 : 1;
+        return left.counterpartyName.localeCompare(right.counterpartyName);
+      });
+  }, [certificates, query, direction, period, status]);
 
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
   const visible = rows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const withheldTotal = certificates.reduce((sum, certificate) => sum + certificate.taxWithheld, 0);
+  // A credit and a liability never add up to one figure, and unreceived invoice estimates are
+  // counted apart from substantiated certificates (RR 2-98 requires TIN + date received).
+  const verifiedRows = rows.filter(isVerified);
+  const receivedRows = verifiedRows.filter((row) => row.direction === "RECEIVED");
+  const issuedRows = verifiedRows.filter((row) => row.direction === "ISSUED");
+  const sumWithheld = (list: CertificateRow[]) => list.reduce((sum, row) => sum + row.taxWithheld, 0);
+
+  const dirty = query.trim() !== "" || direction !== "ALL" || period !== "ALL" || status !== "ALL";
+
+  const estimates = rows.filter((row) => !isVerified(row));
+
+  function clearFilters() {
+    setQuery("");
+    setDirection("ALL");
+    setPeriod("ALL");
+    setStatus("ALL");
+    setPage(1);
+  }
 
   // A short certificate hides the gap it leaves, so expected and recorded stay side by side — but only
   // for periods that disagree. A matched period is already visible as the register's own amount.
   const expectation = useMemo(() => {
     const recorded = new Map<string, number>();
     for (const certificate of certificates) {
+      if (!isVerified(certificate)) continue;
       const key = `${certificate.direction}|${certificate.periodKey}`;
       recorded.set(key, (recorded.get(key) ?? 0) + certificate.taxWithheld);
     }
@@ -170,16 +220,39 @@ export function CertificatesTab({
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">Certificates on file</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            One row per certificate. Click a row for the full record.
+            One row per certificate. A row missing its TIN or the date received is an estimate from
+            the ledger, counted apart. Click a row for the full record.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="tabular-nums text-[11px]">
-            {formatNumber(certificates.length)} certificates
+            {dirty
+              ? `${formatNumber(rows.length)} matching`
+              : `${formatNumber(rows.length)} ${rows.length === 1 ? "certificate" : "certificates"}`}
           </Badge>
-          <Badge variant="outline" className="tabular-nums text-[11px]">
-            {formatCurrency(withheldTotal)} withheld
+          <Badge
+            variant="outline"
+            className="tabular-nums text-[11px]"
+            title="Tax a customer or payor withheld from you: a credit you can claim."
+          >
+            {formatNumber(receivedRows.length)} received · {formatCurrency(sumWithheld(receivedRows))}
           </Badge>
+          <Badge
+            variant="outline"
+            className="tabular-nums text-[11px]"
+            title="Tax you withheld from suppliers and payees: a liability you remit."
+          >
+            {formatNumber(issuedRows.length)} issued · {formatCurrency(sumWithheld(issuedRows))}
+          </Badge>
+          {estimates.length > 0 ? (
+            <Badge
+              variant="outline"
+              className="tabular-nums text-[11px] text-amber-700 dark:text-amber-300"
+              title="Prefilled from the ledger but missing a TIN or the date the certificate arrived. Not yet a claimable credit: open each one, confirm the TIN and the date, then save."
+            >
+              {formatNumber(estimates.length)} {estimates.length === 1 ? "estimate" : "estimates"} · {formatCurrency(sumWithheld(estimates))}
+            </Badge>
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -190,7 +263,7 @@ export function CertificatesTab({
             className="min-h-11 md:min-h-0"
           >
             <Download className="mr-2 size-4" />
-            Export
+            Export Excel
           </Button>
           <Button
             type="button"
@@ -209,6 +282,117 @@ export function CertificatesTab({
           </Button>
         </div>
       </header>
+
+      <div
+        aria-label="2307 certificate filters"
+        hidden={certificates.length === 0}
+        className="border-b border-border/50 px-4 py-3"
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1fr)_auto]">
+          <div className="space-y-1.5">
+            <Label htmlFor="certificate-filter-search" className="text-[11px] font-medium text-muted-foreground">
+              Search
+            </Label>
+            <div className="relative">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                id="certificate-filter-search"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="Payor / supplier or TIN"
+                className="pl-8"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-medium text-muted-foreground">Direction</Label>
+            <OptionCombobox
+              options={[
+                { value: "ALL", label: "Both directions" },
+                { value: "RECEIVED", label: DIRECTION_LABELS.RECEIVED },
+                { value: "ISSUED", label: DIRECTION_LABELS.ISSUED },
+              ]}
+              value={direction}
+              onChange={(value) => {
+                setDirection(value as "ALL" | CertificateDirection);
+                setPage(1);
+              }}
+              placeholder="Both directions"
+              searchPlaceholder="Search directions"
+              emptyLabel="No direction matches."
+              aria-label="Direction filter"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-medium text-muted-foreground">Period</Label>
+            <Select
+              value={period}
+              onValueChange={(value) => {
+                setPeriod(value as "ALL" | PeriodKey);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-full" aria-label="Period filter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-60">
+                <SelectItem value="ALL">All periods</SelectItem>
+                {PERIOD_KEYS.map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {PERIOD_LABELS[key]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-medium text-muted-foreground">Status</Label>
+            <Select
+              value={status}
+              onValueChange={(value) => {
+                setStatus(value as "ALL" | CertificateStatus);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-full" aria-label="Status filter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-60">
+                <SelectItem value="ALL">Every status</SelectItem>
+                {STATUS_KEYS.map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {certificateStatusLabel(key)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-end">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={clearFilters}
+              disabled={!dirty}
+              title={dirty ? "Clear every filter" : "No filter is set"}
+              className="min-h-11 md:min-h-0"
+            >
+              <X className="mr-2 size-4" />
+              Clear filters
+            </Button>
+          </div>
+        </div>
+      </div>
 
       {prefillError ? (
         <div className="px-4 pb-3">
@@ -230,7 +414,7 @@ export function CertificatesTab({
         <Table aria-label="2307 certificates" className="w-full">
           <TableHeader>
             <TableRow>
-              <TableHead className="min-w-[180px]">Issuer / payee</TableHead>
+              <TableHead className="min-w-[180px]">Payor / supplier</TableHead>
               <TableHead className="min-w-[120px]">TIN</TableHead>
               <TableHead className="whitespace-nowrap">Period</TableHead>
               <TableHead className="min-w-[120px]">Income type</TableHead>
@@ -255,7 +439,9 @@ export function CertificatesTab({
             ) : visible.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={COLUMN_COUNT} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                  No certificate is recorded for {year}.
+                  {dirty
+                    ? "No certificate matches these filters. Clear the search, or pick another direction, period or status."
+                    : `No certificate is recorded for ${year}. Prefill from invoices, or add one by hand.`}
                 </TableCell>
               </TableRow>
             ) : (
@@ -293,15 +479,47 @@ export function CertificatesTab({
                       </span>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(row.incomeAmount)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatNumber(ratePercent(row), "en-PH", 2)}%</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {isStatutoryRate(ratePercent(row)) ? (
+                        `${formatNumber(ratePercent(row), "en-PH", 2)}%`
+                      ) : (
+                        <span
+                          className="text-amber-600 dark:text-amber-400"
+                          title={`${formatNumber(ratePercent(row), "en-PH", 2)}% is not a withholding rate (1%, 2%, 5%, 10% or 15%), so the withheld amount was probably computed on a VAT-inclusive base. Recompute it on the VAT-exclusive income, then set the rate.`}
+                        >
+                          {formatNumber(ratePercent(row), "en-PH", 2)}%
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(row.taxWithheld)}</TableCell>
-                    <TableCell className="tabular-nums">{row.dateReceived ?? "—"}</TableCell>
+                    <TableCell className="tabular-nums">
+                      {row.dateReceived ? (
+                        phtDisplayDate(row.dateReceived)
+                      ) : (
+                        <span
+                          className="text-amber-700 dark:text-amber-300"
+                          title="No date received yet. The row is an estimate from the ledger until the certificate itself is in hand."
+                        >
+                          Not yet
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>{SOURCE_LABELS[row.source] ?? row.source}</TableCell>
                     <TableCell>
-                      <StatusBadge
-                        status={row.status}
-                        label={certificateStatusLabel(row.status)}
-                      />
+                      <div className="flex flex-col items-start gap-1">
+                        <StatusBadge
+                          status={row.status}
+                          label={certificateStatusLabel(row.status)}
+                        />
+                        {isVerified(row) ? null : (
+                          <span
+                            className="text-[11px] text-amber-700 dark:text-amber-300"
+                            title="Missing the TIN or the date received, so this row is not yet a claimable credit."
+                          >
+                            Estimate
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -351,6 +569,7 @@ export function CertificatesTab({
                   <p className="text-[11px] text-muted-foreground">
                     {DIRECTION_LABELS[row.direction]} · {PERIOD_LABELS[row.periodKey]} ·{" "}
                     {WITHHOLDING_LABELS[row.incomeType]}
+                    {isVerified(row) ? "" : " · estimate"}
                   </p>
                 </div>
                 <StatusBadge status={row.status} label={certificateStatusLabel(row.status)} />

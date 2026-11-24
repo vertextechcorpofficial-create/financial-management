@@ -16,9 +16,9 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn, formatCurrency } from "@/lib/utils";
 
-import { ASSUMED_WITHHOLDING_LABEL, formatMonth, toneClass } from "../constants";
+import { formatMonth, toneClass } from "../constants";
 import type { IntercompanyMonthlyRow, IntercompanyPair } from "../types";
-import { AMOUNT_TOLERANCE, buildWithholdingRows, VERDICT_STYLE } from "../withholding";
+import { AMOUNT_TOLERANCE, buildWithholdingRows, VERDICT_STYLE, type ConfiguredWithholdingRate } from "../withholding";
 import { PairStatusBadge } from "./PairStatusBadge";
 
 type Props = {
@@ -26,6 +26,8 @@ type Props = {
   /** The selected company's monthly rows; the only month detail the payload carries. */
   monthly: IntercompanyMonthlyRow[];
   companyCode: string;
+  /** The payer's configured withholding rates; null while they load or when they could not be read. */
+  rates: ConfiguredWithholdingRate[] | null;
   onOpenChange: (open: boolean) => void;
 };
 
@@ -71,8 +73,8 @@ function money(value: number | null): string {
   return value === null ? "—" : formatCurrency(value);
 }
 
-export function PairDetailDialog({ pair, monthly, companyCode, onOpenChange }: Props) {
-  const row = pair ? buildWithholdingRows([pair])[0] : null;
+export function PairDetailDialog({ pair, monthly, companyCode, rates, onOpenChange }: Props) {
+  const row = pair ? buildWithholdingRows([pair], { rates: rates ?? undefined })[0] : null;
   const months = pair ? pairMonths(pair, monthly, companyCode) : [];
   const partial = months.some((month) => month.sales === null) && months.some((month) => month.purchases === null);
 
@@ -111,11 +113,11 @@ export function PairDetailDialog({ pair, monthly, companyCode, onOpenChange }: P
                 </Detail>
                 <Detail label="Rate">
                   {row.rate === null ? (
-                    <span className="text-xs font-medium text-muted-foreground">not determinable</span>
+                    <span className="text-xs font-medium text-muted-foreground">{row.rateLabel}</span>
                   ) : (
                     <>
                       <span className="font-medium tabular-nums">{Math.round(row.rate * 100)}%</span>
-                      <span className="ml-1 text-xs text-muted-foreground">{ASSUMED_WITHHOLDING_LABEL}</span>
+                      <span className="ml-1 text-xs text-muted-foreground">{row.rateLabel}</span>
                     </>
                   )}
                 </Detail>

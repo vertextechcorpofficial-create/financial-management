@@ -31,6 +31,8 @@ export async function GET(request: NextRequest) {
       version: parsed.data.version ?? null,
       asOf: parsed.data.asOf ?? "",
       status: parsed.data.status ?? null,
+      dueFrom: parsed.data.dueFrom ?? null,
+      dueTo: parsed.data.dueTo ?? null,
       page: parsed.data.page,
       pageSize: parsed.data.pageSize,
     });

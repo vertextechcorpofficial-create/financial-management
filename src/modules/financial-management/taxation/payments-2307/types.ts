@@ -105,6 +105,18 @@ export interface PeriodLockRow {
   unlockReason: string | null;
   unlockedAt: string | null;
   unlockedBy: number | null;
+  unlockedByName: string | null;
+}
+
+/** One step of a period's lock trail, as the change log recorded it. */
+export interface LockTrailEntry {
+  id: number;
+  occurredAt: string;
+  actorName: string | null;
+  action: string;
+  reason: string | null;
+  beforeValue: string | null;
+  afterValue: string | null;
 }
 
 /** What the company's invoices say the certificates for one period should add up to. */

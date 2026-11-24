@@ -9,7 +9,6 @@ import {
   fetchDetail,
   fetchQueue,
   rejectLoan as rejectRequest,
-  releaseLoan as releaseRequest,
   type QueuePayload,
 } from "../providers/approvalsApi";
 import type { ReleaseChannel } from "../types";
@@ -20,14 +19,18 @@ export interface ApprovalFilters {
   lenderType: string;
 }
 
-const EMPTY: QueuePayload = { rows: [], total: 0, counts: {} };
+const EMPTY: QueuePayload = { rows: [], total: 0 };
 
 function messageOf(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback;
 }
 
 export function useApprovals(pageSize: number) {
-  const [filters, setFilters] = useState<ApprovalFilters>({ q: "", status: "ALL", lenderType: "ALL" });
+  const [filters, setFilters] = useState<ApprovalFilters>({
+    q: "",
+    status: "ALL",
+    lenderType: "ALL",
+  });
   const [page, setPage] = useState(1);
   const [data, setData] = useState<QueuePayload>(EMPTY);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,7 +42,11 @@ export function useApprovals(pageSize: number) {
     const seq = ++requestSeq.current;
     setIsLoading(true);
     try {
-      const payload = await fetchQueue({ ...filters, page, pageSize: pageSize || LOAN_PAGE_SIZE });
+      const payload = await fetchQueue({
+        ...filters,
+        page,
+        pageSize: pageSize || LOAN_PAGE_SIZE,
+      });
       if (seq !== requestSeq.current) return;
       setData(payload);
       setError(null);
@@ -61,7 +68,11 @@ export function useApprovals(pageSize: number) {
   }, []);
 
   const loadDetail = useCallback(
-    async (id: number, channel: ReleaseChannel = "TRANSFER", accountId: number | null = null) => {
+    async (
+      id: number,
+      channel: ReleaseChannel = "TRANSFER",
+      accountId: number | null = null,
+    ) => {
       try {
         return await fetchDetail(id, channel, accountId);
       } catch (cause) {
@@ -72,66 +83,41 @@ export function useApprovals(pageSize: number) {
     [],
   );
 
-  const approve = useCallback(
-    async (id: number, remarks: string) => {
-      setIsSaving(true);
-      try {
-        const result = await approveRequest(id, remarks);
-        toast.success(`${result.loanNo} approved and waiting for release.`);
-        await load();
-        return result;
-      } catch (cause) {
-        toast.error(messageOf(cause, "The loan could not be approved."));
-        return null;
-      } finally {
-        setIsSaving(false);
-      }
-    },
-    [load],
-  );
+  const approve = useCallback(async (id: number, remarks: string) => {
+    setIsSaving(true);
+    try {
+      const result = await approveRequest(id, remarks);
+      toast.success(
+        `${result.loanNo} approved · ${result.entryNo} posted${result.scheduleRows > 0 ? ` · ${result.scheduleRows} installments scheduled` : ""}`,
+      );
+      return result;
+    } catch (cause) {
+      toast.error(messageOf(cause, "The loan could not be approved."));
+      return null;
+    } finally {
+      setIsSaving(false);
+    }
+  }, []);
 
-  const reject = useCallback(
-    async (id: number, reason: string) => {
-      setIsSaving(true);
-      try {
-        const result = await rejectRequest(id, reason);
-        toast.success(`${result.loanNo} rejected. The preparer sees your reason.`);
-        await load();
-        return result;
-      } catch (cause) {
-        toast.error(messageOf(cause, "The loan could not be rejected."));
-        return null;
-      } finally {
-        setIsSaving(false);
-      }
-    },
-    [load],
-  );
-
-  const release = useCallback(
-    async (id: number, input: { releaseDate: string; channel: ReleaseChannel; accountId: number | null }) => {
-      setIsSaving(true);
-      try {
-        const result = await releaseRequest(id, input);
-        toast.success(
-          `${result.loanNo} released · ${result.entryNo}${result.scheduleRows > 0 ? ` · ${result.scheduleRows} installments scheduled` : ""}`,
-        );
-        await load();
-        return result;
-      } catch (cause) {
-        toast.error(messageOf(cause, "The loan could not be released."));
-        return null;
-      } finally {
-        setIsSaving(false);
-      }
-    },
-    [load],
-  );
+  const reject = useCallback(async (id: number, reason: string) => {
+    setIsSaving(true);
+    try {
+      const result = await rejectRequest(id, reason);
+      toast.success(
+        `${result.loanNo} rejected. The preparer sees your reason.`,
+      );
+      return result;
+    } catch (cause) {
+      toast.error(messageOf(cause, "The loan could not be rejected."));
+      return null;
+    } finally {
+      setIsSaving(false);
+    }
+  }, []);
 
   return {
     rows: data.rows,
     total: data.total,
-    counts: data.counts,
     filters,
     page,
     isLoading,
@@ -143,6 +129,5 @@ export function useApprovals(pageSize: number) {
     loadDetail,
     approve,
     reject,
-    release,
   };
 }

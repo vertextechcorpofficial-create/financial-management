@@ -26,6 +26,7 @@ const EMPTY: RegisterPayload = {
     },
     accounts: [],
     notices: [],
+    staleOverdue: 0,
   },
 };
 

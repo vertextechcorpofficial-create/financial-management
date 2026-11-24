@@ -4,6 +4,7 @@ import type {
   AgingBuckets,
   CurrentPortionSplit,
   LoanScheduleRow,
+  LoanStatus,
   ScheduleTie,
   ScheduleTotals,
 } from "../types";
@@ -50,8 +51,7 @@ export function emptyBuckets(): AgingBuckets {
   };
 }
 
-/** Adds one loan's unpaid installments into a bucket set. */
-export function agingFromRows(rows: readonly LoanScheduleRow[], asOf: string): AgingBuckets {
+/** Adds one loan's unpaid installments into a bucket set. */export function agingFromRows(rows: readonly LoanScheduleRow[], asOf: string): AgingBuckets {
   const buckets = emptyBuckets();
   for (const row of rows) {
     if (!isUnpaid(row)) continue;
@@ -64,8 +64,38 @@ export function agingFromRows(rows: readonly LoanScheduleRow[], asOf: string): A
   return buckets;
 }
 
-const BUCKET_KEYS: AgingBucketKey[] = ["current", "d1_30", "d31_60", "d61_90", "d91_180", "over180"];
+/** The three columns the badge rule needs, so a trimmed row type can be passed in. */
+export interface StatusRow {
+  payment_due_date: string;
+  principal: number;
+  paid_principal: number;
+}
 
+/**
+ * The badge a loan carries on `asOf`, in both directions.
+ *
+ * `loan.status` only moves when something writes it, so a CURRENT loan whose installments have
+ * gone past their due date kept reading CURRENT while the aging beside it said otherwise. A read
+ * derives the answer and writes nothing; the refresh action writes the same answer back, so the
+ * stored column and this function never disagree for long.
+ *
+ * Only the two states the schedule owns are derived: a pending, rejected, released-for-later or
+ * closed loan keeps whatever its own workflow set.
+ */
+export function deriveLoanStatus(
+  status: LoanStatus,
+  rows: readonly StatusRow[],
+  graceDays: number,
+  asOf: string,
+): LoanStatus {
+  if (status !== "CURRENT" && status !== "OVERDUE") return status;
+  const late = rows.some(
+    (row) => round2(row.principal - row.paid_principal) > 0.005 && daysBetween(row.payment_due_date, asOf) > graceDays,
+  );
+  return late ? "OVERDUE" : "CURRENT";
+}
+
+const BUCKET_KEYS: AgingBucketKey[] = ["current", "d1_30", "d31_60", "d61_90", "d91_180", "over180"];
 export function mergeBuckets(target: AgingBuckets, source: AgingBuckets): AgingBuckets {
   for (const key of BUCKET_KEYS) target[key] = round2(target[key] + source[key]);
   target.overduePrincipal = round2(target.overduePrincipal + source.overduePrincipal);

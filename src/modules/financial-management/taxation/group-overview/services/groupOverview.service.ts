@@ -114,6 +114,10 @@ async function buildRow(
     const withholding = roundMoney(figures.reduce((total, quarter) => total + quarter.cwt, 0));
     const hasActivity = figuresHaveActivity(figures);
     const netPosition = tax.annual.netPosition;
+    // Product standard cost failing is a partial read, not an unreadable company: the figures
+    // still come from purchase orders, so the row stays and says which source was missing.
+    const productCostGap =
+      notices.find((notice) => /sales detail lines could not be read/i.test(notice)) ?? null;
 
     const status: GroupRowStatus = !hasActivity
       ? "NOT_ENTERED"
@@ -138,7 +142,7 @@ async function buildRow(
       withholding,
       status,
       profileMissing: state.missing,
-      failure: null,
+      failure: productCostGap,
       sales: quarterly((quarter) => quarter.sales),
       salesVat: quarterly((quarter) => quarter.salesVat),
       discounts: quarterly((quarter) => quarter.discounts),
