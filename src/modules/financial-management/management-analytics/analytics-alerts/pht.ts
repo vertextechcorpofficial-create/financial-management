@@ -41,18 +41,18 @@ export function phtStamp(value: Date | number = Date.now()): string {
   return `${phtDate(value)}T${phtTime(value)}`;
 }
 
-/** `YYYY-MM-DD HH:mm:ss`, for display and for the audit log. */
+/** `MM/DD/YYYY HH:mm:ss` in PHT, the house display shape. An empty stamp says so. */
 export function phtDisplayStamp(value: string | Date | number | null | undefined): string {
-  if (value == null || value === "") return "—";
+  if (value == null || value === "") return "not recorded";
   const iso = toPhtStampString(value);
-  return iso ? iso.replace("T", " ").slice(0, 19) : "—";
+  return iso ? `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)} ${iso.slice(11, 19)}` : "not recorded";
 }
 
-/** `YYYY-MM-DD HH:mm` for dense table cells. */
+/** `MM/DD/YYYY HH:mm` in PHT, for dense table cells. */
 export function phtDisplayShort(value: string | Date | number | null | undefined): string {
-  if (value == null || value === "") return "—";
+  if (value == null || value === "") return "not recorded";
   const iso = toPhtStampString(value);
-  return iso ? iso.replace("T", " ").slice(0, 16) : "—";
+  return iso ? `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)} ${iso.slice(11, 16)}` : "not recorded";
 }
 
 /** Today's PHT date, the default for date inputs and date-only filters. */

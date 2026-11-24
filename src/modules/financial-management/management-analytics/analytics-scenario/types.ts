@@ -13,9 +13,9 @@ export interface BaselineRow {
   fixed: number;
   /** Cash conversion cycle in days. */
   cccDays: number;
-  /** Share of cost of sales that is imported, 0–1. */
+  /** Share of cost of sales that is imported, 0 to 1. */
   importShare: number;
-  /** Share of revenue invoiced in USD, 0–1. */
+  /** Share of revenue invoiced in USD, 0 to 1. */
   usdShare: number;
   /** Where revenue came from, printed beside the number. */
   revenueBasis: string;
@@ -68,6 +68,12 @@ export interface ScenarioTotals {
   cashEffect: number;
   cashRunRate: number;
   cashScenario: number;
+  /**
+   * Movement of the Holdings charge between run-rate and scenario, ₱M a year, positive when the
+   * fee rose. The bridge needs it as its own step: the company deltas do not include it, so
+   * without this line the steps sum to more than the EBITDA delta the header prints.
+   */
+  holdingsDelta: number;
 }
 
 export interface ScenarioResult {

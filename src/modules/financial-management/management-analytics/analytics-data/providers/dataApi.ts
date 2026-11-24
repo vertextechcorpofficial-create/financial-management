@@ -65,3 +65,24 @@ export async function runChecks(period: string): Promise<ValidationResponse> {
 export function exportUrl(period: string): string {
   return `/api/fm/management-analytics/data/export?period=${encodeURIComponent(period)}`;
 }
+
+export interface SourceRefreshResult {
+  code: string;
+  name: string;
+  readings: number;
+  latestPeriod: string | null;
+  previousLastSync: string | null;
+  lastSyncAt: string;
+  fresh: boolean;
+}
+
+export async function refreshSource(code: string): Promise<SourceRefreshResult> {
+  const response = await fetch(`/api/fm/management-analytics/data/sources/${encodeURIComponent(code)}/refresh`, {
+    method: "POST",
+  });
+  const body = (await response.json()) as { success: boolean; data?: SourceRefreshResult; error?: string };
+  if (!response.ok || !body.success || !body.data) {
+    throw new Error(body.error ?? `The source could not be re-read (${response.status}).`);
+  }
+  return body.data;
+}

@@ -65,7 +65,7 @@ export function useReview(period: string, company: string) {
       await patchItem(id, patch);
       return fetchReview(period, company);
     }),
-    addAction: (payload: { title: string; dueDate?: string; notes?: string }) =>
+    addAction: (payload: { title: string; dueDate?: string; notes?: string; exceptionId?: number }) =>
       run(async () => {
         await addAction({ ...payload, reviewId: detail?.review?.id, companyCode: detail?.company?.code });
         return fetchReview(period, company);

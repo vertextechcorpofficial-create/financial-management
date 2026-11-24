@@ -1,4 +1,4 @@
-import type { Deviation, KpiRow, KpiStatus, PeriodPoint, Policy, RunInfo } from "../types";
+import type { Deviation, KpiRow, KpiStatus, PeriodPoint, Policy, Polarity, RunInfo } from "../types";
 
 /**
  * Ported from the reference prototype (`loan`-style parity with management-analytics.html):
@@ -60,21 +60,31 @@ export function ruleText(kpi: KpiRow): string {
   return `Floor ${formatValue(kpi.threshold ?? 0, kpi)}`;
 }
 
+/** Deviation of one reading against its target under a percentage threshold. */
+export function percentDeviation(
+  actual: number,
+  target: number,
+  polarity: Polarity,
+  threshold: number,
+  dp: number,
+): Deviation {
+  const percent = target === 0 ? 0 : ((actual - target) / target) * 100;
+  const unfavorable = polarity === "LOW" ? percent > 0 : percent < 0;
+  const magnitude = Math.abs(percent);
+  return {
+    value: percent,
+    text: signed(percent, dp, "%"),
+    unfavorable,
+    over: magnitude > threshold,
+    watch: unfavorable && magnitude >= threshold * 0.5 && magnitude <= threshold,
+    ratio: threshold === 0 ? 0 : magnitude / threshold,
+  };
+}
+
 /** Deviation of one reading against its target under the KPI's own rule. */
 export function deviation(kpi: KpiRow, actual: number, target: number): Deviation {
   if (kpi.rule_type === "PCT") {
-    const threshold = kpi.threshold ?? 0;
-    const percent = target === 0 ? 0 : ((actual - target) / target) * 100;
-    const unfavorable = kpi.polarity === "LOW" ? percent > 0 : percent < 0;
-    const magnitude = Math.abs(percent);
-    return {
-      value: percent,
-      text: signed(percent, kpi.dp, "%"),
-      unfavorable,
-      over: magnitude > threshold,
-      watch: unfavorable && magnitude >= threshold * 0.5 && magnitude <= threshold,
-      ratio: threshold === 0 ? 0 : magnitude / threshold,
-    };
+    return percentDeviation(actual, target, kpi.polarity, kpi.threshold ?? 0, kpi.dp);
   }
 
   const limit = kpi.threshold ?? 0;

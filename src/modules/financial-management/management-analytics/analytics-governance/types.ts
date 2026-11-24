@@ -230,16 +230,17 @@ export interface CatalogDetail {
 
 /* ---- Access and Governance ---- */
 
+/** The nine domains the grant table actually carries, as the service returns them. */
 export type GrantDomain =
-  | "GROUP"
-  | "FIN"
-  | "REV"
-  | "QUAL"
-  | "OPS"
-  | "WORKFORCE"
-  | "INDUSTRY"
-  | "RISK"
-  | "GOV";
+  | "Construction"
+  | "Distribution"
+  | "Financial"
+  | "Holdings"
+  | "Manufacturing"
+  | "Mechatronics"
+  | "Quality"
+  | "Software"
+  | "Workforce";
 
 export interface RoleRow {
   id: number;
