@@ -4,7 +4,7 @@ import { requireGovernmentLoansWorkspace } from "./access";
 import { AgencyError, type AgencyActor } from "./agencies";
 import { LoanRequestError } from "./request-input";
 
-export async function withLoanRequestAccess(workspace: "loan-applications" | "loan-approval",
+export async function withLoanRequestAccess(workspace: "loan-applications" | "loan-approval" | "loans",
   handler: (actor: AgencyActor) => Promise<unknown>, status = 200) {
   const access = await requireGovernmentLoansWorkspace(workspace);
   let response: Response;

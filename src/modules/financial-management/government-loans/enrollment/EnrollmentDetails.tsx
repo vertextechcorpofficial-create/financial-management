@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { PayrollInstructionDetails } from "../payroll-handoff/PayrollInstructionDetails";
 import { RequestDecisionHistory, RequestDetails, RequestSection } from "../requests/RequestReview";
 import { enrollmentEvidenceKinds, requestStatusLabels, type DocumentKind, type EnrollmentEvidenceKind } from "../requests/types";
 import { enrollmentBatchReference } from "./import-csv";
@@ -8,10 +9,10 @@ import { deductionMonthLabel } from "./rules";
 import type { EnrollmentDetail } from "./types";
 import { requiredEnrollmentEvidence } from "./verification-rules";
 
-export function EnrollmentDetails({ record, documentHref, children }: {
-  record: EnrollmentDetail; documentHref: (kind: DocumentKind) => string; children?: ReactNode;
+export function EnrollmentDetails({ record, documentHref, payrollEvidenceHref, children }: {
+  record: EnrollmentDetail; documentHref: (kind: DocumentKind) => string; payrollEvidenceHref?: (revision: number) => string; children?: ReactNode;
 }) {
-  const { enrollment, request } = record;
+  const { enrollment, request, payrollHandoff, successor } = record;
   const values = enrollment ? [
     ["Agency reference", enrollment.agencyReference],
     ["Original principal", peso(enrollment.originalPrincipal)],
@@ -37,9 +38,12 @@ export function EnrollmentDetails({ record, documentHref, children }: {
     <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-base font-semibold">{record.reference}</h2>
-        <Badge variant="secondary">{requestStatusLabels[record.status]}</Badge>
+        <Badge variant="secondary">{successor ? "Renewed from " + deductionMonthLabel(successor.effectiveMonth) : requestStatusLabels[record.status]}</Badge>
       </div>
       <p className="text-sm text-muted-foreground">{[record.employeeName, record.agencyName, record.program].filter(Boolean).join(" · ")}</p>
+      {successor && <p className="text-sm text-muted-foreground">
+        Replaced by enrollment {successor.enrollmentId} · {successor.state === "ACCEPTED" ? "Renewal acknowledged by Payroll" : "Payroll acknowledgement pending"}
+      </p>}
     </div>
     {enrollment && <RequestSection title="Saved loan terms">
       <div className="flex flex-wrap gap-2">
@@ -55,6 +59,9 @@ export function EnrollmentDetails({ record, documentHref, children }: {
         <p className="font-medium">Return reason</p>
         <p className="whitespace-pre-wrap break-words">{enrollment.returnReason}</p>
       </div>}
+    </RequestSection>}
+    {payrollHandoff && <RequestSection title="Payroll handoff">
+      <PayrollInstructionDetails {...payrollHandoff} evidenceHref={payrollEvidenceHref} />
     </RequestSection>}
     {children}
     {request.requestedAt ? <RequestDetails record={request} documentHref={documentHref} /> :

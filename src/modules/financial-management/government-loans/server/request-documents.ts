@@ -63,7 +63,7 @@ async function saveLoanDocument(id: number, kind: LoanDocumentKind, request: Req
   if (replay) return replay;
   const row = await (enrollment ? readStagedEnrollment(id) : readRequest(id));
   if (enrollment) {
-    if (row.status === "VERIFIED" || row.revision !== revision.data) {
+    if ((row.status !== "ENROLLED" && row.status !== "RETURNED") || row.revision !== revision.data) {
       throw new LoanRequestError(409, "Reload the enrollment before updating its evidence. Verified evidence is locked.");
     }
   } else {

@@ -1,7 +1,9 @@
+import type { HandoffStatus, PayrollHandoffView } from "../payroll-handoff/types";
 import type { EnrollmentEvidenceKind, LoanRequest, Page } from "../requests/types";
 
 export const enrollmentReviewStatuses = ["ENROLLED", "RETURNED", "VERIFIED"] as const;
-export const enrollmentStatuses = ["APPROVED", ...enrollmentReviewStatuses, "AGENCY_DECLINED"] as const;
+export const enrollmentWorkflowStatuses = [...enrollmentReviewStatuses, "ACTIVATING", "ACTIVE"] as const;
+export const enrollmentStatuses = ["APPROVED", ...enrollmentWorkflowStatuses, "AGENCY_DECLINED"] as const;
 export type EnrollmentStatus = typeof enrollmentStatuses[number];
 
 export type EnrollmentTerms = {
@@ -57,6 +59,11 @@ export type EnrollmentListItem = {
 
 export type EnrollmentPage = Page<EnrollmentListItem> & { openMonth: string | null };
 export type EnrollmentEvidence = { kind: EnrollmentEvidenceKind; name: string };
-export type EnrollmentDetail = EnrollmentListItem & { request: LoanRequest; evidence: EnrollmentEvidence[] };
+export type EnrollmentDetail = EnrollmentListItem & {
+  request: LoanRequest;
+  evidence: EnrollmentEvidence[];
+  payrollHandoff: PayrollHandoffView | null;
+  successor: { enrollmentId: number; effectiveMonth: string; state: HandoffStatus } | null;
+};
 export type EnrollmentOutcome = { id: number; revision: number; status: "ENROLLED" | "AGENCY_DECLINED" };
 export type PriorLoan = { id: number; program: string | null; reference: string | null };
