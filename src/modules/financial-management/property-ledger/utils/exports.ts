@@ -1,69 +1,62 @@
 import type { Asset, Portfolio } from "../types";
-import { assetSeries, round, snapshot, type Snapshot } from "./engine";
-import type { jsPDF } from "jspdf";
+import type { Snapshot } from "./engine";
+import { buildReport, type ReportCell, type ReportSection } from "./reports";
 import { formatMonth } from "./dates";
-import { displayAmount } from "./format";
 
-type PdfWithAutoTable = jsPDF & {
-  lastAutoTable?: { finalY?: number };
-};
-
-export function registerRows(portfolio: Portfolio, month: string) {
-  return portfolio.assets.map(a => {
-    const value = snapshot(a, portfolio.policies, month);
-    return { Name: a.name, Type: a.kind, Entity: portfolio.entities.find(e => e.id === a.entityId)?.name ?? "", Location: a.location, Acquired: formatMonth(a.acquired), Cost: round(value.cost), "Book value": round(value.book), "Market projection": round(value.market), "Carrying value": round(value.carrying), Status: value.status, Tags: a.tags.join(", ") };
-  });
-}
-export function scheduleRows(rows: Snapshot[]) {
-  return rows.map(r => ({ Period: formatMonth(r.month), Additions: round(r.additions), Depreciation: round(r.depreciation), "Accumulated depreciation": round(r.accumulated), "Building book value": round(r.book), "Land projection": round(r.market), "Projected appreciation": round(r.appreciation), "Total carrying value": round(r.carrying), Impairment: round(r.impairment), Revaluation: round(r.revaluation), "Revaluation P&L loss": round(r.revaluationLoss), Repairs: round(r.repairs), Disposals: round(r.disposals), Proceeds: round(r.proceeds), "Gain / loss": round(r.gain) }));
-}
 export type ExportSchedule = { headers: string[]; body: (string | number | undefined)[][] };
+export async function buildWorkbook(portfolio: Portfolio, month: string, rows: Snapshot[], schedule?: ExportSchedule) {
+  const XLSX = await import("xlsx");
+  const report = buildReport(portfolio, month, rows);
+  const wb = XLSX.utils.book_new();
+  const add = (name: string, sections: ReportSection[], metadata: ReportCell[][] = []) => {
+    const data: ReportCell[][] = [...metadata];
+    for (const s of sections) data.push([], [s.title], s.headers, ...s.rows);
+    const sheet = XLSX.utils.aoa_to_sheet(data);
+    sheet["!cols"] = Array.from({ length: Math.max(2, ...data.map(row => row.length)) }, () => ({ wch: 24 }));
+    XLSX.utils.book_append_sheet(wb, sheet, name);
+  };
+  const get = (title: string) => report.sections.filter(s => s.title === title);
+  add("Summary", [...get("Summary"), ...get("Land register"), ...get("Building register")], [[report.title], ...report.metadata]);
+  add("Land register", get("Land register"));
+  add("Building register", get("Building register"));
+  add("Schedule", schedule ? [{ title: "Schedule", headers: schedule.headers, rows: schedule.body.map(row => row.map(v => v ?? "")) }] : get("Schedule"));
+  add("Components", [...get("Components"), ...get("Improvements")]);
+  add("Improvements", get("Improvements"));
+  add("Appraisals & sales", [...get("Land appraisals"), ...get("Sales"), ...get("Impairments"), ...get("Revaluations"), ...get("Repairs & maintenance")]);
+  add("Repairs & valuations", [...get("Impairments"), ...get("Revaluations"), ...get("Repairs & maintenance")]);
+  return wb;
+}
 export async function exportExcel(portfolio: Portfolio, month: string, rows: Snapshot[], schedule?: ExportSchedule) {
   const XLSX = await import("xlsx");
-  const wb = XLSX.utils.book_new();
-  const summary = XLSX.utils.aoa_to_sheet([["Property Ledger"], ["Valuation date", formatMonth(month)], ["Entities", portfolio.entities.map(e => e.name).join(", ")], ["Currency", portfolio.policies.currency], ["Fiscal year start", portfolio.policies.fyStart], ["Land model", portfolio.policies.landModel], ["Building model", portfolio.policies.buildingModel], ["Locked through", portfolio.policies.lockThrough ? formatMonth(portfolio.policies.lockThrough) : ""], ["Generated", new Date().toISOString()], ["Land market estimates are planning projections."]]);
-  XLSX.utils.sheet_add_json(summary, registerRows(portfolio, month).map((r, i) => ({ ...r, ...portfolio.assets[i].details })), { origin: "A12" });
-  XLSX.utils.book_append_sheet(wb, summary, "Summary");
-  XLSX.utils.book_append_sheet(wb, schedule ? XLSX.utils.aoa_to_sheet([schedule.headers, ...schedule.body]) : XLSX.utils.json_to_sheet(scheduleRows(rows)), "Schedule");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(portfolio.assets.flatMap(a => {
-    if (!a.parts.length) return [];
-    const balances = new Map<string, { book: number; accumulated: number }>();
-    const held = assetSeries(a, portfolio.policies, month, balances).at(-1)?.status === "Held";
-    return a.parts.map(p => ({ Property: a.name, Part: p.name, "In service": formatMonth(p.date), Cost: p.cost, "Life (years)": p.life, "Salvage (%)": p.salvage, "Accumulated depreciation": held ? round(balances.get(p.id)?.accumulated ?? 0) : 0, "Book value": held ? round(balances.get(p.id)?.book ?? 0) : 0 }));
-  })), "Components");
-  const events = portfolio.assets.flatMap(a => [
-    ...a.events.map(e => ({ Property: a.name, Event: e.kind, Month: formatMonth(e.date), Amount: e.amount, Note: e.note, Vendor: e.vendor, Treatment: e.kind === "repair" ? (e.improvementId ? "Capitalized" : "Expensed") : "" })),
-    ...(a.sale ? [{ Property: a.name, Event: "sale", Month: formatMonth(a.sale.date), Amount: a.sale.price, Note: a.sale.note, "Carrying value": round(a.sale.price - snapshot(a, portfolio.policies, a.sale.date).gain), "Gain / loss": round(snapshot(a, portfolio.policies, a.sale.date).gain) }] : []),
-  ]);
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(events), "Appraisals & sales");
-  XLSX.writeFile(wb, `property-ledger-${month}.xlsx`);
+  XLSX.writeFile(await buildWorkbook(portfolio, month, rows, schedule), `property-ledger-${month}.xlsx`);
 }
-export async function exportPdf(portfolio: Portfolio, month: string, rows: Snapshot[], asset?: Asset) {
+export async function buildPdf(portfolio: Portfolio, month: string, rows: Snapshot[], asset?: Asset, schedule?: ExportSchedule) {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
-  const pdf = new jsPDF({ orientation: "landscape" });
-  const amount = (value: number) => `${portfolio.policies.currency} ${displayAmount(round(value), 2).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  pdf.setFontSize(18); pdf.text(asset ? `Property Ledger: ${asset.name}` : "Property Ledger", 14, 17);
-  pdf.setFontSize(10); pdf.text(`As of ${formatMonth(month)} | Currency: ${portfolio.policies.currency} | Planning projections — not posted to the general ledger`, 14, 25);
-  if (asset) {
-    const value = snapshot(asset, portfolio.policies, month);
-    autoTable(pdf, { startY: 32, head: [["Asset", "Type", "Acquired", "Cost", "Book / carrying", "Market projection", "Status"]], body: [[asset.name, asset.kind, formatMonth(asset.acquired), amount(value.cost), amount(asset.kind === "building" ? value.book : value.carrying), amount(value.market), value.status]], styles: { fontSize: 8 } });
-    let y = ((pdf as PdfWithAutoTable).lastAutoTable?.finalY ?? 32) + 8;
-    pdf.setFontSize(11); pdf.text("Property details", 14, y); y += 4;
-    autoTable(pdf, { startY: y, head: [["Field", "Value"]], body: Object.entries(asset.details).filter(([, v]) => v).map(([key, value]) => [key, value]), styles: { fontSize: 8 } });
-    y = ((pdf as PdfWithAutoTable).lastAutoTable?.finalY ?? y) + 8;
-    const parts = asset.parts.map(part => [part.name, formatMonth(part.date), amount(part.cost), `${part.life} years`, `${part.salvage}%`]);
-    if (parts.length) { pdf.text(asset.kind === "building" ? "Components and improvements" : "Appraisals", 14, y); autoTable(pdf, { startY: y + 4, head: [["Name", "Month", "Amount", "Life", "Salvage"]], body: parts, styles: { fontSize: 8 } }); }
-    if (asset.events.length || asset.sale) {
-      pdf.addPage(); pdf.text("Events and disposal", 14, 17);
-      autoTable(pdf, { startY: 24, head: [["Kind", "Month", "Amount", "Note", "Treatment"]], body: [
-        ...asset.events.map(e => [e.kind, formatMonth(e.date), amount(e.amount), e.note, e.kind === "repair" ? (e.improvementId ? "Capitalized" : "Expensed") : ""]),
-        ...(asset.sale ? [["sale", formatMonth(asset.sale.date), amount(asset.sale.price), asset.sale.note, "Proceeds"]] : []),
-      ], styles: { fontSize: 8 } });
-    }
-  } else {
-    autoTable(pdf, { startY: 32, head: [["Property", "Type", "Acquired", "Carrying value", "Market projection", "Status"]], body: registerRows(portfolio, month).map(r => [r.Name, r.Type, r.Acquired, amount(Number(r["Carrying value"])), amount(Number(r["Market projection"])), r.Status]), styles: { fontSize: 8 } });
+  const report = buildReport(portfolio, month, rows, asset);
+  if (!asset && schedule) {
+    const section = report.sections.find(s => s.title === "Schedule")!;
+    section.headers = schedule.headers;
+    section.rows = schedule.body.map(row => row.map(value => value ?? ""));
   }
-  pdf.addPage(); pdf.text("Property schedule", 14, 17);
-  autoTable(pdf, { startY: 24, head: [["Period", "Depreciation", "Book value", "Land projection", "Carrying value", "Proceeds", "Gain / loss"]], body: rows.map(r => [formatMonth(r.month), amount(r.depreciation), amount(r.book), amount(r.market), amount(r.carrying), amount(r.proceeds), amount(r.gain)]), styles: { fontSize: 8 } });
-  pdf.save(`property-ledger-${month}.pdf`);
+  const pdf = new jsPDF({ orientation: "landscape" });
+  pdf.setFontSize(16); pdf.text(report.title, 14, 17);
+  pdf.setFontSize(9); pdf.text(`As of ${formatMonth(month)} | ${portfolio.policies.currency} | Estimates only; not general-ledger postings`, 14, 25);
+  autoTable(pdf, { startY: 30, head: [["Report setting", "Value"]], body: report.metadata, styles: { fontSize: 8 } });
+  for (const section of report.sections) {
+    pdf.addPage(); pdf.setFontSize(12); pdf.text(section.title, 14, 17);
+    autoTable(pdf, {
+      startY: 24, head: [section.headers],
+      body: section.rows.length ? section.rows.map(row => row.map(v => typeof v === "number" ? v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : v)) : [["None recorded."]],
+      styles: { fontSize: 7, overflow: "linebreak" }, rowPageBreak: "avoid",
+      didDrawPage: () => { pdf.setFontSize(8); pdf.text(`${portfolio.policies.currency} | Property Ledger | Estimates only`, 14, 202); },
+    });
+  }
+  const pages = pdf.getNumberOfPages();
+  for (let page = 1; page <= pages; page++) { pdf.setPage(page); pdf.setFontSize(8); pdf.text(`Page ${page} of ${pages}`, 260, 202); }
+  return pdf;
+}
+export async function exportPdf(portfolio: Portfolio, month: string, rows: Snapshot[], asset?: Asset, schedule?: ExportSchedule) {
+  const pdf = await buildPdf(portfolio, month, rows, asset, schedule);
+  const name = asset ? `${asset.name.replace(/[^a-z0-9_-]/gi, "-").slice(0, 60)}-` : "";
+  pdf.save(`property-ledger-${name}${month}.pdf`);
 }

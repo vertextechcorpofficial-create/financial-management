@@ -13,6 +13,8 @@ import { LAND_DETAILS, BUILDING_DETAILS, DETAIL_OPTIONS } from "../constants";
 import { newLedgerId } from "../utils/id";
 import { formatMonth, todayMonth } from "../utils/dates";
 import { registrationSchema } from "../utils/registration";
+import { typicalParts } from "../utils/parts";
+import { addMoney } from "../utils/money";
 export { todayMonth } from "../utils/dates";
 
 const ValidationContext = createContext<Record<string, string>>({});
@@ -33,6 +35,7 @@ export function newAsset(kind: Asset["kind"], entityId: string): Asset {
   return { id: newLedgerId(), version: 1, kind, name: "", entityId, landId: "", location: "", tags: [], acquired: todayMonth(), cost: 0, rate: 5, growth: "compound", method: "sl", parts: kind === "building" ? [{ id: newLedgerId(), name: "Whole building", cost: 0, life: 25, salvage: 10, date: todayMonth() }] : [], events: [], sale: null, notes: "", details: {} };
 }
 const numericValue = (value: number) => Number.isFinite(value) ? value : "";
+const numericDetailKeys = ["area", "floorArea", "storeys", "yearBuilt", "zonal", "assessed"];
 const requiredDetailKeys = ["area", "floorArea", "storeys", "yearBuilt"];
 
 export function AssetDialog({ initial, portfolio, saving, onClose, onSave }: { initial: Asset; portfolio: Portfolio; saving: boolean; onClose: () => void; onSave: (asset: Asset) => Promise<boolean> }) {
@@ -96,11 +99,9 @@ export function AssetDialog({ initial, portfolio, saving, onClose, onSave }: { i
               <div className="flex flex-wrap items-center justify-between gap-2"><Label>Components and capital improvements <span className="text-destructive">*</span></Label><Button type="button" variant="outline" size="sm" onClick={async () => {
                 if (existing && !await confirm("Replace the original building components? Existing improvements will be kept.")) return;
                 const improvements = asset.parts.filter(p => p.date !== asset.acquired || asset.events.some(e => e.improvementId === p.id));
-                const total = Math.round(asset.parts.filter(p => !improvements.includes(p)).reduce((s, p) => s + p.cost, 0) * 100);
+                const total = asset.parts.filter(p => !improvements.includes(p)).reduce((s, p) => addMoney(s, p.cost), 0);
                 if (!total || !Number.isFinite(total)) { toast.error("Enter the total cost on the initial component first"); return; }
-                const split = portfolio.policies.componentSplit.map(part => Math.round(total * part.share / 100));
-                split[0] += total - split.reduce((sum, cost) => sum + cost, 0);
-                update("parts", [...portfolio.policies.componentSplit.map((part, i) => ({ id: newLedgerId(), name: part.name, cost: split[i] / 100, life: part.life, salvage: part.salvage, date: asset.acquired })), ...improvements]);
+                update("parts", [...typicalParts(total, asset.acquired, portfolio.policies.componentSplit), ...improvements]);
               }}>Use typical split</Button></div>
               {errors.parts && <p className="text-xs text-destructive">{errors.parts}</p>}
               {asset.parts.map((p, index) => <div key={p.id} className="grid items-start gap-3 rounded-md bg-muted/40 p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_5rem_5rem_minmax(12rem,1.5fr)_2.25rem]">
@@ -116,7 +117,7 @@ export function AssetDialog({ initial, portfolio, saving, onClose, onSave }: { i
             <section className="space-y-3"><h3 className="text-sm font-semibold">Property details</h3><div className="grid gap-4 sm:grid-cols-2">
               {(asset.kind === "land" ? LAND_DETAILS : BUILDING_DETAILS).map(([key, label]) => <Field key={key} label={label}>{DETAIL_OPTIONS[key]
                 ? <select name={`details.${key}`} className={selectClass} value={asset.details[key] ?? ""} onChange={e => update("details", { ...asset.details, [key]: e.target.value })}><option value="">Select…</option>{DETAIL_OPTIONS[key].map(option => <option key={option}>{option}</option>)}</select>
-                : <Input name={`details.${key}`} required={requiredDetailKeys.includes(key)} type={requiredDetailKeys.includes(key) ? "number" : "text"} min={key === "yearBuilt" ? 1800 : key === "storeys" ? 1 : 0.000001} max={key === "yearBuilt" ? new Date().getFullYear() + 5 : undefined} step={key === "storeys" || key === "yearBuilt" ? 1 : "any"} maxLength={240} value={asset.details[key] ?? ""} onChange={e => update("details", { ...asset.details, [key]: e.target.value })} />}</Field>)}
+                : <Input name={`details.${key}`} required={requiredDetailKeys.includes(key)} type={numericDetailKeys.includes(key) ? "number" : "text"} min={key === "yearBuilt" ? 1800 : key === "storeys" ? 1 : requiredDetailKeys.includes(key) ? 0.000001 : 0} max={key === "yearBuilt" ? new Date().getFullYear() + 5 : undefined} step={key === "storeys" || key === "yearBuilt" ? 1 : "any"} maxLength={240} value={asset.details[key] ?? ""} onChange={e => update("details", { ...asset.details, [key]: e.target.value })} />}</Field>)}
             </div></section>
             <Field label="Notes"><Textarea name="notes" maxLength={2000} value={asset.notes} onChange={e => update("notes", e.target.value)} /></Field>
           </fieldset>

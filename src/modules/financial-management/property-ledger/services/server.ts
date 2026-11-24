@@ -6,6 +6,9 @@ import { type LedgerPage } from "../navigation";
 import { assetSeries } from "../utils/engine";
 import { ledgerAccess, type ModuleGrant } from "../utils/access";
 import { companyWorkspace, type MasterCompany } from "../utils/companies";
+import { ledgerChanges, visibleAudit } from "../utils/audit";
+import { cents } from "../utils/money";
+export { describeChange } from "../utils/audit";
 
 export class LedgerError extends Error {
   constructor(message: string, public status = 500) { super(message); }
@@ -142,7 +145,6 @@ async function relational() {
   }
   return detectedRelational;
 }
-const cents = (value: number) => Math.round(value * 100);
 const pesos = (value: number | null | undefined) => (value ?? 0) / 100;
 const asArray = <T>(value: { data?: T[] }) => value.data ?? [];
 async function createItems(collection: string, rows: Record<string, unknown>[]) {
@@ -246,31 +248,26 @@ async function latestLegacy() {
   const row = data[0];
   return { revision: row?.id ?? 0, portfolio: row ? portfolioSchema.parse(row.payload) : emptyPortfolio() };
 }
-export async function history() {
+export async function history(entities?: string[]) {
   if (await relational()) {
-    const { data } = await directus< { data: { id: number; actor: string; date_created: string; detail: string }[] } >("/items/property_ledger_audit?fields=id,actor,date_created,detail&sort=-id&limit=400");
-    return data.map(row => ({ id: row.id, actor: row.actor, created_at: row.date_created, summary: row.detail }));
+    const { data } = await directus<{ data: { id: number; actor: string; date_created: string; detail: string; action: string; item_name: string; before_value: unknown; after_value: unknown }[] }>("/items/property_ledger_audit?fields=id,actor,date_created,detail,action,item_name,before_value,after_value&sort=-id&limit=400");
+    return data.filter(row => !entities || visibleAudit(row.before_value, entities) || visibleAudit(row.after_value, entities))
+      .map(row => ({
+        id: row.id, actor: row.actor, created_at: /(?:Z|[+-]\d{2}:?\d{2})$/i.test(row.date_created) ? row.date_created : `${row.date_created.replace(" ", "T")}Z`,
+        // Old audit rows used a portfolio-wide summary; do not reveal its other assets.
+        summary: entities && ["edit", "register", "delete"].includes(row.action) ? `${row.action}: ${row.item_name}` : row.detail,
+        action: row.action, item_name: row.item_name,
+      }));
   }
   const { data } = await directus<{ data: HistoryEntry[] }>(`/items/${COLLECTION}?fields=id,actor,created_at,summary&sort=-id&limit=400`);
   // MySQL DATETIME is timezone-naive; this module always writes UTC timestamps.
   return data.map(row => ({
     ...row,
+    ...(entities ? { summary: "Legacy portfolio revision; cross-company details restricted." } : {}),
     created_at: /(?:Z|[+-]\d{2}:?\d{2})$/i.test(row.created_at)
       ? row.created_at
       : `${row.created_at.replace(" ", "T")}Z`,
   }));
-}
-export function describeChange(before: Portfolio, after: Portfolio) {
-  const changes: string[] = [];
-  for (const a of after.assets) {
-    const old = before.assets.find(x => x.id === a.id);
-    if (!old) changes.push(`Registered ${a.kind}: ${a.name}`);
-    else if (JSON.stringify(old) !== JSON.stringify(a)) changes.push(`Updated ${a.kind}: ${a.name}`);
-  }
-  for (const a of before.assets) if (!after.assets.some(x => x.id === a.id)) changes.push(`Removed ${a.kind}: ${a.name}`);
-  if (JSON.stringify(before.policies) !== JSON.stringify(after.policies)) changes.push("Changed accounting policies");
-  if (JSON.stringify(before.entities) !== JSON.stringify(after.entities)) changes.push("Changed entities");
-  return changes.join("; ").slice(0, 2000) || "No changes";
 }
 /** Append-only immutable snapshots: unique integer IDs provide compare-and-swap across concurrent writers. */
 export async function commit(revision: number, portfolio: Portfolio, actor: string, summary: string) {
@@ -320,14 +317,11 @@ export async function commit(revision: number, portfolio: Portfolio, actor: stri
     const events = versioned.assets.flatMap(a => a.events.map(e => ({ id: e.id, asset_id: a.id, kind: e.kind, event_month: e.date, amount_centavos: cents(e.amount), note: e.note, vendor: e.vendor, improvement_id: e.improvementId ?? null })));
     if (parts.length) await createItems("property_ledger_parts", parts);
     if (events.length) await createItems("property_ledger_events", events);
-    const auditRows = [
-      ...versioned.assets.map(asset => {
-        const before = current.portfolio.assets.find(item => item.id === asset.id);
-        return before && JSON.stringify(before) === JSON.stringify(asset) ? null : { portfolio_id: 1, actor, action: before ? "edit" : "register", asset_id: asset.id, item_name: asset.name, detail: summary, before_value: before ?? null, after_value: asset, date_created: now };
-      }),
-      ...current.portfolio.assets.filter(asset => !versioned.assets.some(item => item.id === asset.id)).map(asset => ({ portfolio_id: 1, actor, action: "delete", asset_id: asset.id, item_name: asset.name, detail: summary, before_value: asset, after_value: null, date_created: now })),
-      ...(JSON.stringify(current.portfolio.policies) !== JSON.stringify(versioned.policies) ? [{ portfolio_id: 1, actor, action: "policy", item_name: "Accounting policies", detail: summary, before_value: current.portfolio.policies, after_value: versioned.policies, date_created: now }] : []),
-    ].filter(Boolean);
+    const auditRows = ledgerChanges(current.portfolio, versioned).map(change => ({
+      portfolio_id: 1, actor, action: change.action, asset_id: change.assetId ?? null, item_name: change.item,
+      detail: change.detail, before_value: { entityId: change.entityId, value: change.before },
+      after_value: { entityId: change.entityId, value: change.after }, date_created: now,
+    }));
     if (auditRows.length) await createItems("property_ledger_audit", auditRows as Record<string, unknown>[]);
     return revision + 1;
   }

@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
-import { PropertyLedgerModule } from "@/modules/financial-management/property-ledger/PropertyLedgerModule";
-export const metadata: Metadata = { title: "Change history | Property Ledger" };
-export default function ChangeHistoryPage() { return <PropertyLedgerModule view="change-history" />; }
+import { notFound } from "next/navigation";
+// Removed by 1st QA, page 14. Keep stored audit records, not a public ledger screen.
+export default function RemovedHistoryPage() { notFound(); }
