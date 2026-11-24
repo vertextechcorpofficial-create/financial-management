@@ -1,7 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { COOKIE_NAME, decodeJwtPayload } from "@/lib/auth-utils";
-import { emptyPortfolio, portfolioSchema, type Asset, type HistoryEntry, type LedgerEvent, type Part, type Portfolio } from "../types";
+import { emptyPortfolio, portfolioSchema, readablePortfolioSchema, type Asset, type HistoryEntry, type LedgerEvent, type Part, type Portfolio } from "../types";
 import { type LedgerPage } from "../navigation";
 import { assetSeries } from "../utils/engine";
 import { ledgerAccess, type ModuleGrant } from "../utils/access";
@@ -221,7 +221,7 @@ async function latestRelational() {
   });
   return {
     revision: policy.revision ?? 0,
-    portfolio: portfolioSchema.parse({
+    portfolio: readablePortfolioSchema.parse({
       entities: asArray(entities).map(e => ({ id: e.id, name: e.name })),
       assets: resultAssets,
       policies: {
@@ -246,7 +246,7 @@ export async function latest() {
 async function latestLegacy() {
   const { data } = await directus<{ data: Revision[] }>(`/items/${COLLECTION}?fields=id,payload,actor,created_at,summary&sort=-id&limit=1`);
   const row = data[0];
-  return { revision: row?.id ?? 0, portfolio: row ? portfolioSchema.parse(row.payload) : emptyPortfolio() };
+  return { revision: row?.id ?? 0, portfolio: row ? readablePortfolioSchema.parse(row.payload) : emptyPortfolio() };
 }
 export async function history(entities?: string[]) {
   if (await relational()) {
