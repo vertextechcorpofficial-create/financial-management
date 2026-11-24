@@ -742,6 +742,7 @@ export default function EditAssetModal({
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, cost_per_item: Number(e.target.value) }))
                 }
+                disabled={isAcquiredInClosedPeriod}
                 className="h-10 text-sm font-mono"
               />
               <p className="text-[10px] text-muted-foreground h-4 leading-4">
@@ -759,6 +760,7 @@ export default function EditAssetModal({
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, life_span: Number(e.target.value) }))
                 }
+                disabled={isAcquiredInClosedPeriod}
                 className="h-10 text-sm"
               />
               <div className="h-4" />

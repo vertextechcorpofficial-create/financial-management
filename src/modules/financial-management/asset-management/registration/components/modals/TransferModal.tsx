@@ -136,7 +136,7 @@ export default function TransferModal({
         reason: reason.trim(),
       };
 
-      const res = await assetService.recordTransfer(payload);
+      await assetService.recordTransfer(payload);
 
       const targetDeptObj = departments.find((d) => d.department_id === toDepartment);
       const targetUserObj = users.find((u) => u.user_id === toPerson);
@@ -156,8 +156,9 @@ export default function TransferModal({
 
       onSuccess();
       onClose();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to record transfer");
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "Failed to record transfer";
+      toast.error(errMsg);
     } finally {
       setLoading(false);
     }

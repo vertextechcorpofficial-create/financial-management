@@ -10,7 +10,7 @@ export const useCreateAsset = (onSuccess?: () => void) => {
   const createAsset = async (values: AssetFormValues) => {
     setIsSubmitting(true);
     try {
-      await assetService.createAsset(values, 81);
+      await assetService.createAsset(values);
       toast.success("Asset saved successfully!");
       if (onSuccess) onSuccess(); // Refreshes the table
     } catch (error: unknown) {

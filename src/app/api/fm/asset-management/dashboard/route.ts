@@ -26,10 +26,8 @@ export async function GET() {
     const todayStr = today.toISOString().split("T")[0];
 
     // Collect dynamic alert candidates from assets
-    const expiredWarranties: any[] = [];
-    const overdueMaintenance: any[] = [];
-    const upcomingMaintenance: any[] = [];
-    const impairedAssets: any[] = [];
+    const expiredWarranties: Record<string, unknown>[] = [];
+    const impairedAssets: Record<string, unknown>[] = [];
 
     assets.forEach((asset) => {
       const cost = Number(asset.cost_per_item || asset.acquisition_cost || 0);
@@ -97,13 +95,13 @@ export async function GET() {
         if (eventsRes.ok) {
           const eventsJson = await eventsRes.json();
           if (Array.isArray(eventsJson.data) && eventsJson.data.length > 0) {
-            recentEvents = eventsJson.data.map((e: any) => ({
-              id: e.id,
-              date: e.event_date ? e.event_date.split("T")[0] : todayStr,
-              assetTag: e.asset_tag || (assets.find((a) => a.id === e.asset_id)?.asset_tag) || `AST-${String(e.asset_id).padStart(4, "0")}`,
-              assetId: e.asset_id,
-              event: e.event_type || e.description || "Accounting Event",
-              basis: e.basis || "IAS 16",
+            recentEvents = eventsJson.data.map((e: Record<string, unknown>) => ({
+              id: e.id as number,
+              date: e.event_date ? String(e.event_date).split("T")[0] : todayStr,
+              assetTag: (e.asset_tag as string) || (assets.find((a) => a.id === Number(e.asset_id))?.asset_tag) || `AST-${String(e.asset_id).padStart(4, "0")}`,
+              assetId: Number(e.asset_id),
+              event: (e.event_type as string) || (e.description as string) || "Accounting Event",
+              basis: (e.basis as string) || "IAS 16",
               amount: Number(e.impact || e.amount || 0),
             }));
           }
@@ -113,7 +111,7 @@ export async function GET() {
           const postingsJson = await postingsRes.json();
           if (Array.isArray(postingsJson.data)) {
             liveYtdDepreciation = postingsJson.data.reduce(
-              (sum: number, p: any) => sum + Number(p.depreciation || 0),
+              (sum: number, p: Record<string, unknown>) => sum + Number(p.depreciation || 0),
               0
             );
           }
@@ -124,7 +122,7 @@ export async function GET() {
           if (Array.isArray(pendingJson.data)) {
             pendingApprovalsCount = pendingJson.data.length;
             pendingApprovalsAmount = pendingJson.data.reduce(
-              (sum: number, p: any) => sum + Number(p.impact || 0),
+              (sum: number, p: Record<string, unknown>) => sum + Number(p.impact || 0),
               0
             );
           }
@@ -180,11 +178,12 @@ export async function GET() {
     // Alert 4: Expired / Near Expiry Warranties
     if (expiredWarranties.length > 0) {
       const first = expiredWarranties[0];
+      const warrantyStr = typeof first.warranty_until === "string" ? first.warranty_until : "";
       complianceAlerts.push({
         id: "alert-warranty",
         type: "info",
-        message: `Warranty expires ${first.warranty_until ? first.warranty_until.split("T")[0] : "soon"}.`,
-        assetTag: first.asset_tag,
+        message: `Warranty expires ${warrantyStr ? warrantyStr.split("T")[0] : "soon"}.`,
+        assetTag: typeof first.asset_tag === "string" ? first.asset_tag : undefined,
       });
     }
 

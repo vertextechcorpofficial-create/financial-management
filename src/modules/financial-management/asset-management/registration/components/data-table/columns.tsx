@@ -4,15 +4,12 @@ import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
 import {
   Calendar,
-  CheckCircle2,
   EllipsisVertical,
   Eye,
   History,
   Package,
   RotateCcw,
   SquarePen,
-  Trash2,
-  UserPlus,
   ArrowRightLeft,
   AlertTriangle,
   Clock,
@@ -20,7 +17,6 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,

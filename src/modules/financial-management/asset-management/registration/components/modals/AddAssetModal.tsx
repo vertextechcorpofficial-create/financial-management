@@ -340,8 +340,9 @@ export default function AddAssetModal({
       onLocalAppend(json.data);
       onSuccess();
       setOpen(false);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to register asset");
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "Failed to register asset";
+      toast.error(errMsg);
     } finally {
       setLoading(false);
     }
@@ -408,7 +409,7 @@ export default function AddAssetModal({
         </div>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit as any)} className="p-6 pt-2 space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 pt-2 space-y-4">
             {/* Row 1: Item Name */}
             <FormField
               control={form.control}

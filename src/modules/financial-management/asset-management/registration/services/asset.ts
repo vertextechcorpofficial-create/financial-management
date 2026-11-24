@@ -6,7 +6,6 @@ import {
   User,
   AssetClass,
   AssetCondition,
-  AssetSettings,
 } from "../types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -286,7 +285,7 @@ export async function fetchAssets(): Promise<AssetTableData[]> {
     if (!json.data || json.data.length === 0) return fallbackAssets;
     
     // Process items if directus returned data
-    return json.data.map((item: any, idx: number) => ({
+    return json.data.map((item: Record<string, unknown>, idx: number) => ({
       id: item.id || idx + 1,
       asset_tag: item.asset_tag || `AST-${String(item.id || idx + 1).padStart(4, "0")}`,
       barcode: item.barcode || null,
@@ -430,10 +429,10 @@ export async function checkRfidUnique(rfid: string, currentAssetId?: number): Pr
   return { unique: true };
 }
 
-export async function createAsset(body: any): Promise<AssetTableData> {
+export async function createAsset(body: Record<string, unknown>): Promise<AssetTableData> {
   // PFRS / IAS 16 validations
-  const itemName = (body.item_name || "").trim();
-  const classification = (body.item_classification || "").trim();
+  const itemName = String(body.item_name || "").trim();
+  const classification = String(body.item_classification || "").trim();
   const cost = Number(body.cost_per_item || body.acquisition_cost || 0);
 
   // Reject Land or Building
@@ -448,7 +447,7 @@ export async function createAsset(body: any): Promise<AssetTableData> {
   }
 
   // RFID uniqueness check
-  const rfid = (body.rfid_code || "").trim();
+  const rfid = String(body.rfid_code || "").trim();
   if (!rfid) {
     throw new Error("RFID Tag (EPC) is required.");
   }
@@ -458,11 +457,10 @@ export async function createAsset(body: any): Promise<AssetTableData> {
   }
 
   // Determine Tag
-  const assetTag = body.asset_tag || (await generateAssetTag(classification));
+  const assetTag = (body.asset_tag as string) || (await generateAssetTag(classification));
 
   // Calculate depreciable amount and live projected value
   const residual = Number(body.residual_value || 0);
-  const depreciableAmount = Math.max(0, cost - residual);
 
   const newId = (fallbackAssets.length > 0 ? Math.max(...fallbackAssets.map(a => a.id)) : 0) + 1;
 
@@ -472,31 +470,31 @@ export async function createAsset(body: any): Promise<AssetTableData> {
   const newAsset: AssetTableData = {
     id: newId,
     asset_tag: assetTag,
-    barcode: body.barcode || assetTag.replace("-", ""),
+    barcode: (body.barcode as string) || assetTag.replace("-", ""),
     rfid_code: rfid,
-    serial: body.serial || null,
-    brand: body.brand || null,
-    model: body.model || null,
-    location: body.location || null,
-    security_tag: body.security_tag || null,
-    condition: body.condition || "Good",
+    serial: (body.serial as string) || null,
+    brand: (body.brand as string) || null,
+    model: (body.model as string) || null,
+    location: (body.location as string) || null,
+    security_tag: (body.security_tag as string) || null,
+    condition: (body.condition as string) || "Good",
     quantity: 1,
     cost_per_item: cost,
     acquisition_cost: cost,
     total: cost,
     residual_value: residual,
     projected_value: cost, // initially carrying amount = cost
-    date_acquired: body.date_acquired || new Date().toISOString().split("T")[0],
-    available_for_use_date: body.available_for_use_date || body.date_acquired,
-    warranty_until: body.warranty_until || null,
+    date_acquired: (body.date_acquired as string) || new Date().toISOString().split("T")[0],
+    available_for_use_date: (body.available_for_use_date as string) || (body.date_acquired as string),
+    warranty_until: (body.warranty_until as string) || null,
     life_span: Number(body.life_span || 5),
     record_status: "active",
-    supplier_name: body.supplier_name || null,
-    invoice_no: body.invoice_no || null,
-    po_no: body.po_no || null,
-    remarks: body.remarks || null,
+    supplier_name: (body.supplier_name as string) || null,
+    invoice_no: (body.invoice_no as string) || null,
+    po_no: (body.po_no as string) || null,
+    remarks: (body.remarks as string) || null,
     item_name: itemName,
-    item_image: body.item_image || null,
+    item_image: (body.item_image as string) || null,
     item_type_name: typeof body.item_type === "string" ? body.item_type : "Hardware",
     classification_name: classification,
     department: Number(body.department) || null,
@@ -512,7 +510,7 @@ export async function createAsset(body: any): Promise<AssetTableData> {
   return newAsset;
 }
 
-export async function updateAsset(body: any): Promise<AssetTableData> {
+export async function updateAsset(body: Record<string, unknown>): Promise<AssetTableData> {
   const assetIndex = fallbackAssets.findIndex(a => a.id === Number(body.id));
   if (assetIndex === -1) {
     throw new Error("Asset not found");
@@ -523,25 +521,25 @@ export async function updateAsset(body: any): Promise<AssetTableData> {
   // Note: Department, Assigned To, and Location cannot be updated directly per PFRS rules (Transfer only)
   const updatedAsset: AssetTableData = {
     ...existing,
-    item_name: body.item_name || existing.item_name,
-    serial: body.serial !== undefined ? body.serial : existing.serial,
-    brand: body.brand !== undefined ? body.brand : existing.brand,
-    model: body.model !== undefined ? body.model : existing.model,
-    security_tag: body.security_tag !== undefined ? body.security_tag : existing.security_tag,
-    supplier_name: body.supplier_name !== undefined ? body.supplier_name : existing.supplier_name,
-    invoice_no: body.invoice_no !== undefined ? body.invoice_no : existing.invoice_no,
-    po_no: body.po_no !== undefined ? body.po_no : existing.po_no,
-    remarks: body.remarks !== undefined ? body.remarks : existing.remarks,
-    warranty_until: body.warranty_until !== undefined ? body.warranty_until : existing.warranty_until,
-    item_image: body.item_image !== undefined ? body.item_image : existing.item_image,
-    condition: body.condition || existing.condition,
+    item_name: (body.item_name as string) || existing.item_name,
+    serial: body.serial !== undefined ? (body.serial as string) : existing.serial,
+    brand: body.brand !== undefined ? (body.brand as string) : existing.brand,
+    model: body.model !== undefined ? (body.model as string) : existing.model,
+    security_tag: body.security_tag !== undefined ? (body.security_tag as string) : existing.security_tag,
+    supplier_name: body.supplier_name !== undefined ? (body.supplier_name as string) : existing.supplier_name,
+    invoice_no: body.invoice_no !== undefined ? (body.invoice_no as string) : existing.invoice_no,
+    po_no: body.po_no !== undefined ? (body.po_no as string) : existing.po_no,
+    remarks: body.remarks !== undefined ? (body.remarks as string) : existing.remarks,
+    warranty_until: body.warranty_until !== undefined ? (body.warranty_until as string) : existing.warranty_until,
+    item_image: body.item_image !== undefined ? (body.item_image as string) : existing.item_image,
+    condition: (body.condition as string) || existing.condition,
   };
 
   fallbackAssets[assetIndex] = updatedAsset;
   return updatedAsset;
 }
 
-export async function deactivateAsset(id: number, reason: string): Promise<boolean> {
+export async function deactivateAsset(id: number, reason?: string): Promise<boolean> {
   const assetIndex = fallbackAssets.findIndex(a => a.id === id);
   if (assetIndex === -1) throw new Error("Asset not found");
   
@@ -549,11 +547,12 @@ export async function deactivateAsset(id: number, reason: string): Promise<boole
   fallbackAssets[assetIndex] = {
     ...fallbackAssets[assetIndex],
     record_status: "voided",
+    remarks: reason || fallbackAssets[assetIndex].remarks,
   };
   return true;
 }
 
-export async function recordTransfer(body: any): Promise<any> {
+export async function recordTransfer(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const assetId = Number(body.asset_id);
   const assetIndex = fallbackAssets.findIndex((a) => a.id === assetId);
   if (assetIndex === -1) throw new Error("Asset not found");
@@ -562,15 +561,15 @@ export async function recordTransfer(body: any): Promise<any> {
 
   // Validation rules from Section 14:
   // 1. effective_date >= acquisition date
-  if (new Date(body.effective_date) < new Date(existing.date_acquired)) {
+  if (new Date(String(body.effective_date)) < new Date(existing.date_acquired)) {
     throw new Error("Effective date cannot be earlier than acquisition date.");
   }
 
   // 2. Something must actually change
   const newDeptId = Number(body.to_department_id);
   const newUserId = body.to_user_id ? Number(body.to_user_id) : null;
-  const newLocation = body.to_location || "";
-  const newCondition = body.condition_on_handover || existing.condition;
+  const newLocation = (body.to_location as string) || "";
+  const newCondition = (body.condition_on_handover as string) || existing.condition;
 
   const deptChanged = existing.department !== newDeptId;
   const userChanged = existing.employee !== newUserId;
@@ -615,11 +614,11 @@ export async function recordTransfer(body: any): Promise<any> {
   };
 }
 
-export async function fetchAssetAssignments(assetId: number): Promise<any[]> {
+export async function fetchAssetAssignments(_assetId: number): Promise<Record<string, unknown>[]> {
   return [
     {
       assignment_id: 1,
-      asset_id: assetId,
+      asset_id: _assetId,
       user_id: 1,
       user_name: "Maria Santos",
       assigned_by: 133,
@@ -635,10 +634,10 @@ export async function fetchAssetAssignments(assetId: number): Promise<any[]> {
   ];
 }
 
-export async function createAssetAssignment(body: any): Promise<any> {
+export async function createAssetAssignment(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   return { success: true, ...body };
 }
 
-export async function returnAssetAssignment(assignmentId: number, updateData: any): Promise<any> {
+export async function returnAssetAssignment(assignmentId: number, updateData: Record<string, unknown>): Promise<Record<string, unknown>> {
   return { success: true, assignment_id: assignmentId, ...updateData };
 }

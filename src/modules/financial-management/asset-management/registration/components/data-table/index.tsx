@@ -92,6 +92,7 @@ export function AssetDataTable<TData extends AssetTableData, TValue>({
     return Array.from(set);
   }, [data]);
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: filteredData,
     columns,
