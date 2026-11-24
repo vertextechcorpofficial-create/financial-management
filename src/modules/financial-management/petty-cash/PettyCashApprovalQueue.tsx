@@ -18,7 +18,7 @@ import { dateTime, dateOnly } from "./utils/dateTime";
 const PENDING_HEADERS = ["Request", "Type", "Fund", "Detail", "Requested by", "Date", "Status", ""];
 const DECIDED_HEADERS = ["Request", "Type", "Fund", "Requested by", "Decided by", "Status", "Entry"];
 
-export default function PettyCashApprovalQueue({ actorName, canDecide, renderFund }: { actorName: string; canDecide: boolean; renderFund: (id: string, close: () => void, changed: (message?: string) => void) => ReactNode }) {
+export default function PettyCashApprovalQueue({ canDecide, renderFund }: { canDecide: boolean; renderFund: (id: string, close: () => void, changed: (message?: string) => void) => ReactNode }) {
   const [selected, setSelected] = useState<ApprovalRow | null>(null), [pendingPage, setPendingPage] = useState(1), [decidedPage, setDecidedPage] = useState(1);
   const [pendingFilters, setPendingFilters] = useState<ApprovalFilterState>({ ...EMPTY_APPROVAL_FILTERS.pending }), [decidedFilters, setDecidedFilters] = useState<ApprovalFilterState>({ ...EMPTY_APPROVAL_FILTERS.decided });
   const pending = useFundRead<Page<ApprovalRow>>(`onboarding-approval/requests?${approvalFilterParams({ queue: "pending", page: pendingPage, filters: pendingFilters })}`, 250);
@@ -75,6 +75,6 @@ export default function PettyCashApprovalQueue({ actorName, canDecide, renderFun
       </section>;
     })}
     <section className="space-y-3 rounded-xl border bg-card p-5"><h2 className="text-lg font-semibold">Entries posted on approval</h2><MasterTable label="Entries posted on approval" headers={["Event", "Debit", "Credit"]}>{[["New fund / Increase imprest", "Fund account (GL)", "Selected cash / bank"], ["Decrease imprest", "Selected cash / bank", "Fund account (GL)"], ["Close fund", "Cash / bank (counted), Cash Over/Short if short", "Fund account (GL), Cash Over/Short if over"], ["Change custodian", "No entry", "No entry"]].map(([event, dr, cr]) => <tr key={event}><td>{event}</td><td>{dr}</td><td>{cr}</td></tr>)}</MasterTable></section>
-    {selected && (selected.kind === "FUND" ? renderFund(selected.id, () => setSelected(null), changed) : <FundChangeReview key={selected.id} id={selected.id} actorName={actorName} canDecide={canDecide} onClose={() => setSelected(null)} onChanged={changed} />)}
+    {selected && (selected.kind === "FUND" ? renderFund(selected.id, () => setSelected(null), changed) : <FundChangeReview key={selected.id} id={selected.id} canDecide={canDecide} onClose={() => setSelected(null)} onChanged={changed} />)}
   </section>;
 }

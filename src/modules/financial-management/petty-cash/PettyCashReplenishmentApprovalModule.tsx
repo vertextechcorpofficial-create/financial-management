@@ -24,7 +24,7 @@ function Pager({ label, page, data, onPage }: { label: string; page: number; dat
   if (data.total <= data.pageSize && page === 1) return null;
   return <div aria-label={`${label} pagination`} className="flex flex-wrap items-center justify-end gap-3 p-4 text-sm"><span>{data.total} record(s) - Page {page}</span><Button variant="outline" size="sm" disabled={page === 1} onClick={() => onPage(page - 1)}>Previous</Button><Button variant="outline" size="sm" disabled={page * data.pageSize >= data.total} onClick={() => onPage(page + 1)}>Next</Button></div>;
 }
-export default function PettyCashReplenishmentApprovalModule({ actorName }: { actorName: string }) {
+export default function PettyCashReplenishmentApprovalModule() {
   const [pendingPage, setPendingPage] = useState(1), [historyPage, setHistoryPage] = useState(1), [selected, setSelected] = useState<number | null>(null), [search, setSearch] = useState(""), [from, setFrom] = useState(""), [to, setTo] = useState("");
   const deferred = useDeferredValue(search), pendingQuery = new URLSearchParams({ queue: "pending", page: String(pendingPage), pageSize: "25" }), historyQuery = new URLSearchParams({ queue: "history", page: String(historyPage), pageSize: "25" });
   if (deferred.trim()) { pendingQuery.set("search", deferred.trim()); historyQuery.set("search", deferred.trim()); }
@@ -51,6 +51,6 @@ export default function PettyCashReplenishmentApprovalModule({ actorName }: { ac
         <div className="space-y-3 p-5 md:hidden">{history.data.items.map(row => { const r = row.request; return <article key={r.id} className="space-y-3 rounded-lg border p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold">{r.docNo}</p><p className="text-sm text-muted-foreground">{r.snapshot?.fund.docNo}</p></div><ReplenishmentStatus state={r.state} /></div><dl className="grid grid-cols-2 gap-2 text-sm"><div><dt className="text-muted-foreground">Approved by</dt><dd>{row.decidedBy || r.approver || "-"}</dd></div><div><dt className="text-muted-foreground">Decided</dt><dd>{dateOnly(row.decidedAt)}</dd></div><div><dt className="text-muted-foreground">Entry</dt><dd>{row.journal?.number ?? "-"}</dd></div><div><dt className="text-muted-foreground">Reimbursed</dt><dd>{r.state === "POSTED" ? voucherMoney(r.snapshot?.reimbursement || "0.00") : "-"}</dd></div></dl>{r.decisionReason && <p className="text-sm">{r.decisionReason}</p>}<div className="flex items-center justify-between gap-2"><p className="text-xs text-muted-foreground">{r.attachments.length} document(s)</p><Button size="sm" variant="outline" onClick={() => setSelected(r.id)}>Review</Button></div></article>; })}</div>
         <Pager label="History" page={historyPage} data={history.data} onPage={setHistoryPage} /></> : <p className="px-5 pb-5 text-sm text-muted-foreground">None yet.</p>}</>}
     </section>
-    {selected !== null && <ReplenishmentApprovalReview key={selected} id={selected} actorName={actorName} onClose={() => setSelected(null)} onChanged={changed} />}
+    {selected !== null && <ReplenishmentApprovalReview key={selected} id={selected} onClose={() => setSelected(null)} onChanged={changed} />}
   </section>;
 }

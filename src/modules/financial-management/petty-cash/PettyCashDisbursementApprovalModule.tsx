@@ -17,7 +17,7 @@ import type { VoucherApprovalFund, VoucherApprovalRow } from "./voucher-approval
 const PENDING_HEADERS = ["Voucher / revision", "Fund", "Payee / particulars", "Prepared by", "Voucher date / submitted", "Gross", "Cash paid", "Cash to pay / (return)", ""];
 const DECIDED_HEADERS = ["Voucher / revision", "Fund", "Payee / particulars", "Decision", "Decided by", "Decided at", "Cash paid before", "Cash paid / (returned)", ""];
 
-export default function PettyCashDisbursementApprovalModule({ actorName }: { actorName: string }) {
+export default function PettyCashDisbursementApprovalModule() {
   const funds = useFundRead<VoucherApprovalFund[]>("disbursement-approval/funds"), [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<{ id: number; history: boolean } | null>(null);
   const fundsDisabled = funds.loading || Boolean(funds.error && !funds.data);
@@ -26,7 +26,7 @@ export default function PettyCashDisbursementApprovalModule({ actorName }: { act
     <ErrorBox error={funds.error || null} retry={funds.refresh} title="Could not load fund filters" />
     <Queue queue="pending" funds={funds.data || []} fundsDisabled={fundsDisabled} revision={revision} onOpen={row => setSelected({ id: row.voucherId, history: false })} />
     <Queue queue="decided" funds={funds.data || []} fundsDisabled={fundsDisabled} revision={revision} onOpen={row => setSelected({ id: row.decisionId!, history: true })} />
-    {selected && (selected.history ? <VoucherDecisionDetails id={selected.id} onClose={() => setSelected(null)} /> : <VoucherReview id={selected.id} review actorName={actorName} onClose={() => setSelected(null)} onChanged={changed} />)}
+    {selected && (selected.history ? <VoucherDecisionDetails id={selected.id} onClose={() => setSelected(null)} /> : <VoucherReview id={selected.id} review onClose={() => setSelected(null)} onChanged={changed} />)}
   </section>;
 }
 function Queue({ queue, funds, fundsDisabled, revision, onOpen }: { queue: "pending" | "decided"; funds: VoucherApprovalFund[]; fundsDisabled: boolean; revision: number; onOpen: (row: VoucherApprovalRow) => void }) {

@@ -50,14 +50,15 @@ export const requestStatusLabels = {
   APPROVED: "Approved",
   REJECTED: "Rejected",
   CANCELLED: "Cancelled",
-  ENROLLED: "Enrolled",
+  ENROLLED: "For verification",
+  AGENCY_DECLINED: "Not approved by agency",
 } as const;
 export type RequestStatus = keyof typeof requestStatusLabels;
 
 export const requestViews = {
   "in-progress": { label: "In progress", statuses: ["REQUESTED", "APPROVED"] },
   drafts: { label: "Drafts", statuses: ["DRAFT"] },
-  decided: { label: "Decided", statuses: ["APPROVED", "REJECTED", "CANCELLED", "ENROLLED"] },
+  decided: { label: "Decided", statuses: ["APPROVED", "REJECTED", "CANCELLED", "ENROLLED", "AGENCY_DECLINED"] },
 } as const satisfies Record<string, { label: string; statuses: readonly RequestStatus[] }>;
 export type RequestView = keyof typeof requestViews;
 
@@ -66,7 +67,8 @@ export const requestDecisionLabels = {
   REQUEST_APPROVED: "Request approved",
   REQUEST_REJECTED: "Request rejected",
   REQUEST_CANCELLED: "Request cancelled",
-  REQUEST_ENROLLED: "Request enrolled",
+  REQUEST_ENROLLED: "Loan enrolled",
+  REQUEST_AGENCY_DECLINED: "Agency did not approve",
 } as const;
 export type RequestDecision = {
   id: number;
@@ -97,6 +99,7 @@ export type AgencyChoice = {
   agencyType: "GOVERNMENT" | "BANK" | "OTHER";
   programs: string[];
   payoutOptions: string[];
+  referenceExample?: string | null;
 };
 export type PayrollLoan = {
   id: number;

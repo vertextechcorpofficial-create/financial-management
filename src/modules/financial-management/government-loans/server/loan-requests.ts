@@ -33,18 +33,18 @@ export const requestRow = z.object({
   missing_fields: z.partialRecord(z.enum(Object.keys(requestForm.shape) as Array<keyof RequestForm>), z.string()),
   updated_at: z.string(), requested_at: z.string().nullable(),
 });
-const detailRow = requestRow.extend({ filed_assessment: z.custom<LoanRequest["filedAssessment"]>() });
+export const requestDetailRow = requestRow.extend({ filed_assessment: z.custom<LoanRequest["filedAssessment"]>() });
 const decisionRow = z.object({
   id: positiveId, action: decisionActions, actor_name: z.string(), occurred_at: z.string(),
   before_values: z.object({ status: statuses }).nullable(),
   after_values: z.object({ status: statuses, reason: z.string().nullish(), remarks: z.string().nullish() }),
 });
 const listFields = Object.keys(requestRow.shape).join(",");
-const detailFields = Object.keys(detailRow.shape).join(",");
+const detailFields = Object.keys(requestDetailRow.shape).join(",");
 const documentFields = Object.keys(documentRow.shape).join(",");
 export const referenceFor = (id: number) => "GLR-" + String(id).padStart(6, "0");
 
-type Stored = z.output<typeof detailRow>;
+type Stored = z.output<typeof requestDetailRow>;
 type Operation = RequestDecision["action"] | "DRAFT_CREATED" | "DRAFT_SAVED" | "DOCUMENT_ATTACHED" | "DOCUMENT_REPLACED";
 
 export function requestId(value: string) {
@@ -68,7 +68,7 @@ function listItem(row: z.output<typeof requestRow>): RequestListItem {
 
 export async function readRequest(id: number) {
   const query = new URLSearchParams({ fields: detailFields, filter: JSON.stringify({ id: { _eq: id } }), limit: "1" });
-  const { data } = z.object({ data: z.array(detailRow).max(1) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+  const { data } = z.object({ data: z.array(requestDetailRow).max(1) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
   if (!data[0]) throw new LoanRequestError(404, "Loan request could not be found.");
   return data[0];
 }
@@ -109,7 +109,9 @@ export async function requestDetails(row: Stored): Promise<LoanRequest> {
 }
 
 export async function getLoanRequest(id: number): Promise<LoanRequest> {
-  return requestDetails(await readRequest(id));
+  const row = await readRequest(id);
+  if (!row.requested_at && row.status !== "DRAFT") throw new LoanRequestError(404, "Loan request could not be found.");
+  return requestDetails(row);
 }
 
 const listQuery = z.object({
@@ -124,6 +126,7 @@ export async function listLoanRequests(params: URLSearchParams) {
     : { _eq: status ?? "DRAFT" };
   const filter = {
     status: statusFilter, ...(agency ? { agency_id: { _eq: agency } } : {}),
+    _and: [{ _or: [{ requested_at: { _nnull: true } }, { status: { _eq: "DRAFT" } }] }],
     ...(q ? { _or: [{ employee_name: { _icontains: q } }, { agency_name: { _icontains: q } },
       ...(ref ? [{ id: { _eq: Number(ref) } }] : [])] } : {}),
   };
@@ -222,7 +225,7 @@ export async function writeRequestRevision(command: Command, action: Operation, 
   return getLoanRequest(receipt.request_id);
 }
 
-export async function recordBulkApprovalEvent(command: Command, action: "BULK_APPROVAL_SKIPPED" | "BULK_APPROVAL_COMPLETED",
+export async function recordBulkApprovalEvent(command: Command, action: "BULK_APPROVAL_STARTED" | "BULK_APPROVAL_SKIPPED" | "BULK_APPROVAL_COMPLETED",
   request: Pick<Stored, "id" | "revision">, result: object): Promise<CommandReceipt> {
   const entry = commandEvent(command, action, request.revision, "bulk:" + command.key, null, result, new Date().toISOString());
   try {
