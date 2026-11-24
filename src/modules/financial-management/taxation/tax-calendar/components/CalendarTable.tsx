@@ -1,7 +1,11 @@
 "use client";
 
+import { useState } from "react";
+import { CheckCircle2, Download, FileText, Search } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -13,18 +17,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatCurrency } from "@/lib/utils";
 
 import { DateField } from "./DateField";
-import { OptionCombobox } from "./OptionCombobox";
+import { NilFilingDialog } from "./NilFilingDialog";
 import { TablePager } from "./TablePager";
 import { CALENDAR_CATEGORIES, CALENDAR_STATUSES, toneClass, statusTone } from "../constants";
+import { phtDisplayDate } from "../pht";
+import { downloadDeadlines, downloadDeadlinesPdf } from "../utils/exportWorkbook";
 import type { CalendarFilter, CalendarObligation, CalendarStatus } from "../types";
 
-const COLUMNS = 8;
+const COLUMNS = 9;
 
 const STATUS_LABEL: Record<CalendarStatus, string> = {
   PAID: "Recorded as paid",
   DUE: "Due",
   OVERDUE: "Overdue",
   UNKNOWN: "Unknown",
+  UNVERIFIED: "Source offline",
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -36,8 +43,9 @@ const CATEGORY_LABEL: Record<string, string> = {
 
 export function CalendarTable({
   rows,
+  allRows,
+  taxYear,
   total,
-  companies,
   filters,
   isLoading,
   page,
@@ -46,10 +54,12 @@ export function CalendarTable({
   today,
   onFiltersChange,
   onPageChange,
+  onNilFiled,
 }: {
   rows: CalendarObligation[];
+  allRows: CalendarObligation[];
+  taxYear: number;
   total: number;
-  companies: Array<{ companyId: number; name: string; code: string }>;
   filters: CalendarFilter;
   isLoading: boolean;
   page: number;
@@ -58,18 +68,15 @@ export function CalendarTable({
   today: string;
   onFiltersChange: (patch: Partial<CalendarFilter>) => void;
   onPageChange: (page: number) => void;
+  onNilFiled: () => void;
 }) {
-  const companyOptions = [
-    { value: "ALL", label: "Every company" },
-    ...companies.map((company) => ({
-      value: String(company.companyId),
-      label: company.name,
-      searchText: `${company.code} ${company.name}`,
-    })),
-  ];
-
+  const [nilTarget, setNilTarget] = useState<CalendarObligation | null>(null);
   const dirty =
-    filters.companyId !== null || filters.category !== "ALL" || filters.status !== "ALL" || filters.from !== "" || filters.to !== "";
+    filters.category !== "ALL" ||
+    filters.status !== "ALL" ||
+    filters.from !== "" ||
+    filters.to !== "" ||
+    filters.q.trim() !== "";
 
   return (
     <section
@@ -80,18 +87,46 @@ export function CalendarTable({
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">Filing calendar</h2>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-0"
+            onClick={() => downloadDeadlines(allRows, taxYear)}
+            disabled={allRows.length === 0}
+            title="Download all filtered deadlines as an Excel workbook"
+          >
+            <Download className="mr-2 size-4" />
+            Export Excel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-0"
+            onClick={() => downloadDeadlinesPdf(allRows, taxYear)}
+            disabled={allRows.length === 0}
+            title="Download all filtered deadlines as a PDF schedule"
+          >
+            <FileText className="mr-2 size-4" />
+            Download PDF
+          </Button>
+        </div>
       </header>
 
       <div className="border-b border-border/50 px-4 py-3">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
-          <OptionCombobox
-            options={companyOptions}
-            value={filters.companyId === null ? "ALL" : String(filters.companyId)}
-            onChange={(value) => onFiltersChange({ companyId: value === "ALL" ? null : Number(value) })}
-            placeholder="Every company"
-            searchPlaceholder="Search companies..."
-            emptyLabel="No company matches."
-          />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <div className="relative">
+            <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              value={filters.q}
+              onChange={(event) => onFiltersChange({ q: event.target.value })}
+              placeholder="Form, company or period"
+              aria-label="Search deadlines"
+            />
+          </div>
           <Select value={filters.category} onValueChange={(value) => onFiltersChange({ category: value })}>
             <SelectTrigger aria-label="Category">
               <SelectValue />
@@ -135,7 +170,7 @@ export function CalendarTable({
             size="sm"
             className="justify-self-start xl:justify-self-end"
             disabled={!dirty}
-            onClick={() => onFiltersChange({ companyId: null, category: "ALL", status: "ALL", from: "", to: "" })}
+            onClick={() => onFiltersChange({ category: "ALL", status: "ALL", from: "", to: "", q: "" })}
           >
             Clear filters
           </Button>
@@ -153,7 +188,8 @@ export function CalendarTable({
               <TableHead className="w-[120px]">Category</TableHead>
               <TableHead className="w-[150px] text-right">Estimate</TableHead>
               <TableHead className="w-[150px]">Status</TableHead>
-              <TableHead className="w-[250px]">Why the date moved</TableHead>
+              <TableHead className="w-[230px]">Why the date moved</TableHead>
+              <TableHead className="w-[140px] text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -176,7 +212,7 @@ export function CalendarTable({
                 <TableRow key={row.key}>
                   <TableCell className="tabular-nums">
                     <span className="block" title={row.dueDate}>
-                      {row.dueDate === today ? `${row.dueDate} · today` : row.dueDate}
+                      {row.dueDate === today ? `${phtDisplayDate(row.dueDate)} · today` : phtDisplayDate(row.dueDate)}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -203,9 +239,30 @@ export function CalendarTable({
                     </Badge>
                   </TableCell>
                   <TableCell className="text-xs">
-                    <span className="block max-w-[250px] truncate" title={row.note ?? undefined}>
-                      {row.note ?? "—"}
-                    </span>
+                    {row.moveReason === null ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      <span className="block max-w-[230px] whitespace-normal" title={row.moveReason}>
+                        {row.movedFrom === null ? "" : `From ${phtDisplayDate(row.movedFrom)}: `}
+                        {row.moveReason}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {row.status !== "PAID" && row.status !== "UNVERIFIED" && row.estimated === 0 ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setNilTarget(row)}
+                        title="Record BIR Filing Reference Number for a zero-tax (Nil) return"
+                      >
+                        <CheckCircle2 className="mr-1.5 size-3.5" />
+                        Mark Nil Filed
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                 </TableRow>
               ))
@@ -213,6 +270,15 @@ export function CalendarTable({
           </TableBody>
         </Table>
       </div>
+
+      <NilFilingDialog
+        obligation={nilTarget}
+        taxYear={taxYear}
+        onOpenChange={(open) => {
+          if (!open) setNilTarget(null);
+        }}
+        onFiled={onNilFiled}
+      />
 
       <TablePager
         page={page}

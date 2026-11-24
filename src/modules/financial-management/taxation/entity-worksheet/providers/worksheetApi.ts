@@ -101,6 +101,29 @@ export async function updateCarryoverUsed(input: {
 }): Promise<CarryoverLotDetail> {
   return send<CarryoverLotDetail>("PATCH", input);
 }
+export interface ManualEntryInput {
+  companyId: number;
+  taxYear: number;
+  lineKey: string;
+  quarter: number;
+  /** null returns the line to the figure the ledgers produce. */
+  amount: number | null;
+}
+
+/** Manual entry mode (deck item 10): one typed figure, saved where the next read finds it. */
+export async function saveManualEntry(input: ManualEntryInput): Promise<void> {
+  const response = await fetch(`${BASE}/manual`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const payload = (await response.json().catch(() => null)) as Envelope<unknown> | null;
+  if (!payload) {
+    throw new WorksheetApiError(`The manual figure could not be saved (HTTP ${response.status}).`);
+  }
+  unwrap(payload);
+}
+
 export interface OpeningUpdateResult {
   updated: number;
   skipped: number;

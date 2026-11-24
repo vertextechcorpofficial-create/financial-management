@@ -41,11 +41,18 @@ export function phtStamp(value: Date | number = Date.now()): string {
   return `${phtDate(value)}T${phtTime(value)}`;
 }
 
-/** `YYYY-MM-DD HH:mm:ss`, for display and for the audit log. */
+/** `MM/DD/YYYY HH:mm:ss`, for display and for the audit log. */
 export function phtDisplayStamp(value: string | Date | number | null | undefined): string {
   if (value == null || value === "") return "—";
   const iso = toPhtStampString(value);
-  return iso ? iso.replace("T", " ").slice(0, 19) : "—";
+  return iso ? `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)} ${iso.slice(11, 19)}` : "—";
+}
+
+/** `MM/DD/YYYY`, from a date-only value or any stored stamp. */
+export function phtDisplayDate(value: string | Date | number | null | undefined): string {
+  if (value == null || value === "") return "—";
+  const date = toPhtDateString(value);
+  return date ? `${date.slice(5, 7)}/${date.slice(8, 10)}/${date.slice(0, 4)}` : "—";
 }
 
 /** `YYYY-MM-DD HH:mm` for dense table cells. */

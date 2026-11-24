@@ -2,8 +2,9 @@ import "server-only";
 
 import type { IntercompanyMatch, QuarterFigures, RegistryCompany } from "../types";
 import { VAT_RATE } from "../constants";
-import { listRows, sumFields, CompanyRequestError, groupedByDate } from "./companyClient";
+import { listRows, sumFields, groupedByDate } from "./companyClient";
 import { loadSttSales, loadSpringExpenses, loadSpringSales } from "./stt.client";
+import { loadPurchaseVat } from "./purchases";
 
 /**
  * Where every tax figure comes from.
@@ -60,6 +61,7 @@ function emptyQuarter(): QuarterFigures {
   return {
     sales: 0,
     salesVat: 0,
+    vatFreeSales: 0,
     discounts: 0,
     returns: 0,
     returnsVat: 0,
@@ -84,6 +86,18 @@ function quarterOf(dateValue: string): number {
 /** Same quarter rule, exported for per-line sums that never become grouped rows. */
 export function quarterIndex(dateValue: string): number {
   return quarterOf(dateValue);
+}
+
+const IN_CHUNK_SIZE = 100;
+
+function chunkIds<T>(items: T[], size = IN_CHUNK_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+function formatPeso(value: number): string {
+  return `₱${value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /**
@@ -114,17 +128,22 @@ async function payableRowsByDisbursementDate(
   }
   if (dateOf.size === 0) return [];
 
-  const lines = await listRows<{ disbursement_id: number; amount: number | string | null; coa_id: number | null }>(
-    company.baseUrl,
-    company.token,
-    company.code,
-    "disbursement_payables",
-    {
-      fields: ["disbursement_id", "amount", "coa_id"],
-      filter: { _and: [{ disbursement_id: { _in: [...dateOf.keys()] } }, { coa_id: { _in: coaIds } }] },
-      limit: -1,
-    },
-  );
+  // Chunk `_in` arrays to keep GET URL query strings well under HTTP 431 header limits.
+  const lines: Array<{ disbursement_id: number; amount: number | string | null; coa_id: number | null }> = [];
+  for (const batch of chunkIds([...dateOf.keys()])) {
+    const part = await listRows<{ disbursement_id: number; amount: number | string | null; coa_id: number | null }>(
+      company.baseUrl,
+      company.token,
+      company.code,
+      "disbursement_payables",
+      {
+        fields: ["disbursement_id", "amount", "coa_id"],
+        filter: { _and: [{ disbursement_id: { _in: batch } }, { coa_id: { _in: coaIds } }] },
+        limit: -1,
+      },
+    );
+    lines.push(...part);
+  }
 
   const byDate = new Map<string, number>();
   for (const line of lines) {
@@ -176,8 +195,11 @@ async function resolveGroupPeers(
       limit: 500,
     });
   } catch (error) {
-    const message = error instanceof CompanyRequestError ? error.message : String(error);
-    notices.push(`Intercompany sales could not be matched: ${message}`);
+    void error;
+    notices.push(
+      "The customer list could not be read, so sales to group companies are not matched and stay at zero. " +
+        "Check the instance answers, then refresh.",
+    );
   }
 
   const resolved = peers.map<GroupPeer>((peer) => {
@@ -246,8 +268,8 @@ export async function loadFigures(
       const yearRegister = figures.reduce((total, quarter) => total + quarter.sales + quarter.salesVat, 0);
       salesSource = "STT_VIEW";
       notices.push(
-        `Sales come from the itemized sales view: ${stt.sales.lines} product lines on ${stt.sales.invoices} invoices. ` +
-          `The invoice register carries ${yearRegister.toFixed(2)} for the same year, so the two bases differ by ${(yearRegister - yearGross).toFixed(2)}.`,
+        `Sales come from the itemized sales view: ${stt.sales.lines.toLocaleString("en-PH")} product lines on ${stt.sales.invoices.toLocaleString("en-PH")} invoices. ` +
+          `The invoice register carries ${formatPeso(yearRegister)} for the same year, so the two bases differ by ${formatPeso(yearRegister - yearGross)}.`,
       );
       if (stt.reason) notices.push(`Only part of the year came from that view: ${stt.reason}.`);
     } else if (stt.reason) {
@@ -273,11 +295,40 @@ export async function loadFigures(
         quarter.cwt += sums.ewt_amount ?? 0;
       });
     } catch {
-      notices.push("This instance has no tax-withheld column on its sales invoices, so credits are zero.");
+      notices.push(
+        "The sales invoices carry no tax-withheld column, so line 11 credits are zero. " +
+          "The 2307 certificates below are the only record of withholding on sales.",
+      );
     }
   } catch (error) {
     failed.push("sales");
-    notices.push(`Sales invoices could not be read: ${error instanceof Error ? error.message : String(error)}`);
+    void error;
+    notices.push(
+      "The sales invoices could not be read, so output VAT and the sales base are unknown rather than zero. " +
+        "Check that the instance answers, then refresh.",
+    );
+  }
+
+  // Sales invoiced with no VAT. The 2550Q needs these split into zero-rated and exempt, and
+  // this instance records neither, so the money is measured and reported as one unclassified
+  // figure instead of being reported as nothing.
+  try {
+    const free = await groupedByDate(
+      company.baseUrl,
+      company.token,
+      company.code,
+      "sales_invoice",
+      "invoice_date",
+      { total_amount: "sum" },
+      from,
+      to,
+      { _and: [{ vat_amount: { _eq: 0 } }, { transaction_status: { _nin: CANCELLED_SALES } }] },
+    );
+    bucket(figures, free, (quarter, sums) => {
+      quarter.vatFreeSales += sums.total_amount ?? 0;
+    });
+  } catch {
+    // No vat_amount column on this instance: stays zero.
   }
 
   // Cost of sales has no ledger in this ERP. The two readings the desk shows are the
@@ -335,7 +386,12 @@ export async function loadFigures(
       if (salesSource !== "STT_VIEW") salesSource = "INVOICE_LINES";
     }
   } catch {
-    notices.push("The sales detail lines could not be read, so product standard cost is zero.");
+    // Falling back to the purchase-order basis is fine; falling back silently is not, so the
+    // failure is named here instead of leaving a zero that looks like a real cost.
+    notices.push(
+      `The sales detail lines for ${taxYear} could not be read, so product standard cost is zero and line 5 falls back to purchase orders. ` +
+        "Refresh; if it keeps failing, check that the itemized sales view answers for that year.",
+    );
   }
 
   try {
@@ -350,17 +406,30 @@ export async function loadFigures(
   }
 
   try {
-    const purchases = await groupedByDate(company.baseUrl, company.token, company.code, "purchase_order", "date", {
-      total_amount: "sum",
-      vat_amount: "sum",
-    }, from, to);
-    bucket(figures, purchases, (quarter, sums) => {
-      quarter.purchases += (sums.total_amount ?? 0) - (sums.vat_amount ?? 0);
-      quarter.purchasesVat += sums.vat_amount ?? 0;
-    });
-  } catch (error) {
+    const purchases = await loadPurchaseVat(company, from, to);
+    for (const [month, sums] of purchases.months) {
+      const index = Math.floor((month - 1) / 3);
+      figures[index].purchases += sums.base;
+      figures[index].purchasesVat += sums.vat;
+    }
+    if (purchases.months.size > 0 && purchases.vatLines > 0) {
+      notices.push(
+        "Input VAT and the purchase base come from the purchase order lines, because the order headers carry no VAT on this instance. " +
+          "Each line is counted in the month it was encoded, the only date the instance exposes for it.",
+      );
+    }
+    if (purchases.noVatLines > 0) {
+      notices.push(
+        `${purchases.noVatLines} purchase line${purchases.noVatLines === 1 ? " carries" : "s carry"} no VAT, so input VAT is understated. ` +
+          "Post the supplier invoice with its VAT line on those purchases, then refresh.",
+      );
+    }
+  } catch {
     failed.push("purchases");
-    notices.push(`Purchase orders could not be read: ${error instanceof Error ? error.message : String(error)}`);
+    notices.push(
+      "The purchase order lines could not be read, so input VAT is unknown rather than zero. " +
+        "Refresh; if it keeps failing, check that the purchase orders answer for that year.",
+    );
   }
 
   /**
@@ -392,7 +461,7 @@ export async function loadFigures(
     }
   }
 
-  if (deductibleAccounts) {
+  if (!expenseBooked && deductibleAccounts) {
     try {
       const payables = await payableRowsByDisbursementDate(company, from, to, deductibleAccounts);
       if (payables.length > 0) {
@@ -405,11 +474,10 @@ export async function loadFigures(
             "Payments that settled inventory, receivables, loans or taxes are balance-sheet movements and are excluded.",
         );
       }
-    } catch (error) {
+    } catch {
       notices.push(
-        `Disbursement lines could not be read (${
-          error instanceof Error ? error.message : String(error)
-        }), so deductions fall back to the expense register.`,
+        "The disbursement ledger could not be read, so deductions fall back to the expense register and may be " +
+          "understated. Refresh; if it keeps failing, check that the ledger answers for that year.",
       );
     }
   }
@@ -522,6 +590,7 @@ export async function loadYearTotals(company: RegistryCompany, taxYear: number, 
   const totals = {
     sales: 0,
     salesVat: 0,
+    vatFreeSales: 0,
     discounts: 0,
     purchases: 0,
     purchasesVat: 0,
@@ -574,12 +643,15 @@ export async function loadYearTotals(company: RegistryCompany, taxYear: number, 
   if (stt.sales === null && stt.reason) totals.salesSource = "INVOICE_HEADERS";
 
   try {
-    const sums = await sumFields(company.baseUrl, company.token, company.code, "purchase_order", [
-      "total_amount",
-      "vat_amount",
-    ], { _and: [{ date: { _gte: from } }, { date: { _lte: to } }] });
-    totals.purchases = (sums.total_amount ?? 0) - (sums.vat_amount ?? 0);
-    totals.purchasesVat = sums.vat_amount ?? 0;
+    const purchases = await loadPurchaseVat(company, from, to);
+    let base = 0;
+    let vat = 0;
+    for (const month of purchases.months.values()) {
+      base += month.base;
+      vat += month.vat;
+    }
+    totals.purchases = base;
+    totals.purchasesVat = vat;
   } catch {
     // ignored
   }

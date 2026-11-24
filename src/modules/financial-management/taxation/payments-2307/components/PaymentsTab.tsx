@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 import { PAGE_SIZE, PAYMENT_PERIOD_KEYS, PAYMENT_PERIOD_LABELS } from "../constants";
+import { phtDisplayDate } from "../pht";
 import type { PaymentBody } from "../schemas";
 import type { PaymentRow } from "../types";
 import { ConfirmDeleteDialog } from "./ConfirmDeleteDialog";
@@ -128,7 +129,7 @@ export function PaymentsTab({
             className="min-h-11 md:min-h-0"
           >
             <Download className="mr-2 size-4" />
-            Export
+            Export Excel
           </Button>
           <Button
             type="button"
@@ -294,8 +295,16 @@ export function PaymentsTab({
                 >
                   <TableCell className="font-medium tabular-nums">{payment.formCode}</TableCell>
                   <TableCell>{PAYMENT_PERIOD_LABELS[payment.periodKey]}</TableCell>
-                  <TableCell className="tabular-nums">{payment.paidOn}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(payment.amount)}</TableCell>
+                  <TableCell className="tabular-nums">{phtDisplayDate(payment.paidOn)}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {payment.amount === 0 ? (
+                      <span className="text-muted-foreground" title="A nil or zero return: filed, nothing remitted">
+                        Nil return
+                      </span>
+                    ) : (
+                      formatCurrency(payment.amount)
+                    )}
+                  </TableCell>
                   <TableCell>
                     <span className="block max-w-[220px] truncate" title={payment.referenceNo ?? ""}>
                       {payment.referenceNo ?? "—"}
@@ -348,7 +357,7 @@ export function PaymentsTab({
                 <div className="min-w-0">
                   <p className="font-medium tabular-nums">{payment.formCode}</p>
                   <p className="text-[11px] text-muted-foreground">
-                    {PAYMENT_PERIOD_LABELS[payment.periodKey]} · paid {payment.paidOn}
+                    {PAYMENT_PERIOD_LABELS[payment.periodKey]} · paid {phtDisplayDate(payment.paidOn)}
                   </p>
                 </div>
                 <p className="shrink-0 tabular-nums font-medium">{formatCurrency(payment.amount)}</p>

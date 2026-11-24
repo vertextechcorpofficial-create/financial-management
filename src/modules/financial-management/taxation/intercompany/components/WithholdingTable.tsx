@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search, X } from "lucide-react";
+import { Download, FileText, Search, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn, formatCurrency } from "@/lib/utils";
 
-import { ASSUMED_WITHHOLDING_LABEL, toneClass } from "../constants";
+import { toneClass } from "../constants";
 import { usePager } from "../hooks/usePager";
+import { downloadWithholding, downloadWithholdingPdf } from "../utils/exportWorkbook";
 import { TablePager } from "./TablePager";
 import type { WithholdingRow } from "../types";
 import { VERDICT_STYLE } from "../withholding";
@@ -31,7 +32,18 @@ function recordedNote(row: WithholdingRow): string {
   return "nothing recorded";
 }
 
-export function WithholdingTable({ rows, isLoading }: { rows: WithholdingRow[]; isLoading: boolean }) {
+export function WithholdingTable({
+  rows,
+  isLoading,
+  year,
+  ratesError,
+}: {
+  rows: WithholdingRow[];
+  isLoading: boolean;
+  year: number;
+  /** Why the configured rates could not be read, when they could not. */
+  ratesError: string | null;
+}) {
   const [q, setQ] = useState("");
   const [verdict, setVerdict] = useState("ALL");
   const [basis, setBasis] = useState("ALL");
@@ -60,12 +72,38 @@ export function WithholdingTable({ rows, isLoading }: { rows: WithholdingRow[]; 
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">Withholding by pair</h2>
           <p className="text-xs text-muted-foreground">
-            What the doc&apos;s rate would withhold, against what the payer actually recorded.
+            What the payer&apos;s configured rate would withhold, against what the payer actually recorded.
           </p>
         </div>
-        <Badge variant="outline" className="tabular-nums text-[11px]">
-          {visible.length} pair{visible.length === 1 ? "" : "s"}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge variant="outline" className="tabular-nums text-[11px]">
+            {visible.length} pair{visible.length === 1 ? "" : "s"}
+          </Badge>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-0"
+            onClick={() => downloadWithholding(visible, year)}
+            disabled={visible.length === 0}
+            title="Download these pairs as an Excel workbook"
+          >
+            <Download className="mr-2 size-4" />
+            Export Excel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-0"
+            onClick={() => downloadWithholdingPdf(visible, year)}
+            disabled={visible.length === 0}
+            title="Download these pairs as a PDF report"
+          >
+            <FileText className="mr-2 size-4" />
+            Download PDF
+          </Button>
+        </div>
       </div>
 
       {rows.length > 0 && (
@@ -162,7 +200,7 @@ export function WithholdingTable({ rows, isLoading }: { rows: WithholdingRow[]; 
                   <TableHead>Basis</TableHead>
                   <TableHead>Rate</TableHead>
                   <TableHead className="text-right">Base</TableHead>
-                  <TableHead className="text-right">Doc rate</TableHead>
+                  <TableHead className="text-right">Expected</TableHead>
                   <TableHead className="text-right">Recorded</TableHead>
                   <TableHead className="text-right">Difference</TableHead>
                   <TableHead>Verdict</TableHead>
@@ -187,13 +225,13 @@ export function WithholdingTable({ rows, isLoading }: { rows: WithholdingRow[]; 
                       <TableCell className="text-xs text-muted-foreground">{BASIS_LABEL[row.basis]}</TableCell>
                       <TableCell className="max-w-[20rem] whitespace-normal" title={row.rateLabel}>
                         {row.rate === null ? (
-                          <span className="text-xs font-medium text-muted-foreground">not determinable</span>
+                          <span className="text-xs font-medium text-muted-foreground">{row.rateLabel}</span>
                         ) : (
                           <>
                             <span className="block text-sm font-medium tabular-nums">
                               {Math.round(row.rate * 100)}%
                             </span>
-                            <span className="block text-xs text-muted-foreground">{ASSUMED_WITHHOLDING_LABEL}</span>
+                            <span className="block text-xs text-muted-foreground">{row.rateLabel}</span>
                           </>
                         )}
                       </TableCell>
@@ -227,9 +265,19 @@ export function WithholdingTable({ rows, isLoading }: { rows: WithholdingRow[]; 
             </Table>
           </div>
 
-          <p className="border-t px-4 py-3 text-xs text-muted-foreground">
-            2% is the doc&apos;s rate for a service fee, assumed because no document records an income type.
-          </p>
+          <div className="space-y-1 border-t px-4 py-3 text-xs text-muted-foreground">
+            <p>
+              Expected withholding is derived from the configured table using the recorded ATC / income type,
+              payee tier, and top-withholding status. Rows without a recorded income type remain Unclassified
+              rather than assuming a 2% service fee.
+            </p>
+            {ratesError === null ? null : (
+              <p className="font-medium text-foreground">
+                The configured rates could not be read ({ratesError}), so no rate is claimed and every row
+                reads Unclassified.
+              </p>
+            )}
+          </div>
 
           <div className="border-t px-4 py-3">
             <TablePager

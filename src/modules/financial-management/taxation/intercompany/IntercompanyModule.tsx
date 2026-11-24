@@ -17,6 +17,7 @@ import { PairDetailDialog } from "./components/PairDetailDialog";
 import { PairMatrix } from "./components/PairMatrix";
 import { WithholdingTable } from "./components/WithholdingTable";
 import { TAX_YEARS } from "./constants";
+import { useConfiguredRates } from "./hooks/useConfiguredRates";
 import { useIntercompany } from "./hooks/useIntercompany";
 import type { IntercompanyPair } from "./types";
 import { buildWithholdingRows } from "./withholding";
@@ -106,7 +107,12 @@ export function IntercompanyModule() {
   const notices = data?.notices ?? [];
   const unreadable = (data?.companies ?? []).filter((company) => !company.reachable);
   const oneSided = data?.oneSided ?? 0;
-  const withholding = useMemo(() => buildWithholdingRows(pairs), [pairs]);
+  // The payer's own configured table settles the rate; without it every row is unclassified.
+  const configured = useConfiguredRates(companyId);
+  const withholding = useMemo(
+    () => buildWithholdingRows(pairs, { rates: configured.rates ?? undefined }),
+    [pairs, configured.rates],
+  );
   const companyLabel = selectedCompany
     ? `${selectedCompany.code} — ${selectedCompany.name}`
     : (data?.companies ?? []).length > 0
@@ -219,7 +225,12 @@ export function IntercompanyModule() {
         </TabsContent>
 
         <TabsContent value="withholding" className="space-y-4">
-          <WithholdingTable rows={withholding} isLoading={isLoading} />
+          <WithholdingTable
+            rows={withholding}
+            isLoading={isLoading}
+            year={year}
+            ratesError={configured.error}
+          />
         </TabsContent>
       </Tabs>
 
@@ -229,6 +240,7 @@ export function IntercompanyModule() {
         pair={selected}
         monthly={monthly}
         companyCode={selectedCompany?.code ?? ""}
+        rates={configured.rates}
         onOpenChange={(open) => {
           if (!open) setSelected(null);
         }}

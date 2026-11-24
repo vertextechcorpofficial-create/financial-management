@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search, X } from "lucide-react";
+import { Download, FileText, Search, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 
 import { formatMonth, toneClass } from "../constants";
 import { usePager } from "../hooks/usePager";
+import { downloadMonthly, downloadMonthlyPdf } from "../utils/exportWorkbook";
 import { TablePager } from "./TablePager";
 import { OptionCombobox } from "./OptionCombobox";
 import type { IntercompanyMonthlyRow } from "../types";
@@ -79,14 +80,51 @@ export function MonthlyBreakdown({
             {companyLabel} · documents with a group company, bucketed by month of {year}.
           </p>
         </div>
-        <Badge variant="outline" className="tabular-nums text-[11px]">
-          {visible.length} row{visible.length === 1 ? "" : "s"}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge variant="outline" className="tabular-nums text-[11px]">
+            {visible.length} row{visible.length === 1 ? "" : "s"}
+          </Badge>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-0"
+            onClick={() => downloadMonthly(visible, year)}
+            disabled={visible.length === 0}
+            title="Download these rows as an Excel workbook"
+          >
+            <Download className="mr-2 size-4" />
+            Export Excel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-0"
+            onClick={() => downloadMonthlyPdf(visible, year)}
+            disabled={visible.length === 0}
+            title="Download these rows as a PDF report"
+          >
+            <FileText className="mr-2 size-4" />
+            Download PDF
+          </Button>
+        </div>
       </div>
 
       {rows.length > 0 && (
         <div aria-label="Monthly breakdown filters" className="border-b border-border/50 px-4 py-3">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_auto]">
+            <div className="relative">
+              <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={filter.q}
+                onChange={(event) => patch({ q: event.target.value })}
+                placeholder="Code or name…"
+                aria-label="Search counterparty"
+                className="pl-8"
+              />
+            </div>
+
             <Select value={filter.month} onValueChange={(value) => patch({ month: value })}>
               <SelectTrigger aria-label="Month" className="w-full">
                 <SelectValue placeholder="Month" />
@@ -128,17 +166,6 @@ export function MonthlyBreakdown({
                 <SelectItem value="PURCHASE">Purchase from</SelectItem>
               </SelectContent>
             </Select>
-
-            <div className="relative">
-              <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={filter.q}
-                onChange={(event) => patch({ q: event.target.value })}
-                placeholder="Code or name…"
-                aria-label="Search counterparty"
-                className="pl-8"
-              />
-            </div>
 
             {dirty && (
               <Button

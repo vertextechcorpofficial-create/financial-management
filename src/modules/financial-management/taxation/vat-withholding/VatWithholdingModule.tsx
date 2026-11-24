@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { AlertTriangle, Download, RefreshCw } from "lucide-react";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,6 +65,9 @@ export function VatWithholdingModule() {
    * figures. Zero is a claim about the company; showing zeros here would be a lie.
    */
   const unavailable = data ? !data.snapshot.company.reachable || !data.snapshot.figuresAvailable : false;
+  const warningNotices = (data?.snapshot.notices ?? []).filter((notice) =>
+    /could not be read|fall back|falls back|understated|not used/i.test(notice),
+  );
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-6">
@@ -122,7 +125,7 @@ export function VatWithholdingModule() {
             title={!data || unavailable ? "Nothing to export until the figures load" : "Download these tables as a workbook"}
           >
             <Download className="size-4" />
-            Export
+            Export Excel
           </Button>
         </div>
       </div>
@@ -181,10 +184,40 @@ export function VatWithholdingModule() {
               ) : null}
             </TabsList>
 
-            <TabsContent value="quarterly">
+            <TabsContent value="quarterly" className="space-y-4">
+              {warningNotices.length > 0 ? (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Ledger data warning</AlertTitle>
+                  <AlertDescription>
+                    <ul className="mt-1 list-disc space-y-1 pl-4">
+                      {warningNotices.map((notice) => (
+                        <li key={notice} className="break-words">
+                          {notice}
+                        </li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <QuarterlyVatTable figures={data.snapshot.figures} vat={data.vat} />
             </TabsContent>
-            <TabsContent value="monthly">
+            <TabsContent value="monthly" className="space-y-4">
+              {warningNotices.length > 0 ? (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Ledger data warning</AlertTitle>
+                  <AlertDescription>
+                    <ul className="mt-1 list-disc space-y-1 pl-4">
+                      {warningNotices.map((notice) => (
+                        <li key={notice} className="break-words">
+                          {notice}
+                        </li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <MonthlyWithholdingTable rows={data.monthly} />
             </TabsContent>
             <TabsContent value="certificates">
@@ -193,7 +226,8 @@ export function VatWithholdingModule() {
             {data.snapshot.notices.length > 0 ? (
               <TabsContent value="notices" className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  What could not be read while building these figures, in the order the sources were tried.
+                  What these figures are missing and what to do about it. A source that could not be read
+                  leaves its figure unknown, never zero.
                 </p>
                 {data.snapshot.notices.map((notice) => (
                   <Alert key={notice}>

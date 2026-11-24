@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PAYMENT_FORMS, PAYMENT_PERIOD_LABELS, periodsForForm } from "../constants";
@@ -50,8 +50,9 @@ function blankValues(): PaymentFormValues {
 }
 
 function asFormCode(value: string): PaymentFormValues["formCode"] {
-  // A row saved before the form list changed still has to open in the dialog.
-  return (PAYMENT_FORMS as readonly string[]).includes(value) ? (value as PaymentFormValues["formCode"]) : "2551Q";
+  // A row saved before the form list changed keeps its own code, so the dialog shows what is
+  // stored instead of quietly repointing the money to a form nobody chose.
+  return value as PaymentFormValues["formCode"];
 }
 
 function valuesFrom(payment: PaymentRow): PaymentFormValues {
@@ -94,6 +95,14 @@ export function PaymentDialog({
   // The period picker only offers the periods this form is actually filed for; a pair that slips
   // through is rejected by paymentFormSchema on save rather than repointed here.
   const formCode = useWatch({ control: form.control, name: "formCode" });
+
+  // A stored form the list no longer accepts (2307 was a certificate, not a return) stays visible
+  // so it can be corrected, rather than being replaced by whichever code sorted first.
+  const storedForm = payment?.formCode ?? null;
+  const storedIsNotReturn = storedForm !== null && !(PAYMENT_FORMS as readonly string[]).includes(storedForm);
+  const formOptions = storedIsNotReturn
+    ? [{ value: storedForm as string, label: `${storedForm} (not a return)` }, ...FORM_OPTIONS]
+    : FORM_OPTIONS;
 
   useEffect(() => {
     if (!open) return;
@@ -164,7 +173,7 @@ export function PaymentDialog({
                       </FormLabel>
                       <FormControl>
                         <OptionCombobox
-                          options={FORM_OPTIONS}
+                          options={formOptions}
                           value={field.value}
                           onChange={field.onChange}
                           placeholder="Pick a form"
@@ -173,6 +182,11 @@ export function PaymentDialog({
                           aria-label="BIR form"
                         />
                       </FormControl>
+                      {storedIsNotReturn && field.value === storedForm ? (
+                        <FormDescription>
+                          {storedForm} is a certificate, not a return. Pick the return this remittance belongs to.
+                        </FormDescription>
+                      ) : null}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -240,6 +254,9 @@ export function PaymentDialog({
                           placeholder="0.00"
                         />
                       </FormControl>
+                      <FormDescription>
+                        Enter 0 to file a nil or zero return, then fill the BIR reference below.
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -254,6 +271,7 @@ export function PaymentDialog({
                       <FormControl>
                         <Input {...field} maxLength={80} placeholder="BIR acknowledgement or bank reference" />
                       </FormControl>
+                      <FormDescription>A nil return is only accepted with this number.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

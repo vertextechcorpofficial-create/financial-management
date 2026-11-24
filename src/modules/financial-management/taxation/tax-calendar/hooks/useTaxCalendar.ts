@@ -7,10 +7,9 @@ import type { CalendarDayItem, CalendarFilter, CalendarObligation } from "../typ
 
 export const CALENDAR_PAGE_SIZE = 20;
 
-const EMPTY: CalendarFilter = { companyId: null, category: "ALL", status: "ALL", from: "", to: "" };
+const EMPTY: CalendarFilter = { companyId: null, category: "ALL", status: "ALL", from: "", to: "", q: "" };
 
-export function useTaxCalendar(year: number) {
-  const [filters, setFiltersState] = useState<CalendarFilter>(EMPTY);
+export function useTaxCalendar(year: number) {  const [filters, setFiltersState] = useState<CalendarFilter>(EMPTY);
   const [payload, setPayload] = useState<CalendarPayload | null>(null);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,12 +50,20 @@ export function useTaxCalendar(year: number) {
 
   const rows: CalendarObligation[] = useMemo(() => {
     const all = payload?.obligations ?? [];
+    const needle = filters.q.trim().toLowerCase();
     return all.filter((row) => {
+      if (filters.companyId !== null && row.companyId !== filters.companyId) return false;
       if (filters.category !== "ALL" && row.category !== filters.category) return false;
       if (filters.status !== "ALL" && row.status !== filters.status) return false;
       if (filters.from && row.dueDate < filters.from) return false;
       if (filters.to && row.dueDate > filters.to) return false;
-      return true;
+      if (needle === "") return true;
+      return (
+        row.formCode.toLowerCase().includes(needle) ||
+        row.companyName.toLowerCase().includes(needle) ||
+        row.companyCode.toLowerCase().includes(needle) ||
+        row.periodLabel.toLowerCase().includes(needle)
+      );
     });
   }, [payload, filters]);
 
@@ -64,23 +71,27 @@ export function useTaxCalendar(year: number) {
   const safePage = Math.min(page, pageCount);
   const pageRows = rows.slice((safePage - 1) * CALENDAR_PAGE_SIZE, safePage * CALENDAR_PAGE_SIZE);
 
-  /** Every filing of the year, shaped for the month grid. Deliberately unfiltered: the
-   *  filter controls live on the Deadlines tab only. */
+  /** Every filing of the year, shaped for the month grid. The company choice applies to both
+   *  views and to the tiles, so a reader looking at one entity sees one entity's deadlines. */
   const events: CalendarDayItem[] = useMemo(
     () =>
-      (payload?.obligations ?? []).map((row) => ({
-        date: row.dueDate,
-        formCode: row.formCode,
-        companyName: row.companyName,
-        period: row.periodLabel,
-        amount: row.estimated,
-        status: row.status,
-      })),
-    [payload],
+      (payload?.obligations ?? [])
+        .filter((row) => filters.companyId === null || row.companyId === filters.companyId)
+        .map((row) => ({
+          date: row.dueDate,
+          formCode: row.formCode,
+          companyName: row.companyName,
+          period: row.periodLabel,
+          amount: row.estimated,
+          status: row.status,
+        })),
+    [payload, filters.companyId],
   );
 
   const counts = useMemo(() => {
-    const all = payload?.obligations ?? [];
+    const all = (payload?.obligations ?? []).filter(
+      (row) => filters.companyId === null || row.companyId === filters.companyId,
+    );
     const unpaid = all.filter((row) => row.status !== "PAID");
     // A negative estimate is an overpayment to carry over, not money going out, so the two
     // are totalled apart; netting them made an all-credit year read as negative cash out.
@@ -92,10 +103,11 @@ export function useTaxCalendar(year: number) {
       estimated: unpaid.reduce((sum, row) => sum + Math.max(0, row.estimated ?? 0), 0),
       credits: unpaid.reduce((sum, row) => sum + Math.min(0, row.estimated ?? 0), 0),
     };
-  }, [payload]);
+  }, [payload, filters.companyId]);
 
   return {
     rows: pageRows,
+    allRows: rows,
     total: rows.length,
     counts,
     events,
