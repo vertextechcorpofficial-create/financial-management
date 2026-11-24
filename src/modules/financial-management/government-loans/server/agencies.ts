@@ -247,7 +247,7 @@ export async function readAgency(id: number) {
   return toAgency(data[0]);
 }
 
-const payrollBenefitCodes = new Map([["SSS", "SSS"], ["HDMF", "PAGIBIG"], ["PAGIBIG", "PAGIBIG"]]);
+export const payrollBenefitCodes = new Map([["SSS", "SSS"], ["HDMF", "PAGIBIG"], ["PAGIBIG", "PAGIBIG"]]);
 const payrollLoan = z.object({ loan_id: z.union([z.number().int().positive(), z.string().regex(/^[1-9]\d*$/)]), status: z.string().nullable() });
 
 async function checkDeactivation(shortCode: string) {

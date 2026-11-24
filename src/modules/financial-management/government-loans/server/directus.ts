@@ -5,11 +5,13 @@ export const GOVERNMENT_LOAN_AGENCY_HISTORY = "government_loan_agency_history";
 export const GOVERNMENT_LOAN_REQUESTS = "government_loan_requests";
 export const GOVERNMENT_LOAN_REQUEST_HISTORY = "government_loan_request_history";
 export const GOVERNMENT_LOAN_REQUEST_DOCUMENTS = "government_loan_request_documents";
+export const GOVERNMENT_LOAN_SETTINGS = "government_loan_settings";
 
 export type GovernmentLoansCollection = "user" | "modules" | "user_access_modules" | "benefit_loans"
   | "department" | "employment_status" | "user_wage_management"
   | typeof GOVERNMENT_LOAN_AGENCIES | typeof GOVERNMENT_LOAN_AGENCY_HISTORY
-  | typeof GOVERNMENT_LOAN_REQUESTS | typeof GOVERNMENT_LOAN_REQUEST_HISTORY | typeof GOVERNMENT_LOAN_REQUEST_DOCUMENTS;
+  | typeof GOVERNMENT_LOAN_REQUESTS | typeof GOVERNMENT_LOAN_REQUEST_HISTORY | typeof GOVERNMENT_LOAN_REQUEST_DOCUMENTS
+  | typeof GOVERNMENT_LOAN_SETTINGS;
 
 export class GovernmentLoansDirectusError extends Error {
   constructor(readonly status: number, readonly code?: string) {

@@ -31,8 +31,8 @@ function StatusBadge({ state }: { state: string }) {
   return <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${statusTone[state] || "border-border bg-muted"}`}>{voucherStatus(state)}</span>;
 }
 
-export default function PettyCashDisbursementModule({ canEdit, operational = false, actorName = "" }: { canEdit: boolean; operational?: boolean; actorName?: string }) {
-  return operational ? <Disbursement actorName={actorName} /> : <PettyCashVoucherDraftsModule canEdit={canEdit} />;
+export default function PettyCashDisbursementModule({ canEdit, operational = false }: { canEdit: boolean; operational?: boolean }) {
+  return operational ? <Disbursement /> : <PettyCashVoucherDraftsModule canEdit={canEdit} />;
 }
 
 function Register({ data, filtered = false, onOpen }: { data: Page<VoucherOperations>; filtered?: boolean; onOpen: (item: VoucherOperations) => void }) {
@@ -58,7 +58,7 @@ function Register({ data, filtered = false, onOpen }: { data: Page<VoucherOperat
     {data.items.length === 0 && <p className="p-5 text-sm text-muted-foreground">{filtered ? "No vouchers match these filters." : "No vouchers yet. Select “+ New voucher” to pay an expense from this fund."}</p>}
   </div>;
 }
-function Disbursement({ actorName }: { actorName: string }) {
+function Disbursement() {
   const funds = useVoucherRead<VoucherFund[]>("funds");
   const [fundId, setFundId] = useState<number | null>(null), [page, setPage] = useState(1);
   const [modal, setModal] = useState<{ id: number } | null>(null), [editor, setEditor] = useState<"new" | VoucherOperations | null>(null);
@@ -89,7 +89,7 @@ function Disbursement({ actorName }: { actorName: string }) {
       <div className="flex flex-col gap-3 border-y bg-muted/10 p-3"><div className="flex flex-wrap items-center gap-2"><Input aria-label="Search vouchers" placeholder="Search voucher, payee, receipt, or particulars..." value={search} onChange={event => changeFilter(() => setSearch(event.target.value))} className="h-9 w-full bg-background sm:max-w-sm" /><select aria-label="Voucher status filter" value={status} onChange={event => changeFilter(() => setStatus(event.target.value))} className="h-9 rounded-md border bg-background px-3 text-sm">{statusOptions.map(value => <option key={value} value={value}>{value === "ALL" ? "All statuses" : voucherStatus(value)}</option>)}</select><Input aria-label="Voucher date from" type="date" value={dateFrom} onChange={event => changeFilter(() => setDateFrom(event.target.value))} className="h-9 w-auto bg-background" /><Input aria-label="Voucher date to" type="date" value={dateTo} onChange={event => changeFilter(() => setDateTo(event.target.value))} className="h-9 w-auto bg-background" />{filtered && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}</div>{invalidRange && <p role="alert" className="text-sm text-destructive">From must be on or before To.</p>}</div>
       <ErrorBox error={register.error} retry={register.refresh} title="Could not load vouchers" />{register.loading && !register.data && <div className="p-5 pt-0"><ResponsiveListSkeleton label="Loading vouchers" rows={5} columns={VOUCHER_HEADERS.length} /></div>}{register.data && <><Register data={register.data} filtered={filtered} onOpen={open} />{register.data.total > 25 && <div className="p-3"><Paging page={page} pageSize={25} total={register.data.total} onChange={setPage} /></div>}</>}
     </section>}
-    {modal && <VoucherReview key={modal.id} id={modal.id} review={false} actorName={actorName} onClose={() => setModal(null)} onEdit={record => { setModal(null); setEditor(record); }} onChanged={changed} />}
+    {modal && <VoucherReview key={modal.id} id={modal.id} review={false} onClose={() => setModal(null)} onEdit={record => { setModal(null); setEditor(record); }} onChanged={changed} />}
     {editor && editorFund && <VoucherEditor key={editor === "new" ? "new" : editor.voucher.id} fund={editorFund} voucherId={editor === "new" ? null : editor.voucher.id} operational canEdit={editorFund.canPrepare} onClose={() => setEditor(null)} onDataChanged={register.refresh} onFinalized={changed} />}
   </section>;
 }
