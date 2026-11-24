@@ -200,6 +200,8 @@ export async function bulkApproveLoanRequests(body: unknown, key: string | null,
   const batch = loanCommand(key, { operation: "bulk-approve", items, remarks }, actor);
   const started = await startApprovalBatch(batch, items);
   if (!started) return { approved: 0, skipped: items.length, items: items.map(item => skipOutcome(item.id, "The filed request could not be found.")) };
+  // The earlier writer saved completed results under the original batch key.
+  if (started.action === "BULK_APPROVAL_COMPLETED") return batchResult.parse(started.after_values);
 
   const completion = loanCommand(bulkReceiptKey(batch.key, "result"), { operation: "bulk-approve-result", batch: batch.hash }, actor);
   const existing = await readCommandReceipt(completion);
