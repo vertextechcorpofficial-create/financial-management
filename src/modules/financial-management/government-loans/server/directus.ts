@@ -6,12 +6,13 @@ export const GOVERNMENT_LOAN_REQUESTS = "government_loan_requests";
 export const GOVERNMENT_LOAN_REQUEST_HISTORY = "government_loan_request_history";
 export const GOVERNMENT_LOAN_REQUEST_DOCUMENTS = "government_loan_request_documents";
 export const GOVERNMENT_LOAN_SETTINGS = "government_loan_settings";
+export const GOVERNMENT_LOAN_IMPORT_BATCHES = "government_loan_import_batches";
 
 export type GovernmentLoansCollection = "user" | "modules" | "user_access_modules" | "benefit_loans"
   | "department" | "employment_status" | "user_wage_management"
   | typeof GOVERNMENT_LOAN_AGENCIES | typeof GOVERNMENT_LOAN_AGENCY_HISTORY
   | typeof GOVERNMENT_LOAN_REQUESTS | typeof GOVERNMENT_LOAN_REQUEST_HISTORY | typeof GOVERNMENT_LOAN_REQUEST_DOCUMENTS
-  | typeof GOVERNMENT_LOAN_SETTINGS;
+  | typeof GOVERNMENT_LOAN_SETTINGS | typeof GOVERNMENT_LOAN_IMPORT_BATCHES;
 
 export class GovernmentLoansDirectusError extends Error {
   constructor(readonly status: number, readonly code?: string) {
@@ -45,13 +46,13 @@ export async function readGovernmentLoansItems(collection: GovernmentLoansCollec
   return (await governmentLoansDirectus(`/items/${collection}?${query}`, { headers: { Accept: "application/json" } })).json();
 }
 
-export async function writeGovernmentLoansItem(collection: GovernmentLoansCollection, body: object, fields: string, id?: number) {
+export async function writeGovernmentLoansItem(collection: GovernmentLoansCollection, body: object, fields: string, id?: number, timeout?: number) {
   const path = id === undefined ? collection : `${collection}/${id}`;
   const response = await governmentLoansDirectus(`/items/${path}?${new URLSearchParams({ fields })}`, {
     method: id === undefined ? "POST" : "PATCH",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }, timeout);
   return response.json();
 }
 

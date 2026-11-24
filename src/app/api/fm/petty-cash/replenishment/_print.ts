@@ -16,5 +16,5 @@ export function replenishmentPdf(p: ReplenishmentPreview, r: ReplenishmentReques
   if (r?.attachments.length) y = table(doc, y, { head: [["Supporting documents", "Status"]], body: r.attachments.map(f => [f.filename, f.state]) });
   y = table(doc, y, { head: [["Voucher", "Date", "Payee", "Receipts", "Gross", "Cash paid"]], body: p.vouchers.length ? p.vouchers.map(v => [v.docNo, v.date, v.payee, v.receipts.join(", "), printMoney(v.gross), printMoney(v.netCash)]) : [["No open vouchers", "", "", "", "", ""]], columnStyles: { 4: { halign: "right" }, 5: { halign: "right" } } });
   const signer = r && !["PENDING", "DRAFT"].includes(r.state) ? r.decidedBy || r.approver || "" : "";
-  return finish(doc, y, [`Prepared by\n${r?.preparedBy || ""}`, `Received by (Custodian)\n${p.fund.custodian}`, `${r?.state === "REJECTED" ? "Rejected by" : "Approved by"}\n${signer}`], r?.docNo || "DRAFT");
+  return finish(doc, y, [`${r?.preparedBy || ""}\nPrepared by`, `${p.fund.custodian}\nReceived by (Custodian)`, `${signer}\n${r?.state === "REJECTED" ? "Rejected by" : "Approved by"}`], r?.docNo || "DRAFT");
 }

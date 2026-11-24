@@ -56,6 +56,7 @@ function TaxAccountEditor({ settings, onClose, onSaved, reload, onBusyChange }: 
   </fieldset>
     <p className="text-sm text-muted-foreground">Unused accounts may be left blank. Transactions requiring a tax or variance account need a suitable selection before continuing.</p>
     <p className="text-sm text-muted-foreground">Changes apply to new replenishment, accrual and closure previews, including open paid vouchers. Submitted and posted journals keep their saved accounts.</p>
+    <p className="text-sm text-muted-foreground">Other Income is valid for cash overages. If Cash Over/Short will also cover shortages, map it to an expense account; otherwise shortages should use Due from Custodian.</p>
     <ErrorBox error={command.error} title="Could not save posting accounts" showFields={false} action={conflict ? { label: "Reload settings", onClick: reload } : undefined} />
     <div className="flex flex-wrap gap-2"><Button type="submit" disabled={command.busy || conflict || unsuitable}>{command.busy ? "Saving..." : "Save changes"}</Button><Button type="button" variant="outline" disabled={command.busy} onClick={onClose}>Cancel</Button></div>
   </form>;
