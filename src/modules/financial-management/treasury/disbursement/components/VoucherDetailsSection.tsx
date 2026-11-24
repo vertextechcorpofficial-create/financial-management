@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import { Plus, DownloadCloud, Paperclip, Trash2, UploadCloud, Loader2 } from "lu
 import { cn } from "@/lib/utils";
 import { SupplierDto, DepartmentDto } from "../types";
 import { toast } from "sonner";
-import { attachmentUrl, uploadSupportingDocument } from "../utils/attachments";
 
 interface VoucherDetailsSectionProps {
     transactionTypeId: number | "";
@@ -61,8 +60,6 @@ export function VoucherDetailsSection({
     setUploadingFile,
     disabled = false
 }: VoucherDetailsSectionProps) {
-    const uploadRequestRef = useRef(0);
-    useEffect(() => () => { uploadRequestRef.current += 1; }, []);
     return (
         <div className="bg-card p-4 rounded-lg border border-border shadow-sm grid grid-cols-1 gap-3.5 text-foreground">
             <div className="flex items-center gap-2 border-b border-border pb-1.5">
@@ -185,7 +182,7 @@ export function VoucherDetailsSection({
                         <div className="flex items-center gap-2 truncate max-w-[80%]">
                             <Paperclip className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-500 shrink-0" />
                             <a 
-                                href={attachmentUrl(supportingDocumentsUrl)}
+                                href={supportingDocumentsUrl.startsWith("http") ? supportingDocumentsUrl : `${(process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "")}/assets/${supportingDocumentsUrl}?access_token=${process.env.NEXT_PUBLIC_DIRECTUS_STATIC_TOKEN || "AAKv73dkIV8DfAIA5vEt3eXVdIebzmBW"}`} 
                                 target="_blank" 
                                 rel="noopener noreferrer" 
                                 className="text-xs font-semibold text-primary hover:underline truncate"
@@ -224,21 +221,30 @@ export function VoucherDetailsSection({
                                         type="file" 
                                         accept="image/*,application/pdf"
                                         onChange={async (e) => {
-                                             const file = e.target.files?.[0];
-                                             if (!file) return;
-                                             const input = e.target;
-                                             const requestId = ++uploadRequestRef.current;
-                                             try {
-                                                 setUploadingFile(true);
-                                                 const fileId = await uploadSupportingDocument(file);
-                                                 if (requestId !== uploadRequestRef.current) return;
-                                                 setSupportingDocumentsUrl(fileId);
-                                                 toast.success("Attachment uploaded successfully!");
-                                             } catch (err) {
-                                                 if (requestId === uploadRequestRef.current) toast.error(err instanceof Error ? err.message : "Failed to upload file.");
-                                             } finally {
-                                                 input.value = "";
-                                                 if (requestId === uploadRequestRef.current) setUploadingFile(false);
+                                            const file = e.target.files?.[0];
+                                            if (!file) return;
+                                            try {
+                                                setUploadingFile(true);
+                                                const formData = new FormData();
+                                                formData.append("file", file);
+                                                const res = await fetch("/api/fm/treasury/disbursements/upload", {
+                                                    method: "POST",
+                                                    body: formData
+                                                });
+                                                if (!res.ok) throw new Error("Upload failed");
+                                                const result = await res.json();
+                                                const fileId = result?.data?.id;
+                                                if (fileId) {
+                                                    setSupportingDocumentsUrl(fileId);
+                                                    toast.success("Attachment uploaded successfully!");
+                                                } else {
+                                                    toast.error("Upload succeeded but returned no ID.");
+                                                }
+                                            } catch (err) {
+                                                toast.error("Failed to upload file.");
+                                                console.error(err);
+                                            } finally {
+                                                setUploadingFile(false);
                                             }
                                         }}
                                         className="absolute inset-0 opacity-0 cursor-pointer" 
