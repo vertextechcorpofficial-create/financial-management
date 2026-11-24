@@ -3,17 +3,13 @@ import { cookies } from "next/headers";
 import { decodeJwtPayload } from "@/lib/auth-utils";
 import { normalizeDisbursement, getLineItems, getUserMap, PayableInput, PaymentInput, RelationValue, resolveEncoderId, cleanSupportingDocsUrl, getCoaMap, getDivisionMap, getBankMap, relationId, canonicalizeDisbursementPayload, canonicalizePersistedDisbursement, loadNormalizedDisbursement, DisbursementRow, findMissingPayableDateError, resolveTransactionTypeId } from "../route";
 import {
+    findTaggedPurchaseOrderReferences,
     findUnpostedPurchaseOrderReferences,
 } from "../_purchase-order-eligibility";
 import { findMissingPayableDivisionError, findMissingVatPrincipalDivisionError, normalizeVatSplitDivisions } from "../_payable-split-integrity";
 import { acquireMemoCapLock, refreshSupplierMemoStatuses, validateSupplierMemoCaps } from "../_memo-cap-integrity";
 import { isPettyCashBankAccount, validatePaymentLine } from "../_payment-method";
 import { isPaymentAllocationScope, resolveDisbursementUpdateStatus } from "@/modules/financial-management/treasury/disbursement/utils/update-scope";
-import { resolveCurrentUserId } from "../route";
-import { findDuplicateVoucherReference } from "@/modules/financial-management/treasury/disbursement/utils/references";
-import { disbursementErrorResponse } from "../_errors";
-import { findReleasedPaymentEdit } from "../_payment-integrity";
-import { acquireDisbursementMutationLock } from "@/modules/financial-management/treasury/disbursement/utils/mutation-lock";
 
 export const runtime = "nodejs";
 
@@ -28,7 +24,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const id = Number(resolvedParams.id);
 
     const decoded = decodeJwtPayload(token);
-    const currentUserId = await resolveCurrentUserId(decoded);
+    const encoderEmail = decoded?.email || decoded?.sub || null;
+    const currentUserId = await resolveEncoderId(encoderEmail);
 
     if (!currentUserId) {
         return NextResponse.json({
@@ -38,10 +35,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     let releaseMemoCapLock: (() => void) | undefined;
-    let releaseMutationLock: (() => void) | undefined;
 
     try {
-        releaseMutationLock = await acquireDisbursementMutationLock(id);
         const body = await request.json();
         const isPaymentAllocationUpdate = isPaymentAllocationScope(body.saveScope);
         if (isPaymentAllocationUpdate) {
@@ -71,8 +66,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             return NextResponse.json({ message: "Transaction Type must be Trade (1) or Non-Trade (2)." }, { status: 400 });
         }
         const requestedPayables = (body.payables || []) as PayableInput[];
-        const duplicateReference = findDuplicateVoucherReference(requestedPayables);
-        if (duplicateReference) return NextResponse.json({ message: `Reference ${duplicateReference} is already applied to this voucher.` }, { status: 409 });
         const hasPaymentPatch = Object.prototype.hasOwnProperty.call(body, "payments");
         const requestedPayments = hasPaymentPatch && Array.isArray(body.payments)
             ? body.payments as PaymentInput[]
@@ -184,9 +177,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
                     message: "Payment allocations can only be edited for Approved or Partially Released vouchers.",
                 }, { status: 409 });
             }
-            const releasedEditError = findReleasedPaymentEdit(currentPayments, normalizedPaymentLines);
-            if (releasedEditError) return NextResponse.json({ message: releasedEditError }, { status: 409 });
-            const releasedIds = new Set(currentPayments.filter(line => line.released_date).map(line => Number(line.id)));
 
             const effectivePaymentTotal = normalizedPaymentLines.reduce(
                 (sum: number, line: PaymentInput) => sum + (Number(line.amount) || 0),
@@ -201,12 +191,18 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             }
 
             const paymentIds = currentPayments
-                .filter(line => !line.released_date)
                 .map((line) => Number(line.id))
                 .filter((paymentId) => Number.isInteger(paymentId) && paymentId > 0);
+            if (paymentIds.length > 0) {
+                const deletePaymentsRes = await fetch(`${(process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "")}/items/disbursement_payments`, {
+                    method: "DELETE",
+                    headers: { Authorization: `Bearer ${directusToken}`, "Content-Type": "application/json" },
+                    body: JSON.stringify(paymentIds),
+                });
+                if (!deletePaymentsRes.ok) throw new Error(await deletePaymentsRes.text());
+            }
 
             const paymentLines = normalizedPaymentLines
-                .filter(line => !releasedIds.has(Number(line.id)))
                 .filter((line: PaymentInput) =>
                     !!line.coaId || (line.amount != null && Number(line.amount) !== 0) || (line.checkNo != null && String(line.checkNo).trim() !== "")
                 )
@@ -218,10 +214,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
                     date: line.date,
                     amount: Number(line.amount) || 0,
                     remarks: line.remarks || "",
+                    ...(line.releasedBy != null && line.releasedBy !== ""
+                        ? { released_by: Number(line.releasedBy) }
+                        : {}),
+                    ...(line.releasedDate != null && line.releasedDate !== ""
+                        ? { released_date: line.releasedDate }
+                        : {}),
                 }));
 
-            let insertedIds: number[] = [];
-            // Stage replacements first: a rejected insert must not erase saved allocations.
             if (paymentLines.length > 0) {
                 const paymentInsertRes = await fetch(`${(process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "")}/items/disbursement_payments`, {
                     method: "POST",
@@ -229,28 +229,18 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
                     body: JSON.stringify(paymentLines),
                 });
                 if (!paymentInsertRes.ok) throw new Error(await paymentInsertRes.text());
-                const inserted = (await paymentInsertRes.json()).data as { id: number }[];
-                insertedIds = inserted.map(line => Number(line.id));
             }
 
-            if (paymentIds.length > 0) {
-                const deletePaymentsRes = await fetch(`${(process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "")}/items/disbursement_payments`, {
-                    method: "DELETE",
-                    headers: { Authorization: `Bearer ${directusToken}`, "Content-Type": "application/json" },
-                    body: JSON.stringify(paymentIds),
-                });
-                if (!deletePaymentsRes.ok) {
-                    if (insertedIds.length > 0) {
-                        const rollback = await fetch(`${(process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "")}/items/disbursement_payments`, {
-                            method: "DELETE",
-                            headers: { Authorization: `Bearer ${directusToken}`, "Content-Type": "application/json" },
-                            body: JSON.stringify(insertedIds),
-                        });
-                        if (!rollback.ok) return NextResponse.json({ code: "ALLOCATION_RECONCILIATION_REQUIRED", message: "Payment allocation rollback failed. Ask an administrator to reconcile the voucher before retrying." }, { status: 503 });
-                    }
-                    throw new Error(await deletePaymentsRes.text());
-                }
-            }
+            const paymentHeaderRes = await fetch(directusUrl, {
+                method: "PATCH",
+                headers: {
+                    Authorization: `Bearer ${directusToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ paid_amount: effectivePaymentTotal }),
+            });
+            if (!paymentHeaderRes.ok) throw new Error(await paymentHeaderRes.text());
+            const persistedPaymentHeader = ((await paymentHeaderRes.json()).data || {}) as Partial<DisbursementRow>;
 
             const verifiedPaymentItems = await getLineItems([id]);
             const verifiedPayables = verifiedPaymentItems.payables.get(id) || [];
@@ -283,11 +273,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
                 throw new Error("Payment allocation update failed integrity verification.");
             }
 
-            return NextResponse.json(await loadNormalizedDisbursement(currentDis, token));
-        }
-
-        if (currentDis.status === "Partially Released" || currentDis.status === "Released") {
-            return NextResponse.json({ message: "Released voucher details are locked. Use the Releasing Workspace to add payments for the remaining balance." }, { status: 409 });
+            return NextResponse.json(await loadNormalizedDisbursement({
+                ...currentDis,
+                ...persistedPaymentHeader,
+                paid_amount: effectivePaymentTotal,
+            }, token));
         }
 
         const effectivePaymentLines: PaymentInput[] = hasPaymentPatch
@@ -371,6 +361,18 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
         if (!isPaymentOnlyPartialEdit) {
             const payableSupplierId = body.payeeId != null ? Number(body.payeeId) : currentPayeeId;
+            const taggedPoReferences = await findTaggedPurchaseOrderReferences(
+                requestedPayables.map((line) => line.referenceNo),
+                payableSupplierId,
+                id,
+            );
+            if (taggedPoReferences.length > 0) {
+                return NextResponse.json({
+                    message: "Disbursement cannot include purchase orders already tagged to another TR.",
+                    detail: `Already-tagged references: ${taggedPoReferences.join(", ")}`,
+                    references: taggedPoReferences,
+                }, { status: 409 });
+            }
 
             releaseMemoCapLock = await acquireMemoCapLock([
                 ...currentPayables.map((line) => ({ referenceNo: line.reference_no, amount: line.amount })),
@@ -469,13 +471,19 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             dateApproved = null;
         }
 
+        // 4. Calculate paid amount (sum of payments)
+        const calculatedPaidAmount = effectivePaymentLines.reduce(
+            (sum: number, p: PaymentInput) => sum + (Number(p.amount) || 0),
+            0
+        );
+
         // 5. Update parent header (no nested O2M — Directus doesn't support it)
         const headerPayload = {
             transaction_type: transactionTypeId,
             payee: Number(body.payeeId),
             remarks: body.remarks || "",
             total_amount: Number(body.totalAmount) || 0,
-            paid_amount: 0,
+            paid_amount: calculatedPaidAmount,
             transaction_date: body.transactionDate,
             // Header-level Division is deprecated. Payable lines carry Cost Division.
             division_id: null,
@@ -534,7 +542,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
                     amount: Number(line.amount) || 0,
                     remarks: line.remarks || ""
                 };
-                // Release stamps cannot be supplied by the browser.
+                if (line.releasedBy != null && line.releasedBy !== "") {
+                    payload.released_by = Number(line.releasedBy);
+                }
+                if (line.releasedDate != null && line.releasedDate !== "") {
+                    payload.released_date = line.releasedDate;
+                }
                 return payload;
             })
             : [];
@@ -642,10 +655,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         );
 
     } catch (err: unknown) {
-        return disbursementErrorResponse(err);
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        return NextResponse.json({ message: "BFF Error", detail: errorMessage }, { status: 502 });
     } finally {
         releaseMemoCapLock?.();
-        releaseMutationLock?.();
     }
 }
 

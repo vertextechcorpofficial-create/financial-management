@@ -106,7 +106,6 @@ export interface PaymentAllocationPayload {
 
 export interface DisbursementSubmitResult {
     success: boolean;
-    voucher?: Disbursement;
     code?: string;
     message?: string;
     nextDocNo?: string;

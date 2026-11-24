@@ -6,7 +6,7 @@ import {disbursementProvider, DisbursementRequestError} from "../providers/fetch
 import {DisbursementSubmitResult} from "../types";
 import {toast} from "sonner";
 
-export function useDisbursement(workspaceStatus = "All") {
+export function useDisbursement() {
     const [data, setData] = useState<Disbursement[]>([]);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
@@ -21,7 +21,7 @@ export function useDisbursement(workspaceStatus = "All") {
     const [endDate, setEndDate] = useState("");
 
     // 🚀 NEW FILTER STATES
-    const [statusFilter, setStatusFilter] = useState(workspaceStatus);
+    const [statusFilter, setStatusFilter] = useState("All");
     const [divisionFilter, setDivisionFilter] = useState("");
     const [departmentFilter, setDepartmentFilter] = useState("");
     const [docNoSearch, setDocNoSearch] = useState("");
@@ -85,12 +85,12 @@ export function useDisbursement(workspaceStatus = "All") {
         setSupplierSearch("");
         setStartDate("");
         setEndDate("");
-        setStatusFilter(workspaceStatus);
+        setStatusFilter("All");
         setDivisionFilter("");
         setDepartmentFilter("");
         setDocNoSearch("");
         setPage(0);
-        fetchList(0, activeType, "", "", "", workspaceStatus, "", "", "");
+        fetchList(0, activeType, "", "", "", "All", "", "", "");
     };
 
     const handleTabChange = (type: string) => {
@@ -144,10 +144,10 @@ export function useDisbursement(workspaceStatus = "All") {
     const updatePaymentAllocation = async (id: number, payments: PaymentLine[]): Promise<DisbursementSubmitResult> => {
         setActionLoading(true);
         try {
-            const voucher = await disbursementProvider.updatePaymentAllocation(id, payments);
+            await disbursementProvider.updatePaymentAllocation(id, payments);
             toast.success("Payment allocation saved successfully");
             applyFilters();
-            return {success: true, voucher};
+            return {success: true};
         } catch (error: unknown) {
             const msg = error instanceof Error ? error.message : "Payment allocation update failed";
             toast.error(msg);

@@ -61,7 +61,7 @@ export const generateDisbursementPDF = (disbursement: Disbursement, paperSize: "
         printLine("No:", disbursement.docNo, marginX, startY, 8); startY += 4;
         printLine("Date:", disbursement.transactionDate ? format(new Date(disbursement.transactionDate), "MMM dd, yy") : "N/A", marginX, startY, 8); startY += 4;
         const lines = printLine("Payee:", disbursement.payeeName || "N/A", marginX, startY, 11); startY += (lines * 3) + 1;
-        printLine("Dept:", disbursement.departmentName || "N/A", marginX, startY, 8); startY += 5;
+        printLine("Div:", disbursement.divisionName || "N/A", marginX, startY, 8); startY += 5;
     }
 
     // --- 3. PAYABLES TABLE (Debits) ---
@@ -89,7 +89,7 @@ export const generateDisbursementPDF = (disbursement: Disbursement, paperSize: "
                 return [p.referenceNo || 'N/A', p.accountTitle || `COA: ${p.coaId}`, p.divisionName || 'N/A', p.remarks || '-', { content: p.amount.toLocaleString('en-US', {minimumFractionDigits: 2}), styles: { halign: 'right' } }];
             } else {
                 // 58mm Column Merge
-                const acctRem = `${p.accountTitle || `COA: ${p.coaId}`}\nDivision: ${p.divisionName || 'N/A'}\n${p.remarks ? `(${p.remarks})` : ''}`;
+                const acctRem = `${p.accountTitle || `COA: ${p.coaId}`}\n${p.remarks ? `(${p.remarks})` : ''}`;
                 return [p.referenceNo || '-', acctRem, { content: p.amount.toLocaleString('en-US', {minimumFractionDigits: 2}), styles: { halign: 'right' } }];
             }
         }),
@@ -157,7 +157,7 @@ export const generateDisbursementPDF = (disbursement: Disbursement, paperSize: "
         doc.text("Prepared By:", 20, startY); doc.text("Approved By:", 80, startY); doc.text("Posted By:", 140, startY);
         startY += 10;
         doc.setFont("helvetica", "bold");
-        doc.text(disbursement.encoderName || disbursement.submittedByName || "____________________", 20, startY); doc.text(disbursement.approverName || "____________________", 80, startY); doc.text(disbursement.postedByName || "____________________", 140, startY);
+        doc.text(disbursement.encoderName || "____________________", 20, startY); doc.text(disbursement.approverName || "____________________", 80, startY); doc.text(disbursement.postedByName || "____________________", 140, startY);
         startY += 4;
         doc.setFont("helvetica", "normal"); doc.setFontSize(7);
         doc.text("Accounting Dept", 20, startY); doc.text("Management", 80, startY); doc.text("Finance Dept", 140, startY);
@@ -166,7 +166,7 @@ export const generateDisbursementPDF = (disbursement: Disbursement, paperSize: "
         doc.text("Received By (Print Name & Signature): ___________________________________   Date: _____________", 20, startY);
     } else {
         // Tight 58mm Signatures
-        doc.setFont("helvetica", "normal"); doc.text("Prepared By:", marginX, startY); doc.setFont("helvetica", "bold"); doc.text(disbursement.encoderName || disbursement.submittedByName || "Not recorded", marginX, startY + 3);
+        doc.setFont("helvetica", "normal"); doc.text("Prepared By:", marginX, startY); doc.setFont("helvetica", "bold"); doc.text(disbursement.encoderName || "System", marginX, startY + 3);
         startY += 7;
         doc.setFont("helvetica", "normal"); doc.text("Approved By:", marginX, startY); doc.setFont("helvetica", "bold"); doc.text(disbursement.approverName || "______________", marginX, startY + 3);
         startY += 7;

@@ -25,13 +25,6 @@ export type PolicyContext = {
 };
 type SaveInput = PolicySave extends infer C ? C extends PolicySave ? Omit<C, "expectedRevision"> : never : never;
 
-function friendlyIssue(message: string) {
-  return message
-    .replace(/^Too small: expected string to have >=(\d+) characters$/, "Enter at least $1 characters.")
-    .replace(/^Too big: expected string to have <=(\d+) characters$/, "Enter no more than $1 characters.")
-    .replace(/^Invalid input: expected .+$/, "Choose a valid value.");
-}
-
 export function usePolicyEditor(context: PolicyContext, current: (state: PolicyState) => object | null) {
   const [expectedRevision, setExpectedRevision] = useState(context.state.revision);
   const [error, setError] = useState("");
@@ -49,8 +42,7 @@ export function usePolicyEditor(context: PolicyContext, current: (state: PolicyS
       const issue = parsed.error.issues[0];
       // Pass the field with its error so the user can find it in longer forms.
       const field = issue.path[1] ? String(issue.path[1]) : "";
-      const message = friendlyIssue(issue.message);
-      setError(field ? `${policyFieldLabel(field)}: ${message}` : message);
+      setError(field ? `${policyFieldLabel(field)}. ${issue.message}` : issue.message);
       return false;
     }
     setBusy(true);
