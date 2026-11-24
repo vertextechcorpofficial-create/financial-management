@@ -14,8 +14,8 @@ function memberErrorBody(error: MemberError) {
   };
 }
 
-export async function withMembers(run: (actor: Access) => Promise<Response>) {
-  const access = await requireCooperativeWorkspace("members");
+export async function withMembers(run: (actor: Access) => Promise<Response>, workspace: "members" | "reports" = "members") {
+  const access = await requireCooperativeWorkspace(workspace);
   let response: Response;
   if (!access.ok) {
     response = Response.json({ message: access.message }, { status: access.status });
@@ -25,7 +25,7 @@ export async function withMembers(run: (actor: Access) => Promise<Response>) {
     } catch (error) {
       response = error instanceof MemberError
         ? Response.json(memberErrorBody(error), { status: error.status })
-        : Response.json({ message: "Members are temporarily unavailable. Please try again." }, { status: 503 });
+        : Response.json({ message: (workspace === "reports" ? "Reports" : "Members") + " are temporarily unavailable. Please try again." }, { status: 503 });
     }
   }
   response.headers.set("Cache-Control", "private, no-store");

@@ -77,9 +77,9 @@ export function UndepositedTable({
   const isPdc = (asset: UndepositedAsset) => isPostDated(asset, today);
   const blockReason = (asset: UndepositedAsset) => assetBlockReason(asset, today);
   const isDisabled = (asset: UndepositedAsset) => blockReason(asset) !== null;
-  const selectableIds = rows.filter((asset) => !isDisabled(asset)).map((asset) => asset.collectionDetailId);
+  const selectableIds = rows.filter((asset) => !isDisabled(asset)).map((asset) => asset.collectionInvoiceId);
   // "Ready" ignores paging: the button exists for the common case of depositing everything at once.
-  const readyIds = assets.filter((asset) => !isDisabled(asset)).map((asset) => asset.collectionDetailId);
+  const readyIds = assets.filter((asset) => !isDisabled(asset)).map((asset) => asset.collectionInvoiceId);
   const allSelected =
     selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const activeLabels = activeFilterLabels(filters);
@@ -173,8 +173,8 @@ export function UndepositedTable({
                   const blocked = blockReason(asset);
                   return (
                     <TableRow
-                      key={asset.collectionDetailId}
-                      data-state={selected.has(asset.collectionDetailId) ? "selected" : undefined}
+                      key={asset.collectionInvoiceId}
+                      data-state={selected.has(asset.collectionInvoiceId) ? "selected" : undefined}
                       tabIndex={0}
                       aria-label={`Open ${asset.documentNumber}`}
                       className={cn("cursor-pointer", blocked && "bg-muted/30")}
@@ -190,8 +190,8 @@ export function UndepositedTable({
                         <Checkbox
                           aria-label={`Select ${asset.documentNumber}`}
                           disabled={blocked !== null}
-                          checked={selected.has(asset.collectionDetailId)}
-                          onCheckedChange={() => onToggle(asset.collectionDetailId)}
+                          checked={selected.has(asset.collectionInvoiceId)}
+                          onCheckedChange={() => onToggle(asset.collectionInvoiceId)}
                         />
                       </TableCell>
                       <TableCell className="whitespace-nowrap font-mono text-sm">
@@ -262,7 +262,7 @@ export function UndepositedTable({
               const blocked = blockReason(asset);
               return (
                 <li
-                  key={asset.collectionDetailId}
+                  key={asset.collectionInvoiceId}
                   className={cn("flex cursor-pointer items-start gap-3 p-4", blocked && "bg-muted/30")}
                   onClick={() => onOpenRow(asset)}
                   onKeyDown={(event) => {
@@ -282,8 +282,8 @@ export function UndepositedTable({
                     <Checkbox
                       aria-label={`Select ${asset.documentNumber}`}
                       disabled={blocked !== null}
-                      checked={selected.has(asset.collectionDetailId)}
-                      onCheckedChange={() => onToggle(asset.collectionDetailId)}
+                      checked={selected.has(asset.collectionInvoiceId)}
+                      onCheckedChange={() => onToggle(asset.collectionInvoiceId)}
                     />
                   </span>
                   <div className="min-w-0 flex-1">

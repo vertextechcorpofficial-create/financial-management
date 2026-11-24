@@ -1,439 +1,415 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useRef, useState } from "react";
+import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useConsole, documentStatus } from "../provider";
-import { ConsoleShell, EmptyState, FilterBar, FilterField, Panel, StatusChip } from "../components/ui";
-import { formatDate, money, round2 } from "../format";
-import { memberName, memberOutstanding, memberPastDue, loanTotals, dividendModel } from "../calculations";
+import { LoanMemberSelect } from "../../loans/LoanMemberSelect";
+import { memberFetch } from "../../members/client";
+import { copyCooperativeText } from "../../members/copyText";
+import { isCalendarDate, todayManila } from "../../members/format";
+import { statementPeriods } from "../../members/statement";
+import type { StatementPeriod } from "../../members/types";
+import type { getReportMemberChoices } from "../../server/member-reports";
+import { channelLabels } from "../../transactions/entries";
+import { CashEvidenceDialog } from "./CashEvidenceDialog";
+import { monthPeriod } from "./report-dates";
 import {
-  CHANNEL_LABEL, CONSOLE_TODAY, JOURNAL_KIND_LABEL, MEMBER_STATUS_LABEL, type JournalKind,
-} from "../types";
+  FilterField, ReportBlocked, ReportErrorAlert, ReportEvidencePanel, ReportExportFeedback, ReportFacts, ReportFactsSkeleton,
+  ReportFilterPanel, ReportHeader, ReportMemberEmpty, ReportNoticeAlert, ReportSelector, ReportTable, ReportTableSkeleton,
+} from "./report-components";
+import { reportHeroIcon } from "./report-ui";
+import {
+  reportLoanStatuses, reportRecordTypes, sectionPageParams, type CashEvidenceContext, type ReportKey, type ReportPage,
+} from "./types";
 
-const REPORTS = {
-  soa: { label: "Statement of account", description: "A member’s savings and loan activity for any period." },
-  portfolio: { label: "Loan portfolio", description: "Every loan with principal, balance and status." },
-  aging: { label: "Loan aging", description: "Past-due installments by days late, with penalties." },
-  collections: { label: "Collections", description: "Loan payments and deposits received in a period." },
-  savings: { label: "Savings balances", description: "Each member’s savings, deposits and withdrawals in a period." },
-  roster: { label: "Membership roster", description: "Members with agreement numbers and status." },
-  docs: { label: "Document compliance", description: "Records still missing documents the policy requires." },
-} as const;
+const endpoint = "/api/fm/cooperative/reports";
+type Choices = Awaited<ReturnType<typeof getReportMemberChoices>>;
+type ExportFormat = "csv" | "tsv";
+const firstDetailPages = { loans: 1, activity: 1, remittances: 1 };
 
-type ReportKey = keyof typeof REPORTS;
+function useReportRequest<T>(path: string | null) {
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<{ path: string; attempt: number; data?: T; error?: string; previous?: T }>();
 
-type Column = { key: string; label: string; kind?: "money" | "date" | "status" | "number" | "text" };
-type Row = Record<string, string | number>;
+  useEffect(() => {
+    if (!path) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      memberFetch<T>(path, { signal: controller.signal }).then(data => {
+        if (!controller.signal.aborted) setState({ path, attempt, data });
+      }).catch(error => {
+        if (!controller.signal.aborted) setState(current => ({
+          path, attempt, previous: current?.data ?? current?.previous,
+          error: error instanceof Error ? error.message : "Unable to load the report.",
+        }));
+      });
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [path, attempt]);
+
+  const current = path && state?.path === path && state.attempt === attempt ? state : undefined;
+  return {
+    data: current?.data, error: current?.error, previous: state?.data ?? state?.previous,
+    loading: Boolean(path && !current), reload: () => setAttempt(value => value + 1),
+  };
+}
+
+function initialPeriod(report: ReportKey, periods: ReturnType<typeof statementPeriods>): StatementPeriod {
+  if (report === "portfolio") return { from: "", to: "" };
+  if (report === "savings" || report === "collections") return periods["Year to date"];
+  if (report === "trial-balance") return periods["Last month"];
+  if (report === "audit") return periods["This month"];
+  return { from: periods["Last month"].from, to: periods["This month"].to };
+}
+
+function emptyMessageFor(report: ReportKey) {
+  switch (report) {
+    case "portfolio": return "No loans match these filters.";
+    case "aging": return "No past-due installments in this period.";
+    case "collections": return "No collections match these filters.";
+    case "savings": return "No savings balances match these filters.";
+    case "roster": return "No employees match these filters.";
+    case "docs": return "No document gaps match these filters.";
+    case "trial-balance": return "No accounts match this period.";
+    case "month-end": return "No reconciliation rows for this month.";
+    case "audit": return "No audit entries match these filters.";
+    default: return "No rows match these filters.";
+  }
+}
 
 export default function ReportsModule() {
-  const { state } = useConsole();
-  const [report, setReport] = useState<ReportKey>("portfolio");
-  const [query, setQuery] = useState("");
-  const [department, setDepartment] = useState("");
-  const [product, setProduct] = useState("");
-  const [status, setStatus] = useState("");
-  const [channel, setChannel] = useState("");
-  const [from, setFrom] = useState("2026-01-01");
-  const [to, setTo] = useState(CONSOLE_TODAY);
-  const [memberId, setMemberId] = useState("M1");
-  const [copied, setCopied] = useState("");
-
-  const departments = useMemo(() => [...new Set(state.members.map(member => member.department))].sort(), [state.members]);
-  const reportData = useMemo(() => buildReport({ report, state, query, department, product, status, channel, from, to }), [report, state, query, department, product, status, channel, from, to]);
-
-  function copy() {
-    const text = reportData.rows.length
-      ? [reportData.columns.map(column => column.label).join("\t"), ...reportData.rows.map(row => reportData.columns.map(column => {
-          const value = row[column.key];
-          if (column.kind === "money") return Number(value ?? 0).toFixed(2);
-          if (column.kind === "date") return formatDate(String(value));
-          return String(value ?? "").replaceAll("\t", " ");
-        }).join("\t"))].join("\n")
-      : "";
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied("Copied to clipboard.");
-      window.setTimeout(() => setCopied(""), 2500);
-    }).catch(() => setCopied("Copy was blocked by the browser."));
-  }
-
-  const showDepartment = ["portfolio", "aging", "collections", "savings", "roster", "docs"].includes(report);
-  const showProduct = ["portfolio", "aging", "collections"].includes(report);
-  const showStatus = ["portfolio", "roster"].includes(report);
-  const showChannel = report === "collections";
-  const showDates = ["portfolio", "collections", "savings", "soa"].includes(report);
-
-  return (
-    <ConsoleShell
-      title="Reports"
-      subtitle="Pick a report, narrow it with the filters, then copy it into Excel or Sheets."
-      actions={<Button size="sm" variant="outline" onClick={copy} disabled={!reportData.rows.length}>Copy as spreadsheet</Button>}
-    >
-      <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <nav className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible" aria-label="Reports">
-          {(Object.keys(REPORTS) as ReportKey[]).map(key => (
-            <button
-              key={key}
-              type="button"
-              className={`min-w-44 rounded-lg border p-3 text-left text-sm transition-colors lg:min-w-0 ${report === key ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30" : "bg-card hover:border-emerald-300"}`}
-              onClick={() => { setReport(key); setQuery(""); setStatus(""); }}
-            >
-              <span className="block font-medium">{REPORTS[key].label}</span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">{REPORTS[key].description}</span>
-            </button>
-          ))}
-        </nav>
-
-        <Panel
-          title={REPORTS[report].label}
-          description={`${REPORTS[report].description} As of ${formatDate(CONSOLE_TODAY)}.`}
-          actions={copied ? <span className="text-xs text-muted-foreground" role="status">{copied}</span> : undefined}
-        >
-          <FilterBar count={report === "soa" ? undefined : reportData.rows.length} noun="rows">
-            {report === "soa" ? (
-              <FilterField label="Member">
-                <NativeSelect value={memberId} onChange={event => setMemberId(event.target.value)} className="h-8">
-                  {state.members.filter(member => member.memberSince).map(member => <option key={member.id} value={member.id}>{memberName(member)} · {member.employeeNumber}</option>)}
-                </NativeSelect>
-              </FilterField>
-            ) : (
-              <FilterField label="Search"><Input value={query} onChange={event => setQuery(event.target.value)} placeholder={report === "docs" ? "Member or reference" : "Member"} className="h-8 w-56" /></FilterField>
-            )}
-            {showDepartment && (
-              <FilterField label="Department">
-                <NativeSelect value={department} onChange={event => setDepartment(event.target.value)} className="h-8">
-                  <option value="">All departments</option>{departments.map(item => <option key={item} value={item}>{item}</option>)}
-                </NativeSelect>
-              </FilterField>
-            )}
-            {showProduct && (
-              <FilterField label="Product">
-                <NativeSelect value={product} onChange={event => setProduct(event.target.value)} className="h-8">
-                  <option value="">All products</option>{state.products.map(item => <option key={item.code} value={item.code}>{item.short}</option>)}
-                </NativeSelect>
-              </FilterField>
-            )}
-            {showStatus && (
-              <FilterField label="Status">
-                <NativeSelect value={status} onChange={event => setStatus(event.target.value)} className="h-8">
-                  <option value="">All</option>
-                  {report === "portfolio" ? <><option value="ACTIVE">Active</option><option value="PENDING">For approval</option><option value="APPROVED">For release</option><option value="FULLY_PAID">Fully paid</option><option value="DEFAULTED">Defaulted</option><option value="REJECTED">Rejected</option></> : Object.entries(MEMBER_STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </NativeSelect>
-              </FilterField>
-            )}
-            {showChannel && (
-              <FilterField label="Channel">
-                <NativeSelect value={channel} onChange={event => setChannel(event.target.value)} className="h-8">
-                  <option value="">All channels</option><option value="payroll">Payroll remittance</option><option value="otc">Over the counter</option><option value="system">System</option>
-                </NativeSelect>
-              </FilterField>
-            )}
-            {showDates && (
-              <>
-                <FilterField label={report === "portfolio" ? "Released from" : "From"}><Input type="date" value={from} onChange={event => setFrom(event.target.value)} className="h-8" /></FilterField>
-                <FilterField label="To"><Input type="date" value={to} onChange={event => setTo(event.target.value)} className="h-8" /></FilterField>
-              </>
-            )}
-          </FilterBar>
-
-          {report === "soa" ? <SoaView memberId={memberId} from={from} to={to} /> : (
-            <>
-              <div className="max-h-[65dvh] overflow-auto rounded-md border">
-                <Table>
-                  <TableHeader><TableRow>{reportData.columns.map(column => <TableHead key={column.key} className={column.kind === "money" || column.kind === "number" ? "text-right" : ""}>{column.label}</TableHead>)}</TableRow></TableHeader>
-                  <TableBody>
-                    {!reportData.rows.length && <TableRow><TableCell colSpan={Math.max(1, reportData.columns.length)}><EmptyState>Nothing to report for these filters.</EmptyState></TableCell></TableRow>}
-                    {reportData.rows.map((row, index) => (
-                      <TableRow key={index}>
-                        {reportData.columns.map(column => {
-                          const value = row[column.key];
-                          return (
-                            <TableCell key={column.key} className={`${column.kind === "money" || column.kind === "number" ? "text-right font-mono" : ""} ${column.kind === "text" ? "whitespace-normal" : ""}`}>
-                              {column.kind === "money" ? money(Number(value ?? 0)) : column.kind === "date" ? formatDate(String(value)) : column.kind === "status" ? <StatusChip status={String(value)} /> : String(value ?? "")}
-                            </TableCell>
-                          );
-                        })}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                  {reportData.rows.length > 0 && reportData.columns.some(column => column.kind === "money") && (
-                    <tfoot>
-                      <TableRow>
-                        {reportData.columns.map((column, index) => (
-                          <TableCell key={column.key} className={column.kind === "money" ? "text-right font-mono font-semibold" : "font-semibold"}>
-                            {index === 0 ? `Total · ${reportData.rows.length} rows` : column.kind === "money" ? money(reportData.rows.reduce((sum, row) => sum + Number(row[column.key] ?? 0), 0)) : ""}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    </tfoot>
-                  )}
-                </Table>
-              </div>
-              {reportData.note && <p className="mt-2 text-xs text-muted-foreground">{reportData.note}</p>}
-            </>
-          )}
-        </Panel>
-      </div>
-    </ConsoleShell>
-  );
-}
-
-function SoaView({ memberId, from, to }: { memberId: string; from: string; to: string }) {
-  const { state } = useConsole();
-  const [copied, setCopied] = useState("");
-  const member = state.members.find(entry => entry.id === memberId);
-  if (!member) return <EmptyState>Choose a member.</EmptyState>;
-  const savingsKinds: JournalKind[] = ["DEPOSIT", "WITHDRAWAL", "DIVIDEND", "OFFSET", "FEE"];
-  const entries = state.journal.filter(entry => entry.memberId === memberId && savingsKinds.includes(entry.kind)).sort((a, b) => a.date.localeCompare(b.date));
-  const opening = entries.filter(entry => entry.date < from).reduce((sum, entry) => sum + (["WITHDRAWAL", "OFFSET", "FEE"].includes(entry.kind) ? -entry.amount : entry.amount), 0);
-  const period = entries.filter(entry => entry.date >= from && entry.date <= to);
-  const rows = period.reduce<Array<(typeof period)[number] & { balance: number }>>((result, entry) => {
-    const previous = result.length ? result[result.length - 1].balance : opening;
-    const direction = ["WITHDRAWAL", "OFFSET", "FEE"].includes(entry.kind) ? -1 : 1;
-    return [...result, { ...entry, balance: round2(previous + direction * entry.amount) }];
-  }, []);
-  const loans = state.loans.filter(loan => loan.memberId === memberId);
-
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Savings balance</p><p className="font-mono text-lg font-semibold">{money(member.savings)}</p></div>
-        <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Loan balance</p><p className="font-mono text-lg font-semibold">{money(memberOutstanding(state, member.id))}</p></div>
-        <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Past due</p><p className="font-mono text-lg font-semibold">{money(memberPastDue(state, member.id))}</p></div>
-        <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Dividend estimate</p><p className="font-mono text-lg font-semibold">{money(dividendModel(state).rows.find(row => row.memberId === member.id)?.total ?? 0)}</p></div>
-      </div>
-      <div className="rounded-lg border">
-        <div className="flex flex-wrap justify-between gap-2 border-b p-3 text-sm">
-          <span><strong>{memberName(member)}</strong> · {member.employeeNumber} · {member.department}</span>
-          <span className="flex items-center gap-3 text-muted-foreground">
-            {formatDate(from)} – {formatDate(to)}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                const lines = [
-                  "Cooperative statement of account",
-                  `${memberName(member)} (${member.employeeNumber})`,
-                  `${from} to ${to}`,
-                  "",
-                  "Date\tEntry\tReference\tAmount\tBalance",
-                  `${from}\tOpening balance\t\t\t${opening.toFixed(2)}`,
-                  ...rows.map(entry => `${entry.date}\t${JOURNAL_KIND_LABEL[entry.kind]}\t${entry.reference}\t${entry.amount.toFixed(2)}\t${entry.balance.toFixed(2)}`),
-                  `${to}\tClosing balance\t\t\t${(rows[rows.length - 1]?.balance ?? opening).toFixed(2)}`,
-                ];
-                navigator.clipboard.writeText(lines.join("\n")).then(() => {
-                  setCopied("Statement copied.");
-                  window.setTimeout(() => setCopied(""), 2500);
-                }).catch(() => setCopied("Copy was blocked."));
-              }}
-            >
-              Copy statement
-            </Button>
-            {copied && <span className="text-xs" role="status">{copied}</span>}
+  const [report, setReport] = useState<ReportKey>("soa");
+  const HeroIcon = reportHeroIcon;
+  return <main className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
+    <section className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-xs sm:p-5">
+      <div className="pointer-events-none absolute -right-10 -top-16 size-48 rounded-full bg-emerald-500/5 blur-2xl" />
+      <div className="relative flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+            <HeroIcon className="size-5" />
           </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Cooperative</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight">Reports</h1>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              Statements, loan portfolio, collections, compliance, and audit reports for the Cooperative.
+            </p>
+          </div>
         </div>
-        <div className="max-h-[50dvh] overflow-auto">
-          <Table>
-            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Particulars</TableHead><TableHead>Reference</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="text-right">Balance</TableHead></TableRow></TableHeader>
-            <TableBody>
-              <TableRow><TableCell>{formatDate(from)}</TableCell><TableCell colSpan={3} className="text-muted-foreground">Opening balance</TableCell><TableCell className="text-right font-mono">{money(opening)}</TableCell></TableRow>
-              {!rows.length && <TableRow><TableCell colSpan={5}><EmptyState>No savings activity in this period.</EmptyState></TableCell></TableRow>}
-              {rows.map(entry => {
-                const debit = ["WITHDRAWAL", "OFFSET", "FEE"].includes(entry.kind);
-                return (
-                  <TableRow key={entry.id}>
-                    <TableCell>{formatDate(entry.date)}</TableCell>
-                    <TableCell>{JOURNAL_KIND_LABEL[entry.kind]} · {CHANNEL_LABEL[entry.channel]}</TableCell>
-                    <TableCell className="font-mono text-xs">{entry.reference}</TableCell>
-                    <TableCell className={`text-right font-mono ${debit ? "text-rose-600" : ""}`}>{debit ? "−" : "+"}{money(entry.amount)}</TableCell>
-                    <TableCell className="text-right font-mono">{money(entry.balance)}</TableCell>
-                  </TableRow>
-                );
-              })}
-              <TableRow><TableCell>{formatDate(to)}</TableCell><TableCell colSpan={3} className="font-semibold">Closing balance</TableCell><TableCell className="text-right font-mono font-semibold">{money(rows[rows.length - 1]?.balance ?? opening)}</TableCell></TableRow>
-            </TableBody>
-          </Table>
-        </div>
+        <span className="w-fit rounded-md border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">10 reports</span>
       </div>
-      <div className="rounded-lg border p-3">
-        <h3 className="text-sm font-semibold">Loans</h3>
-        <Table>
-          <TableHeader><TableRow><TableHead>Loan</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="text-right">Past due</TableHead></TableRow></TableHeader>
-          <TableBody>
-            {!loans.length && <TableRow><TableCell colSpan={4}><EmptyState>No loans.</EmptyState></TableCell></TableRow>}
-            {loans.map(loan => { const totals = loanTotals(loan); return <TableRow key={loan.id}><TableCell className="font-mono">{loan.code}</TableCell><TableCell><StatusChip status={loan.status} /></TableCell><TableCell className="text-right font-mono">{money(totals.remaining)}</TableCell><TableCell className="text-right font-mono">{money(totals.pastDue)}</TableCell></TableRow>; })}
-          </TableBody>
-        </Table>
-      </div>
-    </div>
-  );
+    </section>
+
+    <ReportSelector report={report} onSelect={setReport} />
+    <ReportView key={report} report={report} />
+  </main>;
 }
 
-function buildReport({ report, state, query, department, product, status, channel, from, to }: {
-  report: ReportKey;
-  state: ReturnType<typeof useConsole>["state"];
-  query: string;
-  department: string;
-  product: string;
-  status: string;
-  channel: string;
-  from: string;
-  to: string;
-}): { columns: Column[]; rows: Row[]; note?: string } {
-  const memberMatch = (memberIdValue: string) => {
-    const member = state.members.find(entry => entry.id === memberIdValue);
-    if (!member) return false;
-    const text = `${memberName(member)} ${member.employeeNumber}`.toLowerCase();
-    return (!query.trim() || text.includes(query.trim().toLowerCase())) && (!department || member.department === department);
-  };
-  const loanMemberMatch = (memberIdValue: string) => memberMatch(memberIdValue);
+function ReportMemberPicker({ member, onSelect }: { member?: Choices["members"][number]; onSelect: (value?: Choices["members"][number]) => void }) {
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const params = new URLSearchParams({ q, page: String(page) });
+  const choices = useReportRequest<Choices>(endpoint + "/members?" + params);
+  return <LoanMemberSelect
+    member={member} members={choices.data?.members ?? []} page={page} hasMore={choices.data?.hasMore ?? false}
+    loading={choices.loading} error={choices.error} search={q} onSearchChange={value => { setQ(value); setPage(1); }}
+    onPageChange={setPage} onRetry={choices.reload} onSelect={onSelect} emptyMessage="No memberships match this search."
+  />;
+}
 
-  if (report === "portfolio") {
-    const columns: Column[] = [
-      { key: "loan", label: "Loan" }, { key: "member", label: "Member" }, { key: "department", label: "Department" },
-      { key: "product", label: "Product" }, { key: "released", label: "Released", kind: "date" }, { key: "terms", label: "Terms" },
-      { key: "status", label: "Status", kind: "status" }, { key: "principal", label: "Principal", kind: "money" },
-      { key: "balance", label: "Balance", kind: "money" }, { key: "pastDue", label: "Past due", kind: "money" },
-    ];
-    const rows = state.loans.filter(loan => {
-      const member = state.members.find(entry => entry.id === loan.memberId);
-      if (!member || !loanMemberMatch(member.id)) return false;
-      if (product && loan.productCode !== product) return false;
-      if (status && loan.status !== status) return false;
-      const released = loan.releaseDate ?? loan.issueDate;
-      if (released < from || released > to) return false;
-      return true;
-    }).map(loan => {
-      const member = state.members.find(entry => entry.id === loan.memberId)!;
-      const totals = loanTotals(loan);
-      return {
-        loan: loan.code, member: memberName(member), department: member.department,
-        product: state.products.find(entry => entry.code === loan.productCode)?.label ?? "",
-        released: loan.releaseDate ?? loan.issueDate, terms: `${loan.months} mo · ${loan.frequency}`,
-        status: loan.status, principal: loan.principal, balance: totals.remaining, pastDue: totals.pastDue,
-      };
-    });
-    return { columns, rows, note: "Release date is used for the date filter." };
+function ReportView({ report }: { report: ReportKey }) {
+  const statement = report === "soa";
+  const portfolio = report === "portfolio";
+  const collections = report === "collections";
+  const trial = report === "trial-balance";
+  const monthEnd = report === "month-end";
+  const audit = report === "audit";
+  const hasProduct = portfolio || collections || report === "aging";
+  const hasPeriod = statement || report === "savings" || portfolio || collections || trial || audit;
+  const periods = statementPeriods(todayManila());
+  const lastMonth = periods["Last month"].to.slice(0, 7);
+  const defaultPeriod = initialPeriod(report, periods);
+  const [q, setQ] = useState("");
+  const [department, setDepartment] = useState("");
+  const [status, setStatus] = useState("");
+  const [product, setProduct] = useState("");
+  const [channel, setChannel] = useState("");
+  const [recordType, setRecordType] = useState("");
+  const [actorId, setActorId] = useState("");
+  const [action, setAction] = useState("");
+  const [page, setPage] = useState(1);
+  const [detailPages, setDetailPages] = useState(firstDetailPages);
+  const [member, setMember] = useState<Choices["members"][number]>();
+  const [month, setMonth] = useState(lastMonth);
+  const [editingEvidence, setEditingEvidence] = useState<CashEvidenceContext>();
+  const [savedEvidence, setSavedEvidence] = useState("");
+  const [period, setPeriod] = useState<StatementPeriod>(defaultPeriod);
+  const [preset, setPreset] = useState("");
+  const [working, setWorking] = useState<ExportFormat>();
+  const [feedback, setFeedback] = useState<{ fingerprint: string; message: string; error?: boolean; stale?: boolean }>();
+  const copyButton = useRef<HTMLButtonElement>(null);
+  const container = useRef<HTMLDivElement>(null);
+  const abortExport = useRef<AbortController | null>(null);
+  const invalidFrom = !isCalendarDate(period.from) && (!portfolio || Boolean(period.from));
+  const invalidTo = !isCalendarDate(period.to) && (!portfolio || Boolean(period.to));
+  const rangeError = monthEnd && (!monthPeriod(month) || month > lastMonth) ? "Choose a completed Manila calendar month." :
+    !hasPeriod ? "" : invalidFrom || invalidTo
+      ? "Enter valid From and To dates." : period.from && period.to && period.from > period.to ? "From must be on or before To." : "";
+  const params = new URLSearchParams({ report, page: String(page) });
+  if (statement && member) {
+    params.set("member", String(member.id));
+    params.set(sectionPageParams.loans, String(detailPages.loans));
+    params.set(sectionPageParams.activity, String(detailPages.activity));
+  }
+  if (monthEnd) {
+    params.set("month", month);
+    params.set(sectionPageParams.remittances, String(detailPages.remittances));
+  }
+  if (audit) {
+    if (actorId) params.set("actorId", actorId);
+    if (action) params.set("action", action);
+  }
+  if (hasPeriod) {
+    params.set("from", period.from);
+    params.set("to", period.to);
+  }
+  if (!statement && q.trim()) params.set("q", q.trim());
+  if (!statement && department) params.set("department", department);
+  if (status) params.set("status", status);
+  if (product) params.set("product", product);
+  if (channel) params.set("channel", channel);
+  if (recordType) params.set("recordType", recordType);
+  const path = rangeError || (statement && !member) ? null : endpoint + "?" + params;
+  const { data, previous, loading, error, reload } = useReportRequest<ReportPage>(path);
+  const message = feedback?.fingerprint === data?.fingerprint ? feedback : undefined;
+  const exportReady = Boolean(data && !data.blocked && (data.count || statement) && !working && !message?.stale);
+  const periodChanged = hasPeriod && (period.from !== defaultPeriod.from || period.to !== defaultPeriod.to);
+  const hasFilters = Boolean(q.trim() || department || status || product || channel || recordType || actorId || action
+    || periodChanged || (monthEnd && month !== lastMonth));
+
+  useEffect(() => () => abortExport.current?.abort(), [path]);
+
+  function resetPages() {
+    setPage(1);
+    setDetailPages(firstDetailPages);
+    setFeedback(undefined);
   }
 
-  if (report === "aging") {
-    const columns: Column[] = [
-      { key: "loan", label: "Loan" }, { key: "member", label: "Member" }, { key: "department", label: "Department" },
-      { key: "oldest", label: "Oldest due", kind: "date" }, { key: "days", label: "Days late" },
-      { key: "b1", label: "1–30", kind: "money" }, { key: "b2", label: "31–60", kind: "money" },
-      { key: "b3", label: "61–90", kind: "money" }, { key: "b4", label: "90+", kind: "money" },
-      { key: "penalties", label: "Penalties", kind: "money" }, { key: "total", label: "Total past due", kind: "money" },
-    ];
-    const rows = state.loans.filter(loan => loan.status === "ACTIVE" && loanTotals(loan).pastDue > 0 && (!product || loan.productCode === product) && loanMemberMatch(loan.memberId))
-      .map(loan => {
-        const member = state.members.find(entry => entry.id === loan.memberId)!;
-        const late = loan.schedule.filter(installment => installment.paid < installment.total && installment.dueDate < CONSOLE_TODAY);
-        const oldest = late.reduce((value, installment) => installment.dueDate < value ? installment.dueDate : value, CONSOLE_TODAY);
-        const buckets = [0, 0, 0, 0];
-        for (const installment of late) {
-          const days = Math.round((new Date(`${CONSOLE_TODAY}T00:00:00Z`).valueOf() - new Date(`${installment.dueDate}T00:00:00Z`).valueOf()) / 86_400_000);
-          const index = days <= 30 ? 0 : days <= 60 ? 1 : days <= 90 ? 2 : 3;
-          buckets[index] += installment.total - installment.paid;
-        }
-        const totals = loanTotals(loan);
-        return {
-          loan: loan.code, member: memberName(member), department: member.department, oldest,
-          days: Math.round((new Date(`${CONSOLE_TODAY}T00:00:00Z`).valueOf() - new Date(`${oldest}T00:00:00Z`).valueOf()) / 86_400_000),
-          b1: buckets[0], b2: buckets[1], b3: buckets[2], b4: buckets[3], penalties: totals.penalties, total: round2(totals.pastDue + totals.penalties),
-        };
-      }).sort((a, b) => Number(b.days) - Number(a.days));
-    return { columns, rows };
-  }
-
-  if (report === "collections") {
-    const columns: Column[] = [
-      { key: "date", label: "Date", kind: "date" }, { key: "member", label: "Member" }, { key: "department", label: "Department" },
-      { key: "type", label: "Type" }, { key: "channel", label: "Channel" }, { key: "reference", label: "Reference" },
-      { key: "loan", label: "Loan payment", kind: "money" }, { key: "penalty", label: "Penalty", kind: "money" },
-      { key: "savings", label: "Savings", kind: "money" }, { key: "fees", label: "Fees", kind: "money" }, { key: "total", label: "Total", kind: "money" },
-    ];
-    const rows = state.journal.filter(entry => ["DEPOSIT", "LOAN_PAYMENT", "FEE"].includes(entry.kind) && entry.date >= from && entry.date <= to && (!channel || entry.channel === channel) && memberMatch(entry.memberId) && (!product || (entry.loanId && state.loans.find(loan => loan.id === entry.loanId)?.productCode === product)))
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(entry => {
-        const member = state.members.find(item => item.id === entry.memberId)!;
-        return {
-          date: entry.date, member: memberName(member), department: member.department, type: JOURNAL_KIND_LABEL[entry.kind],
-          channel: CHANNEL_LABEL[entry.channel], reference: entry.reference,
-          loan: entry.kind === "LOAN_PAYMENT" ? entry.installmentPart ?? entry.amount : 0,
-          penalty: entry.penaltyPart ?? 0, savings: entry.kind === "DEPOSIT" ? entry.amount : 0,
-          fees: entry.kind === "FEE" ? entry.amount : 0, total: entry.amount,
-        };
-      });
-    return { columns, rows };
-  }
-
-  if (report === "savings") {
-    const columns: Column[] = [
-      { key: "member", label: "Member" }, { key: "employee", label: "Employee no." }, { key: "department", label: "Department" },
-      { key: "status", label: "Status", kind: "status" }, { key: "perCutoff", label: "Per cutoff", kind: "money" },
-      { key: "opening", label: "Opening", kind: "money" }, { key: "deposits", label: "Deposits", kind: "money" },
-      { key: "withdrawals", label: "Withdrawals", kind: "money" }, { key: "closing", label: "Closing", kind: "money" },
-    ];
-    const rows = state.members.filter(member => member.memberSince && memberMatch(member.id) && (!status || member.status === status)).map(member => {
-      const savingsKinds: JournalKind[] = ["DEPOSIT", "WITHDRAWAL", "DIVIDEND", "OFFSET", "FEE"];
-      const entries = state.journal.filter(entry => entry.memberId === member.id && savingsKinds.includes(entry.kind));
-      const opening = entries.filter(entry => entry.date < from).reduce((sum, entry) => sum + (["WITHDRAWAL", "OFFSET", "FEE"].includes(entry.kind) ? -entry.amount : entry.amount), 0);
-      const periodEntries = entries.filter(entry => entry.date >= from && entry.date <= to);
-      const deposits = periodEntries.filter(entry => ["DEPOSIT", "DIVIDEND"].includes(entry.kind)).reduce((sum, entry) => sum + entry.amount, 0);
-      const withdrawals = periodEntries.filter(entry => ["WITHDRAWAL", "OFFSET", "FEE"].includes(entry.kind)).reduce((sum, entry) => sum + entry.amount, 0);
-      return {
-        member: memberName(member), employee: member.employeeNumber, department: member.department, status: member.status,
-        perCutoff: member.savingsPerCutoff, opening, deposits, withdrawals, closing: round2(opening + deposits - withdrawals),
-      };
-    });
-    return { columns, rows };
-  }
-
-  if (report === "roster") {
-    const columns: Column[] = [
-      { key: "member", label: "Member" }, { key: "employee", label: "Employee no." }, { key: "department", label: "Department" },
-      { key: "status", label: "Status", kind: "status" }, { key: "agreement", label: "Agreement" }, { key: "since", label: "Member since", kind: "date" },
-      { key: "documents", label: "Documents" }, { key: "savings", label: "Savings", kind: "money" }, { key: "loanBalance", label: "Loan balance", kind: "money" },
-    ];
-    const rows = state.members.filter(member => memberMatch(member.id) && (!status || member.status === status)).map(member => {
-      const docs = documentStatus(state, "member", member.id, ["Valid ID", "Signed membership agreement"]);
-      return {
-        member: memberName(member), employee: member.employeeNumber, department: member.department, status: member.status,
-        agreement: member.agreement?.no ?? "—", since: member.memberSince ?? "", documents: member.status === "NON_MEMBER" ? "—" : `${docs.done}/${docs.required.length}`,
-        savings: member.savings, loanBalance: memberOutstanding(state, member.id),
-      };
-    });
-    return { columns, rows };
-  }
-
-  if (report === "docs") {
-    const columns: Column[] = [
-      { key: "record", label: "Record" }, { key: "reference", label: "Reference" }, { key: "member", label: "Member" },
-      { key: "department", label: "Department" }, { key: "onFile", label: "On file" }, { key: "missing", label: "Missing", kind: "text" },
-    ];
-    const rows: Row[] = [];
-    for (const member of state.members.filter(entry => entry.status === "ACTIVE" || entry.status === "APPLIED")) {
-      if (!memberMatch(member.id)) continue;
-      const docs = documentStatus(state, "member", member.id, ["Valid ID", "Signed membership agreement"]);
-      if (docs.missing.length) rows.push({ record: "Membership", reference: member.agreement?.no ?? "Application", member: memberName(member), department: member.department, onFile: `${docs.done} of ${docs.required.length}`, missing: docs.missing.join("; ") });
+  function changePeriod(next: StatementPeriod, selected = "") {
+    setPeriod(next);
+    setPreset(selected);
+    if (audit) {
+      setActorId("");
+      setAction("");
     }
-    for (const loan of state.loans.filter(entry => ["PENDING", "APPROVED", "ACTIVE"].includes(entry.status))) {
-      if (!memberMatch(loan.memberId)) continue;
-      const member = state.members.find(entry => entry.id === loan.memberId)!;
-      const docs = documentStatus(state, "loan", loan.id, state.products.find(productItem => productItem.code === loan.productCode)?.documents ?? []);
-      if (docs.missing.length) rows.push({ record: "Loan", reference: loan.code, member: memberName(member), department: member.department, onFile: `${docs.done} of ${docs.required.length}`, missing: docs.missing.join("; ") });
-    }
-    for (const clearance of state.cases.filter(entry => entry.status === "DRAFT")) {
-      if (!memberMatch(clearance.memberId)) continue;
-      const member = state.members.find(entry => entry.id === clearance.memberId)!;
-      const docs = documentStatus(state, "case", clearance.id, ["Resignation or separation letter", "HR clearance form"]);
-      if (docs.missing.length) rows.push({ record: "Exit clearance", reference: clearance.code, member: memberName(member), department: member.department, onFile: `${docs.done} of ${docs.required.length}`, missing: docs.missing.join("; ") });
-    }
-    return { columns, rows };
+    resetPages();
   }
 
-  return { columns: [], rows: [] };
+  function resetFilters() {
+    setQ("");
+    setDepartment("");
+    setStatus("");
+    setProduct("");
+    setChannel("");
+    setRecordType("");
+    setActorId("");
+    setAction("");
+    setPeriod(defaultPeriod);
+    setPreset("");
+    setMonth(lastMonth);
+    resetPages();
+  }
+
+  function refreshReport() {
+    abortExport.current?.abort();
+    setFeedback(undefined);
+    reload();
+  }
+
+  async function exportReport(format: ExportFormat) {
+    if (!data || !exportReady) return;
+    const { fingerprint } = data;
+    const controller = new AbortController();
+    abortExport.current = controller;
+    setWorking(format);
+    setFeedback(undefined);
+    try {
+      params.set("format", format);
+      params.set("fingerprint", fingerprint);
+      params.delete("page");
+      Object.values(sectionPageParams).forEach(name => params.delete(name));
+      const response = await fetch(endpoint + "?" + params, { cache: "no-store", signal: controller.signal });
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        setFeedback({ fingerprint, message: error?.message ?? "Unable to export the report.",
+          error: true, stale: error?.code === "REPORT_CHANGED" });
+        return;
+      }
+      if (format === "tsv") {
+        const text = await response.text();
+        if (controller.signal.aborted || !container.current) return;
+        const copied = await copyCooperativeText(text, container.current, copyButton.current);
+        setFeedback({ fingerprint, message: copied ? "Report copied to clipboard." : "Copy was blocked by the browser. Try again or download the CSV.",
+          error: !copied });
+      } else {
+        const blob = await response.blob();
+        if (controller.signal.aborted) return;
+        const filename = response.headers.get("Content-Disposition")?.match(/filename="([a-z0-9-]+\.csv)"/i)?.[1];
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename ?? "cooperative-report.csv";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setFeedback({ fingerprint, message: "CSV downloaded." });
+      }
+    } catch {
+      if (!controller.signal.aborted) setFeedback({ fingerprint, message: "Unable to export the report. Try again.", error: true });
+    } finally {
+      abortExport.current = null;
+      setWorking(undefined);
+    }
+  }
+
+  function searchPlaceholder() {
+    if (audit) return "Agreement, loan, journal, or record ID";
+    if (hasProduct || report === "docs") return "Member or reference";
+    if (report === "savings") return "Name or employee no.";
+    return "Name, employee no. or agreement";
+  }
+
+  return <div ref={container} className="space-y-4">
+    <ReportHeader report={report} data={data} loading={loading} exportReady={exportReady} working={working} stale={Boolean(message?.stale)}
+      copyButtonRef={copyButton} onRefresh={refreshReport} onExport={format => void exportReport(format)} />
+    {message && <ReportExportFeedback message={message} onRefresh={refreshReport} />}
+
+    {data && !data.blocked ? <ReportFacts report={report} data={data} />
+      : loading ? <ReportFactsSkeleton /> : null}
+
+    <ReportFilterPanel count={data?.count} loading={loading} hasFilters={hasFilters} onClear={resetFilters}>
+      {statement ? <>
+        <FilterField label="Member" className="sm:col-span-2">
+          <ReportMemberPicker member={member} onSelect={value => { setMember(value); resetPages(); }} />
+        </FilterField>
+        <FilterField label="Period">
+          <NativeSelect className="h-9 w-full" value={preset} onChange={event => {
+            const name = event.target.value as keyof typeof periods | "";
+            changePeriod(name ? periods[name] : period, name);
+          }}>
+            <option value="">Custom</option>
+            {Object.keys(periods).map(name => <option key={name}>{name}</option>)}
+          </NativeSelect>
+        </FilterField>
+      </> : !trial && !monthEnd ? <>
+        <FilterField label={audit ? "Record reference" : "Search"} className="sm:col-span-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input className="h-9 pl-8" value={q} onChange={event => { setQ(event.target.value); resetPages(); }}
+              placeholder={searchPlaceholder()} maxLength={120} />
+          </div>
+        </FilterField>
+        {!audit && <FilterField label="Department">
+          <NativeSelect className="h-9 w-full" value={department} onChange={event => {
+            setDepartment(event.target.value); resetPages();
+          }}>
+            <option value="">All departments</option>
+            {(previous?.departments ?? []).map(name => <option key={name}>{name}</option>)}
+          </NativeSelect>
+        </FilterField>}
+        {audit && <>
+          <FilterField label="Actor">
+            <NativeSelect className="h-9 w-full" value={actorId} onChange={event => { setActorId(event.target.value); resetPages(); }}>
+              <option value="">All actors</option>
+              {(previous?.actors ?? []).map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}
+            </NativeSelect>
+          </FilterField>
+          <FilterField label="Action">
+            <NativeSelect className="h-9 w-full" value={action} onChange={event => { setAction(event.target.value); resetPages(); }}>
+              <option value="">All actions</option>
+              {(previous?.actions ?? []).map(action => <option key={action.code} value={action.code}>{action.name}</option>)}
+            </NativeSelect>
+          </FilterField>
+        </>}
+        {(report === "savings" || report === "roster") && <FilterField label="Membership status">
+          <NativeSelect className="h-9 w-full" value={status} onChange={event => { setStatus(event.target.value); resetPages(); }}>
+            <option value="">All statuses</option>
+            <option value="MEMBER">Member</option>
+            {report === "roster" && <option value="NON_MEMBER">Not a member</option>}
+            <option value="SEPARATED">Separated</option>
+          </NativeSelect>
+        </FilterField>}
+        {hasProduct && <FilterField label="Product">
+          <NativeSelect className="h-9 w-full" value={product} onChange={event => { setProduct(event.target.value); resetPages(); }}>
+            <option value="">All products</option>
+            {(previous?.products ?? []).map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
+          </NativeSelect>
+        </FilterField>}
+        {portfolio && <FilterField label="Loan status">
+          <NativeSelect className="h-9 w-full" value={status} onChange={event => { setStatus(event.target.value); resetPages(); }}>
+            <option value="">All statuses</option>
+            {Object.entries(reportLoanStatuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </NativeSelect>
+        </FilterField>}
+        {collections && <FilterField label="Channel">
+          <NativeSelect className="h-9 w-full" value={channel} onChange={event => { setChannel(event.target.value); resetPages(); }}>
+            <option value="">All channels</option>
+            {Object.entries(channelLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </NativeSelect>
+        </FilterField>}
+        {report === "docs" && <FilterField label="Record type">
+          <NativeSelect className="h-9 w-full" value={recordType} onChange={event => { setRecordType(event.target.value); resetPages(); }}>
+            <option value="">All records</option>
+            {Object.entries(reportRecordTypes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </NativeSelect>
+        </FilterField>}
+      </> : null}
+
+      {monthEnd && <FilterField label="Month">
+        <Input className="h-9 w-full" type="month" value={month} max={lastMonth} onChange={event => {
+          setMonth(event.target.value);
+          setEditingEvidence(undefined);
+          setSavedEvidence("");
+          resetPages();
+        }} />
+      </FilterField>}
+
+      {hasPeriod && <>
+        <FilterField label={portfolio ? "Released from" : "From"}>
+          <Input className="h-9 w-full" type="date" value={period.from} onChange={event => changePeriod({ ...period, from: event.target.value })} />
+        </FilterField>
+        <FilterField label={portfolio ? "Released to" : "To"}>
+          <Input className="h-9 w-full" type="date" value={period.to} onChange={event => changePeriod({ ...period, to: event.target.value })} />
+        </FilterField>
+      </>}
+    </ReportFilterPanel>
+
+    {rangeError && <p role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{rangeError}</p>}
+    {statement && !member && !rangeError && <ReportMemberEmpty />}
+    {error && <ReportErrorAlert error={error} onRetry={refreshReport} />}
+    {loading && !data && !rangeError && !(statement && !member) && <ReportTableSkeleton title={statement ? "Savings" : undefined} />}
+
+    {data?.blocked && <ReportBlocked notices={data.notices} onRetry={refreshReport} />}
+    {data && !data.blocked && <>
+      {data.notices?.map(notice => <ReportNoticeAlert key={notice.label} notice={notice} onRetry={refreshReport} />)}
+      {monthEnd && !!data.cashEvidence?.length && <ReportEvidencePanel rows={data.cashEvidence} saved={savedEvidence}
+        onEdit={evidence => { setSavedEvidence(""); setEditingEvidence(evidence); }} />}
+      <ReportTable data={data} title={statement ? "Savings" : undefined} onPage={setPage}
+        emptyMessage={statement ? "No savings activity in this period." : emptyMessageFor(report)} />
+      {data.sections?.map(section => <ReportTable key={section.key} data={section} title={section.label}
+        onPage={page => setDetailPages(current => ({ ...current, [section.key]: page }))}
+        emptyMessage={section.key === "loans" ? "No loan balances or activity in this period." :
+          section.key === "activity" ? "No loan activity in this period." : "No verified remittances in this period."} />)}
+    </>}
+
+    {editingEvidence && <CashEvidenceDialog evidence={editingEvidence}
+      onClose={() => setEditingEvidence(undefined)}
+      onSave={() => { setEditingEvidence(undefined); setSavedEvidence("Evidence saved."); refreshReport(); }}
+      onRefresh={() => { setEditingEvidence(undefined); refreshReport(); }} />}
+  </div>;
 }

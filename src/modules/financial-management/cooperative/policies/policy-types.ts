@@ -15,18 +15,21 @@ export const money = decimal(10, 2);
 const percent = decimal(3, 6).refine(value => Number(value) <= 100, "Enter a percentage from 0 to 100.");
 const monthlyRate = percent.refine(value => Number(value) <= 10, "Enter a monthly rate from 0 to 10.");
 const floorPercent = decimal(3, 4).refine(value => Number(value) <= 100, "Enter a percentage from 0 to 100.");
+export const savingsRateYear = z.string().regex(/^[1-9]\d{3}$/, "Enter a four-digit calendar year.");
+export const exitSavingsRatesSchema = z.record(savingsRateYear, percent);
+export const paymentOrderSchema = z.enum(["PENALTIES_FIRST", "INSTALLMENTS_FIRST"]);
 
 export const settingsSchema = z.discriminatedUnion("floorMode", [
   z.object({
     floorMode: z.literal("FIXED"),
     membershipFee: money, minimumSavings: money, maintainingBalance: money, withdrawalsPerYear: uint16,
-    paymentOrder: z.enum(["PENALTIES_FIRST", "INSTALLMENTS_FIRST"]),
+    paymentOrder: paymentOrderSchema, exitSavingsAnnualRates: exitSavingsRatesSchema.optional(),
     floorFixedAmount: money, floorPercent: z.null(),
   }),
   z.object({
     floorMode: z.literal("PERCENT"),
     membershipFee: money, minimumSavings: money, maintainingBalance: money, withdrawalsPerYear: uint16,
-    paymentOrder: z.enum(["PENALTIES_FIRST", "INSTALLMENTS_FIRST"]),
+    paymentOrder: paymentOrderSchema, exitSavingsAnnualRates: exitSavingsRatesSchema.optional(),
     floorFixedAmount: z.null(), floorPercent,
   }),
 ]);

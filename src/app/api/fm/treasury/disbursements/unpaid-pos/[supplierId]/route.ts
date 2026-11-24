@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import {
-    ACTIVE_DISBURSEMENT_STATUSES,
     activeReceivingRowsByPurchaseOrder,
     hasUnpostedReceivingRows,
-    purchaseOrderReferenceKey,
-    purchaseOrderReferenceKeyFromParts,
     postedReceivingRowsByPurchaseOrder,
 } from "../../_purchase-order-eligibility";
 
@@ -67,43 +64,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             return NextResponse.json([]);
         }
 
-        // Fetch active disbursements for this supplier (to avoid 403 relational filter issue)
-        const disbursementQuery = new URLSearchParams({
-            "filter[payee][_eq]": String(supplierId),
-            "filter[status][_in]": ACTIVE_DISBURSEMENT_STATUSES.join(","),
-            fields: "id",
-            limit: "-1",
-        });
-        const disRes = await fetch(`${DIRECTUS_URL}/items/disbursement?${disbursementQuery.toString()}`, {
-            headers: { Authorization: `Bearer ${DIRECTUS_TOKEN}` },
-            cache: "no-store",
-        });
-        if (!disRes.ok) throw new Error(`Unable to load existing TRs (${disRes.status}).`);
-        const disList = (((await disRes.json()).data || []) as Array<{ id: number }>);
-        const activeDisbursementIds = disList.map(d => d.id);
-
-        const taggedPayablesList: Array<{ reference_no?: string }> = [];
-        if (activeDisbursementIds.length > 0) {
-            const taggedPayablesParams = new URLSearchParams();
-            taggedPayablesParams.set("filter[disbursement_id][_in]", activeDisbursementIds.join(","));
-            taggedPayablesParams.set("fields", "reference_no");
-            taggedPayablesParams.set("limit", "-1");
-
-            const taggedPayablesRes = await fetch(`${DIRECTUS_URL}/items/disbursement_payables?${taggedPayablesParams.toString()}`, {
-                headers: { Authorization: `Bearer ${DIRECTUS_TOKEN}` },
-                cache: "no-store",
-            });
-            if (!taggedPayablesRes.ok) throw new Error(`Unable to load existing TR payable references (${taggedPayablesRes.status}).`);
-            const json = await taggedPayablesRes.json();
-            taggedPayablesList.push(...(json.data || []));
-        }
-
-        const taggedPurchaseOrderKeys = new Set(
-            taggedPayablesList
-                .map((payable) => purchaseOrderReferenceKey(payable.reference_no))
-                .filter((key): key is string => key !== null),
-        );
-
         const poIds = poList.map(po => po.purchase_order_id);
 
         const receivingsUrl = `${DIRECTUS_URL}/items/purchase_order_receiving?limit=-1&filter=${encodeURIComponent(
@@ -137,11 +97,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             const poId = po.purchase_order_id;
             const poNo = po.purchase_order_no;
 
-            if (Number(po.payment_type) === 1) {
-                // CWO (Cash With Order)
-                if (taggedPurchaseOrderKeys.has(purchaseOrderReferenceKeyFromParts(poNo, "ADVANCE-CWO"))) continue;
-            }
-
             const activeReceivings = activeReceivingsByPoId.get(poId) || [];
             const isPartiallyReceived = hasUnpostedReceivingRows(activeReceivings);
 
@@ -169,8 +124,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             }
 
             for (const [receiptNo, data] of Object.entries(grouped)) {
-                const refKey = purchaseOrderReferenceKeyFromParts(poNo, receiptNo);
-                if (taggedPurchaseOrderKeys.has(refKey)) continue;
+                // Another TR may reference this PO. The editor excludes only
+                // records already present in the current voucher.
                 const remainingDue = Math.max(0, data.totalLiability);
 
                 if (remainingDue > 0.01) {

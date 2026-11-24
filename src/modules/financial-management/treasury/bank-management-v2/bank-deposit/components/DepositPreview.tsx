@@ -92,48 +92,50 @@ export function DepositPreview({ bankAccountId, cashTotal, checkCount = 0 }: Pro
               : null}
         </p>
       ) : current && entry ? (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[80px]">GL</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead className="w-[110px] text-right">Debit</TableHead>
-              <TableHead className="w-[110px] text-right">Credit</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {entry.lines.map((line) => (
-              <TableRow key={line.lineNo}>
-                <TableCell className="font-mono text-xs">{line.glCode ?? "—"}</TableCell>
-                <TableCell className="max-w-[220px]">
-                  <p className="truncate text-sm" title={line.accountTitle ?? undefined}>
-                    {line.accountTitle ?? `Unmapped: ${line.memo ?? "GL key"}`}
-                  </p>
-                  {line.memo ? <p className="truncate text-[11px] text-muted-foreground">{line.memo}</p> : null}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[56px] px-2">GL</TableHead>
+                <TableHead className="min-w-0 px-2">Account</TableHead>
+                <TableHead className="w-[86px] px-2 text-right">Debit</TableHead>
+                <TableHead className="w-[86px] px-2 text-right">Credit</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {entry.lines.map((line) => (
+                <TableRow key={line.lineNo}>
+                  <TableCell className="px-2 font-mono text-[11px]">{line.glCode ?? "—"}</TableCell>
+                  <TableCell className="min-w-0 px-2">
+                    <p className="truncate text-[13px]" title={line.accountTitle ?? undefined}>
+                      {line.accountTitle ?? `Unmapped: ${line.memo ?? "GL key"}`}
+                    </p>
+                    {line.memo ? <p className="truncate text-[11px] text-muted-foreground">{line.memo}</p> : null}
+                  </TableCell>
+                  <TableCell className="px-2 text-right text-xs tabular-nums">
+                    {line.debit ? formatCurrency(line.debit) : "—"}
+                  </TableCell>
+                  <TableCell className="px-2 text-right text-xs tabular-nums">
+                    {line.credit ? formatCurrency(line.credit) : "—"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              <TableRow>
+                <TableCell colSpan={2} className="px-2 text-xs font-semibold">
+                  Total
                 </TableCell>
-                <TableCell className="text-right text-sm tabular-nums">
-                  {line.debit ? formatCurrency(line.debit) : "—"}
+                <TableCell className="px-2 text-right text-xs font-semibold tabular-nums">
+                  {formatCurrency(entry.totalDebit)}
                 </TableCell>
-                <TableCell className="text-right text-sm tabular-nums">
-                  {line.credit ? formatCurrency(line.credit) : "—"}
+                <TableCell className="px-2 text-right text-xs font-semibold tabular-nums">
+                  {formatCurrency(entry.totalCredit)}
                 </TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-          <TableFooter>
-            <TableRow>
-              <TableCell colSpan={2} className="text-xs font-semibold">
-                Total
-              </TableCell>
-              <TableCell className="text-right text-sm font-semibold tabular-nums">
-                {formatCurrency(entry.totalDebit)}
-              </TableCell>
-              <TableCell className="text-right text-sm font-semibold tabular-nums">
-                {formatCurrency(entry.totalCredit)}
-              </TableCell>
-            </TableRow>
-          </TableFooter>
-        </Table>
+            </TableFooter>
+          </Table>
+        </div>
       ) : null}
 
       {unmapped.length > 0 ? (

@@ -17,6 +17,8 @@ const RegisterQuery = z.object({
   from: z.string().trim().length(10).optional(),
   to: z.string().trim().length(10).optional(),
   q: z.string().trim().max(120).optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(50).optional(),
 });
 
 export async function GET(request: Request) {
@@ -43,6 +45,8 @@ export async function GET(request: Request) {
       dateFrom: parsed.data.from,
       dateTo: parsed.data.to,
       q: parsed.data.q,
+      page: parsed.data.page,
+      pageSize: parsed.data.pageSize,
     });
     return NextResponse.json({ success: true, data });
   } catch (error) {

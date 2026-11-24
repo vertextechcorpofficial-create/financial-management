@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loanStatementForPeriod, projectLoanLedger, type LoanLedger, type LoanMovement } from "./loan-activity";
-import { payrollHeadroom, payrollOverlap, payrollTermCommitment, salaryLoanRoom, type PayrollCommitment } from "./loan-assessment";
+import { loanStatementForPeriod, projectLoanLedger, repaymentBusinessDate, type LoanLedger, type LoanMovement } from "./loan-activity";
+import {
+  passesLoanChecks, payrollHeadroom, payrollOverlap, payrollTermCommitment, salaryLoanRoom,
+  type LoanAssessmentCheck, type PayrollCommitment,
+} from "./loan-assessment";
 import type { Product } from "../policies/policy-types";
 
 const installment = {
@@ -24,6 +27,16 @@ const reversingPayment: LoanMovement = {
   reference: "JV-2026-0011", reversesId: payment.id,
 };
 const ledger: LoanLedger = { release, installments: [installment], movements: [payment, reversingPayment, offset] };
+
+test("uses today's business date when a receipt predates a posted payment or due-date event", () => {
+  const today = "2026-12-10";
+  assert.equal(repaymentBusinessDate(ledger, "2026-11-30", today), today);
+  assert.equal(repaymentBusinessDate(ledger, "2026-12-01", today), "2026-12-01");
+  const beforeDue = { ...ledger, movements: [] };
+  assert.equal(repaymentBusinessDate(beforeDue, "2026-10-30", today), "2026-10-30");
+  assert.equal(repaymentBusinessDate({ ...beforeDue, installments: [{ ...installment, accrualProcessedOn: today }] }, "2026-10-30", today), today);
+  assert.equal(repaymentBusinessDate({ ...beforeDue, installments: [{ ...installment, penaltyAssessedOn: "2026-11-02" }] }, "2026-11-01", today), today);
+});
 
 test("includes release and payment on the date boundaries with separate penalties and offsets", () => {
   const statement = loanStatementForPeriod(ledger, "2026-10-15", "2026-11-15");
@@ -78,10 +91,47 @@ test("counts a payoff only when the installment and assessed penalty are settled
   assert.throws(() => projectLoanLedger({ ...ledger, movements: [{ ...payment, allocations: [{ ...payment.allocations[0], installmentId: 99 }] }] }, payment.date), /schedule/);
 });
 
+test("a clearance waiver adjusts only unearned interest and reverses on its posted date", () => {
+  const settledOn = "2026-11-01";
+  const reverseOn = "2026-11-10";
+  const applied: LoanMovement = { ...offset, date: settledOn, postedAt: settledOn + "T01:00:00",
+    allocations: [{ installmentId: 5, principal: "100.00", interest: "4.00", penalty: "0.00" }] };
+  const undone: LoanMovement = { ...applied, id: 98, journalId: 98, date: reverseOn, postedAt: reverseOn + "T01:00:00",
+    reversesId: applied.id };
+  const caseLedger: LoanLedger = {
+    release,
+    installments: [{ ...installment, penaltyAssessed: "0.00",
+      settlementWaiver: { amount: "6.00", date: settledOn, reversedOn: reverseOn, reference: "CL-2026-0001" } }],
+    movements: [applied, undone],
+  };
+  assert.equal(projectLoanLedger(caseLedger, "2026-10-31").remaining, "110.00");
+  const settled = projectLoanLedger(caseLedger, settledOn);
+  assert.equal(settled.remaining, "0.00");
+  assert.equal(settled.installments[0].paidInterest, "4.00");
+  assert.equal(settled.fullyPaid, true);
+  assert.equal(projectLoanLedger(caseLedger, reverseOn).remaining, "110.00");
+  const initial = loanStatementForPeriod(caseLedger, settledOn, settledOn);
+  assert.equal(initial.totals.waivedInterest, "6.00");
+  assert.equal(initial.totals.offsets, "104.00");
+  const reversal = loanStatementForPeriod(caseLedger, reverseOn, reverseOn);
+  assert.equal(reversal.totals.waivedInterest, "-6.00");
+  assert.equal(reversal.totals.offsets, "-104.00");
+  assert.equal(reversal.totals.closing, "110.00");
+});
+
 const savings: PayrollCommitment = { table: "cooperative_memberships", id: 12, cents: 20_000n };
 const loan: PayrollCommitment = { table: "cooperative_loans", id: 11, cents: 30_000n };
 const deduction = (source_table: string, source_id: number, amount: string) => ({
   source_table, source_id, amount, item_key: source_table + ":" + source_id,
+});
+
+test("a failed tenure warning allows the loan action while a failed payroll check blocks it", () => {
+  const tenure: LoanAssessmentCheck = { key: "tenure", label: "Membership tenure", detail: "Product minimum is 3 months.", ok: false, severity: "warning" };
+  const payroll = { key: "payroll", label: "Take-home pay", detail: "Verified payroll cutoff.", ok: true };
+
+  assert.equal(passesLoanChecks([tenure, payroll]), true);
+  assert.equal(passesLoanChecks([{ ...tenure, ok: true, severity: undefined }, payroll]), true);
+  assert.equal(passesLoanChecks([tenure, { ...payroll, ok: false }]), false);
 });
 
 test("credits a verified partial withholding and keeps unrelated employee-loan deductions in net pay", () => {

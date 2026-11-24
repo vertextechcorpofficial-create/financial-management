@@ -236,15 +236,34 @@ async function undepositedCashFindings(labels: Map<number, string>): Promise<Arf
       "collection_details",
       { fields: ["id", "collection_id", "payment_method", "amount", "is_cleared", "bank"], limit: -1 },
     ),
-    listItems<{ collection_detail_id: number | null }>("bank_deposit_details", {
-      fields: ["collection_detail_id"],
+    listItems<{ collection_invoice_id: number | null }>("bank_deposit_details", {
+      fields: ["collection_invoice_id"],
       limit: -1,
     }),
   ]);
 
-  const deposited = new Set(links.map((link) => asNumber(link.collection_detail_id)).filter(Boolean));
+  // A slip now links the settlement row it took, not the tender row, so a receipt counts as
+  // deposited once any of its invoices sits on a slip. Reading collection_detail_id here asked the
+  // platform for a column the deposit module renamed away, and Directus answers that with 403.
+  const invoiceIds = [...new Set(links.map((link) => asNumber(link.collection_invoice_id)).filter(Boolean))];
+  const depositedReceipts = new Set<number>();
+  if (invoiceIds.length) {
+    const { rows: settled } = await listItems<{ id: number; collection_id: number | null }>("collection_invoices", {
+      fields: ["id", "collection_id"],
+      filter: { id: { _in: invoiceIds } },
+      limit: -1,
+    });
+    for (const row of settled) {
+      const receiptId = asNumber(row.collection_id);
+      if (receiptId) depositedReceipts.add(receiptId);
+    }
+  }
+
   const candidates = details.filter(
-    (row) => asNumber(row.payment_method) === CASH && !asFlag(row.is_cleared) && !deposited.has(asNumber(row.id)),
+    (row) =>
+      asNumber(row.payment_method) === CASH &&
+      !asFlag(row.is_cleared) &&
+      !depositedReceipts.has(asNumber(row.collection_id)),
   );
   if (!candidates.length) return [];
 

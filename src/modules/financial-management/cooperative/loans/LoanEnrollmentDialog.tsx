@@ -1,17 +1,19 @@
 "use client";
 
 import { cloneElement, useEffect, useId, useState, type ReactElement } from "react";
-import { ChevronDown } from "lucide-react";
+import { AlertTriangle, Calculator, HandCoins, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ConsoleDialog, Kv, Panel } from "../console/components/ui";
+import { SectionHeading } from "../members/components";
 import { fieldErrorsFrom, MemberApiError, memberFetch, newRequestKey } from "../members/client";
 import { date, peso } from "../members/format";
 import type { Product } from "../policies/policy-types";
 import type { LoanEnrollmentChoices, LoanEnrollmentPreview } from "../server/loan-enrollment";
 import type { LoanEnrollmentResult } from "../server/loan-enrollment-save";
+import { AssessmentCheck } from "./components";
+import { LoanMemberSelect } from "./LoanMemberSelect";
 
 type Member = LoanEnrollmentChoices["members"][number];
 type Draft = {
@@ -52,7 +54,6 @@ export function LoanEnrollmentDialog({ onClose, onSaved }: {
   onSaved: (result: LoanEnrollmentResult, release: { requested: boolean; reviewDocuments: boolean }) => void;
 }) {
   const [member, setMember] = useState<Member>();
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [choices, setChoices] = useState<{ key: string; result?: LoanEnrollmentChoices; error?: string }>();
@@ -70,7 +71,7 @@ export function LoanEnrollmentDialog({ onClose, onSaved }: {
   const lookup = new URLSearchParams({ q: search, page: String(page) }).toString();
   const lookupKey = lookup + ":" + lookupAttempt;
   const currentChoices = choices?.key === lookupKey ? choices : undefined;
-  const products = choices?.result?.products;
+  const products = currentChoices?.result?.products;
   const selectedProduct = products?.find(row => row.id === draft?.productId);
 
   useEffect(() => {
@@ -159,113 +160,166 @@ export function LoanEnrollmentDialog({ onClose, onSaved }: {
       title="Enroll loan"
       description="Record a signed loan agreement and send it to Approvals."
       wide
+      footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
       footer={<>
+        <p className="mr-auto hidden max-w-xs text-left text-[11px] leading-4 text-muted-foreground sm:block">
+          Enrolling files the signed agreement and sends the loan to Approvals.
+        </p>
         <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
         <Button onClick={() => void save()} disabled={!preview?.canEnroll || !signed || saving}>
-          {saving ? "Enrolling…" : releaseNow ? "Enroll and review release" : "Enroll loan"}
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <HandCoins className="size-4" />}
+          {saving ? "Enrolling..." : releaseNow ? "Enroll and review release" : "Enroll loan"}
         </Button>
       </>}
     >
-      <div className="grid min-w-0 items-start gap-4 md:grid-cols-2">
-        <div className="min-w-0 space-y-3">
-          <div className="space-y-1">
-            <p className="text-sm font-medium">Member</p>
-            <Popover open={pickerOpen} onOpenChange={setPickerOpen} modal>
-              <PopoverTrigger asChild>
-                <Button type="button" variant="outline" disabled={saving} aria-label="Choose member" className="h-auto min-h-9 w-full justify-between gap-2 whitespace-normal text-left">
-                  {member ? member.name + " · " + member.employeeNumber : "Select member"}<ChevronDown className="size-4 shrink-0" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-[min(23rem,calc(100vw-2rem))] p-2">
-                <Input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Name, employee number, or department" aria-label="Search members" />
-                <div className="mt-2 max-h-56 space-y-0.5 overflow-y-auto">
-                  {!currentChoices && <p role="status" className="p-2 text-sm text-muted-foreground">Loading members…</p>}
-                  {currentChoices?.error && <p role="alert" className="p-2 text-sm text-destructive">{currentChoices.error}</p>}
-                  {currentChoices?.result?.members.length === 0 && <p className="p-2 text-sm text-muted-foreground">No active members match.</p>}
-                  {currentChoices?.result?.members.map(choice => (
-                    <Button key={choice.id} variant="ghost" size="sm" type="button"
-                      className="h-auto min-h-10 w-full justify-start whitespace-normal text-left"
-                      onClick={() => { setMember(choice); setPickerOpen(false); edit(); }}>
-                      <span className="min-w-0"><span className="block">{choice.name}</span><span className="block text-xs text-muted-foreground">{choice.employeeNumber} · {choice.department ?? "No department"}</span></span>
-                    </Button>
-                  ))}
-                </div>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <Button size="sm" variant="outline" disabled={page <= 1 || !currentChoices} onClick={() => setPage(page - 1)}>Previous</Button>
-                  <span className="text-xs text-muted-foreground">Page {page}</span>
-                  <Button size="sm" variant="outline" disabled={!currentChoices?.result?.hasMore} onClick={() => setPage(page + 1)}>Next</Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-            {currentChoices?.error && <Button size="sm" variant="outline" onClick={() => setLookupAttempt(value => value + 1)}>Retry choices</Button>}
-          </div>
-
-          <Field label="Loan product">
-            <NativeSelect className="w-full" value={draft?.productId ?? ""} onChange={event => chooseProduct(event.target.value)} disabled={!products?.length || saving}>
-              <option value="">{!products ? "Loading products…" : products.length ? "Select product" : "No open products"}</option>
-              {products?.map(product => <option key={product.id} value={product.id}>{product.name}</option>)}
-            </NativeSelect>
-          </Field>
-
-          {draft && selectedProduct && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {selectedProduct.kind === "CASH" ? <>
-                <Field label="Loan amount (₱)"><Input inputMode="decimal" value={draft.principal} onChange={event => update("principal", event.target.value)} disabled={saving} /></Field>
-                <Field label="Interest per month (%)"><Input inputMode="decimal" value={draft.rate} onChange={event => update("rate", event.target.value)} disabled={saving} /></Field>
-                <Field label="Interest method"><NativeSelect className="w-full" disabled={saving} value={draft.method} onChange={event => update("method", event.target.value as Draft["method"])}>
-                  {selectedProduct.methods.map(method => <option key={method} value={method}>{methodLabels[method]}</option>)}
-                </NativeSelect></Field>
-                <Field label="Release to"><NativeSelect className="w-full" disabled={saving} value={draft.releaseMethod} onChange={event => update("releaseMethod", event.target.value as Draft["releaseMethod"])}>
-                  <option value="PAYROLL">Payroll bank account</option><option value="CASH">Cash at the office</option>
-                </NativeSelect></Field>
-              </> : <>
-                <Field label="Item"><NativeSelect className="w-full" disabled={saving} value={draft.itemId} onChange={event => update("itemId", event.target.value)}>
-                  <option value="">Select item</option>
-                  {selectedProduct.items.map(item => <option key={item.id} value={item.id}>{item.name} · {peso(item.price)}</option>)}
-                </NativeSelect></Field>
-                <Field label="Quantity"><Input type="number" min={1} max={10} step={1} value={draft.quantity} onChange={event => update("quantity", event.target.value)} disabled={saving} /></Field>
-              </>}
-              <Field label="Term"><NativeSelect className="w-full" disabled={saving} value={draft.term} onChange={event => update("term", Number(event.target.value))}>
-                {selectedProduct.termsMonths.map(months => <option key={months} value={months}>{months} months</option>)}
-              </NativeSelect></Field>
-              <Field label="Payment frequency"><NativeSelect className="w-full" disabled={saving} value={draft.frequency} onChange={event => update("frequency", event.target.value as Draft["frequency"])}>
-                {selectedProduct.frequencies.map(value => <option key={value} value={value}>{frequencyLabels[value]}</option>)}
-              </NativeSelect></Field>
-              <Field label="Repayment mode"><NativeSelect className="w-full" disabled={saving} value={draft.mode} onChange={event => update("mode", event.target.value as Draft["mode"])}>
-                {selectedProduct.modes.map(value => <option key={value} value={value}>{modeLabels[value]}</option>)}
-              </NativeSelect></Field>
-              <Field label="Purpose (optional)"><Input maxLength={200} value={draft.purpose} onChange={event => update("purpose", event.target.value)} disabled={saving} /></Field>
-            </div>
-          )}
-
-          <Panel title="Loan agreement">
-            <Kv rows={[
-              ["Agreement no.", "Assigned on save"],
-              ["Signing date", preview ? date(preview.snapshot.signingDate) : "Today, Manila time"],
-            ]} />
-            <label className="mt-3 flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1" checked={signed} disabled={saving || !preview?.canEnroll} onChange={event => setSigned(event.target.checked)} />
-              The member signed the loan agreement and promissory note.
-            </label>
-            {preview && preview.snapshot.documents.length > 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">Collect {preview.snapshot.documents.map(rule => rule.name).join(", ")} in Documents after saving.</p>
+      <div className="grid min-w-0 items-start gap-5 md:grid-cols-2">
+        <div className="min-w-0 space-y-5">
+          <section className="space-y-3">
+            <SectionHeading
+              step="1"
+              title="Member"
+              description="Only active Cooperative members appear here."
+            />
+            <LoanMemberSelect
+              member={member}
+              members={currentChoices?.result?.members ?? []}
+              page={currentChoices?.result?.page ?? page}
+              hasMore={currentChoices?.result?.hasMore ?? false}
+              loading={!currentChoices}
+              error={currentChoices?.error}
+              search={search}
+              onSearchChange={value => { setSearch(value); setPage(1); }}
+              onPageChange={setPage}
+              onRetry={() => setLookupAttempt(value => value + 1)}
+              onSelect={choice => { setMember(choice); edit(); }}
+              disabled={saving}
+            />
+            {currentChoices?.error && (
+              <div className="flex flex-wrap items-center gap-2">
+                <p role="alert" className="text-xs text-destructive">{currentChoices.error}</p>
+                <Button type="button" size="sm" variant="outline" onClick={() => setLookupAttempt(value => value + 1)}>Retry choices</Button>
+              </div>
             )}
-            {currentChoices?.result?.releaseAvailable && <label className="mt-3 flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1" checked={releaseNow} disabled={saving} onChange={event => setReleaseNow(event.target.checked)} />
-              <span>Approve and release now <span className="block text-xs text-muted-foreground">The loan is filed as Pending before you add documents and confirm payout.</span></span>
-            </label>}
-          </Panel>
+          </section>
+
+          <section className="space-y-3">
+            <SectionHeading
+              step="2"
+              title="Loan terms"
+              description="Choose the product and repayment details."
+            />
+            <Field label="Loan product">
+              <NativeSelect className="w-full" value={draft?.productId ?? ""} onChange={event => chooseProduct(event.target.value)} disabled={!products?.length || saving}>
+                <option value="">{!products ? "Loading products..." : products.length ? "Select product" : "No open products"}</option>
+                {products?.map(product => <option key={product.id} value={product.id}>{product.name}</option>)}
+              </NativeSelect>
+            </Field>
+
+            {draft && selectedProduct && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {selectedProduct.kind === "CASH" ? <>
+                  <Field label="Loan amount (₱)"><Input inputMode="decimal" value={draft.principal} onChange={event => update("principal", event.target.value)} disabled={saving} /></Field>
+                  <Field label="Interest per month (%)"><Input inputMode="decimal" value={draft.rate} onChange={event => update("rate", event.target.value)} disabled={saving} /></Field>
+                  <Field label="Interest method">
+                    <NativeSelect className="w-full" disabled={saving} value={draft.method} onChange={event => update("method", event.target.value as Draft["method"])}>
+                      {selectedProduct.methods.map(method => <option key={method} value={method}>{methodLabels[method]}</option>)}
+                    </NativeSelect>
+                  </Field>
+                  <Field label="Release to">
+                    <NativeSelect className="w-full" disabled={saving} value={draft.releaseMethod} onChange={event => update("releaseMethod", event.target.value as Draft["releaseMethod"])}>
+                      <option value="PAYROLL">Payroll bank account</option><option value="CASH">Cash at the office</option>
+                    </NativeSelect>
+                  </Field>
+                </> : <>
+                  <Field label="Item">
+                    <NativeSelect className="w-full" disabled={saving} value={draft.itemId} onChange={event => update("itemId", event.target.value)}>
+                      <option value="">Select item</option>
+                      {selectedProduct.items.map(item => <option key={item.id} value={item.id}>{item.name} · {peso(item.price)}</option>)}
+                    </NativeSelect>
+                  </Field>
+                  <Field label="Quantity"><Input type="number" min={1} max={10} step={1} value={draft.quantity} onChange={event => update("quantity", event.target.value)} disabled={saving} /></Field>
+                </>}
+                <Field label="Term">
+                  <NativeSelect className="w-full" disabled={saving} value={draft.term} onChange={event => update("term", Number(event.target.value))}>
+                    {selectedProduct.termsMonths.map(months => <option key={months} value={months}>{months} months</option>)}
+                  </NativeSelect>
+                </Field>
+                <Field label="Payment frequency">
+                  <NativeSelect className="w-full" disabled={saving} value={draft.frequency} onChange={event => update("frequency", event.target.value as Draft["frequency"])}>
+                    {selectedProduct.frequencies.map(value => <option key={value} value={value}>{frequencyLabels[value]}</option>)}
+                  </NativeSelect>
+                </Field>
+                <Field label="Repayment mode">
+                  <NativeSelect className="w-full" disabled={saving} value={draft.mode} onChange={event => update("mode", event.target.value as Draft["mode"])}>
+                    {selectedProduct.modes.map(value => <option key={value} value={value}>{modeLabels[value]}</option>)}
+                  </NativeSelect>
+                </Field>
+                <Field label="Purpose (optional)"><Input maxLength={200} value={draft.purpose} onChange={event => update("purpose", event.target.value)} disabled={saving} /></Field>
+              </div>
+            )}
+          </section>
         </div>
 
-        <Panel title="Loan assessment">
-          {!payload && <p className="text-sm text-muted-foreground">Choose a member and enter the loan details.</p>}
-          {payload && !assessed && <p role="status" className="text-sm text-muted-foreground">Checking eligibility…</p>}
-          {assessed?.error && <div className="space-y-2"><p role="alert" className="text-sm text-destructive">{assessed.error}</p>
-            <Button size="sm" variant="outline" onClick={() => setPreviewAttempt(value => value + 1)}>Retry assessment</Button></div>}
-          {preview && <Assessment preview={preview} />}
-        </Panel>
+        <div className="min-w-0 space-y-5">
+          <Panel
+            title="Loan assessment"
+            description={member ? `${member.name} · ${member.employeeNumber}` : "Choose a member and enter the loan details."}
+          >
+            {!payload && (
+              <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <span className="grid size-11 place-items-center rounded-full bg-muted text-muted-foreground"><Calculator className="size-5" /></span>
+                <p className="text-sm font-medium">Assessment waiting</p>
+                <p className="max-w-xs text-xs text-muted-foreground">Enter the loan amount and terms to check eligibility, pricing, and take-home headroom.</p>
+              </div>
+            )}
+            {payload && !assessed && (
+              <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" /> Checking eligibility...
+              </p>
+            )}
+            {assessed?.error && (
+              <div className="space-y-2">
+                <p role="alert" className="text-sm text-destructive">{assessed.error}</p>
+                <Button size="sm" variant="outline" onClick={() => setPreviewAttempt(value => value + 1)}>Retry assessment</Button>
+              </div>
+            )}
+            {preview && <Assessment preview={preview} />}
+          </Panel>
+
+          <section className="space-y-3">
+            <SectionHeading
+              step="3"
+              title="Agreement"
+              description="Confirm the signed agreement before enrolling."
+            />
+            <div className="space-y-3 rounded-xl border bg-muted/20 p-3">
+              <Kv rows={[
+                ["Agreement no.", "Assigned on save"],
+                ["Signing date", preview ? date(preview.snapshot.signingDate) : "Today, Manila time"],
+              ]} />
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={signed} disabled={saving || !preview?.canEnroll} onChange={event => setSigned(event.target.checked)} />
+                The member signed the loan agreement and promissory note.
+              </label>
+              {preview && preview.snapshot.documents.length > 0 && (
+                <p className="text-xs text-muted-foreground">Collect {preview.snapshot.documents.map(rule => rule.name).join(", ")} in Documents after saving.</p>
+              )}
+              {currentChoices?.result?.releaseAvailable && (
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={releaseNow} disabled={saving} onChange={event => setReleaseNow(event.target.checked)} />
+                  <span>Approve and release now <span className="block text-xs text-muted-foreground">The loan is filed as Pending before you add documents and confirm payout.</span></span>
+                </label>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
-      {saveError && <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{saveError}</p>}
+      {saveError && (
+        <div role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <p>{saveError}</p>
+        </div>
+      )}
     </ConsoleDialog>
   );
 }
@@ -274,28 +328,37 @@ function Assessment({ preview }: { preview: LoanEnrollmentPreview }) {
   const { snapshot, payroll } = preview;
   const { pricing } = snapshot;
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <Kv rows={[
         ["Principal", peso(snapshot.principal)], ["Payments", pricing.paymentCount], ["Regular installment", peso(pricing.regularPayment)],
         ["Final installment", peso(pricing.finalPayment)], ["Interest or markup", peso(pricing.totalInterest)],
         ["Processing fee on release", peso(snapshot.processingFee)], ["Total payable", peso(pricing.totalPayable), "total"],
       ]} />
-      <details className="rounded-md border p-2 text-sm">
+      <details className="rounded-lg border bg-muted/20 p-3 text-sm">
         <summary className="cursor-pointer font-medium">Installment preview</summary>
         <p className="my-2 text-xs text-muted-foreground">Dates are assigned when the loan is released.</p>
         <ol className="max-h-48 space-y-1 overflow-auto">
-          {preview.installments.map((row, index) => <li key={index} className="flex justify-between gap-2"><span>Payment {index + 1}</span><span>{peso(row.total)}</span></li>)}
+          {preview.installments.map((row, index) => (
+            <li key={index} className="flex justify-between gap-2">
+              <span>Payment {index + 1}</span><span className="font-mono tabular-nums">{peso(row.total)}</span>
+            </li>
+          ))}
         </ol>
       </details>
-      <ul className="space-y-1.5 text-sm">
-        {preview.checks.map(check => <li key={check.key} className="rounded-md border p-2">
-          <p className={check.ok ? "font-medium" : "font-medium text-destructive"}>{check.ok ? "Passed" : "Needs attention"} · {check.label}</p>
-          <p className="text-xs text-muted-foreground">{check.detail}</p>
-        </li>)}
-      </ul>
-      {payroll.state === "verified" && <Kv rows={payroll.cutoffs.map(row => [
-        date(row.cutoff), peso(row.payment) + " / " + peso(row.headroom) + " headroom",
-      ])} />}
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Checks</p>
+        <ul className="space-y-1.5">
+          {preview.checks.map(({ key, ...check }) => <AssessmentCheck key={key} {...check} />)}
+        </ul>
+      </div>
+      {payroll.state === "verified" && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Payroll headroom</p>
+          <Kv rows={payroll.cutoffs.map(row => [
+            date(row.cutoff), peso(row.payment) + " / " + peso(row.headroom) + " headroom",
+          ])} />
+        </div>
+      )}
     </div>
   );
 }

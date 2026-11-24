@@ -18,7 +18,8 @@ export function statementPeriods(today: string) {
 
 export const loanStatementColumns = [
   ["opening", "Opening balance"], ["released", "Released"], ["paid", "Installments paid"],
-  ["penaltiesPaid", "Penalties paid"], ["offsets", "Clearance offsets"], ["closing", "Closing balance"],
+  ["penaltiesPaid", "Penalties paid"], ["offsets", "Clearance offsets"], ["waivedInterest", "Unearned interest removed"],
+  ["closing", "Closing balance"],
 ] as const;
 
 export const loanActivityChannels = { OTC: "Over the counter", PAYROLL: "Payroll remittance", CLEARANCE: "Exit clearance" };
@@ -52,8 +53,8 @@ export function statementText(statement: MemberStatement) {
   } else {
     lines.push(
       ["Loan", "Product", ...loanStatementColumns.map(([, label]) => label)],
-      ...loans.data.entries.map(entry => [entry.loanNo, entry.productName, ...loanStatementColumns.map(([key]) => entry[key])]),
-      ["Total", "", ...loanStatementColumns.map(([key]) => loans.data.totals[key])],
+      ...loans.data.entries.map(entry => [entry.loanNo, entry.productName, ...loanStatementColumns.map(([key]) => entry[key] ?? "0.00")]),
+      ["Total", "", ...loanStatementColumns.map(([key]) => loans.data.totals[key] ?? "0.00")],
     );
     if (loans.data.activity.length) lines.push(
       [],

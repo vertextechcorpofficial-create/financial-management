@@ -38,6 +38,7 @@ export const EMPTY_SLIP_FILTERS: SlipFilters = {
 export const SLIP_STATUS_FILTERS = [
   { value: "ALL", label: "Any status" },
   { value: "PREPARED", label: "Prepared" },
+  { value: "DEPOSITED", label: "Deposited" },
   { value: "CLEARED", label: "Cleared" },
   { value: "CANCELLED", label: "Cancelled" },
 ] as const;
@@ -133,6 +134,7 @@ const STATUS_TONE: Record<string, Tone> = {
   ESCHEATED: "neutral",
   CLOSED: "neutral",
   PREPARED: "info",
+  DEPOSITED: "info",
   PENDING: "warning",
   PARTIALLY_BOUNCED: "warning",
   BOUNCED: "danger",

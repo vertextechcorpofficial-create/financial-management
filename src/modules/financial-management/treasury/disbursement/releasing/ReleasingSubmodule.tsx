@@ -41,7 +41,7 @@ function SearchSelect<T extends string | number>({ options, value, onSelect, pla
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
-                <Button variant="outline" role="combobox" aria-expanded={open} className={cn("justify-between w-full h-8 text-[11px] font-bold uppercase bg-background px-2", className)}>
+                <Button variant="outline" role="combobox" aria-label={placeholder} aria-expanded={open} className={cn("justify-between w-full h-8 text-[11px] font-bold uppercase bg-background px-2", className)}>
                     <span className="truncate">{selectedLabel}</span>
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
                 </Button>
@@ -86,7 +86,7 @@ export default function ReleasingSubmodule() {
     const {
         data, loading, changeStatus, updatePaymentAllocation, actionLoading, refresh,
         docNoSearch, setDocNoSearch, applyFilters, clearFilters
-    } = useDisbursement();
+    } = useDisbursement("Approved,Partially Released");
 
     const [selectedDisbursement, setSelectedDisbursement] = useState<Disbursement | null>(null);
 
@@ -129,6 +129,7 @@ export default function ReleasingSubmodule() {
     useEffect(() => {
         if (selectedDisbursement) {
             setPayments(selectedDisbursement.payments?.map(p => ({
+                ...p,
                 id: p.id,
                 checkNo: p.checkNo || "",
                 date: p.date ? p.date.split("T")[0] : getManilaDateInput(),
@@ -175,11 +176,13 @@ export default function ReleasingSubmodule() {
     };
 
     const handleRemovePayment = (idx: number) => {
+        if (payments[idx]?.releasedDate) return;
         setPayments(payments.filter((_, i) => i !== idx));
         setPaymentValidationErrors(new Set());
     };
 
     const handlePaymentChange = <K extends keyof PaymentLine>(idx: number, key: K, val: PaymentLine[K]) => {
+        if (payments[idx]?.releasedDate) return;
         const copy = [...payments];
         copy[idx] = { ...copy[idx], [key]: val };
         if (key === "bankId" && isPettyCashBankAccount(
@@ -190,10 +193,11 @@ export default function ReleasingSubmodule() {
         setPayments(copy);
         setPaymentValidationErrors(previous => {
             const next = new Set(previous);
-            next.delete(`${idx}:${key}`);
+            const corrected = key === "amount" ? Number.isFinite(Number(val)) && Number(val) !== 0 : String(val ?? "").trim() !== "";
+            if (corrected) next.delete(`${idx}:${key}`);
             if (key === "bankId" || key === "coaId") {
-                next.delete(`${idx}:bankId`);
-                next.delete(`${idx}:checkNo`);
+                if (copy[idx].bankId) next.delete(`${idx}:bankId`);
+                if (isPettyCashBankAccount(banks.find(bank => bank.bankId === copy[idx].bankId)) || copy[idx].checkNo.trim()) next.delete(`${idx}:checkNo`);
             }
             return next;
         });
@@ -208,7 +212,8 @@ export default function ReleasingSubmodule() {
             const nextErrors = new Set<string>();
             const validationMessages: string[] = [];
             for (let i = 0; i < payments.length; i++) {
-                const p = payments[i];
+                    const p = payments[i];
+                    if (p.releasedDate) continue;
                 const selectedCoa = coas.find(c => c.coaId === p.coaId);
                 const selectedBank = banks.find((bank) => bank.bankId === Number(p.bankId));
                 const isPettyCash = isPettyCashBankAccount(selectedBank);
@@ -246,9 +251,7 @@ export default function ReleasingSubmodule() {
             const result = await updatePaymentAllocation(selectedDisbursement.id, paymentLines);
             const success = result.success;
             if (success) {
-                refresh();
-                const updated = data.find(v => v.id === selectedDisbursement.id);
-                if (updated) setSelectedDisbursement(updated);
+                if (result.voucher) setSelectedDisbursement(result.voucher);
                 return true;
             }
             return false;
@@ -264,6 +267,10 @@ export default function ReleasingSubmodule() {
         setActionLocked(true);
 
         try {
+            if (!payments.some(line => !line.releasedDate)) {
+                toast.error("Add a new payment line for the remaining balance before releasing.");
+                return;
+            }
             // Save current payments state first to avoid stale release
             const saved = await handleSavePayments();
             if (!saved) return;
@@ -460,7 +467,7 @@ export default function ReleasingSubmodule() {
                                     Approved Voucher metadata and payments matching
                                 </CardDescription>
                             </div>
-                            <Button 
+                            <Button
                                 variant="outline" 
                                 onClick={() => generateDisbursementPDF(selectedDisbursement, "A4")} 
                                 className="h-9 px-3.5 text-[9px] font-black uppercase tracking-widest border-border/80"
@@ -552,7 +559,8 @@ export default function ReleasingSubmodule() {
                                                                 type="button"
                                                                 variant="ghost" 
                                                                 size="icon" 
-                                                                onClick={() => handleRemovePayment(idx)} 
+                                                                onClick={() => handleRemovePayment(idx)}
+                                                                disabled={Boolean(line.releasedDate)}
                                                                 className="h-8 w-8 text-rose-500 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
                                                             >
                                                                 <Trash2 className="w-4 h-4" />
@@ -560,7 +568,9 @@ export default function ReleasingSubmodule() {
                                                         </div>
                                                     </div>
 
-                                                     {/* Form Inputs Grid (modern, highly styled) */}
+                                                    {line.releasedDate && <p className="text-xs font-semibold text-muted-foreground">Released on {formatManilaDate(line.releasedDate)}. This payment is read-only.</p>}
+                                                    <fieldset disabled={Boolean(line.releasedDate) || isActionBusy} className="min-w-0 space-y-4">
+                                                    {/* Form Inputs Grid (modern, highly styled) */}
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2">
                                                         <div>
                                                             <label className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block mb-1">Payment Date <span className="text-destructive">*</span></label>
@@ -597,7 +607,7 @@ export default function ReleasingSubmodule() {
                                                         </div>
                                                         <div className="sm:col-span-2 md:col-span-1">
                                                             <div className="h-full flex items-end">
-                                                                <span className="text-[8px] font-bold text-muted-foreground/50 uppercase tracking-widest block mb-2 font-mono">PHP CURRENCY</span>
+                                                                 <span className="text-[8px] font-bold text-muted-foreground/50 uppercase tracking-widest block mb-2 font-mono">PHP CURRENCY</span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -627,11 +637,12 @@ export default function ReleasingSubmodule() {
                                                                 onSelect={val => {
                                                                     handlePaymentChange(idx, "coaId", val);
                                                                 }}
-                                                                placeholder="Select GL Account (Credit)..."
-                                                                className={cn("h-9 text-xs font-bold bg-background border-border", paymentValidationErrors.has(`${idx}:coaId`) && "border-rose-500 ring-rose-500/20")}
+                                                                 placeholder="Select GL Account (Credit)..."
+                                                                 className={cn("h-9 text-xs font-bold bg-background border-border", paymentValidationErrors.has(`${idx}:coaId`) && "border-rose-500 ring-rose-500/20")}
                                                             />
                                                         </div>
                                                     </div>
+                                                    </fieldset>
                                                 </div>
                                             );
                                         })
@@ -664,8 +675,9 @@ export default function ReleasingSubmodule() {
                             </div>
                         </CardContent>
 
-                        {/* Audit actions footer */}
-                        <div className="p-6 bg-card border-t border-border shrink-0 flex justify-between items-center z-10">
+                         <p className="px-6 pb-4 text-xs text-muted-foreground">Save Payment Allocation stores these lines on this voucher in the Releasing Workspace. It does not release or post the voucher.</p>
+                         {/* Audit actions footer */}
+                        <div className="p-6 bg-card border-t border-border shrink-0 flex flex-wrap justify-between items-center gap-3 z-10">
                             <Button 
                                 variant="outline" 
                                 onClick={handleSavePayments} 
@@ -723,18 +735,11 @@ export default function ReleasingSubmodule() {
 
                     <DialogFooter className="w-full !flex-col gap-2 !justify-stretch">
                         <Button 
-                            onClick={() => handleCommitRelease("Released")}
-                            disabled={isActionBusy}
-                            className="w-full min-w-0 h-auto min-h-11 px-3 py-2 text-xs font-black uppercase whitespace-normal text-center leading-tight break-words bg-destructive hover:bg-destructive/90 text-white"
-                        >
-                            Force &apos;Released&apos;
-                        </Button>
-                        <Button 
                             onClick={() => handleCommitRelease("Partially Released")}
                             disabled={isActionBusy}
                             className="w-full min-w-0 h-auto min-h-11 px-3 py-2 text-xs font-black uppercase whitespace-normal text-center leading-tight break-words bg-amber-500 hover:bg-amber-600 text-white"
                         >
-                            Flag &apos;Partially Released&apos;
+                            Confirm Partial Release
                         </Button>
                         <Button 
                             variant="outline"

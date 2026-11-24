@@ -65,8 +65,9 @@ export function TransactionFiltersBar({ filters, accounts, kinds, onChange, onRe
       { value: ALL, label: "All accounts" },
       ...scoped.map((account) => ({
         value: String(account.bankId),
-        label: account.label,
-        description: account.currency,
+        // QA3: the account number leads, the bank name sits under it.
+        label: account.accountNumber ?? account.label,
+        description: account.bankName,
       })),
     ];
   }, [accounts, filters.bankName]);

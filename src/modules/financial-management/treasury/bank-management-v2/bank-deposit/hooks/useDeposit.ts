@@ -12,9 +12,12 @@ import {
   cancelSlip as cancelSlipRequest,
   createSlip as createSlipRequest,
   fetchDepositSnapshot,
+  markSlipDeposited,
   type CreateSlipPayload,
   type CreateSlipResponse,
   type DepositAccountOption,
+  type DepositAccountTotals,
+  type DepositConfirmation,
 } from "../providers/depositApi";
 
 const QUEUE_ROWS_KEY = "fm.bank-deposit.queue.rows";
@@ -31,6 +34,7 @@ export function useDeposit() {
   const [assets, setAssets] = useState<UndepositedAsset[]>([]);
   const [slips, setSlips] = useState<DepositSlip[]>([]);
   const [accounts, setAccounts] = useState<DepositAccountOption[]>([]);
+  const [accountTotals, setAccountTotals] = useState<DepositAccountTotals>({ eligible: 0, active: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +55,7 @@ export function useDeposit() {
       setAssets(snapshot.assets);
       setSlips(snapshot.slips);
       setAccounts(snapshot.accounts);
+    setAccountTotals(snapshot.accountTotals);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not load deposits.");
     } finally {
@@ -134,7 +139,11 @@ export function useDeposit() {
     const isPdc = (asset: UndepositedAsset) => Boolean(asset.chequeDate && asset.chequeDate > today);
     const readyChecks = checks.filter((asset) => !isPdc(asset));
     const pdc = checks.filter(isPdc);
-    const postedSlips = slips.filter((slip) => slip.status !== "CANCELLED" && slip.depositDate.startsWith(month));
+    // Only slips whose money actually left the drawer belong in "deposited this month"; a prepared
+    // slip is still holding its collections on hand.
+    const postedSlips = slips.filter(
+      (slip) => slip.status !== "CANCELLED" && slip.status !== "PREPARED" && slip.depositDate.startsWith(month),
+    );
     const sum = (rows: UndepositedAsset[]) => rows.reduce((total, asset) => total + asset.amount, 0);
     const cashTotal = sum(cash);
     return {
@@ -179,7 +188,7 @@ export function useDeposit() {
         const selectedIds = new Set([...payload.cashIds, ...payload.checkIds]);
         // Server messages now name the offending documents; match them back to rows to highlight.
         const blockedDocuments = assets
-          .filter((asset) => selectedIds.has(asset.collectionDetailId) && message.includes(asset.documentNumber))
+          .filter((asset) => selectedIds.has(asset.collectionInvoiceId) && message.includes(asset.documentNumber))
           .map((asset) => asset.documentNumber);
         toast.error(message);
         return { ok: false, message, fieldErrors: withFields.fieldErrors ?? {}, blockedDocuments };
@@ -208,6 +217,24 @@ export function useDeposit() {
     [refetch],
   );
 
+  const markDeposited = useCallback(
+    async (slipId: number, confirmation: DepositConfirmation = {}) => {
+      setIsSaving(true);
+      try {
+        const slip = await markSlipDeposited(slipId, confirmation);
+        await refetch();
+        toast.success(`Slip ${slip.depositNo} marked as deposited`);
+        return true;
+      } catch (caught) {
+        toast.error(caught instanceof Error ? caught.message : "Could not mark the slip as deposited.");
+        return false;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [refetch],
+  );
+
   return {
     assets,
     filteredAssets,
@@ -220,6 +247,7 @@ export function useDeposit() {
     setSlipsPageSize,
     slips,
     accounts,
+    accountTotals,
     totals,
     isLoading,
     isSaving,
@@ -227,6 +255,7 @@ export function useDeposit() {
     refetch,
     createSlip,
     cancelSlip,
+    markDeposited,
     assetsPage,
     setAssetsPage,
     assetsPageSize,

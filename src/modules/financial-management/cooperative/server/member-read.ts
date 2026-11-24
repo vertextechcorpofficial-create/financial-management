@@ -1,15 +1,17 @@
 import "server-only";
 
 import { z } from "zod";
-import { readDirectusItems } from "./directus";
+import { readDirectusItems, readDirectusPages } from "./directus";
 import { getPolicies } from "./policies";
 import type { Product } from "../policies/policy-types";
+import { isSavingsOutflow } from "../members/format";
 import { MemberError } from "./member-errors";
 import {
   type CurrentMembership,
   type DocumentRequirement,
   type MemberDocument,
   type MemberPolicy,
+  type MemberRegisterStatus,
   type PayrollReference,
   type SavingsEntry,
 } from "../members/types";
@@ -47,6 +49,8 @@ const departmentSchema = z.object({
   department_name: z.string().nullable(),
   is_delete: z.unknown(),
 });
+const employeeFields = Object.keys(employeeSchema.shape).join(",");
+const departmentFields = Object.keys(departmentSchema.shape).join(",");
 const membershipSchema = z.object({
   id: int,
   user_id: int,
@@ -148,6 +152,15 @@ async function rows<T extends z.ZodType>(collection: Parameters<typeof readDirec
   return z.object({ data: z.array(schema) }).parse(await readDirectusItems(collection, params)).data;
 }
 
+export async function readMemberPages<T extends z.ZodObject>(
+  collection: Parameters<typeof readDirectusItems>[0], schema: T, query: { filter?: object; sort: string },
+) {
+  return readDirectusPages(collection, schema, {
+    fields: Object.keys(schema.shape).join(","), sort: query.sort,
+    ...(query.filter ? { filter: JSON.stringify(query.filter) } : {}),
+  });
+}
+
 export async function readPolicySnapshot() {
   let state;
   try {
@@ -176,24 +189,15 @@ export async function readPolicySnapshot() {
   };
 }
 
-export async function loadMemberDataset(): Promise<MemberDataset> {
-  const [employees, departments, memberships, agreements, policyState] = await Promise.all([
-    rows("user", "user_id,user_fname,user_lname,user_department,is_deleted,is_blocked,is_employee,separation_date", employeeSchema, { sort: "user_lname,user_fname" }),
-    rows("department", "department_id,department_name,is_delete", departmentSchema, { sort: "department_name" }),
-    rows("cooperative_memberships", "id,user_id,employee_name,department_name,status,joined_at,savings_per_cutoff,opening_deposit,membership_fee,fee_channel,beneficiary,savings_balance,journal_id,policy_revision,created_at", membershipSchema, { sort: "employee_name" }),
-    rows("cooperative_membership_agreements", "id,membership_id,agreement_no,signed_at,policy_revision,terms_snapshot,created_at", agreementSchema, { sort: "agreement_no" }),
-    readPolicySnapshot(),
-  ]);
+function projectEmployees(employees: EmployeeRow[], departments: z.output<typeof departmentSchema>[]): EmployeeRecord[] {
   const departmentNames = new Map(departments.filter(row => !isFlag(row.is_delete, true)).map(row => [row.department_id, row.department_name]));
-  const employeeRecords: EmployeeRecord[] = [];
-  const byUserId = new Map<number, EmployeeRecord>();
-  for (const employee of employees as EmployeeRow[]) {
+  return employees.map(employee => {
     const isEmployee = isFlag(employee.is_employee, true);
     const active = isEmployee && !isFlag(employee.is_deleted, true) &&
       !isFlag(employee.is_blocked, true) && !employee.separation_date;
     const first = employee.user_fname?.trim() ?? "";
     const last = employee.user_lname?.trim() ?? "";
-    const record: EmployeeRecord = {
+    return {
       userId: employee.user_id,
       firstName: first,
       lastName: last,
@@ -204,9 +208,38 @@ export async function loadMemberDataset(): Promise<MemberDataset> {
       active,
       employeeNumber: String(employee.user_id),
     };
-    employeeRecords.push(record);
-    byUserId.set(record.userId, record);
-  }
+  });
+}
+
+export function memberRegisterStatus(status: MembershipRow["status"] | undefined, activeEmployee: boolean): MemberRegisterStatus {
+  if (status) return status === "ACTIVE" ? "MEMBER" : "SEPARATED";
+  return activeEmployee ? "NON_MEMBER" : "SEPARATED";
+}
+
+export function membershipDocumentStatus(required: DocumentRequirement[], documentTypeIds: Iterable<number>) {
+  const onFile = new Set(documentTypeIds);
+  const missing = required.filter(row => !onFile.has(row.documentTypeId));
+  return { required: required.length, onFile: required.length - missing.length, missing: missing.map(row => row.name) };
+}
+
+export async function readVosEmployeeDirectory() {
+  const [employees, departments] = await Promise.all([
+    readMemberPages("user", employeeSchema, { sort: "user_id", filter: { is_employee: { _eq: true } } }),
+    readMemberPages("department", departmentSchema, { sort: "department_id" }),
+  ]);
+  return projectEmployees(employees, departments).filter(employee => employee.isEmployee);
+}
+
+export async function loadMemberDataset(): Promise<MemberDataset> {
+  const [employees, departments, memberships, agreements, policyState] = await Promise.all([
+    rows("user", employeeFields, employeeSchema, { sort: "user_lname,user_fname" }),
+    rows("department", departmentFields, departmentSchema, { sort: "department_name" }),
+    rows("cooperative_memberships", "id,user_id,employee_name,department_name,status,joined_at,savings_per_cutoff,opening_deposit,membership_fee,fee_channel,beneficiary,savings_balance,journal_id,policy_revision,created_at", membershipSchema, { sort: "employee_name" }),
+    rows("cooperative_membership_agreements", "id,membership_id,agreement_no,signed_at,policy_revision,terms_snapshot,created_at", agreementSchema, { sort: "agreement_no" }),
+    readPolicySnapshot(),
+  ]);
+  const employeeRecords = projectEmployees(employees, departments);
+  const byUserId = new Map(employeeRecords.map(record => [record.userId, record]));
   const currentByUser = new Map(memberships.map(row => [row.user_id, row]));
   const agreementByMembership = new Map(agreements.map(row => [row.membership_id, row]));
   const membershipIds = memberships.map(row => row.id);
@@ -287,9 +320,12 @@ export async function readAgreementNumber(membershipId: number) {
   return agreement?.agreement_no ?? null;
 }
 
-export async function readSavingsEntries(membershipId: number, through?: string): Promise<SavingsEntry[]> {
-  const entries = await rows("cooperative_savings_entries", "id,membership_id,entry_date,kind,amount,balance_after,journal_id,reference,posted_at", savingsSchema, {
-    filter: { membership_id: { _eq: membershipId }, ...(through ? { entry_date: { _lte: through } } : {}) },
+export async function readSavingsEntries(membershipId: number, through?: string, from?: string): Promise<SavingsEntry[]> {
+  const entries = await readMemberPages("cooperative_savings_entries", savingsSchema, {
+    filter: {
+      membership_id: { _eq: membershipId },
+      ...(through ? { entry_date: { _lte: through, ...(from ? { _gte: from } : {}) } } : {}),
+    },
     sort: "entry_date,id",
   });
   return entries.map(row => ({
@@ -303,6 +339,22 @@ export async function readSavingsEntries(membershipId: number, through?: string)
     reference: row.reference,
     postedAt: `${row.posted_at}${row.posted_at.endsWith("Z") ? "" : "Z"}`,
   }));
+}
+
+export async function readPostedSavingsThrough(membershipId: number, through: string) {
+  const totals = z.object({
+    kind: savingsSchema.shape.kind,
+    sum: z.object({
+      amount: z.union([z.number(), z.string()]).transform(String).pipe(z.string().regex(/^\d+(?:\.\d{1,2})?$/)),
+    }),
+  });
+  const query = new URLSearchParams({
+    filter: JSON.stringify({ membership_id: { _eq: membershipId }, entry_date: { _lte: through } }),
+    groupBy: "kind", "aggregate[sum]": "amount", limit: "5",
+  });
+  const { data } = z.object({ data: totals.array() }).parse(await readDirectusItems("cooperative_savings_entries", query));
+  return signedCentsToAmount(data.reduce((balance, { kind, sum }) =>
+    balance + (isSavingsOutflow(kind) ? -1n : 1n) * amountToCents(sum.amount), 0n));
 }
 
 export const amountToCents = (value: string) => {
@@ -393,6 +445,38 @@ export async function readCooperativePayrollDeductions(userId: number, reference
     limit: 1,
   });
   return row ?? null;
+}
+
+const payrollDeductionFields = payrollResultSchema.extend({
+  coop_savings: z.unknown(), coop_loan: z.unknown(), breakdown_json: z.unknown(),
+});
+
+export async function readPostedPayrollRun(runId: number) {
+  const [run] = await rows("payroll_run", "payroll_run_id,cutoff_end", postedRunSchema, {
+    filter: { payroll_run_id: { _eq: runId }, cutoff_end: { _lte: todayManila() },
+      status: { _eq: "POSTED" }, posted_at: { _nnull: true } }, limit: 1,
+  });
+  return run ?? null;
+}
+
+export async function readPayrollRunDeductions(run: NonNullable<Awaited<ReturnType<typeof readPostedPayrollRun>>>, ids: number[]) {
+  const result = new Map<number, z.output<typeof payrollDeductionFields>>();
+  for (const batch of payrollIdBatches(ids)) {
+    const employees = await rows("payroll_run_employee", Object.keys(payrollDeductionFields.shape).join(","),
+      payrollDeductionFields, { filter: { payroll_run_id: { _eq: run.payroll_run_id }, user_id: { _in: batch } } });
+    const grouped = new Map<number, typeof employees>();
+    for (const employee of employees) {
+      const group = grouped.get(employee.user_id) ?? [];
+      group.push(employee);
+      grouped.set(employee.user_id, group);
+    }
+    for (const [id, group] of grouped) {
+      if (group.length === 1 && !isFlag(group[0].on_hold) && payrollReference(run.cutoff_end, group).state === "verified") {
+        result.set(id, group[0]);
+      }
+    }
+  }
+  return result;
 }
 
 export function moneyValue(value: string) {

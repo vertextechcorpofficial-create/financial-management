@@ -3,8 +3,10 @@ import "server-only";
 import { randomInt, createHash } from "node:crypto";
 import { z } from "zod";
 import { cooperativeDirectus, readDirectusItems } from "./directus";
+import { dividendSourceChange } from "./dividend-source";
 import { getPolicies } from "./policies";
 import { MemberError } from "./member-errors";
+import { nestedTransactionEntries } from "./transaction-index";
 import type { EnrollmentCheck, EnrollmentResult } from "../members/types";
 
 const int = z.coerce.number().int().positive();
@@ -101,7 +103,7 @@ function resultFromReceipt(receipt: Receipt, hash: string): EnrollmentResult {
   return { duplicate: true, membership };
 }
 
-function payload(check: EnrollmentCheck, key: string, hash: string, actor: { actorId: number; actorName: string; actorRole: string | null }, accounts: Map<string, { id: number }>, series: Map<string, SeriesRow>, membershipId: number) {
+function payload(check: EnrollmentCheck, key: string, hash: string, actor: { actorId: number; actorName: string; actorRole: string | null }, accounts: Map<string, { id: number }>, series: Map<string, SeriesRow>, membershipId: number, sourceRevision: Awaited<ReturnType<typeof dividendSourceChange>>) {
   const year = Number(check.inputs.signedAt.slice(0, 4));
   const maNumber = nextNumber(series.get("MA"));
   const jvNumber = nextNumber(series.get("JV"));
@@ -132,6 +134,24 @@ function payload(check: EnrollmentCheck, key: string, hash: string, actor: { act
   credit("MEMBERSHIP_FEE_INCOME", fee);
   credit("MEMBER_SAVINGS", deposit);
   const journalId = randomInt(100_000_000, 2_000_000_000);
+  const activationEvent = {
+    actor_user_id: actor.actorId,
+    actor_role: actor.actorRole,
+    actor_name: actor.actorName,
+    action: "MEMBERSHIP_ACTIVATED",
+    entity_type: "MEMBERSHIP",
+    entity_id: String(membershipId),
+    before_state: null,
+    after_state: {
+      agreementNo, journalNo: lines.length ? journalNo : null, orNo, userId: check.employee.userId,
+      savingsPerCutoff: check.inputs.savingsPerCutoff, openingDeposit: deposit,
+      membershipFee: fee, feeChannel: check.inputs.feeChannel,
+    },
+    reason: null,
+    occurred_at: now,
+    user_agent: "Cooperative Members enrollment",
+    ...sourceRevision,
+  };
   const journal = lines.length ? {
     id: journalId,
     journal_no: journalNo,
@@ -142,23 +162,7 @@ function payload(check: EnrollmentCheck, key: string, hash: string, actor: { act
     actor_user_id: actor.actorId,
     posted_at: now,
     gl_lines: { create: lines },
-    audit_events: { create: [{
-      actor_user_id: actor.actorId,
-      actor_role: actor.actorRole,
-      actor_name: actor.actorName,
-      action: "MEMBERSHIP_ACTIVATED",
-      entity_type: "MEMBERSHIP",
-      entity_id: String(membershipId),
-      before_state: null,
-      after_state: {
-        agreementNo, journalNo, orNo, userId: check.employee.userId,
-        savingsPerCutoff: check.inputs.savingsPerCutoff, openingDeposit: deposit,
-        membershipFee: fee, feeChannel: check.inputs.feeChannel,
-      },
-      reason: null,
-      occurred_at: now,
-      user_agent: "Cooperative Members enrollment",
-    }] },
+    audit_events: { create: [activationEvent] },
   } : null;
   const result: EnrollmentResult["membership"] = {
     membershipId, userId: check.employee.userId, employeeNumber: check.employee.employeeNumber,
@@ -181,6 +185,7 @@ function payload(check: EnrollmentCheck, key: string, hash: string, actor: { act
     journal_id: journal ? journalId : null,
     created_at: now,
     result,
+    ...(!journal && sourceRevision.dividend_source_revision ? { activation_event_id: activationEvent } : {}),
     membership_id: {
       id: membershipId,
       user_id: check.employee.userId,
@@ -203,6 +208,13 @@ function payload(check: EnrollmentCheck, key: string, hash: string, actor: { act
         terms_snapshot: terms, created_at: now, created_by: actor.actorId,
       }] },
       ...(journal ? { journal_id: journal } : {}),
+      ...(journal ? nestedTransactionEntries({ id: journalId, date: check.inputs.signedAt, postedAt: now }, [
+        ...(cents(deposit) > 0n ? [{ kind: "SAVINGS_DEPOSIT", memberId: membershipId, channel: "OTC",
+          amount: deposit, sourceReference: agreementNo, orNo }] as const : []),
+        ...(cents(fee) > 0n ? [{ kind: "MEMBERSHIP_FEE", memberId: membershipId,
+          channel: check.inputs.feeChannel === "COUNTER" ? "OTC" : "PAYROLL",
+          amount: fee, sourceReference: agreementNo, orNo: check.inputs.feeChannel === "COUNTER" ? orNo : null }] as const : []),
+      ]) : {}),
       ...(cents(deposit) > 0n && journal ? {
         savings_entries: { create: [{
           membership_id: membershipId, journal_id: journalId, entry_date: check.inputs.signedAt, kind: "OPENING",
@@ -255,7 +267,7 @@ export async function createMembershipActivation(
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const series = await readSeries(year, ["MA", "JV", "OR"]);
     const membershipId = randomInt(100_000_000, 2_000_000_000);
-    const prepared = payload(check, key, hash, actor, accounts, series, membershipId);
+    const prepared = payload(check, key, hash, actor, accounts, series, membershipId, await dividendSourceChange());
     try {
       const response = await cooperativeDirectus(`/items/cooperative_command_receipts?fields=result`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prepared.body),

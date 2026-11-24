@@ -16,8 +16,9 @@ import {
   documentsToView,
   latestPayrollReference,
   loadMemberDataset,
+  memberRegisterStatus,
+  membershipDocumentStatus,
   percentOfCents,
-  readAgreementNumber,
   readPostedPayroll,
   readSavingsEntries,
   readStatementMember,
@@ -25,6 +26,7 @@ import {
   todayManila,
   type MemberDataset,
 } from "./member-read";
+import { readSavingsStatement, statementPeriod } from "./member-statement";
 import { privateCooperativeFolder } from "./document-storage";
 import type {
   EnrollmentCheck,
@@ -35,14 +37,13 @@ import type {
   MemberDetail,
   MemberDocument,
   MemberPolicy,
-  MemberRegisterStatus,
   MemberStatement,
   PayrollReference,
   RegisterItem,
   RegisterResponse,
 } from "../members/types";
 import { memberWithdrawalAccountFilter, MEMBERSHIP_TERMS_VERSION } from "../members/types";
-import { isCalendarDate, isSavingsOutflow } from "../members/format";
+import { isCalendarDate } from "../members/format";
 
 const id = z.union([z.number(), z.string().regex(/^[1-9]\d*$/)]).transform(Number)
   .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER));
@@ -88,10 +89,10 @@ function enrollmentPay(
 }
 
 function documentStatus(dataset: MemberDataset, membershipId: number) {
-  const required = dataset.policy.requiredDocuments;
-  const onFile = new Set((dataset.documentsByMembership.get(membershipId) ?? []).map(row => row.document_type_id));
-  const missing = required.filter(row => !onFile.has(row.documentTypeId));
-  return { required: required.length, onFile: required.length - missing.length, missing: missing.map(row => row.name) };
+  return membershipDocumentStatus(
+    dataset.policy.requiredDocuments,
+    (dataset.documentsByMembership.get(membershipId) ?? []).map(row => row.document_type_id),
+  );
 }
 
 function itemForEmployee(dataset: MemberDataset, userId: number): RegisterItem {
@@ -100,9 +101,7 @@ function itemForEmployee(dataset: MemberDataset, userId: number): RegisterItem {
   const current = dataset.currentByUser.get(userId);
   const agreement = current ? dataset.agreementByMembership.get(current.id) : undefined;
   const hasCurrent = Boolean(current);
-  const status: MemberRegisterStatus = current
-    ? current.status === "ACTIVE" ? "MEMBER" : "SEPARATED"
-    : employee.active ? "NON_MEMBER" : "SEPARATED";
+  const status = memberRegisterStatus(current?.status, employee.active);
   return {
     userId,
     employeeNumber: employee.employeeNumber,
@@ -565,49 +564,13 @@ export async function getMemberDetail(userId: number): Promise<MemberDetail> {
 }
 
 export async function getMemberStatement(userId: number, search: URLSearchParams): Promise<MemberStatement> {
-  const from = search.get("from") ?? "";
-  const to = search.get("to") ?? "";
-  if (!isCalendarDate(from) || !isCalendarDate(to)) {
-    throw new MemberError(422, "Enter valid From and To dates.");
-  }
-  if (from > to) throw new MemberError(422, "From must be on or before To.");
-
+  const period = statementPeriod(search);
   const member = await readStatementMember(userId);
   if (!member) throw new MemberError(404, "The member is unavailable.");
-  const [agreementNo, savings, loans] = await Promise.all([
-    readAgreementNumber(member.id), readSavingsEntries(member.id, to), readMemberLoanStatement(member.id, from, to),
+  const [savings, loans] = await Promise.all([
+    readSavingsStatement(userId, member, period), readMemberLoanStatement(member.id, period.from, period.to),
   ]);
-  let opening = 0n;
-  let balance = 0n;
-  let deposits = 0n;
-  let withdrawals = 0n;
-  const entries: MemberStatement["entries"] = [];
-  for (const { id, entryDate, kind, reference, amount } of savings) {
-    const cents = amountToCents(amount);
-    const outflow = isSavingsOutflow(kind);
-    balance += outflow ? -cents : cents;
-    if (entryDate < from) {
-      opening = balance;
-      continue;
-    }
-    if (outflow) withdrawals += cents;
-    else deposits += cents;
-    entries.push({
-      id, entryDate, kind, reference,
-      deposit: outflow ? null : centsToAmount(cents),
-      withdrawal: outflow ? centsToAmount(cents) : null,
-      runningBalance: signedCentsToAmount(balance),
-    });
-  }
-  return {
-    from, to, generatedOn: todayManila(),
-    member: {
-      name: member.employee_name, employeeNumber: String(userId), department: member.department_name,
-      agreementNo, status: member.status,
-    },
-    openingBalance: signedCentsToAmount(opening), closingBalance: signedCentsToAmount(balance),
-    deposits: centsToAmount(deposits), withdrawals: centsToAmount(withdrawals), entries, loans,
-  };
+  return { ...savings, loans };
 }
 
 export async function getMemberLoanDetail(userId: number, loanId: number) {

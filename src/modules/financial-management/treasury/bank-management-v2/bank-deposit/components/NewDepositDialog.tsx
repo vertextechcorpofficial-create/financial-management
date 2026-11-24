@@ -24,7 +24,7 @@ import { assetBlockReason } from "../eligibility";
 import { DepositPreview } from "./DepositPreview";
 import { DateField } from "./DateField";
 import { OptionCombobox } from "./OptionCombobox";
-import type { DepositAccountOption } from "../providers/depositApi";
+import type { DepositAccountOption, DepositAccountTotals } from "../providers/depositApi";
 import type { UndepositedAsset } from "../types";
 
 export type SlipSubmitResult =
@@ -35,6 +35,7 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   accounts: DepositAccountOption[];
+  accountTotals: DepositAccountTotals;
   assets: UndepositedAsset[];
   isSaving: boolean;
   onSubmit: (payload: {
@@ -51,7 +52,7 @@ type Props = {
  * Deposit slip creation. The FSD validates slip number uniqueness per account on the
  * server; this dialog only enforces what it can see (required fields, not a future date).
  */
-export function NewDepositDialog({ open, onOpenChange, accounts, assets, isSaving, onSubmit }: Props) {
+export function NewDepositDialog({ open, onOpenChange, accounts, accountTotals, assets, isSaving, onSubmit }: Props) {
   const today = phtDate();
   const [bankAccountId, setBankAccountId] = useState<string>("");
   const [depositDate, setDepositDate] = useState(today);
@@ -68,7 +69,18 @@ export function NewDepositDialog({ open, onOpenChange, accounts, assets, isSavin
   const cashCount = assets.filter((asset) => asset.assetType === "CASH").length;
   const checkCount = assets.length - cashCount;
 
-  const accountOptions = accounts.map((account) => ({ value: String(account.bankId), label: account.label }));
+  // Only accounts with a linked GL can post a deposit, so say why the list is short.
+  const accountsHint =
+    accountTotals.active > accountTotals.eligible
+      ? `${accountTotals.eligible} of ${accountTotals.active} active accounts can take a deposit. Link a GL account on the rest to offer them here.`
+      : null;
+
+  const accountOptions = accounts.map((account) => ({
+    value: String(account.bankId),
+    // QA3: account number over bank name; the one-line label is the fallback for a bare record.
+    label: account.accountNumber ?? account.label,
+    description: account.bankName ?? undefined,
+  }));
 
   // What this dialog can already see is wrong, so the row is marked before the round trip.
   // Same predicate as the queue checkbox and "Select all ready", judged at the slip date.
@@ -76,7 +88,7 @@ export function NewDepositDialog({ open, onOpenChange, accounts, assets, isSavin
     const issues = new Map<number, string>();
     for (const asset of assets) {
       const reason = assetBlockReason(asset, depositDate);
-      if (reason) issues.set(asset.collectionDetailId, reason);
+      if (reason) issues.set(asset.collectionInvoiceId, reason);
     }
     return issues;
   }, [assets, depositDate]);
@@ -109,8 +121,8 @@ export function NewDepositDialog({ open, onOpenChange, accounts, assets, isSavin
       depositDate,
       slipNo: slipNo.trim(),
       remarks: remarks.trim() || null,
-      cashIds: assets.filter((asset) => asset.assetType === "CASH").map((asset) => asset.collectionDetailId),
-      checkIds: assets.filter((asset) => asset.assetType === "CHECK").map((asset) => asset.collectionDetailId),
+      cashIds: assets.filter((asset) => asset.assetType === "CASH").map((asset) => asset.collectionInvoiceId),
+      checkIds: assets.filter((asset) => asset.assetType === "CHECK").map((asset) => asset.collectionInvoiceId),
     });
     if (!result.ok) {
       setServerError(result);
@@ -162,6 +174,9 @@ export function NewDepositDialog({ open, onOpenChange, accounts, assets, isSavin
                     aria-invalid={touched && Boolean(fieldErrors.bankAccountId)}
                     aria-describedby={touched && fieldErrors.bankAccountId ? "deposit-account-error" : undefined}
                   />
+                  {accountsHint && (
+                    <p className="text-[11px] leading-4 text-muted-foreground">{accountsHint}</p>
+                  )}
                   {touched && fieldErrors.bankAccountId && (
                     <p id="deposit-account-error" className="text-xs text-destructive">
                       {fieldErrors.bankAccountId}
@@ -256,10 +271,10 @@ export function NewDepositDialog({ open, onOpenChange, accounts, assets, isSavin
                   </TableHeader>
                   <TableBody>
                     {assets.map((asset) => {
-                      const issue = rowIssues.get(asset.collectionDetailId);
+                      const issue = rowIssues.get(asset.collectionInvoiceId);
                       const flagged = Boolean(issue) || blockedDocs.has(asset.documentNumber);
                       return (
-                        <TableRow key={asset.collectionDetailId} className={flagged ? "bg-destructive/10" : undefined}>
+                        <TableRow key={asset.collectionInvoiceId} className={flagged ? "bg-destructive/10" : undefined}>
                           <TableCell className="text-sm">{asset.assetType === "CASH" ? "Cash" : "Check"}</TableCell>
                           <TableCell className="max-w-[140px]">
                             <p className="truncate font-mono text-sm" title={asset.documentNumber}>
