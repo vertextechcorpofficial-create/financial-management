@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import imageCompression from "browser-image-compression";
 import Image from "next/image";
 import React, { useEffect, useState, useMemo } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
@@ -108,7 +108,7 @@ export default function AddAssetModal({
   const [warrantyOpen, setWarrantyOpen] = useState(false);
 
   const form = useForm<AssetFormValues>({
-    resolver: zodResolver(assetFormSchema),
+    resolver: zodResolver(assetFormSchema) as unknown as Resolver<AssetFormValues, unknown, AssetFormValues>,
     defaultValues: {
       item_name: "",
       item_type: "",
