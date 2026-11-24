@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import NextLink from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Plus, Upload } from "lucide-react";
@@ -14,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useConfirmation } from "./hooks/useConfirmation";
-import { METHODS, type Asset, type HistoryEntry } from "./types";
+import { METHODS, type Asset } from "./types";
 import { LEDGER_PAGES, ledgerPage, ledgerPath, type LedgerPage } from "./navigation";
 import { assetSeries, monthIndex, monthString, portfolioSeries, schedule, snapshot, type Snapshot } from "./utils/engine";
 import { fiscalDepreciation, heldValue, reportRows, reviewFlags, type ScheduleRow } from "./utils/reporting";
@@ -22,7 +23,6 @@ import { exportExcel, exportPdf } from "./utils/exports";
 import { copyText } from "./utils/clipboard";
 import { AssetDialog, Field, newAsset, selectClass } from "./components/AssetDialog";
 import { AssetDetails } from "./components/AssetDetails";
-import { EventDialog } from "./components/EventDialog";
 import { PoliciesPanel } from "./components/PoliciesPanel";
 import { ImportDialog } from "./components/ImportDialog";
 import { newLedgerId as duplicateId } from "./utils/id";
@@ -46,21 +46,29 @@ function Link(props: React.ComponentProps<typeof NextLink>) {
 }
 
 export function PropertyLedgerModule({ view = "dashboard" }: { view?: LedgerPage }) {
+  return <Suspense fallback={<Skeleton className="h-72" />}><LedgerWorkspace view={view} /></Suspense>;
+}
+function LedgerWorkspace({ view }: { view: LedgerPage }) {
+  const router = useRouter();
+  const params = useSearchParams();
   const { state, loading, saving, error, refresh, save, month, through, entity, tag, setTag } = usePropertyLedgerContext();
   const { confirm, confirmation } = useConfirmation();
   const [query, setQuery] = useState("");
-  const [historyQuery, setHistoryQuery] = useState("");
   const [granularity, setGranularity] = useState<"monthly" | "quarterly" | "annual">("annual");
   const [selectedScheduleAsset, setScheduleAsset] = useState("");
   const [fromYear, setFromYear] = useState<number | null>(null);
   const [toYear, setToYear] = useState<number | null>(null);
   const [breakdown, setBreakdown] = useState<"totals" | "asset">("totals");
   const [editing, setEditing] = useState<Asset | null>(null);
-  const [eventAsset, setEventAsset] = useState<Asset | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const portfolio = state?.portfolio;
+  const linkedLandId = params.get("landId");
+  const linkedDraft = useMemo(() => {
+    const land = portfolio?.assets.find(a => a.id === linkedLandId && a.kind === "land");
+    return view === "building-register" && land ? { ...newAsset("building", land.entityId), landId: land.id, tags: [...land.tags], location: land.location } : null;
+  }, [portfolio, linkedLandId, view]);
   const filtered = useMemo(() => portfolio ? { ...portfolio, assets: portfolio.assets.filter(a => (!entity || a.entityId === entity) && (!tag || a.tags.includes(tag))) } : null, [portfolio, entity, tag]);
   const kind = view === "building-depreciation" ? "building" : view === "land-appreciation" ? "land" : "all";
   const scheduleAssets = filtered?.assets.filter(asset => kind === "all" || asset.kind === kind) ?? [];
@@ -114,15 +122,25 @@ export function PropertyLedgerModule({ view = "dashboard" }: { view?: LedgerPage
   async function download(format: "xlsx" | "pdf", asset?: Asset) {
     setExporting(true);
     try {
-      const exported = asset ? { ...filtered!, assets: [asset] } : filtered!;
+      // Asset PDFs need access to linked buildings, independent of the group filter.
+      const exported = asset ? portfolio! : filtered!;
       const report = asset ? schedule(assetSeries(asset, portfolio!.policies, through), "annual", portfolio!.policies.fyStart) : isSchedule ? rows : schedule(portfolioSeries(exported, through), "annual", portfolio!.policies.fyStart);
-      if (format === "xlsx") {
-        const fields = scheduleFields();
-        await exportExcel(exported, month, report, isSchedule ? {
+      const fields = scheduleFields();
+      const exportedSchedule = isSchedule && !asset ? {
           headers: fields.map(c => c.title),
-          body: [...rows.map(row => fields.map(c => scheduleValue(row, c.id))), ...(rows.length ? [fields.map(c => String(footer[c.id] ?? ""))] : [])],
-        } : undefined);
-      } else await exportPdf(exported, month, report, asset);
+          body: [...rows.map(row => fields.map(c => scheduleValue(row, c.id))), ...(rows.length ? [fields.map(c => {
+            if (c.id === "month") return "Total / closing";
+            if (c.id === "assetName") return "";
+            if (c.id === "total") return (closing?.book ?? 0) + (closing?.market ?? 0);
+            const key = c.id as keyof Snapshot;
+            const raw = (flowKeys as readonly string[]).includes(key)
+              ? totals.reduce((sum, row) => sum + Number(row[key]), 0)
+              : Number((key.startsWith("opening") ? opening : closing)?.[key] ?? 0);
+            return ["depreciation", "impairment", "buildingDisposals", "landDisposals"].includes(key) ? reduction(raw) : raw;
+          })] : [])],
+        } : undefined;
+      if (format === "xlsx") await exportExcel(exported, month, report, exportedSchedule);
+      else await exportPdf(exported, month, report, asset, exportedSchedule);
     } catch { toast.error("Export failed. Please retry."); }
     finally { setExporting(false); }
   }
@@ -158,8 +176,6 @@ export function PropertyLedgerModule({ view = "dashboard" }: { view?: LedgerPage
   }
   const nameColumn: ColumnDef<Asset> = { accessorKey: "name", header: registerKind === "land" ? "Land" : "Building", cell: ({ row }) => <div className="min-w-40"><button className="text-left font-medium text-primary hover:underline" onClick={() => setSelectedId(row.original.id)}>{row.original.name}</button><p className="mt-1 text-xs text-muted-foreground">{[entity ? "" : entityName(row.original.entityId), row.original.tags.join(", ")].filter(Boolean).join(" · ")}</p></div> };
   const statusColumn: ColumnDef<Asset> = { id: "status", accessorFn: asset => snapshot(asset, portfolio.policies, month).status, header: "Status", cell: cell => <Badge variant="outline">{cell.getValue<string>()}</Badge> };
-  const historyRows = state.history.filter(row => `${row.summary} ${row.actor}`.toLowerCase().includes(historyQuery.toLowerCase()));
-  const historyColumns: ColumnDef<HistoryEntry>[] = [{ accessorKey: "created_at", header: "When", cell: cell => new Date(cell.getValue<string>()).toLocaleString("en-PH") }, { accessorKey: "actor", header: "Who" }, { id: "action", accessorFn: row => row.summary.split(":")[0].split(";")[0], header: "Action" }, { id: "asset", accessorFn: row => row.summary.includes(":") ? row.summary.slice(row.summary.indexOf(":") + 1).split(";")[0].trim() : "—", header: "Asset / item" }, { accessorKey: "summary", header: "Details", cell: cell => <span className="block min-w-52 whitespace-normal">Revision {cell.row.original.id} · {cell.getValue<string>()}</span> }];
   const actionsColumn: ColumnDef<Asset> = { id: "actions", header: "Actions", enableSorting: false, cell: ({ row }) => <Button variant="outline" size="sm" disabled={saving || !canRegister} onClick={() => setEditing(row.original)}>Edit</Button> };
   const registerColumns: ColumnDef<Asset>[] = registerKind === "land" ? [nameColumn, { accessorKey: "location", header: "Location" }, { accessorKey: "acquired", header: "Acquired", cell: cell => formatMonth(cell.getValue<string>()) }, { id: "area", accessorFn: a => Number(a.details.area || 0), header: "Lot area", cell: cell => area(cell.getValue<number>()) }, { id: "title", accessorFn: a => a.details.titleNo || "—", header: "Title no." }, { accessorKey: "cost", header: "Cost", cell: cell => money(cell.getValue<number>()) }, { id: "rate", accessorFn: a => a.rate, header: "Rate / yr", cell: cell => `${cell.getValue<number>()}%` }, { id: "market", accessorFn: a => snapshot(a, portfolio.policies, month).market, header: "Market value", cell: cell => money(cell.getValue<number>()) }, statusColumn, actionsColumn] : [nameColumn, { id: "land", accessorFn: a => portfolio.assets.find(l => l.id === a.landId)?.name || "—", header: "Land" }, { accessorKey: "acquired", header: "In service", cell: cell => formatMonth(cell.getValue<string>()) }, { id: "area", accessorFn: a => Number(a.details.floorArea || 0), header: "Floor area", cell: cell => area(cell.getValue<number>()) }, { id: "method", accessorFn: a => METHODS[a.method], header: "Method" }, { id: "parts", accessorFn: a => a.parts.length, header: "Parts" }, { id: "cost", accessorFn: a => snapshot(a, portfolio.policies, month).cost, header: "Cost basis", cell: cell => money(cell.getValue<number>()) }, { id: "book", accessorFn: a => snapshot(a, portfolio.policies, month).book, header: "Book value", cell: cell => money(cell.getValue<number>()) }, statusColumn, actionsColumn];
   return <div className="mx-auto max-w-[1280px] space-y-4" data-ledger-page={view}>
@@ -168,7 +184,6 @@ export function PropertyLedgerModule({ view = "dashboard" }: { view?: LedgerPage
        {view === "dashboard" && <Button asChild variant="outline"><Link href={ledgerPath("combined")}>Open schedule</Link></Button>}
         {(view === "land-register" || view === "building-register") && <div className="flex gap-2"><Button disabled={saving || !canRegister} onClick={() => register(registerKind)}><Plus className="size-4" />Register {registerKind}</Button><Button variant="outline" disabled={saving || !canRegister} onClick={() => setImporting(true)}><Upload className="size-4" />Paste from Excel</Button></div>}
         {isSchedule && <Button variant="outline" disabled={!rows.length} onClick={() => void copySchedule()}>Copy as CSV</Button>}
-        {view === "change-history" && <div className="flex flex-wrap gap-2"><Input aria-label="Search history" placeholder="Search history" className="w-52" value={historyQuery} onChange={e => setHistoryQuery(e.target.value)} /><Button variant="outline" onClick={async () => { try { await copyText(["When,Who,Action and details", ...historyRows.map(row => [row.created_at, row.actor, row.summary].map(csv).join(","))].join("\r\n")); toast.success("History copied as CSV"); } catch { toast.error("Clipboard unavailable"); } }}>Copy as CSV</Button></div>}
       </header>
 
     {view === "dashboard" && <section className="space-y-4" aria-label="Portfolio overview" data-testid="dashboard-sections">
@@ -194,16 +209,14 @@ export function PropertyLedgerModule({ view = "dashboard" }: { view?: LedgerPage
        <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="text-sm">{title} · {granularity === "annual" ? "Annual" : granularity === "monthly" ? "Monthly" : "Quarterly"} · {scheduleAsset ? filtered.assets.find(a => a.id === scheduleAsset)?.name : `All ${kind === "all" ? "assets" : kind === "land" ? "land" : "buildings"}`}</CardTitle><CardDescription>{rows.length} rows · {formatMonth(from)} – {formatMonth(to)}</CardDescription></div></CardHeader><CardContent><LedgerTable key={`${view}:${granularity}:${breakdown}:${scheduleAsset}:${entity}:${tag}:${firstYear}:${lastYear}`} rows={breakdown === "asset" ? rows.slice(0, 2000) : rows} columns={scheduleColumns} label={title} footer={footer} />{breakdown === "asset" && rows.length > 2000 && <p className="text-xs text-muted-foreground">Showing the first 2,000 rows. CSV and Excel include all {rows.length} rows.</p>}<p className="mt-4 text-xs leading-relaxed text-muted-foreground">Flows (additions, depreciation, appreciation and sales) are period totals. Balances are the period’s last month. Opening values are the preceding month’s close. Depreciation starts in each component’s in-service month. Estimates only — not an appraisal or tax advice; no general-ledger entries are posted.</p></CardContent></Card>
       </section>}
       {view === "accounting-policies" && <PoliciesPanel key={state.revision} portfolio={portfolio} canManage={state.canManage} saving={saving} onSave={save} />}
-      {view === "change-history" && <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="text-sm">{historyRows.length} changes</CardTitle><CardDescription>Latest 400 revisions · all revisions retained in storage</CardDescription></div></CardHeader><CardContent><LedgerTable key={historyQuery} rows={historyRows} columns={historyColumns} label="Property ledger change history" /></CardContent></Card>}
-      {selected && <AssetDetails key={selected.id} asset={selected} portfolio={portfolio} month={month} saving={saving} readOnly={!canRegister || selected.kind !== registerKind} onClose={() => setSelectedId("")} onEdit={() => setEditing(selected)} onEvent={() => setEventAsset(selected)} onExport={() => void download("pdf", selected)} onSave={saveAsset} onSavePortfolio={save} onRemove={() => void removeAsset(selected)} onDuplicate={() => {
+      {selected && <AssetDetails key={selected.id} asset={selected} portfolio={portfolio} month={month} through={through} saving={saving} readOnly={!canRegister || selected.kind !== registerKind} canRegisterBuilding={state.canManage || state.editPages?.includes("building-register") === true} onOpen={setSelectedId} onClose={() => setSelectedId("")} onEdit={() => setEditing(selected)} onExport={() => void download("pdf", selected)} onSave={saveAsset} onSavePortfolio={save} onRemove={() => void removeAsset(selected)} onDuplicate={() => {
       const partIds = new Map(selected.parts.map(p => [p.id, duplicateId()]));
       setEditing({ ...selected, id: duplicateId(), version: 1, name: `${selected.name.slice(0, 113)} (copy)`, sale: null,
         parts: selected.parts.map(p => ({ ...p, id: partIds.get(p.id)! })),
         events: selected.events.map(e => ({ ...e, id: duplicateId(), improvementId: e.improvementId ? partIds.get(e.improvementId) : undefined })),
       });
      }} />}
-    {canRegister && editing && <AssetDialog key={editing.id} initial={editing} portfolio={portfolio} saving={saving} onClose={() => setEditing(null)} onSave={saveAsset} />}
-    {canRegister && eventAsset && <EventDialog key={eventAsset.id} asset={eventAsset} policies={portfolio.policies} saving={saving} onClose={() => setEventAsset(null)} onSave={saveAsset} />}
+    {canRegister && (editing || linkedDraft) && <AssetDialog key={(editing || linkedDraft)!.id} initial={(editing || linkedDraft)!} portfolio={portfolio} saving={saving} onClose={() => { setEditing(null); if (linkedLandId) router.replace(ledgerPath("building-register")); }} onSave={saveAsset} />}
     {canRegister && importing && <ImportDialog kind={registerKind} entityId={entity || portfolio.entities[0].id} existing={portfolio.assets} lockThrough={portfolio.policies.lockThrough} saving={saving} onClose={() => setImporting(false)} onSave={assets => save({ ...portfolio, assets: [...portfolio.assets, ...assets] })} />}
     {confirmation}
   </div>;

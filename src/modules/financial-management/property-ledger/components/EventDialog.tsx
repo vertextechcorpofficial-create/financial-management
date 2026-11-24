@@ -7,10 +7,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import type { Asset, LedgerEvent, Part, Policies } from "../types";
 import { Field, selectClass, todayMonth } from "./AssetDialog";
 import { newLedgerId } from "../utils/id";
+import { defaultCapitalize, withRepair } from "../utils/parts";
+import { formatMonth } from "../utils/dates";
 
-export function EventDialog({ asset, policies, saving, onSave, onClose, existing, existingPart }: { asset: Asset; policies: Policies; saving: boolean; onSave: (asset: Asset) => Promise<boolean>; onClose: () => void; existing?: LedgerEvent; existingPart?: Part }) {
+export function EventDialog({ asset, policies, saving, onSave, onClose, existing, existingPart, initialKind }: { asset: Asset; policies: Policies; saving: boolean; onSave: (asset: Asset) => Promise<boolean>; onClose: () => void; existing?: LedgerEvent; existingPart?: Part; initialKind?: LedgerEvent["kind"] | "improvement" }) {
   const linked = existingPart ?? asset.parts.find(p => p.id === existing?.improvementId);
-  const [kind, setKind] = useState<LedgerEvent["kind"] | "improvement" | "sale">(existingPart ? "improvement" : existing?.kind ?? (asset.kind === "land" ? "appraisal" : "repair"));
+  const [kind, setKind] = useState<LedgerEvent["kind"] | "improvement" | "sale">(existingPart ? "improvement" : existing?.kind ?? initialKind ?? (asset.kind === "land" ? "appraisal" : "repair"));
   const [date, setDate] = useState(existingPart?.date ?? existing?.date ?? todayMonth());
   const [amount, setAmount] = useState(existingPart?.cost ?? existing?.amount ?? 0);
   const [note, setNote] = useState(existingPart?.name ?? existing?.note ?? "");
@@ -18,7 +20,7 @@ export function EventDialog({ asset, policies, saving, onSave, onClose, existing
   const [life, setLife] = useState(linked?.life ?? 10);
   const [salvage, setSalvage] = useState(linked?.salvage ?? 0);
   const [capitalizeOverride, setCapitalizeOverride] = useState<boolean | undefined>(existing ? !!linked : undefined);
-  const capitalize = capitalizeOverride ?? amount >= policies.capThreshold;
+  const capitalize = capitalizeOverride ?? defaultCapitalize(amount, policies);
   const oldDate = existingPart?.date ?? existing?.date;
   const locked = !!policies.lockThrough && (date <= policies.lockThrough || (!!oldDate && oldDate <= policies.lockThrough));
   const unavailable = !!asset.sale && (!oldDate || date >= asset.sale.date);
@@ -30,15 +32,16 @@ export function EventDialog({ asset, policies, saving, onSave, onClose, existing
       const description = note.trim();
       if ((kind === "repair" || kind === "improvement") && !description) return;
       if (kind === "sale") updated.sale = { date, price: amount, note: description };
+      else if (kind === "repair") {
+        if (await onSave(withRepair(asset, { id: existing?.id ?? newLedgerId(), date, amount, note: description, vendor }, capitalize, life, salvage))) onClose();
+        return;
+      }
       else if (kind === "improvement") {
         const part = { id: existingPart?.id ?? newLedgerId(), name: description, date, cost: amount, life, salvage };
         updated.parts = existingPart ? updated.parts.map(p => p.id === existingPart.id ? part : p) : [...updated.parts, part];
       }
       else {
-        const improvementId = kind === "repair" && capitalize ? existing?.improvementId ?? newLedgerId() : undefined;
-        if (existing?.improvementId) updated.parts = updated.parts.filter(p => p.id !== existing.improvementId);
-        if (improvementId) updated.parts.push({ id: improvementId, name: description.slice(0, 120), date, cost: amount, life, salvage });
-        const event = { id: existing?.id ?? newLedgerId(), kind, date, amount, note: description, vendor, improvementId };
+        const event = { id: existing?.id ?? newLedgerId(), kind, date, amount, note: description, vendor };
         updated.events = existing ? updated.events.map(e => e.id === existing.id ? event : e) : [...updated.events, event];
       }
       if (await onSave(updated)) onClose();
@@ -47,7 +50,7 @@ export function EventDialog({ asset, policies, saving, onSave, onClose, existing
         {(kind === "improvement" || (kind === "repair" && capitalize)) && <div className="grid grid-cols-2 gap-3"><Field label="Useful life (years)"><Input required type="number" min={1} max={100} value={life} onChange={e => setLife(Number(e.target.value))} /></Field><Field label="Salvage (%)"><Input required type="number" min={0} max={100} value={salvage} onChange={e => setSalvage(Number(e.target.value))} /></Field></div>}
         {kind === "repair" && <><Field label="Vendor"><Input maxLength={120} value={vendor} onChange={e => setVendor(e.target.value)} /></Field><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={capitalize} onChange={e => setCapitalizeOverride(e.target.checked)} />Capitalize as an improvement</label></>}
         <Field label={kind === "improvement" ? "Improvement name" : kind === "repair" ? "Work description" : "Notes"}><Textarea maxLength={kind === "improvement" ? 120 : 1000} required={kind === "improvement" || kind === "repair"} value={note} onChange={e => setNote(e.target.value)} /></Field>
-      </fieldset>{locked && <p role="alert" className="text-sm text-destructive">Books are locked through {policies.lockThrough}.</p>}
+      </fieldset>{locked && <p role="alert" className="text-sm text-destructive">Books are locked through {formatMonth(policies.lockThrough)}.</p>}
        <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving || locked || unavailable}>{saving ? "Saving…" : "Save event"}</Button></DialogFooter>
     </form>
   </DialogContent></Dialog>;

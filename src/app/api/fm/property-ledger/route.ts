@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { portfolioSchema } from "@/modules/financial-management/property-ledger/types";
 import { assertTransition } from "@/modules/financial-management/property-ledger/utils/locks";
-import { authorize, assertWriteAccess, commit, describeChange, history, latest, workspace, LedgerError } from "@/modules/financial-management/property-ledger/services/server";
+import { authorize, assertWriteAccess, commit, describeChange, latest, workspace, LedgerError } from "@/modules/financial-management/property-ledger/services/server";
 import { LEDGER_PAGES, type LedgerPage } from "@/modules/financial-management/property-ledger/navigation";
 import { assertRegistrations } from "@/modules/financial-management/property-ledger/utils/registration";
 import { mergeCompanyChanges } from "@/modules/financial-management/property-ledger/utils/companies";
@@ -23,9 +23,8 @@ export async function GET(request: NextRequest) {
   try {
     const user = await authorize(requestedPage(request));
     const state = await latest();
-    const changes = await history();
     const { visible } = await workspace(state.portfolio, user);
-    return NextResponse.json({ ...state, history: changes, portfolio: visible, canManage: user.canManage, allowedPages: user.pages, editPages: user.editPages }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ...state, history: [], portfolio: visible, canManage: user.canManage, allowedPages: user.pages, editPages: user.editPages }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return failure(error); }
 }
 export async function POST(request: NextRequest) {

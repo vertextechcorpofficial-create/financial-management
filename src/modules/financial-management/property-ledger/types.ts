@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { MAX_MONEY, roundMoney } from "./utils/money";
 
 export const monthSchema = z.string().regex(/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/, "Use YYYY-MM (1900–2199)");
-const money = z.number().finite().min(0).max(1e14);
+const money = z.number().finite().min(0).max(MAX_MONEY).transform(roundMoney);
 const name = z.string().trim().min(1).max(120);
 const id = z.string().uuid();
 export const METHODS = { sl: "Straight-line", ddb: "Double-declining", db150: "150% declining", syd: "Sum-of-years’ digits" } as const;
@@ -77,7 +78,7 @@ export type LedgerEvent = z.infer<typeof eventSchema>;
 export type Portfolio = z.infer<typeof portfolioSchema>;
 export type Policies = Portfolio["policies"];
 export type LedgerState = { revision: number; portfolio: Portfolio; canManage: boolean; history: HistoryEntry[]; allowedPages?: string[]; editPages?: string[] };
-export type HistoryEntry = { id: number; actor: string; created_at: string; summary: string };
+export type HistoryEntry = { id: number; actor: string; created_at: string; summary: string; action?: string; item_name?: string };
 export const INITIAL_ENTITY = "00000000-0000-4000-8000-000000000001";
 export function emptyPortfolio(): Portfolio {
   return { entities: [{ id: INITIAL_ENTITY, name: "Main company" }], assets: [], policies: policySchema.parse({ currency: "PHP", fyStart: 1, landModel: "cost", buildingModel: "cost", lockThrough: "", capThreshold: 50000 }) };
