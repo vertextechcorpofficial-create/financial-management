@@ -76,6 +76,7 @@ export type RequestDecision = {
   fromStatus: RequestStatus | null;
   toStatus: RequestStatus;
   reason: string | null;
+  remarks: string | null;
 };
 export type EmployeeChoice = { id: number; name: string; department: string | null };
 export type EmployeeSummary = EmployeeChoice & {

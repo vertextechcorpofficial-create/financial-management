@@ -11,8 +11,8 @@ import { ReviewActions } from "./components/ReviewActions";
 import { ErrorBox, Field, OnboardingFeedback } from "./components/OnboardingCommon";
 import { ReviewSkeleton, PreviewSkeleton, TableSkeleton } from "./components/PettyCashSkeletons";
 import { useFundDecision, useFundRead } from "./hooks/useFunds";
-import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
 import { UpdatedAgo } from "./components/UpdatedAgo";
+import { PettyCashPageHeader } from "./components/PettyCashPageHeader";
 import { OnboardingError } from "./providers/onboarding.api";
 import type { Choice, Page } from "./onboarding-types";
 import type { FundDetails, FundRecord } from "./fund-types";
@@ -47,7 +47,6 @@ function LegacyFundApproval({ actorName, canDecide }: { actorName: string; canDe
   const [selected, setSelected] = useState<string | null>(null);
   const pending = useFundRead<Page<FundRecord>>(`${root}/funds?queue=pending&page=${pendingPage}&pageSize=25`);
   const decided = useFundRead<Page<FundRecord>>(`${root}/funds?queue=decided&page=${decidedPage}&pageSize=25`);
-  usePettyCashRefresh(pending.refresh, pending.loading || pending.refreshing);
   function changed(result: FundDetails) {
     toast.success(result.fund.status === "ACTIVE"
       ? `${result.fund.docNo} approved and funded.${result.journal ? ` Establishment entry ${result.journal.number} was posted.` : ""}`
@@ -56,8 +55,8 @@ function LegacyFundApproval({ actorName, canDecide }: { actorName: string; canDe
     if (pendingPage > 1 && pending.data?.items.length === 1) setPendingPage(pendingPage - 1);
     setDecidedPage(1); pending.refresh(); decided.refresh();
   }
-  return <section className="space-y-5"><div><h1 className="text-2xl font-semibold tracking-tight">Onboarding Approval</h1><p className="mt-2 text-sm text-muted-foreground">Approve or reject new fund requests. Select a request to see its details and decide. Approval records funding and posts the entry.</p></div>
-    <section className="overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center justify-between gap-2 p-5"><h2 className="text-lg font-semibold">Awaiting approval{pending.data ? ` (${pending.data.total})` : ""}</h2><UpdatedAgo at={pending.updatedAt} onRefresh={pending.refresh} /></div>
+  return <section className="space-y-5"><PettyCashPageHeader title="Onboarding Approval" description="Approve or reject new fund requests. Select a request to see its details and decide. Approval records funding and posts the entry." />
+    <section className="overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center justify-between gap-2 p-5"><h2 className="text-lg font-semibold">Awaiting approval{pending.data ? ` (${pending.data.total})` : ""}</h2><UpdatedAgo at={pending.updatedAt} /></div>
       {pending.loading && <div className="px-5 pb-5"><TableSkeleton label="Loading pending approval requests" rows={5} columns={LEGACY_PENDING_HEADERS.length} /></div>}<ErrorBox error={pending.error || null} retry={pending.refresh} title="Could not load approval queue" />
       {pending.data && <>{pending.data.items.length ? <><div className="hidden overflow-x-auto md:block"><table aria-label="Awaiting approval" className="w-full text-left text-sm [&_th]:whitespace-nowrap [&_th]:p-3 [&_th]:font-medium [&_td]:p-3"><thead className="border-y bg-muted/40"><tr>{LEGACY_PENDING_HEADERS.map((label, index) => <th key={index}>{label}</th>)}</tr></thead><tbody>
         {pending.data.items.map(fund => <tr key={fund.id} tabIndex={0} className="cursor-pointer border-b align-top last:border-0 hover:bg-muted/30 focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setSelected(fund.id)} onKeyDown={event => { if (event.target === event.currentTarget && event.key === "Enter") setSelected(fund.id); }}>

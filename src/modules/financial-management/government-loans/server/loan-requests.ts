@@ -27,7 +27,7 @@ const documentRow = z.object({
   id: positiveId, request_id: positiveId, kind: documentKind, file_id: z.uuid(), file_name: z.string(),
   mime_type: z.enum(["application/pdf", "image/png", "image/jpeg"]), size_bytes: z.number().int().positive(),
 });
-const requestRow = z.object({
+export const requestRow = z.object({
   id: positiveId, status: statuses, revision: positiveId, form: requestForm,
   employee_name: z.string().nullable(), agency_name: z.string().nullable(),
   missing_fields: z.partialRecord(z.enum(Object.keys(requestForm.shape) as Array<keyof RequestForm>), z.string()),
@@ -37,12 +37,12 @@ const detailRow = requestRow.extend({ filed_assessment: z.custom<LoanRequest["fi
 const decisionRow = z.object({
   id: positiveId, action: decisionActions, actor_name: z.string(), occurred_at: z.string(),
   before_values: z.object({ status: statuses }).nullable(),
-  after_values: z.object({ status: statuses, reason: z.string().nullish() }),
+  after_values: z.object({ status: statuses, reason: z.string().nullish(), remarks: z.string().nullish() }),
 });
 const listFields = Object.keys(requestRow.shape).join(",");
 const detailFields = Object.keys(detailRow.shape).join(",");
 const documentFields = Object.keys(documentRow.shape).join(",");
-const referenceFor = (id: number) => "GLR-" + String(id).padStart(6, "0");
+export const referenceFor = (id: number) => "GLR-" + String(id).padStart(6, "0");
 
 type Stored = z.output<typeof detailRow>;
 type Operation = RequestDecision["action"] | "DRAFT_CREATED" | "DRAFT_SAVED" | "DOCUMENT_ATTACHED" | "DOCUMENT_REPLACED";
@@ -53,7 +53,7 @@ export function requestId(value: string) {
   return parsed.data;
 }
 
-function isoDateTime(value: string) {
+export function isoDateTime(value: string) {
   return value.endsWith("Z") || /[+-]\d\d:\d\d$/.test(value) ? value : value + "Z";
 }
 
@@ -73,6 +73,11 @@ export async function readRequest(id: number) {
   return data[0];
 }
 
+export function assertFiledRequest(row: Stored) {
+  if (row.status === "DRAFT" || !row.requested_at) throw new LoanRequestError(404, "Filed loan request could not be found.");
+  return row;
+}
+
 export async function readRequestDocuments(id: number) {
   const query = new URLSearchParams({ fields: documentFields, filter: JSON.stringify({ request_id: { _eq: id } }),
     sort: "id", limit: String(Object.keys(documentKinds).length + 1) });
@@ -89,18 +94,22 @@ async function readRequestDecisions(id: number, revision: number): Promise<Reque
     id: event.id, action: event.action, actorName: event.actor_name, occurredAt: isoDateTime(event.occurred_at),
     fromStatus: event.before_values?.status ?? null, toStatus: event.after_values.status,
     reason: event.after_values.reason ?? null,
+    remarks: event.after_values.remarks ?? null,
   }));
 }
 
-export async function getLoanRequest(id: number): Promise<LoanRequest> {
-  const row = await readRequest(id);
+export async function requestDetails(row: Stored): Promise<LoanRequest> {
   const [documents, decisionHistory] = await Promise.all([
-    readRequestDocuments(id),
-    row.status === "DRAFT" ? [] : readRequestDecisions(id, row.revision),
+    readRequestDocuments(row.id),
+    row.status === "DRAFT" ? [] : readRequestDecisions(row.id, row.revision),
   ]);
   return { ...listItem(row), form: row.form, documents: documents.map(document => ({
     id: document.id, kind: document.kind, name: document.file_name, size: document.size_bytes,
   })), filedAssessment: row.filed_assessment, decisionHistory };
+}
+
+export async function getLoanRequest(id: number): Promise<LoanRequest> {
+  return requestDetails(await readRequest(id));
 }
 
 const listQuery = z.object({
@@ -137,8 +146,13 @@ export function loanCommand(key: string | null, payload: object, actor: AgencyAc
   };
 }
 
-const storedCommand = z.object({ request_id: positiveId, actor_user_id: positiveId, request_hash: z.string() });
-export async function replayCommand(command: Command) {
+const storedCommand = z.object({
+  request_id: positiveId, revision: positiveId, actor_user_id: positiveId, request_hash: z.string(),
+  action: z.string(), after_values: z.unknown(),
+});
+type CommandReceipt = Pick<z.infer<typeof storedCommand>, "request_id" | "revision" | "action" | "after_values">;
+
+export async function readCommandReceipt(command: Command) {
   const query = new URLSearchParams({ fields: Object.keys(storedCommand.shape).join(","), limit: "1",
     filter: JSON.stringify({ command_key: { _eq: command.key } }) });
   const { data: [receipt] } = z.object({ data: z.array(storedCommand).max(1) })
@@ -148,7 +162,12 @@ export async function replayCommand(command: Command) {
     (command.id !== undefined && receipt.request_id !== command.id)) {
     throw new LoanRequestError(409, "This request key was already used.");
   }
-  return getLoanRequest(receipt.request_id);
+  return receipt;
+}
+
+export async function replayCommand(command: Command) {
+  const receipt = await readCommandReceipt(command);
+  return receipt ? getLoanRequest(receipt.request_id) : null;
 }
 
 const staleDraft = () => new LoanRequestError(409, "This draft changed. Reopen it before making another update.");
@@ -157,37 +176,63 @@ export function assertDraft(row: Stored, expectedRevision: number) {
   if (row.status !== "DRAFT" || row.revision !== expectedRevision) throw staleDraft();
 }
 
-export async function writeRequestRevision(command: Command, action: Operation, current: Stored | null,
-  data: object, before: object | null, after: object, now = new Date().toISOString()) {
-  const revision = (current?.revision ?? 0) + 1;
+function commandEvent(command: Command, action: string, revision: number, revisionKey: string,
+  before: object | null, after: object, now: string) {
   const { actor } = command;
+  return {
+    revision, revision_key: revisionKey, command_key: command.key, request_hash: command.hash,
+    action, actor_user_id: actor.actorId, actor_name: actor.actorName, actor_role: actor.actorRole,
+    occurred_at: now, before_values: before, after_values: after,
+  };
+}
+
+async function receiptAfterWriteError(command: Command) {
+  return readCommandReceipt(command).catch(error => {
+    if (error instanceof LoanRequestError) throw error;
+    return null;
+  });
+}
+
+export async function commitRequestRevision(command: Command, action: Operation, current: Stored | null,
+  data: object, before: object | null, after: object, now = new Date().toISOString()): Promise<CommandReceipt> {
+  const revision = (current?.revision ?? 0) + 1;
   const patch = {
     ...data, revision, updated_at: now,
-    history_entries: { create: [{
-      revision, revision_key: current ? current.id + ":" + revision : "create:" + command.key,
-      command_key: command.key, request_hash: command.hash, action, actor_user_id: actor.actorId,
-      actor_name: actor.actorName, actor_role: actor.actorRole, occurred_at: now,
-      before_values: before, after_values: after,
-    }] },
+    history_entries: { create: [commandEvent(command, action, revision,
+      current ? current.id + ":" + revision : "create:" + command.key, before, after, now)] },
   };
-  let id = current?.id;
   try {
     const { data: saved } = z.object({ data: z.object({ id: positiveId }) }).parse(
-      await writeGovernmentLoansItem(GOVERNMENT_LOAN_REQUESTS, patch, "id", id),
+      await writeGovernmentLoansItem(GOVERNMENT_LOAN_REQUESTS, patch, "id", current?.id),
     );
-    id = saved.id;
+    return { request_id: saved.id, revision, action, after_values: after };
   } catch (error) {
-    const replay = await replayCommand(command).catch(cause => {
-      if (cause instanceof LoanRequestError) throw cause;
-      return null;
-    });
+    const replay = await receiptAfterWriteError(command);
     if (replay) return replay;
     if (error instanceof GovernmentLoansDirectusError && error.code === "RECORD_NOT_UNIQUE") {
       throw current && current.status !== "DRAFT" ? staleRequest() : staleDraft();
     }
     throw error;
   }
-  return getLoanRequest(id);
+}
+
+export async function writeRequestRevision(command: Command, action: Operation, current: Stored | null,
+  data: object, before: object | null, after: object, now?: string) {
+  const receipt = await commitRequestRevision(command, action, current, data, before, after, now);
+  return getLoanRequest(receipt.request_id);
+}
+
+export async function recordBulkApprovalEvent(command: Command, action: "BULK_APPROVAL_SKIPPED" | "BULK_APPROVAL_COMPLETED",
+  request: Pick<Stored, "id" | "revision">, result: object): Promise<CommandReceipt> {
+  const entry = commandEvent(command, action, request.revision, "bulk:" + command.key, null, result, new Date().toISOString());
+  try {
+    await writeGovernmentLoansItem(GOVERNMENT_LOAN_REQUEST_HISTORY, { request_id: request.id, ...entry }, "id");
+    return { request_id: request.id, revision: request.revision, action, after_values: result };
+  } catch (error) {
+    const replay = await receiptAfterWriteError(command);
+    if (replay) return replay;
+    throw error;
+  }
 }
 
 function draftValues(form: RequestForm, assessment: RequestAssessment) {

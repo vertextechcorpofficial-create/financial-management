@@ -1,3 +1,4 @@
+import { invalidateReadsAfterWrite } from "../utils/readCache";
 import { redirectToLogin } from "../utils/sessionExpiry";
 
 export class OnboardingError extends Error {
@@ -8,6 +9,7 @@ export async function onboardingApi<T>(path: string, init?: RequestInit): Promis
   if (response.status === 401) redirectToLogin();
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new OnboardingError(body?.message || "Unable to complete the Onboarding request.", response.status, body?.fieldErrors || {}, body?.requestId, body?.code);
+  invalidateReadsAfterWrite(path, init?.method);
   if (!body || typeof body !== "object") throw new OnboardingError("Onboarding returned incomplete information. Please retry.", 503);
   return body as T;
 }

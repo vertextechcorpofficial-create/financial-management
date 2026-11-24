@@ -13,7 +13,7 @@ import {
   GOVERNMENT_LOAN_REQUEST_DOCUMENTS, GovernmentLoansDirectusError, governmentLoansDirectus, readGovernmentLoansItems,
 } from "./directus";
 import {
-  assertDraft, loanCommand, readRequest, readRequestDocuments, replayCommand, writeRequestRevision,
+  assertDraft, assertFiledRequest, loanCommand, readRequest, readRequestDocuments, replayCommand, writeRequestRevision,
 } from "./loan-requests";
 import { LoanRequestError, positiveId } from "./request-input";
 
@@ -86,8 +86,9 @@ export async function saveRequestDocument(id: number, kind: DocumentKind, reques
   }
 }
 
-export async function downloadRequestDocument(id: number, kind: DocumentKind) {
-  await readRequest(id);
+export async function downloadRequestDocument(id: number, kind: DocumentKind, filedOnly = false) {
+  const request = await readRequest(id);
+  if (filedOnly) assertFiledRequest(request);
   const document = (await readRequestDocuments(id)).find(item => item.kind === kind);
   if (!document) throw new LoanRequestError(404, "This request document could not be found.");
   await privateRequestFolder();

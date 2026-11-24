@@ -9,15 +9,12 @@ function relative(at: number, now: number) {
   return minutes < 60 ? `${minutes}m ago` : `${Math.round(minutes / 60)}h ago`;
 }
 
-export function UpdatedAgo({ at, onRefresh }: { at: number | null; onRefresh?: () => void }) {
+export function UpdatedAgo({ at }: { at: number | null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15_000);
     return () => window.clearInterval(timer);
   }, []);
   if (!at) return null;
-  const label = `Updated ${relative(at, now)}`;
-  return onRefresh
-    ? <button type="button" onClick={onRefresh} aria-label={`${label}. Refresh now`} className="text-xs text-muted-foreground underline-offset-2 hover:underline">{label}</button>
-    : <span className="text-xs text-muted-foreground">{label}</span>;
+  return <span className="text-xs text-muted-foreground">{`Updated ${relative(at, now)}`}</span>;
 }
