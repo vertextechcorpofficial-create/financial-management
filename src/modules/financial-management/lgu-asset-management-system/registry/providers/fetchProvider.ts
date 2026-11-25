@@ -29,6 +29,8 @@ function queryString(query: AssetRegistryQuery): string {
   if (query.classId) params.set("classId", String(query.classId));
   if (query.officeId) params.set("officeId", String(query.officeId));
   if (query.recordStatus) params.set("recordStatus", query.recordStatus);
+  if (query.sort) params.set("sort", query.sort);
+  if (query.dir) params.set("dir", query.dir);
   params.set("page", String(query.page ?? 1));
   params.set("pageSize", String(query.pageSize ?? 10));
   return params.toString();

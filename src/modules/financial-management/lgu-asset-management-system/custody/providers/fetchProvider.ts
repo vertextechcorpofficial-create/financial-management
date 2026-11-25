@@ -28,6 +28,9 @@ export async function fetchCustody(params: {
   page?: number;
   sort?: string;
   dir?: string;
+  form?: string | null;
+  officer?: string | null;
+  prefix?: string | null;
 }): Promise<CustodyResponse> {
   const search = new URLSearchParams();
   if (params.q) search.set("q", params.q);
@@ -36,6 +39,9 @@ export async function fetchCustody(params: {
   if (params.page) search.set("page", String(params.page));
   if (params.sort) search.set("sort", params.sort);
   if (params.dir) search.set("dir", params.dir);
+  if (params.form) search.set("form", params.form);
+  if (params.officer) search.set("officer", params.officer);
+  if (params.prefix) search.set("prefix", params.prefix);
   const res = await fetch(API + "?" + search.toString(), { cache: "no-store" });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(errMsg(data));

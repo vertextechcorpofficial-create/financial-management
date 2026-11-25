@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Pencil, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,15 +12,53 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { LguAsset, RegistryLookups } from "../../types";
+import type { AssetSortKey, LguAsset, RegistryLookups } from "../../types";
 import { RECORD_STATUS_LABELS } from "../../types";
 
 interface RegistryTableProps {
   assets: LguAsset[];
   lookups: RegistryLookups;
   loading: boolean;
+  sort: string;
+  dir: string;
+  onSort: (key: AssetSortKey) => void;
   onEdit: (asset: LguAsset) => void;
   onRetire: (asset: LguAsset) => void;
+}
+
+function SortHead({
+  label,
+  sortKey,
+  sort,
+  dir,
+  onSort,
+  className,
+}: {
+  label: string;
+  sortKey: AssetSortKey;
+  sort: string;
+  dir: string;
+  onSort: (key: AssetSortKey) => void;
+  className?: string;
+}) {
+  const active = sort === sortKey;
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex items-center gap-1 hover:text-foreground"
+        title={active ? "Sorted " + (dir === "desc" ? "descending" : "ascending") + ", click to reverse" : "Click to sort by " + label}
+      >
+        {label}
+        {active ? (
+          dir === "desc" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronsUpDown className="h-3.5 w-3.5 opacity-40" />
+        )}
+      </button>
+    </TableHead>
+  );
 }
 
 function peso(value: number | null): string {
@@ -28,7 +66,7 @@ function peso(value: number | null): string {
   return "PHP " + value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function RegistryTable({ assets, lookups, loading, onEdit, onRetire }: RegistryTableProps) {
+export function RegistryTable({ assets, lookups, loading, sort, dir, onSort, onEdit, onRetire }: RegistryTableProps) {
   const className = React.useMemo(() => {
     const map = new Map<number, string>();
     for (const c of lookups.classes) map.set(c.id, c.name);
@@ -66,12 +104,12 @@ export function RegistryTable({ assets, lookups, loading, onEdit, onRetire }: Re
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Property No.</TableHead>
-          <TableHead>Description</TableHead>
+          <SortHead label="Property No." sortKey="property_no" sort={sort} dir={dir} onSort={onSort} />
+          <SortHead label="Description" sortKey="description" sort={sort} dir={dir} onSort={onSort} />
           <TableHead>Class</TableHead>
           <TableHead>Office</TableHead>
           <TableHead>Condition</TableHead>
-          <TableHead className="text-right">Cost</TableHead>
+          <SortHead label="Cost" sortKey="cost" sort={sort} dir={dir} onSort={onSort} className="text-right" />
           <TableHead>Status</TableHead>
           <TableHead className="w-[90px] text-right">Actions</TableHead>
         </TableRow>

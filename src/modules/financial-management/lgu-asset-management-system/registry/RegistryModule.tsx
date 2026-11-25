@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Layers, Plus, RefreshCw, Search } from "lucide-react";
+import { Layers, Plus, RefreshCw, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,13 +13,18 @@ import { RegistryTable } from "./components/RegistryTable";
 import { SearchableSelect } from "./components/SearchableSelect";
 import { useAssetRegistry } from "./hooks/useAssetRegistry";
 
-const STATUS_OPTIONS = (Object.keys(RECORD_STATUS_LABELS) as (keyof typeof RECORD_STATUS_LABELS)[]).map((k) => ({
-  label: RECORD_STATUS_LABELS[k],
-  value: k,
-}));
+const STATUS_OPTIONS = [
+  ...(Object.keys(RECORD_STATUS_LABELS) as (keyof typeof RECORD_STATUS_LABELS)[]).map((k) => ({
+    label: RECORD_STATUS_LABELS[k],
+    value: k,
+  })),
+  { label: "Any status", value: "all" },
+];
 
 export default function RegistryModule() {
   const { query, patchQuery, data, loading, error, busy, refresh, create, createBulk, update } = useAssetRegistry();
+  const hasActiveFilters =
+    Boolean(query.q) || Boolean(query.classId) || Boolean(query.officeId) || (query.recordStatus ?? "active") !== "active";
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<LguAsset | null>(null);
@@ -94,6 +99,7 @@ export default function RegistryModule() {
             value={query.classId ? String(query.classId) : ""}
             onChange={(v) => patchQuery({ classId: v ? Number(v) : null, page: 1 })}
             placeholder="All classes"
+            allowClear
           />
         </div>
         <div className="w-56">
@@ -102,6 +108,7 @@ export default function RegistryModule() {
             value={query.officeId ? String(query.officeId) : ""}
             onChange={(v) => patchQuery({ officeId: v ? Number(v) : null, page: 1 })}
             placeholder="All offices"
+            allowClear
           />
         </div>
         <div className="w-44">
@@ -112,6 +119,16 @@ export default function RegistryModule() {
             placeholder="Status"
           />
         </div>
+        {hasActiveFilters ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => patchQuery({ q: "", classId: null, officeId: null, recordStatus: "active", page: 1 })}
+          >
+            <X className="mr-1 h-3.5 w-3.5" />
+            Clear filters
+          </Button>
+        ) : null}
       </div>
 
       {error ? (
@@ -125,6 +142,12 @@ export default function RegistryModule() {
           assets={data.assets}
           lookups={data.lookups}
           loading={loading}
+          sort={query.sort ?? "property_no"}
+          dir={query.dir ?? "asc"}
+          onSort={(key) => {
+            const sameKey = (query.sort ?? "property_no") === key;
+            patchQuery({ sort: key, dir: sameKey && (query.dir ?? "asc") === "asc" ? "desc" : "asc", page: 1 });
+          }}
           onEdit={openEdit}
           onRetire={() => undefined}
         />

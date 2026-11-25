@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,8 @@ interface SearchableSelectProps {
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  /** Shows a row at the top that clears the selection, labelled with the placeholder. */
+  allowClear?: boolean;
 }
 
 /**
@@ -33,6 +35,7 @@ export function SearchableSelect({
   placeholder = "Select...",
   className,
   disabled = false,
+  allowClear = false,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
@@ -61,7 +64,32 @@ export function SearchableSelect({
           )}
         >
           <span className="truncate">{selected ? selected.label : placeholder}</span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <span className="ml-1 flex shrink-0 items-center gap-1">
+            {allowClear && value ? (
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={"Clear " + placeholder}
+                title={"Clear " + placeholder}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onChange("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onChange("");
+                  }
+                }}
+                className="rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </span>
+            ) : null}
+            <ChevronsUpDown className="h-4 w-4 opacity-50" />
+          </span>
         </Button>
       </PopoverTrigger>
       <PopoverContentInDialog className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
@@ -78,6 +106,20 @@ export function SearchableSelect({
           className="max-h-64 overflow-y-auto overscroll-contain p-1"
           onWheel={(e) => e.stopPropagation()}
         >
+          {allowClear ? (
+            <button
+              type="button"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+                setSearch("");
+              }}
+              className="mb-1 flex w-full items-center justify-between rounded-sm border-b px-2 py-2 text-left text-sm text-muted-foreground hover:bg-accent"
+            >
+              <span className="truncate">{placeholder}</span>
+              {value === "" || value === undefined ? <Check className="h-4 w-4 shrink-0" /> : null}
+            </button>
+          ) : null}
           {filtered.length === 0 ? (
             <p className="px-2 py-3 text-sm text-muted-foreground">No match</p>
           ) : (

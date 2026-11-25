@@ -91,12 +91,12 @@ export function NewSessionDialog({ open, lookups, busy, onClose, onSubmit }: New
 
           <div className="grid gap-2">
             <Label>Office, blank for all</Label>
-            <SearchableSelect options={officeOptions} value={officeId} onChange={setOfficeId} placeholder="All offices" />
+            <SearchableSelect options={officeOptions} value={officeId} onChange={setOfficeId} placeholder="All offices" allowClear />
           </div>
 
           <div className="grid gap-2">
             <Label>Class, blank for all</Label>
-            <SearchableSelect options={classOptions} value={classId} onChange={setClassId} placeholder="All classes" />
+            <SearchableSelect options={classOptions} value={classId} onChange={setClassId} placeholder="All classes" allowClear />
           </div>
 
           <div className="grid gap-2">

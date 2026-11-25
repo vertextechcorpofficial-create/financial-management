@@ -1,13 +1,14 @@
 import type {
   AssetRecordStatus,
   AssetRegistryQuery,
+  AssetSortKey,
   BulkAssetInput,
   BulkCreateResult,
   LguAsset,
   LguAssetInput,
   RegistryLookups,
 } from "../../types";
-import { computeResidual, isSemiExpendable, splitBatchTotal } from "../../types";
+import { ASSET_SORT_FIELDS, computeResidual, isSemiExpendable, splitBatchTotal } from "../../types";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 const TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -159,12 +160,17 @@ export async function listAssets(query: AssetRegistryQuery): Promise<{ assets: L
   }
   if (query.classId) and.push({ class_id: { _eq: query.classId } });
   if (query.officeId) and.push({ office_id: { _eq: query.officeId } });
-  and.push({ record_status: { _eq: query.recordStatus ?? "active" } });
+  if (query.recordStatus !== "all") {
+    and.push({ record_status: { _eq: query.recordStatus ?? "active" } });
+  }
+
+  const sortKey = (query.sort && query.sort in ASSET_SORT_FIELDS ? query.sort : "property_no") as AssetSortKey;
+  const sortParam = (query.dir === "desc" ? "-" : "") + ASSET_SORT_FIELDS[sortKey];
 
   const filter = JSON.stringify({ _and: and });
   const path =
     "/items/lgu_asset?filter=" + encodeURIComponent(filter) +
-    "&sort=property_no&limit=" + pageSize +
+    "&sort=" + sortParam + ",property_no&limit=" + pageSize +
     "&offset=" + (page - 1) * pageSize +
     "&meta=filter_count";
 

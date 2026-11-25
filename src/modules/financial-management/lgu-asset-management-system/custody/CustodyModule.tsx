@@ -1,18 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { RefreshCw, Search } from "lucide-react";
+import { RefreshCw, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { CustodyRow, CustodyTransferInput } from "../types";
-import type { CustodySortKey } from "./services/assetCustody";
 
-const SORT_LABELS: Record<CustodySortKey, string> = {
-  property_no: "Property No.",
-  is_semi_expendable: "Form",
-  accountable_officer_name: "Accountable officer",
-};
 import { SearchableSelect } from "./components/SearchableSelect";
 import { CustodyActionDialog, type CustodyMode } from "./components/CustodyActionDialog";
 import { CustodyTable } from "./components/CustodyTable";
@@ -62,6 +56,37 @@ export default function CustodyModule() {
 
   const assigned = data.rows.filter((r) => Boolean(r.asset.accountable_officer_name)).length;
   const totalPages = Math.max(1, Math.ceil(data.total / (data.pageSize || 50)));
+  const hasActiveFilters =
+    Boolean(params.q) ||
+    Boolean(params.officeId) ||
+    Boolean(params.form) ||
+    Boolean(params.officer) ||
+    Boolean(params.prefix) ||
+    params.onlyWithOfficer;
+
+  function clearFilters() {
+    patchParams({
+      q: "",
+      officeId: null,
+      form: null,
+      officer: null,
+      prefix: null,
+      onlyWithOfficer: false,
+      page: 1,
+      sort: "property_no",
+      dir: "asc",
+    });
+  }
+
+  const formOptions = [
+    { label: "PAR, PPE", value: "par" },
+    { label: "ICS, semi-expendable", value: "ics" },
+  ];
+  const officerOptions = [
+    ...data.officers.map((name) => ({ label: name, value: name })),
+    { label: "Unassigned", value: "__none" },
+  ];
+  const prefixOptions = data.prefixes.map((p) => ({ label: p, value: p }));
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -97,6 +122,7 @@ export default function CustodyModule() {
             value={params.officeId ? String(params.officeId) : ""}
             onChange={(v) => patchParams({ officeId: v ? Number(v) : null, page: 1 })}
             placeholder="All offices"
+            allowClear
           />
         </div>
         <Button
@@ -114,19 +140,37 @@ export default function CustodyModule() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          Sorted by {SORT_LABELS[(params.sort ?? "property_no") as CustodySortKey] ?? "Property No."}
-          {", "}
-          {params.dir === "desc" ? "descending" : "ascending"}
-        </p>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => patchParams({ sort: "property_no", dir: "asc", page: 1 })}
-          disabled={(params.sort ?? "property_no") === "property_no" && (params.dir ?? "asc") === "asc"}
-        >
-          Reset sort
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="w-52">
+          <SearchableSelect
+            options={formOptions}
+            value={params.form ?? ""}
+            onChange={(v) => patchParams({ form: v || null, page: 1 })}
+            placeholder="All forms"
+            allowClear
+          />
+        </div>
+        <div className="w-60">
+          <SearchableSelect
+            options={officerOptions}
+            value={params.officer ?? ""}
+            onChange={(v) => patchParams({ officer: v || null, page: 1 })}
+            placeholder="All officers"
+            allowClear
+          />
+        </div>
+        <div className="w-44">
+          <SearchableSelect
+            options={prefixOptions}
+            value={params.prefix ?? ""}
+            onChange={(v) => patchParams({ prefix: v || null, page: 1 })}
+            placeholder="All types"
+            allowClear
+          />
+        </div>
+        <Button size="sm" variant="secondary" onClick={clearFilters} disabled={!hasActiveFilters}>
+          <X className="mr-1 h-3.5 w-3.5" />
+          Clear filters
         </Button>
       </div>
 

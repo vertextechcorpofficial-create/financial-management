@@ -180,6 +180,23 @@ async function fetchOfficerNames(): Promise<string[]> {
 
 const CUSTODY_PAGE_SIZE = 50;
 
+let prefixCache: { at: number; data: string[] } | null = null;
+
+/** Property prefixes come from the asset classes, cached for a minute. */
+async function fetchPrefixes(): Promise<string[]> {
+  const now = Date.now();
+  if (prefixCache && now - prefixCache.at < 60_000) return prefixCache.data;
+  const json = await get("/items/lgu_asset_class?filter=" + encodeURIComponent(JSON.stringify({ status: { _eq: "active" } })) + "&fields=property_prefix&limit=-1");
+  const seen = new Set<string>();
+  for (const row of (json.data ?? []) as Record<string, unknown>[]) {
+    const p = typeof row.property_prefix === "string" ? row.property_prefix.trim() : "";
+    if (p) seen.add(p);
+  }
+  const data = Array.from(seen).sort();
+  prefixCache = { at: now, data };
+  return data;
+}
+
 export type CustodySortKey = "property_no" | "is_semi_expendable" | "accountable_officer_name";
 
 const SORTABLE: Record<CustodySortKey, string> = {
@@ -188,10 +205,15 @@ const SORTABLE: Record<CustodySortKey, string> = {
   accountable_officer_name: "accountable_officer_name",
 };
 
+export type CustodyFormFilter = "par" | "ics" | null;
+
 export async function fetchCustodyList(params: {
   q?: string;
   officeId?: number | null;
   onlyWithOfficer?: boolean;
+  form?: string | null;
+  officer?: string | null;
+  prefix?: string | null;
   page?: number;
   sort?: string;
   dir?: string;
@@ -209,6 +231,15 @@ export async function fetchCustodyList(params: {
   }
   if (params.officeId) and.push({ office_id: { _eq: params.officeId } });
   if (params.onlyWithOfficer) and.push({ accountable_officer_name: { _nnull: true } });
+
+  // PAR is PPE, ICS is semi-expendable, so the form filter is the classification flag
+  if (params.form === "par") and.push({ is_semi_expendable: { _eq: false } });
+  if (params.form === "ics") and.push({ is_semi_expendable: { _eq: true } });
+
+  if (params.officer === "__none") and.push({ accountable_officer_name: { _null: true } });
+  else if (params.officer) and.push({ accountable_officer_name: { _eq: params.officer } });
+
+  if (params.prefix) and.push({ property_no: { _starts_with: params.prefix + "-" } });
 
   const page = Math.max(1, Number(params.page ?? 1));
   const filter = encodeURIComponent(JSON.stringify({ _and: and }));
@@ -228,10 +259,10 @@ export async function fetchCustodyList(params: {
   const assetRows = ((assetsJson.data ?? []) as Record<string, unknown>[]).map(mapAsset);
   const total = Number(assetsJson.meta?.filter_count ?? assetRows.length);
 
-  const [offices, officers] = await Promise.all([fetchOffices(), fetchOfficerNames()]);
+  const [offices, officers, prefixes] = await Promise.all([fetchOffices(), fetchOfficerNames(), fetchPrefixes()]);
 
   if (assetRows.length === 0) {
-    return { rows: [], total, page, pageSize: CUSTODY_PAGE_SIZE, officers, offices };
+    return { rows: [], total, page, pageSize: CUSTODY_PAGE_SIZE, officers, offices, prefixes };
   }
 
   const ids = assetRows.map((a) => a.id);
@@ -263,7 +294,7 @@ export async function fetchCustodyList(params: {
     documentCount: docCount.get(asset.id) ?? 0,
   }));
 
-  return { rows, total, page, pageSize: CUSTODY_PAGE_SIZE, officers, offices };
+  return { rows, total, page, pageSize: CUSTODY_PAGE_SIZE, officers, offices, prefixes };
 }
 
 export async function fetchHistory(assetId: number): Promise<AssetHistory> {

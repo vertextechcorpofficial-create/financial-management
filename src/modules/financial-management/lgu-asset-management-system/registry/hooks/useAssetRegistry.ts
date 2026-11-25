@@ -29,6 +29,8 @@ export function useAssetRegistry(initial?: Partial<AssetRegistryQuery>) {
     classId: null,
     officeId: null,
     recordStatus: "active",
+    sort: "property_no",
+    dir: "asc",
     page: 1,
     pageSize: 10,
     ...initial,

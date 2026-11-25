@@ -15,7 +15,7 @@ import {
   transferAssetRequest,
 } from "../providers/fetchProvider";
 
-const EMPTY: CustodyResponse = { rows: [], total: 0, page: 1, pageSize: 50, officers: [], offices: [] };
+const EMPTY: CustodyResponse = { rows: [], total: 0, page: 1, pageSize: 50, officers: [], offices: [], prefixes: [] };
 
 export function useAssetCustody(initial?: { q?: string; officeId?: number | null; onlyWithOfficer?: boolean }) {
   const [params, setParams] = React.useState({
@@ -25,6 +25,9 @@ export function useAssetCustody(initial?: { q?: string; officeId?: number | null
     page: 1,
     sort: "property_no",
     dir: "asc",
+    form: null as string | null,
+    officer: null as string | null,
+    prefix: null as string | null,
     ...initial,
   });
   const [data, setData] = React.useState<CustodyResponse>(EMPTY);

@@ -26,12 +26,18 @@ export async function GET(req: Request) {
     const onlyWithOfficer = searchParams.get("onlyWithOfficer") === "1";
     const sort = searchParams.get("sort") ?? undefined;
     const dir = searchParams.get("dir") ?? undefined;
+    const form = searchParams.get("form") ?? null;
+    const officer = searchParams.get("officer") ?? null;
+    const prefix = searchParams.get("prefix") ?? null;
     const data = await fetchCustodyList({
       q,
       officeId: officeId ? Number(officeId) : null,
       onlyWithOfficer,
       sort,
       dir,
+      form,
+      officer,
+      prefix,
     });
     return NextResponse.json(data);
   } catch (err) {

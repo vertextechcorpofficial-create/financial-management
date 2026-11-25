@@ -8,6 +8,7 @@ import {
 } from "@/modules/financial-management/lgu-asset-management-system/registry/services/assetRegistry";
 import type {
   AssetRecordStatus,
+  AssetSortKey,
   LguAssetInput,
 } from "@/modules/financial-management/lgu-asset-management-system/types";
 
@@ -26,6 +27,8 @@ export async function GET(req: Request) {
     const classId = searchParams.get("classId");
     const officeId = searchParams.get("officeId");
     const recordStatus = searchParams.get("recordStatus");
+    const sort = searchParams.get("sort") ?? undefined;
+    const dir = searchParams.get("dir") === "desc" ? "desc" : "asc";
     const page = Number(searchParams.get("page") ?? 1);
     const pageSize = Number(searchParams.get("pageSize") ?? 10);
 
@@ -34,7 +37,9 @@ export async function GET(req: Request) {
         q,
         classId: classId ? Number(classId) : null,
         officeId: officeId ? Number(officeId) : null,
-        recordStatus: (recordStatus as AssetRecordStatus | null) ?? null,
+        recordStatus: (recordStatus as AssetRecordStatus | "all" | null) ?? null,
+        sort: sort as AssetSortKey | undefined,
+        dir,
         page,
         pageSize,
       }),

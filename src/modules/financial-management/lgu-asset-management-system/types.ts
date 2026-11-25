@@ -185,10 +185,21 @@ export interface AssetRegistryQuery {
   q?: string;
   classId?: number | null;
   officeId?: number | null;
-  recordStatus?: AssetRecordStatus | null;
+  recordStatus?: AssetRecordStatus | "all" | null;
+  sort?: AssetSortKey;
+  dir?: "asc" | "desc";
   page?: number;
   pageSize?: number;
 }
+
+export type AssetSortKey = "property_no" | "description" | "cost" | "acquisition_date";
+
+export const ASSET_SORT_FIELDS: Record<AssetSortKey, string> = {
+  property_no: "property_no",
+  description: "description",
+  cost: "cost",
+  acquisition_date: "acquisition_date",
+};
 
 export interface AssetRegistryResponse {
   assets: LguAsset[];
@@ -282,6 +293,8 @@ export interface CustodyResponse {
   pageSize: number;
   officers: string[];
   offices: LguOffice[];
+  /** Property number prefixes, one per asset class, for the type filter. */
+  prefixes: string[];
 }
 
 export interface AssetHistory {
