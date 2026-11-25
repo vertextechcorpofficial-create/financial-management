@@ -99,7 +99,7 @@ export function CustodyActionDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!next ? onClose() : undefined)}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
@@ -169,7 +169,7 @@ export function CustodyActionDialog({
           ) : null}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background px-6 py-4">
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>

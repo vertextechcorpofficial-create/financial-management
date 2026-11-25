@@ -149,7 +149,7 @@ export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: Recon
       ) : null}
 
       <Dialog open={Boolean(target)} onOpenChange={(next) => (!next ? setTarget(null) : undefined)}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{mode === "missing" ? "Confirm this asset as missing" : "Record where it actually is"}</DialogTitle>
             <DialogDescription>

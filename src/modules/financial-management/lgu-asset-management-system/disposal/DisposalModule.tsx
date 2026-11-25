@@ -171,7 +171,7 @@ export default function DisposalModule() {
       </div>
 
       <Dialog open={Boolean(target)} onOpenChange={(next) => (!next ? setTarget(null) : undefined)}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{mode === "iirup" ? "File the IIRUP" : "Dispose under a PCV"}</DialogTitle>
             <DialogDescription>
@@ -207,7 +207,7 @@ export default function DisposalModule() {
             ) : null}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background px-6 py-4">
             <Button variant="outline" onClick={() => setTarget(null)} disabled={busy}>
               Cancel
             </Button>

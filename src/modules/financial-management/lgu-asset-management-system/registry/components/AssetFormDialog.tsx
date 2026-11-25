@@ -301,7 +301,7 @@ export function AssetFormDialog({ open, onOpenChange, lookups, initial, busy, on
           ) : null}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>

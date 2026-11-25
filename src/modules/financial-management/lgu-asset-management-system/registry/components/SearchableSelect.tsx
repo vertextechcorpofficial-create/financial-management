@@ -5,7 +5,7 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContentInDialog, PopoverTrigger } from "@/components/ui/popover";
 
 export interface SearchableSelectOption {
   label: string;
@@ -21,6 +21,11 @@ interface SearchableSelectProps {
   disabled?: boolean;
 }
 
+/**
+ * Uses PopoverContentInDialog on purpose. A portal popover rendered outside the
+ * dialog subtree gets its wheel and pointer events swallowed by the dialog layer,
+ * which made this list impossible to scroll or click inside a dialog.
+ */
 export function SearchableSelect({
   options,
   value,
@@ -59,8 +64,8 @@ export function SearchableSelect({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-        <div className="p-2 border-b">
+      <PopoverContentInDialog className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <div className="border-b p-2">
           <Input
             autoFocus
             value={search}
@@ -69,7 +74,10 @@ export function SearchableSelect({
             className="h-8"
           />
         </div>
-        <div className="max-h-56 overflow-auto p-1">
+        <div
+          className="max-h-64 overflow-y-auto overscroll-contain p-1"
+          onWheel={(e) => e.stopPropagation()}
+        >
           {filtered.length === 0 ? (
             <p className="px-2 py-3 text-sm text-muted-foreground">No match</p>
           ) : (
@@ -82,15 +90,22 @@ export function SearchableSelect({
                   setOpen(false);
                   setSearch("");
                 }}
-                className="flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                className={cn(
+                  "flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm hover:bg-accent",
+                  option.value === value && "bg-accent/60"
+                )}
               >
                 <span className="truncate">{option.label}</span>
-                {option.value === value ? <Check className="h-4 w-4" /> : null}
+                {option.value === value ? <Check className="h-4 w-4 shrink-0" /> : null}
               </button>
             ))
           )}
         </div>
-      </PopoverContent>
+        <div className="border-t px-2 py-1.5 text-[11px] text-muted-foreground">
+          {filtered.length} {filtered.length === 1 ? "option" : "options"}
+          {filtered.length > 6 ? ", scroll for more" : ""}
+        </div>
+      </PopoverContentInDialog>
     </Popover>
   );
 }

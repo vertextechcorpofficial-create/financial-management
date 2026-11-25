@@ -265,7 +265,7 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
       {tab === "report" ? <ReportPanel report={report} busy={busy} onLoad={(form) => void loadReport(form)} /> : null}
 
       <Dialog open={Boolean(pending)} onOpenChange={(next) => (!next ? setPending(null) : undefined)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               {pending === "lock" ? "Lock this session" : pending === "reopen" ? "Reopen this session" : "Mark as submitted"}

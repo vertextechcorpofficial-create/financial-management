@@ -74,7 +74,7 @@ export function NewSessionDialog({ open, lookups, busy, onClose, onSubmit }: New
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!next ? onClose() : undefined)}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Start a physical count</DialogTitle>
           <DialogDescription>
@@ -126,7 +126,7 @@ export function NewSessionDialog({ open, lookups, busy, onClose, onSubmit }: New
           ) : null}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background px-6 py-4">
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
