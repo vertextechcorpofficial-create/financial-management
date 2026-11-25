@@ -4,7 +4,7 @@ import { requireGovernmentLoansWorkspace } from "./access";
 import { AgencyError } from "./agencies";
 import { LoanRequestError } from "./request-input";
 
-export async function withLoanRequestAccess(workspace: "loan-applications" | "loan-approval" | "loans" | "my-loans" | "remittances" | "remittance-approval" | "month-end-close" | "reports",
+export async function withLoanRequestAccess(workspace: "dashboard" | "loan-applications" | "loan-approval" | "loans" | "my-loans" | "remittances" | "remittance-approval" | "month-end-close" | "reports",
   handler: (actor: Extract<Awaited<ReturnType<typeof requireGovernmentLoansWorkspace>>, { ok: true }>) => Promise<unknown>, status = 200) {
   const access = await requireGovernmentLoansWorkspace(workspace);
   let response: Response;
