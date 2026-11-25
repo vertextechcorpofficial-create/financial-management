@@ -128,15 +128,15 @@ export function BulkAssetDialog({ open, lookups, busy, onClose, onSubmit }: Bulk
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!next ? onClose() : undefined)}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex flex-col gap-0 overflow-hidden p-0 max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
           <DialogTitle>Bulk register</DialogTitle>
           <DialogDescription>
             One voucher, many units. Type the quantity and the total on the voucher, the unit cost is computed for you.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-6 pb-2 sm:grid-cols-2">
           <div className="sm:col-span-2 grid gap-2">
             <Label>Description</Label>
             <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Monobloc chair, white" />
@@ -217,7 +217,15 @@ export function BulkAssetDialog({ open, lookups, busy, onClose, onSubmit }: Bulk
             <Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} />
           </div>
 
-          <div className="sm:col-span-2 rounded-md border bg-muted/40 p-3 text-sm">
+          {error ? (
+            <div className="sm:col-span-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              {error}
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter className="shrink-0 flex-col items-stretch gap-3 border-t bg-background px-6 py-4 sm:flex-col">
+          <div className="rounded-md border bg-muted/40 p-3 text-sm">
             <div className="flex flex-wrap gap-x-6 gap-y-1">
               <span>
                 Unit cost: <span className="font-medium">{peso(unitCost)}</span>
@@ -234,21 +242,14 @@ export function BulkAssetDialog({ open, lookups, busy, onClose, onSubmit }: Bulk
               {remainder !== 0 ? " plus " + peso(remainder) + " unallocated, kept on the batch" : ", which matches the voucher exactly"}
             </p>
           </div>
-
-          {error ? (
-            <div className="sm:col-span-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
-            </div>
-          ) : null}
-        </div>
-
-        <DialogFooter className="sticky bottom-0 z-10 -mx-6 border-t bg-background px-6 py-4">
-          <Button variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button onClick={() => void submit()} disabled={busy}>
-            {busy ? "Saving..." : "Register " + qty + " units"}
-          </Button>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void submit()} disabled={busy}>
+              {busy ? "Saving..." : "Register " + qty + " units"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

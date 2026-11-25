@@ -56,6 +56,14 @@ export default function CustodyModule() {
 
   const assigned = data.rows.filter((r) => Boolean(r.asset.accountable_officer_name)).length;
   const totalPages = Math.max(1, Math.ceil(data.total / (data.pageSize || 50)));
+  const activeFilterCount = [
+    params.q,
+    params.officeId,
+    params.form,
+    params.officer,
+    params.prefix,
+    params.onlyWithOfficer ? "y" : null,
+  ].filter(Boolean).length;
   const hasActiveFilters =
     Boolean(params.q) ||
     Boolean(params.officeId) ||
@@ -83,8 +91,10 @@ export default function CustodyModule() {
     { label: "ICS, semi-expendable", value: "ics" },
   ];
   const officerOptions = [
-    ...data.officers.map((name) => ({ label: name, value: name })),
     { label: "Unassigned", value: "__none" },
+    ...[...data.officers]
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({ label: name, value: name })),
   ];
   const prefixOptions = data.prefixes.map((p) => ({ label: p, value: p }));
 
@@ -106,32 +116,79 @@ export default function CustodyModule() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-full max-w-sm">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={params.q ?? ""}
-            onChange={(e) => patchParams({ q: e.target.value, page: 1 })}
-            placeholder="Search property number, description, officer..."
-            className="pl-9"
-          />
+      <div className="rounded-lg border bg-card/40 p-3">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={params.q ?? ""}
+                onChange={(e) => patchParams({ q: e.target.value, page: 1 })}
+                placeholder="Search property number, description, officer..."
+                className="pl-9"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+              {activeFilterCount > 0 ? (
+                <span className="text-xs text-muted-foreground">{activeFilterCount} active</span>
+              ) : null}
+              <Button
+                variant={params.onlyWithOfficer ? "default" : "outline"}
+                size="sm"
+                onClick={() => patchParams({ onlyWithOfficer: !params.onlyWithOfficer, page: 1 })}
+              >
+                Assigned only
+              </Button>
+              <Button size="sm" variant="secondary" onClick={clearFilters} disabled={!hasActiveFilters}>
+                <X className="mr-1 h-3.5 w-3.5" />
+                Clear filters
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Property type</span>
+              <SearchableSelect
+                options={prefixOptions}
+                value={params.prefix ?? ""}
+                onChange={(v) => patchParams({ prefix: v || null, page: 1 })}
+                placeholder="All types"
+                allowClear
+              />
+            </div>
+            <div className="grid gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Form</span>
+              <SearchableSelect
+                options={formOptions}
+                value={params.form ?? ""}
+                onChange={(v) => patchParams({ form: v || null, page: 1 })}
+                placeholder="All forms"
+                allowClear
+              />
+            </div>
+            <div className="grid gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Accountable officer</span>
+              <SearchableSelect
+                options={officerOptions}
+                value={params.officer ?? ""}
+                onChange={(v) => patchParams({ officer: v || null, page: 1 })}
+                placeholder="All officers"
+                allowClear
+              />
+            </div>
+            <div className="grid gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Office</span>
+              <SearchableSelect
+                options={officeOptions}
+                value={params.officeId ? String(params.officeId) : ""}
+                onChange={(v) => patchParams({ officeId: v ? Number(v) : null, page: 1 })}
+                placeholder="All offices"
+                allowClear
+              />
+            </div>
+          </div>
         </div>
-        <div className="w-56">
-          <SearchableSelect
-            options={officeOptions}
-            value={params.officeId ? String(params.officeId) : ""}
-            onChange={(v) => patchParams({ officeId: v ? Number(v) : null, page: 1 })}
-            placeholder="All offices"
-            allowClear
-          />
-        </div>
-        <Button
-          variant={params.onlyWithOfficer ? "default" : "outline"}
-          size="sm"
-          onClick={() => patchParams({ onlyWithOfficer: !params.onlyWithOfficer })}
-        >
-          Assigned only
-        </Button>
       </div>
 
       {error ? (
@@ -139,40 +196,6 @@ export default function CustodyModule() {
           {error}
         </div>
       ) : null}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="w-52">
-          <SearchableSelect
-            options={formOptions}
-            value={params.form ?? ""}
-            onChange={(v) => patchParams({ form: v || null, page: 1 })}
-            placeholder="All forms"
-            allowClear
-          />
-        </div>
-        <div className="w-60">
-          <SearchableSelect
-            options={officerOptions}
-            value={params.officer ?? ""}
-            onChange={(v) => patchParams({ officer: v || null, page: 1 })}
-            placeholder="All officers"
-            allowClear
-          />
-        </div>
-        <div className="w-44">
-          <SearchableSelect
-            options={prefixOptions}
-            value={params.prefix ?? ""}
-            onChange={(v) => patchParams({ prefix: v || null, page: 1 })}
-            placeholder="All types"
-            allowClear
-          />
-        </div>
-        <Button size="sm" variant="secondary" onClick={clearFilters} disabled={!hasActiveFilters}>
-          <X className="mr-1 h-3.5 w-3.5" />
-          Clear filters
-        </Button>
-      </div>
 
       <div className="rounded-lg border">
         <CustodyTable

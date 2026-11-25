@@ -265,8 +265,8 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
       {tab === "report" ? <ReportPanel report={report} busy={busy} onLoad={(form) => void loadReport(form)} /> : null}
 
       <Dialog open={Boolean(pending)} onOpenChange={(next) => (!next ? setPending(null) : undefined)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden p-0 max-h-[90vh] sm:max-w-md">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
             <DialogTitle>
               {pending === "lock" ? "Lock this session" : pending === "reopen" ? "Reopen this session" : "Mark as submitted"}
             </DialogTitle>
@@ -280,13 +280,13 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
           </DialogHeader>
 
           {pending === "lock" ? null : (
-            <div className="grid gap-2">
+            <div className="grid min-h-0 flex-1 gap-2 overflow-y-auto px-6 pb-2">
               <Label>{pending === "reopen" ? "Reason" : "Received by"}</Label>
               <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder={pending === "reopen" ? "Why are we reopening" : "Name or office"} />
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
             <Button variant="outline" onClick={() => setPending(null)} disabled={busy}>
               Cancel
             </Button>

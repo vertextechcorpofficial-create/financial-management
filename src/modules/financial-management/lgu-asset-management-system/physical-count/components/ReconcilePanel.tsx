@@ -149,15 +149,15 @@ export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: Recon
       ) : null}
 
       <Dialog open={Boolean(target)} onOpenChange={(next) => (!next ? setTarget(null) : undefined)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-          <DialogHeader>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden p-0 max-h-[90vh] sm:max-w-xl">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
             <DialogTitle>{mode === "missing" ? "Confirm this asset as missing" : "Record where it actually is"}</DialogTitle>
             <DialogDescription>
               {target?.asset?.property_no ?? ""} {target?.asset?.description ?? ""}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4">
+          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-6 pb-2">
             {mode === "moved" ? (
               <>
                 <div className="grid gap-2">
@@ -192,7 +192,7 @@ export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: Recon
             ) : null}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
             <Button variant="outline" onClick={() => setTarget(null)} disabled={busy}>
               Cancel
             </Button>

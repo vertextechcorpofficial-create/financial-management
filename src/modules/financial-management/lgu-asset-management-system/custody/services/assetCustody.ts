@@ -370,15 +370,20 @@ async function loadAsset(assetId: number): Promise<LguAsset> {
 export async function issueAsset(input: CustodyTransferInput): Promise<AssetHistory> {
   const asset = await loadAsset(input.assetId);
   if (asset.status !== "active") throw new Error("Asset is retired and cannot be issued");
-  if (!input.docNo.trim()) throw new Error("The PAR or ICS number on the paper form is required");
+
+  const officer = (input.toOfficer ?? "").trim();
+  const docNo = (input.docNo ?? "").trim();
+  // an issue with no name would quietly clear whoever was accountable for it
+  if (!officer) throw new Error("The name of the officer receiving the PAR or ICS is required");
+  if (!docNo) throw new Error("The PAR or ICS number on the paper form is required");
 
   const docType = custodyFormFor(asset);
   const document = await createDocument({
     assetId: asset.id,
     docType,
-    docNo: input.docNo.trim(),
+    docNo,
     docDate: input.docDate,
-    issuedTo: input.toOfficer.trim(),
+    issuedTo: officer,
     officeId: input.toOfficeId,
     remarks: input.remarks ?? null,
   });
@@ -390,14 +395,14 @@ export async function issueAsset(input: CustodyTransferInput): Promise<AssetHist
     fromOfficeId: asset.office_id,
     toOfficeId: input.toOfficeId,
     fromOfficer: asset.accountable_officer_name,
-    toOfficer: input.toOfficer.trim(),
+    toOfficer: officer,
     documentId: document.id,
     remarks: input.remarks ?? null,
     encoder: input.encoder ?? null,
   });
 
   await patch("lgu_asset", asset.id, {
-    accountable_officer_name: input.toOfficer.trim(),
+    accountable_officer_name: officer,
     office_id: input.toOfficeId,
     record_status: "active",
   });
@@ -408,8 +413,8 @@ export async function issueAsset(input: CustodyTransferInput): Promise<AssetHist
 export async function transferAsset(input: CustodyTransferInput): Promise<AssetHistory> {
   const asset = await loadAsset(input.assetId);
   if (asset.status !== "active") throw new Error("Asset is retired and cannot be transferred");
-  if (!input.toOfficer.trim()) throw new Error("The receiving officer is required");
-  if (!input.docNo.trim()) throw new Error("The PAR or ICS number on the paper form is required");
+  if (!(input.toOfficer ?? "").trim()) throw new Error("The receiving officer is required");
+  if (!(input.docNo ?? "").trim()) throw new Error("The PAR or ICS number on the paper form is required");
 
   const docType = custodyFormFor(asset);
   const document = await createDocument({
