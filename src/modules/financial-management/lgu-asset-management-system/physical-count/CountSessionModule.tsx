@@ -62,28 +62,43 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
     void loadReport("rpcppe");
   }, [tab, report, loadReport]);
 
-  const rows = React.useMemo(() => {
-    const all = detail?.lines ?? [];
-    const needle = q.trim().toLowerCase();
-    return all.filter((row) => {
-      if (filter === "uncounted" && row.line.found !== null) return false;
-      if (filter === "found" && row.line.found !== true) return false;
-      if (filter === "notfound" && row.line.found !== false) return false;
-      if (filter === "station" && !row.line.is_found_at_station) return false;
-      if (!needle) return true;
-      const hay = [row.line.expected_property_no, row.line.expected_description, row.line.expected_officer]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(needle);
-    });
-  }, [detail, filter, q]);
+  const [sheetPage, setSheetPage] = React.useState(1);
+  const [sheet, setSheet] = React.useState<{ rows: CountLineRow[]; total: number; pageSize: number }>({
+    rows: [],
+    total: 0,
+    pageSize: 100,
+  });
+  const [sheetLoading, setSheetLoading] = React.useState(false);
+  const [sheetToken, setSheetToken] = React.useState(0);
+
+  React.useEffect(() => {
+    let alive = true;
+    setSheetLoading(true);
+    const params = new URLSearchParams({ page: String(sheetPage), filter, q });
+    fetch("/api/fm/lgu-asset-management-system/physical-count/" + sessionId + "/lines?" + params)
+      .then((res) => res.json())
+      .then((json) => {
+        if (!alive || !json || !Array.isArray(json.rows)) return;
+        setSheet({ rows: json.rows, total: Number(json.total ?? 0), pageSize: Number(json.pageSize ?? 100) });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (alive) setSheetLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, sheetPage, filter, q, sheetToken]);
+
+  const rows = sheet.rows;
+  const sheetPages = Math.max(1, Math.ceil(sheet.total / sheet.pageSize));
 
   const progress = stats && stats.total > 0 ? Math.round((stats.counted / stats.total) * 100) : 0;
 
   async function markRow(row: CountLineRow, found: boolean) {
     if (locked) return;
     await mark({ lineId: row.line.id, found });
+    setSheetToken((t) => t + 1);
   }
 
   async function runAction() {
@@ -92,6 +107,7 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
     if (pending === "reopen" && !input.trim()) return setActionError("A reason is required to reopen");
     if (pending === "submit" && !input.trim()) return setActionError("Say who received the report");
     await act(pending, { reason: input.trim() || undefined, submittedTo: input.trim() || undefined });
+    setSheetToken((t) => t + 1);
     setPending(null);
     setInput("");
   }
@@ -198,13 +214,24 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
           <div className="flex flex-wrap items-center gap-2">
             <Input
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setSheetPage(1);
+              }}
               placeholder="Search property number, description, officer..."
               className="w-full max-w-sm"
             />
             <div className="flex gap-1">
               {FILTERS.map((f) => (
-                <Button key={f.key} size="sm" variant={filter === f.key ? "default" : "outline"} onClick={() => setFilter(f.key)}>
+                <Button
+                  key={f.key}
+                  size="sm"
+                  variant={filter === f.key ? "default" : "outline"}
+                  onClick={() => {
+                    setFilter(f.key);
+                    setSheetPage(1);
+                  }}
+                >
                   {f.label}
                 </Button>
               ))}
@@ -213,7 +240,9 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
 
           <div className="rounded-lg border">
             {rows.length === 0 ? (
-              <div className="p-8 text-center text-sm text-muted-foreground">Nothing matches this filter.</div>
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                {sheetLoading ? "Loading this page..." : "Nothing matches this filter."}
+              </div>
             ) : (
               <Table>
                 <TableHeader>
@@ -283,6 +312,31 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
                 </TableBody>
               </Table>
             )}
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t p-3 text-sm">
+              <span className="text-muted-foreground">
+                {sheet.total} line{sheet.total === 1 ? "" : "s"}
+                {sheetPages > 1 ? " · page " + sheetPage + " of " + sheetPages : ""}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={sheetPage <= 1 || sheetLoading}
+                  onClick={() => setSheetPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={sheetPage >= sheetPages || sheetLoading}
+                  onClick={() => setSheetPage((p) => Math.min(sheetPages, p + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           </div>
         </>
       ) : null}

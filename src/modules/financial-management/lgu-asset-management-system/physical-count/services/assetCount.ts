@@ -353,6 +353,86 @@ export async function createCountSession(input: CountSessionInput): Promise<Coun
   return fetchCountSession(session.id);
 }
 
+const SHEET_PAGE_SIZE = 100;
+
+export interface CountSheetPage {
+  rows: CountLineRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/**
+ * One page of a count sheet. The sheet used to read every line of the session and
+ * filter in the browser, which a municipality with thousands of assets cannot afford.
+ */
+export async function fetchCountSheet(
+  countId: number,
+  params: { page?: number; pageSize?: number; filter?: string; q?: string }
+): Promise<CountSheetPage> {
+  const page = Math.max(1, Number(params.page ?? 1));
+  const pageSize = Math.min(200, Math.max(5, Number(params.pageSize ?? SHEET_PAGE_SIZE)));
+  const and: Record<string, unknown>[] = [
+    { count_id: { _eq: countId } },
+    { status: { _eq: "active" } },
+  ];
+
+  switch (params.filter) {
+    case "uncounted":
+      and.push({ found: { _null: true } });
+      break;
+    case "found":
+      and.push({ found: { _eq: true } });
+      break;
+    case "notfound":
+      and.push({ found: { _eq: false } });
+      break;
+    case "station":
+      and.push({ is_found_at_station: { _eq: true } });
+      break;
+    default:
+      break;
+  }
+
+  const needle = (params.q ?? "").trim();
+  if (needle) {
+    and.push({
+      _or: [
+        { expected_property_no: { _icontains: needle } },
+        { expected_description: { _icontains: needle } },
+        { expected_officer: { _icontains: needle } },
+      ],
+    });
+  }
+
+  const filter = encodeURIComponent(JSON.stringify({ _and: and }));
+  const json = await get(
+    "/items/lgu_asset_count_lines?filter=" + filter +
+      "&sort=id&limit=" + pageSize + "&offset=" + (page - 1) * pageSize +
+      "&meta=filter_count"
+  );
+
+  const lines = ((json.data ?? []) as Record<string, unknown>[]).map(mapLine);
+  const ids = lines.map((l) => l.asset_id).filter((v): v is number => typeof v === "number" && v > 0);
+  const assetJson = ids.length
+    ? await get(
+        "/items/lgu_asset?filter=" + encodeURIComponent(JSON.stringify({ id: { _in: ids } })) +
+          "&fields=id,property_no,description,class_id,is_semi_expendable,cost,acquisition_date,available_for_use_date,life_months,residual_value,office_id,accountable_officer_name,location,condition_id,mode_of_acquisition,fund_source_id,donor_name,supplier,po_no,invoice_no,iar_no,par_no,ics_no,serial_no,brand,model,remarks,record_status,unit_of_measure,status&limit=-1"
+      )
+    : { data: [] };
+  const byId = new Map(((assetJson.data ?? []) as Record<string, unknown>[]).map((row) => {
+    const asset = mapAsset(row);
+    return [asset.id, asset] as const;
+  }));
+
+  return {
+    rows: lines.map((line) => ({ line, asset: line.asset_id ? byId.get(line.asset_id) ?? null : null })) as CountLineRow[],
+    total: Number((json.meta as { filter_count?: number } | undefined)?.filter_count ?? lines.length),
+    page,
+    pageSize,
+  };
+}
+
 export async function fetchCountSession(id: number, withAssets = false): Promise<CountSessionDetail> {
   const sessionJson = await get("/items/lgu_asset_counts/" + id);
   if (!sessionJson.data) throw new Error("Count session " + id + " not found");

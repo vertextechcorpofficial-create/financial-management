@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { markCountLine } from "@/modules/financial-management/lgu-asset-management-system/physical-count/services/assetCount";
+import {
+  fetchCountSheet,
+  markCountLine,
+} from "@/modules/financial-management/lgu-asset-management-system/physical-count/services/assetCount";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +15,24 @@ interface MarkBody {
   locationSeen?: string | null;
   remarks?: string | null;
   countedBy?: string | null;
+}
+
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await ctx.params;
+    const { searchParams } = new URL(req.url);
+    return NextResponse.json(
+      await fetchCountSheet(Number(id), {
+        page: Number(searchParams.get("page") ?? 1),
+        pageSize: Number(searchParams.get("pageSize") ?? 0) || undefined,
+        filter: searchParams.get("filter") ?? "all",
+        q: searchParams.get("q") ?? "",
+      })
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ message }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
