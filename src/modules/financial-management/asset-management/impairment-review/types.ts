@@ -52,6 +52,7 @@ export interface ImpairmentReviewData {
     idle_months_threshold: number;
     maintenance_pct_threshold: number;
     market_classes: number[];
+    market_class_names?: string[];
   } | null;
   kpis: ImpairmentKPIData | null;
   lines: ReviewLineItem[];

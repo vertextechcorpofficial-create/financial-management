@@ -7,6 +7,7 @@ import {
   fetchAssetJournals,
   fetchAssetAuditLog,
   fetchAssetCostLines,
+  fetchAssetMaintenanceLogs,
 } from "@/modules/financial-management/asset-management/registration/services/assetDetailService";
 
 export async function GET(
@@ -29,6 +30,7 @@ export async function GET(
       journals,
       auditLogs,
       costLines,
+      maintenanceLogs,
     ] = await Promise.all([
       fetchAssetById(assetId),
       fetchDepreciationPostings(assetId),
@@ -37,6 +39,7 @@ export async function GET(
       fetchAssetJournals(assetId),
       fetchAssetAuditLog(assetId),
       fetchAssetCostLines(assetId),
+      fetchAssetMaintenanceLogs(assetId),
     ]);
 
     if (!asset) {
@@ -51,6 +54,7 @@ export async function GET(
       journals,
       auditLogs,
       costLines,
+      maintenanceLogs,
     });
   } catch (error: unknown) {
     console.error("GET Asset Detail Error:", error);

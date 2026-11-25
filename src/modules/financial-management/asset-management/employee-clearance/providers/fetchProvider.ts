@@ -1,4 +1,4 @@
-import type { EmployeeClearanceData } from "../types";
+import type { ClearanceActionCode, EmployeeClearanceData } from "../types";
 
 const API = "/api/fm/asset-management/employee-clearance";
 
@@ -24,27 +24,39 @@ export async function fetchEmployeeClearances(): Promise<EmployeeClearanceData> 
   return data as EmployeeClearanceData;
 }
 
-export async function startClearance(employeeId: number, lastDay?: string): Promise<{ success: boolean }> {
+export async function startClearance(payload: {
+  employeeId: number;
+  lastDay: string;
+  reason: string;
+}): Promise<{ success: boolean; clearance_request_id?: number | null }> {
   const res = await fetch(`${API}/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ employeeId, lastDay }),
+    body: JSON.stringify(payload),
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(errMsg(data));
-  return data;
+  return data as { success: boolean; clearance_request_id?: number | null };
 }
 
 export async function processClearanceAction(payload: {
   employeeId: number;
+  clearanceRequestId?: number | null;
   assetId: number;
-  action: "RETURNED_TO_STOCK" | "REASSIGNED" | "LOST";
-  conditionId?: number;
-  toDepartmentId?: number;
-  toUserId?: number;
+  action: ClearanceActionCode;
+  conditionId?: number | null;
+  conditionName?: string;
+  toDepartmentId?: number | null;
+  toUserId?: number | null;
   toLocation?: string;
+  amountCharged?: number;
   reason?: string;
-}): Promise<{ success: boolean }> {
+}): Promise<{
+  success: boolean;
+  transfer_id?: number | null;
+  event_id?: number | null;
+  clearance_line_id?: number | null;
+}> {
   const res = await fetch(`${API}/process-action`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -52,5 +64,24 @@ export async function processClearanceAction(payload: {
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(errMsg(data));
-  return data;
+  return data as {
+    success: boolean;
+    transfer_id?: number | null;
+    event_id?: number | null;
+    clearance_line_id?: number | null;
+  };
+}
+
+export async function issueClearance(payload: {
+  employeeId: number;
+  clearanceRequestId?: number | null;
+}): Promise<{ success: boolean }> {
+  const res = await fetch(`${API}/issue`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(errMsg(data));
+  return data as { success: boolean };
 }

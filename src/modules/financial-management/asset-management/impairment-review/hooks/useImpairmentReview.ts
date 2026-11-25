@@ -46,8 +46,13 @@ export function useImpairmentReview() {
       const res = await fetchImpairmentReview();
       setData(res);
       if (res.review) {
+        const names = (res.review.market_class_names || []).map((n) => n.toLowerCase());
         setExternalIndicators((prev) => ({
           ...prev,
+          marketMachinery: names.some((n) => n.includes("machin")),
+          marketTransportation: names.some((n) => n.includes("transport") || n.includes("vehicle")),
+          marketIT: names.some((n) => n.includes("it")),
+          marketFurniture: names.some((n) => n.includes("furnitur")),
           interestRatesIncreased: res.review?.interest_rates_increased ?? false,
           idleMonths: res.review?.idle_months_threshold ?? 6,
           repairPercent: res.review?.maintenance_pct_threshold ?? 25,
@@ -214,8 +219,52 @@ export function useImpairmentReview() {
     }
   };
 
-  const handleExternalIndicatorsChange = (updates: Partial<ExternalIndicatorsState>) => {
-    setExternalIndicators((prev) => ({ ...prev, ...updates }));
+  const handleExternalIndicatorsChange = async (updates: Partial<ExternalIndicatorsState>) => {
+    const nextState = { ...externalIndicators, ...updates };
+    setExternalIndicators(nextState);
+
+    // Only showAllAssets is purely a UI filter; all other indicators/thresholds persist to Directus
+    const hasDbChange =
+      updates.marketMachinery !== undefined ||
+      updates.marketTransportation !== undefined ||
+      updates.marketIT !== undefined ||
+      updates.marketFurniture !== undefined ||
+      updates.interestRatesIncreased !== undefined ||
+      updates.idleMonths !== undefined ||
+      updates.repairPercent !== undefined;
+
+    if (!hasDbChange || !data?.review?.id) return;
+
+    const payload: Parameters<typeof updateReviewDetails>[1] = {};
+    if (updates.interestRatesIncreased !== undefined) {
+      payload.interest_rates_increased = nextState.interestRatesIncreased;
+    }
+    if (
+      updates.marketMachinery !== undefined ||
+      updates.marketTransportation !== undefined ||
+      updates.marketIT !== undefined ||
+      updates.marketFurniture !== undefined
+    ) {
+      const keys: string[] = [];
+      if (nextState.marketMachinery) keys.push("machin");
+      if (nextState.marketTransportation) keys.push("transport");
+      if (nextState.marketIT) keys.push("it");
+      if (nextState.marketFurniture) keys.push("furnitur");
+      payload.market_class_keys = keys;
+    }
+    if (updates.idleMonths !== undefined) {
+      payload.idle_months_threshold = nextState.idleMonths;
+    }
+    if (updates.repairPercent !== undefined) {
+      payload.maintenance_pct_threshold = nextState.repairPercent;
+    }
+
+    try {
+      await updateReviewDetails(data.review.id, payload);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to save indicator change.");
+      await loadData();
+    }
   };
 
   const filteredLines = useMemo(() => {

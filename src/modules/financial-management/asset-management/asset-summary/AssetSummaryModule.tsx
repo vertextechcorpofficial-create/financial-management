@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Download, FileSpreadsheet, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useAssetSummary } from "./hooks/useAssetSummary";
 import AssetSummaryKPICards from "./components/AssetSummaryKPICards";
 import AssetSummaryTable from "./components/AssetSummaryTable";
+import AssetPdfPreviewModal, { type AssetPdfSpec } from "./components/PdfPreviewModal";
 
 export default function AssetSummaryModule() {
   const {
@@ -72,8 +73,71 @@ export default function AssetSummaryModule() {
     toast.success("CSV exported successfully");
   };
 
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+
+  const pdfSpec = useMemo<AssetPdfSpec | null>(() => {
+    if (!data) return null;
+    return {
+      title: "Asset Summary",
+      subtitle: `Consolidated RFID-tagged units · Values as at ${data.asOfDate} · Amounts in PHP`,
+      fileName: `Asset_Summary_${new Date().toISOString().split("T")[0]}`,
+      landscape: true,
+      columns: [
+        { header: "Item Name" },
+        { header: "Item Type" },
+        { header: "Classification" },
+        { header: "In Use", numeric: true },
+        { header: "Out", numeric: true },
+        { header: "By Department" },
+        { header: "By Condition" },
+        { header: "Total Cost", numeric: true },
+        { header: "Accum. Dep.", numeric: true },
+        { header: "Projected Value", numeric: true },
+      ],
+      rows: [
+        ...filteredGroups.map((g) => ({
+          cells: [
+            g.itemName,
+            g.itemType,
+            g.classification,
+            String(g.inUseCount),
+            String(g.outCount),
+            g.byDepartmentText,
+            g.byConditionText,
+            g.totalCost,
+            g.accumDepAndImp,
+            g.projectedValue,
+          ],
+        })),
+        ...(filteredGroups.length > 0
+          ? [
+              {
+                isTotal: true,
+                cells: [
+                  "Total",
+                  "",
+                  "",
+                  String(data.totalUnitsInUse),
+                  String(data.totalUnitsOut),
+                  "",
+                  "",
+                  data.totalCost,
+                  data.totalAccumDep,
+                  data.totalProjectedValue,
+                ],
+              },
+            ]
+          : []),
+      ],
+    };
+  }, [data, filteredGroups]);
+
   const handleExportPDF = () => {
-    window.print();
+    if (!data || data.groups.length === 0) {
+      toast.info("No data to export");
+      return;
+    }
+    setPdfPreviewOpen(true);
   };
 
   if (isLoading) {
@@ -181,6 +245,12 @@ export default function AssetSummaryModule() {
         totalCost={data.totalCost}
         totalAccumDep={data.totalAccumDep}
         totalProjectedValue={data.totalProjectedValue}
+      />
+
+      <AssetPdfPreviewModal
+        open={pdfPreviewOpen}
+        onOpenChange={setPdfPreviewOpen}
+        spec={pdfSpec}
       />
     </div>
   );

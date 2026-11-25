@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  appendAuditLog,
+  getDefaultUserId,
+} from "@/modules/financial-management/asset-management/registration/services/asset";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 const AUTH_HEADERS = {
@@ -15,14 +19,31 @@ export async function POST(req: Request) {
     }
 
     if (API_BASE_URL) {
-      await fetch(`${API_BASE_URL}/items/asset_impairment_reviews/${reviewId}`, {
+      const userId = await getDefaultUserId();
+      const patchRes = await fetch(`${API_BASE_URL}/items/asset_impairment_reviews/${reviewId}`, {
         method: "PATCH",
         headers: AUTH_HEADERS,
         body: JSON.stringify({
           status_id: 2, // SIGNED
-          signed_at: new Date().toISOString(),
-          signed_by: 24,
+          signed_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+          signed_by: userId,
         }),
+      });
+
+      if (!patchRes.ok) {
+        const errJson = (await patchRes.json().catch(() => ({}))) as {
+          errors?: Array<{ message?: string }>;
+        };
+        return NextResponse.json(
+          { error: errJson.errors?.[0]?.message || "Failed to sign off impairment review in database." },
+          { status: 400 }
+        );
+      }
+
+      await appendAuditLog({
+        action_id: 14, // IMPAIRMENT_REVIEW
+        user_id: userId,
+        details: `Signed off and froze impairment review #${reviewId}`,
       });
     }
 
