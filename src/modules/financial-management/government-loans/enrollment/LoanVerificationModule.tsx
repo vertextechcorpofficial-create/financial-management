@@ -99,16 +99,16 @@ function VerificationReviewPanel({ review, back, reload, saved }: {
       {record.status === "ENROLLED" && !canDecide && <p role="status" className="rounded-lg border p-3 text-sm">
         A different verifier must review this enrollment. The encoder and latest resubmitter cannot decide it.
       </p>}
-      {canDecide && <RequestSection title="Decision">
-        <p className="text-sm text-muted-foreground">Verification activates the loan and creates its Payroll instructions.</p>
+      {(canDecide || review.canReturnRenewal) && <RequestSection title="Decision">
+        {canDecide && <p className="text-sm text-muted-foreground">Verification activates the loan and creates its Payroll instructions.</p>}
         <label className="block space-y-1.5 text-sm">
           <span className="block font-medium">Reason for return</span>
           <Textarea maxLength={500} disabled={Boolean(pending)} value={reason} onChange={event => setReason(event.target.value)} />
         </label>
         {error && <p role="alert" className="text-sm text-destructive">{error.message}</p>}
         <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={Boolean(pending) || Boolean(error?.conflict) || checks.some(check => check.reason)}
-            onClick={() => void decide("VERIFY")}>{pending === "VERIFY" ? "Verifying…" : "Verify enrollment"}</Button>
+          {canDecide && <Button type="button" disabled={Boolean(pending) || Boolean(error?.conflict) || checks.some(check => check.reason)}
+            onClick={() => void decide("VERIFY")}>{pending === "VERIFY" ? "Verifying…" : "Verify enrollment"}</Button>}
           <Button type="button" variant="outline" disabled={Boolean(pending) || Boolean(error?.conflict) || !reason.trim()}
             onClick={() => void decide("RETURN")}>{pending === "RETURN" ? "Returning…" : "Return for correction"}</Button>
           <Button type="button" variant="ghost" disabled={Boolean(pending)} onClick={reload}>Reload review</Button>
