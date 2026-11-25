@@ -1,14 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { assertMutationOrigin } from "../../expense-approval-authority/_lib/auth";
 import { directus, readRows } from "../../expense-approval-authority/_lib/directus";
 import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/authorityErrors";
 import { normalizeMoney } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/validatePolicyRules";
 import { PROPOSED_RULES } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/policy-seed";
 import { specialRuleProblems } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/filingSpecialRules";
 import type { IndependentExpenseEvent, IndependentExpenseSnapshot } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/independentTypes";
-import { latestRequests, requestEvents, requireWorkflowAccess, REQUEST_COLLECTION, REQUEST_FIELDS, responseHeaders, verifyAttachmentProof } from "../_lib/independent";
+import { assertWorkflowMutationOrigin, latestRequests, requestEvents, requireWorkflowAccess, REQUEST_COLLECTION, REQUEST_FIELDS, responseHeaders, verifyAttachmentProof } from "../_lib/independent";
 import { dummyConfiguration, requireDummyConfig } from "../_lib/dummy";
 
 export const runtime = "nodejs";
@@ -54,7 +53,8 @@ export async function GET(request: NextRequest) {
 }
 export async function POST(request: NextRequest) {
   try {
-    assertMutationOrigin(request);
+    assertWorkflowMutationOrigin(request);
+    if (!request.headers.get("content-type")?.startsWith("application/json")) throw new AuthorityError("INVALID_CONTENT_TYPE", "JSON is required.", 415);
     const actor = await requireWorkflowAccess(request);
     const org = await organization(actor);
     const text = await request.text();

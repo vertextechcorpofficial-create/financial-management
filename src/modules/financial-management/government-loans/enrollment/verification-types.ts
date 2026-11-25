@@ -3,6 +3,8 @@ import type { EnrollmentDetail, EnrollmentListItem, EnrollmentSnapshot } from ".
 
 export const ENROLLMENT_PAGE_SIZE = 25;
 export const enrollmentDecisions = ["VERIFY", "RETURN"] as const;
+export const verificationStatuses = ["ENROLLED", "VERIFIED", "ACTIVATING", "ACTIVE"] as const;
+export type VerificationStatus = typeof verificationStatuses[number];
 export type EnrollmentDecision = typeof enrollmentDecisions[number];
 
 export type VerificationQueueItem = EnrollmentListItem & {
@@ -17,6 +19,9 @@ export type VerificationQueue = Page<VerificationQueueItem> & { openMonth: strin
 export type VerificationReview = {
   record: EnrollmentDetail & { enrollment: EnrollmentSnapshot };
   canDecide: boolean;
+  canActivate: boolean;
+  canManageHandoff: boolean;
+  canReturnRenewal: boolean;
   checks: { label: string; reason: string | null }[];
   payrollWarnings: string[];
 };

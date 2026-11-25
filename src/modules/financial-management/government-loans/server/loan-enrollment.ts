@@ -6,7 +6,7 @@ import { todayManila } from "@/modules/financial-management/cooperative/members/
 import { deductionMonths, exactMoney, normalizedReference, unusualReference } from "../enrollment/rules";
 import { matchPayrollEnrollment } from "../enrollment/payroll-match";
 import {
-  enrollmentReviewStatuses, enrollmentStatuses, type EnrollmentDetail, type EnrollmentListItem, type EnrollmentOutcome, type EnrollmentPage,
+  enrollmentWorkflowStatuses, enrollmentStatuses, type EnrollmentDetail, type EnrollmentListItem, type EnrollmentOutcome, type EnrollmentPage,
   type EnrollmentSnapshot, type EnrollmentTerms, type ExistingLoanReview, type PriorLoan,
 } from "../enrollment/types";
 import { canStartInOpenPeriod } from "../enrollment/verification-rules";
@@ -14,7 +14,7 @@ import { ENROLLMENT_PAGE_SIZE } from "../enrollment/verification-types";
 import { positiveMoney } from "../requests/request-rules";
 import { emptyRequest, type AgencyChoice } from "../requests/types";
 import type { AgencyActor } from "./agencies";
-import { GOVERNMENT_LOAN_REQUESTS, GOVERNMENT_LOAN_SETTINGS } from "./directus";
+import { GOVERNMENT_LOAN_REQUESTS } from "./directus";
 import {
   enrollmentBenefitCode as benefitCode, readEnrollmentRows as rows, readLinkedPayrollLoans, readPayrollReferences, readReservedReferences,
 } from "./enrollment-sources";
@@ -22,6 +22,8 @@ import {
   commitRequestRevision, enrollmentEvidenceKind, loanCommand, readCommandReceipt, readRequest, readRequestDocuments,
   referenceFor, requestDetailRow, requestDetails, requestRow, type StoredLoanDocument,
 } from "./loan-requests";
+import { enrollmentPayrollLinks } from "./payroll-handoff-store";
+import { readOpenMonth } from "./period-commands";
 import { activeAgency, activeEmployee, employeeName } from "./request-assessment";
 import { LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
 
@@ -58,7 +60,7 @@ const snapshot = z.object({ ...enrollmentTerms.shape,
   verifiedAt: z.string().optional(),
 }).nullable();
 const enrollmentStatus = z.enum(enrollmentStatuses);
-const reviewStatus = z.enum(enrollmentReviewStatuses);
+const workflowStatus = z.enum(enrollmentWorkflowStatuses);
 const listRow = requestRow.pick({ id: true, revision: true, employee_name: true, agency_name: true, requested_at: true }).extend({
   status: enrollmentStatus, form: z.object({ program: z.string(), applicationType: z.string() }),
   enrollment: snapshot, import_batch_id: positiveId.nullable(),
@@ -69,10 +71,7 @@ const detailRow = requestDetailRow.extend({
 });
 export type EnrollmentRecord = z.output<typeof detailRow>;
 
-export async function readOpenMonth() {
-  const [row] = await rows(GOVERNMENT_LOAN_SETTINGS, z.object({ open_month: z.string().nullable() }), "open_month", { id: { _eq: 1 } }, 1);
-  return row && deductionMonths(row.open_month).length ? row.open_month : null;
-}
+export { readOpenMonth };
 
 export function enrollmentListItem(row: z.output<typeof listRow>): EnrollmentListItem {
   return {
@@ -84,7 +83,7 @@ export function enrollmentListItem(row: z.output<typeof listRow>): EnrollmentLis
 
 const listInput = z.object({
   q: z.string().trim().max(120).default(""), agency: positiveId.optional(),
-  status: z.enum(["APPROVED", ...enrollmentReviewStatuses]).optional(), batch: positiveId.optional(), page: pageNumber,
+  status: z.enum(["APPROVED", ...enrollmentWorkflowStatuses]).optional(), batch: positiveId.optional(), page: pageNumber,
 });
 export async function listEnrollmentRecords(params: URLSearchParams) {
   const { q, agency, status, batch, page } = parseInput(listInput, Object.fromEntries(params));
@@ -95,7 +94,7 @@ export async function listEnrollmentRecords(params: URLSearchParams) {
     _and: [
       { _or: [
         { status: { _eq: "APPROVED" }, requested_at: { _nnull: true } },
-        { status: { _in: enrollmentReviewStatuses }, enrollment: { _nnull: true } },
+        { status: { _in: enrollmentWorkflowStatuses }, enrollment: { _nnull: true } },
       ] },
       ...(q ? [{ _or: [
         { employee_name: { _icontains: q } }, { live_reference_key: { _icontains: q } },
@@ -118,7 +117,7 @@ async function readEnrollmentRecord(id: number): Promise<EnrollmentRecord> {
   const [row] = await rows(GOVERNMENT_LOAN_REQUESTS, detailRow, Object.keys(detailRow.shape).join(","), {
     id: { _eq: id }, status: { _in: enrollmentStatuses },
   }, 1);
-  if (!row || (reviewStatus.safeParse(row.status).success ? !row.enrollment : !row.requested_at)) {
+  if (!row || (workflowStatus.safeParse(row.status).success ? !row.enrollment : !row.requested_at)) {
     throw new LoanRequestError(404, "Loan enrollment could not be found.");
   }
   return row;
@@ -126,13 +125,14 @@ async function readEnrollmentRecord(id: number): Promise<EnrollmentRecord> {
 
 export async function readStagedEnrollment(id: number) {
   const row = await readEnrollmentRecord(id);
-  if (!row.enrollment || !reviewStatus.safeParse(row.status).success) throw new LoanRequestError(404, "Loan enrollment could not be found.");
+  if (!row.enrollment || !workflowStatus.safeParse(row.status).success) throw new LoanRequestError(404, "Loan enrollment could not be found.");
   return { ...row, enrollment: row.enrollment };
 }
 
 export async function enrollmentDetail(row: EnrollmentRecord, documents: StoredLoanDocument[]): Promise<EnrollmentDetail> {
+  const [request, links] = await Promise.all([requestDetails(row, documents), enrollmentPayrollLinks(row)]);
   return {
-    ...enrollmentListItem(row), request: await requestDetails(row, documents),
+    ...enrollmentListItem(row), ...links, request,
     evidence: row.enrollment ? documents.flatMap(document => {
       const kind = enrollmentEvidenceKind.safeParse(document.kind);
       return kind.success ? [{ kind: kind.data, name: document.file_name }] : [];
@@ -183,6 +183,36 @@ export async function validatePriorLoan(id: number, employeeId: number, code: st
   if (!match) throw new LoanRequestError(422, "Choose a live prior loan for this employee and agency.", {
     priorLoanId: "Choose a live prior loan for this employee and agency.",
   });
+}
+
+export async function checkLiveEnrollmentReference(row: Awaited<ReturnType<typeof readStagedEnrollment>>) {
+  const { employeeId, agencyId, program } = row.form;
+  const reference = normalizedReference(row.enrollment.agencyReference);
+  const agency = await activeAgency(agencyId);
+  if (!employeeId || !agency || !agency.programs.includes(program)) {
+    throw new LoanRequestError(422, "Confirm the employee and active agency program before verification.");
+  }
+  const code = benefitCode(agency);
+  if (!code) throw new LoanRequestError(422, "Confirm a Payroll agency mapping before verification.");
+  const [reservations, references, owners] = await Promise.all([
+    readReservedReferences([reference]), readPayrollReferences([reference]),
+    row.payroll_loan_id ? readLinkedPayrollLoans([row.payroll_loan_id]) : [],
+  ]);
+  if (row.live_reference_key !== reference || reservations.some(item => item.id !== row.id)) {
+    throw new LoanRequestError(422, "The agency reference is already in use or its reservation changed. Return the enrollment for correction.");
+  }
+  const match = matchPayrollEnrollment(references.get(reference) ?? [], { ...row.enrollment, employeeId, program }, code, Boolean(row.payroll_loan_id));
+  if (match.conflict) throw new LoanRequestError(422, match.conflict);
+  if (match.loanId !== row.payroll_loan_id || (row.enrollment.payrollLoanId ?? null) !== row.payroll_loan_id || owners.some(item => item.id !== row.id)) {
+    throw new LoanRequestError(422, "The linked Payroll loan changed or is already linked elsewhere. Return the enrollment for correction.");
+  }
+  if (row.enrollment.priorLoanId) {
+    if (row.enrollment.priorLoanId === row.payroll_loan_id) {
+      throw new LoanRequestError(422, "Choose a prior loan distinct from the enrollment's Payroll loan.");
+    }
+    await validatePriorLoan(row.enrollment.priorLoanId, employeeId, code);
+  }
+  return { code, warnings: match.warnings };
 }
 
 type Command = ReturnType<typeof loanCommand>;
@@ -362,7 +392,7 @@ export async function recordImportTransfer(id: number, body: unknown, key: strin
   const replay = await readCommandReceipt(command);
   if (replay) return { id, revision: replay.revision };
   const row = await readStagedEnrollment(id);
-  if (row.status === "VERIFIED" || row.revision !== input.expectedRevision) {
+  if ((row.status !== "ENROLLED" && row.status !== "RETURNED") || row.revision !== input.expectedRevision) {
     throw new LoanRequestError(409, "Reload the enrollment before updating its transfer status.");
   }
   if (row.enrollment.origin !== "IMPORT" || row.enrollment.installmentsPaid !== 0) {

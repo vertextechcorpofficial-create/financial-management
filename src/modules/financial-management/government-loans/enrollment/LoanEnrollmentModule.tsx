@@ -9,7 +9,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { peso } from "@/modules/financial-management/cooperative/members/format";
 import { agencyOptions, requestDocumentUrl } from "../requests/request-api";
-import { requestStatusLabels, type AgencyChoice } from "../requests/types";
+import { requestStatusLabels, type AgencyChoice, type EmployeeChoice } from "../requests/types";
 import { getEnrollment, listEnrollments } from "./api";
 import { EnrollmentDetails } from "./EnrollmentDetails";
 import { EnrollmentEditor } from "./EnrollmentEditor";
@@ -24,10 +24,11 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-export function LoanEnrollmentModule() {
+export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: EmployeeChoice } = {}) {
   const [importView, setImportView] = useState<"upload" | "history" | null>(null);
   const [importedBatch, setImportedBatch] = useState<number | null>(null);
-  const [selected, setSelected] = useState<number | "new" | null>(null);
+  const [selected, setSelected] = useState<number | "new" | null>(transferEmployee ? "new" : null);
+  const [initialTransfer, setInitialTransfer] = useState(transferEmployee);
   const [correcting, setCorrecting] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -89,19 +90,21 @@ export function LoanEnrollmentModule() {
     return () => controller.abort();
   }, [selected, detailKey]);
 
-  const back = () => { setSelected(null); setCorrecting(false); setNotice(""); };
+  const back = () => { setSelected(null); setCorrecting(false); setNotice(""); setInitialTransfer(undefined); };
   const refreshMonth = () => reloadList(value => value + 1);
   const agencyError = agencies.error && <LoadError message={agencies.error} retry={() => reloadAgencies(value => value + 1)} />;
   if (selected !== null) {
     const value = record?.data;
     if (selected === "new" || value?.status === "APPROVED" || value?.status === "RETURNED" && correcting) return <div className="space-y-3">
       {agencyError}
-      <EnrollmentEditor key={detailKey} record={value} agencies={agencies.items} openMonth={list?.data?.openMonth ?? null}
+      <EnrollmentEditor key={detailKey} record={value} transferEmployee={selected === "new" ? initialTransfer : undefined}
+        agencies={agencies.items} openMonth={list?.data?.openMonth ?? null}
         onBack={correcting ? () => setCorrecting(false) : back} onReload={() => reloadDetail(count => count + 1)}
         refreshMonth={refreshMonth} onSaved={result => {
           setNotice(correcting ? "Enrollment resubmitted for verification." :
             result.status === "ENROLLED" ? "Enrollment saved for verification." : "Agency decline recorded.");
           setCorrecting(false);
+          setInitialTransfer(undefined);
           setSelected(result.id);
           reloadDetail(count => count + 1);
           refreshMonth();
@@ -158,6 +161,7 @@ export function LoanEnrollmentModule() {
         <option value="">All statuses</option><option value="APPROVED">Approved · awaiting agency</option>
         <option value="ENROLLED">For verification</option><option value="RETURNED">Returned for correction</option>
         <option value="VERIFIED">Verified · awaiting activation</option>
+        <option value="ACTIVATING">Activation pending</option><option value="ACTIVE">Active</option>
       </NativeSelect>
     </div>
     {current?.error && <LoadError message={current.error} retry={refreshMonth} />}

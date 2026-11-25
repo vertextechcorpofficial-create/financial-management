@@ -1,5 +1,7 @@
 import "server-only";
 
+import { nextPeriodCommand, readOpenMonth } from "./period-commands";
+
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
@@ -277,13 +279,16 @@ export async function createAgency(body: unknown, actor: AgencyActor) {
   const next = normalizePolicy(parsed.data);
   const revision = 1;
   const now = new Date().toISOString();
+  const openMonth = await readOpenMonth();
+  const period = openMonth ? await nextPeriodCommand(openMonth) : null;
   return save({
     ...writeFields(next, actor.actorId, now),
     short_code: shortCode,
     revision,
     created_by_user_id: actor.actorId,
     date_created: now,
-    history_entries: { create: [historyRecord(shortCode, revision, "CREATED", actor, now, `create:${shortCode}`, policyChanges(null, next))] },
+    history_entries: { create: [{ ...historyRecord(shortCode, revision, "CREATED", actor, now, `create:${shortCode}`, policyChanges(null, next)),
+      ...(period ? { period_command_id: period } : {}) }] },
   });
 }
 
@@ -302,10 +307,13 @@ export async function updateAgency(id: string, body: unknown, actor: AgencyActor
   const action = deactivating ? "DEACTIVATED" : current.isActive === next.isActive ? "UPDATED" : "ACTIVATED";
   const revision = current.revision + 1;
   const now = new Date().toISOString();
+  const openMonth = await readOpenMonth();
+  const period = openMonth ? await nextPeriodCommand(openMonth) : null;
   return save({
     ...writeFields(next, actor.actorId, now),
     revision,
-    history_entries: { create: [historyRecord(current.shortCode, revision, action, actor, now, `edit:${key}:${revision}`, changes)] },
+    history_entries: { create: [{ ...historyRecord(current.shortCode, revision, action, actor, now, `edit:${key}:${revision}`, changes),
+      ...(period ? { period_command_id: period } : {}) }] },
   }, key);
 }
 
