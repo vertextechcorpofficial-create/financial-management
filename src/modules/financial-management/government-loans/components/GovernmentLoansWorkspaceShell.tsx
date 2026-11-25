@@ -16,6 +16,8 @@ import { PostingDisputesModule } from "../loans/PostingDisputesModule";
 import type { EmployeeChoice } from "../requests/types";
 import { PayrollInstructionsModule } from "../payroll-handoff/PayrollInstructionsModule";
 import { AgenciesModule } from "../remittances/agencies/AgenciesModule";
+import { AgencyBillingModule } from "../remittances/billing/AgencyBillingModule";
+import { RemittancePreparationModule } from "../remittances/preparation/RemittancePreparationModule";
 import { LoanRequestsModule } from "../requests/LoanRequestsModule";
 import type { GovernmentLoansTab, GovernmentLoansWorkspace, GovernmentLoansWorkspaceKey } from "../workspaces";
 
@@ -73,7 +75,7 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
         <Badge variant="outline">Registration scaffold</Badge>
       </div>}
 
-      {tabs.length ? <Tabs defaultValue={hasAgencies ? "agencies" : transferEmployee ? "enrollment" : tabs[0].key} className={isScaffold ? "mt-4 gap-4" : "gap-4"}>
+      {tabs.length ? <Tabs defaultValue={transferEmployee ? "enrollment" : tabs[0].key} className={isScaffold ? "mt-4 gap-4" : "gap-4"}>
         <div className="overflow-x-auto">
           <TabsList aria-label={`${workspace.title} tabs`} className="flex h-auto w-full max-w-full min-w-0 justify-start gap-1 overflow-x-auto rounded-lg bg-muted/50 p-1">
             {tabs.map(tab => <TabsTrigger key={tab.key} value={tab.key} className="shrink-0 whitespace-nowrap data-[state=active]:bg-background">
@@ -83,6 +85,8 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
         </div>
         {tabs.map(tab => <TabsContent key={tab.key} value={tab.key} className="mt-0">
           {hasAgencies && tab.key === "agencies" ? <AgenciesModule /> :
+            hasAgencies && tab.key === "to-remit" ? <RemittancePreparationModule /> :
+            hasAgencies && tab.key === "billing-reconciliation" ? <AgencyBillingModule /> :
             hasRequests && tab.key === "requests" ? <LoanRequestsModule /> :
             hasRequests && tab.key === "enrollment" ? <LoanEnrollmentModule transferEmployee={transferEmployee} /> :
             hasApprovals && tab.key === "loan-requests" ? <LoanApprovalModule /> :

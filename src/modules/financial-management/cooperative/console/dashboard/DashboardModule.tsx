@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { transactionMoney } from "@/modules/financial-management/treasury/bank-reconciliation/utils/transactionDisplay";
@@ -57,6 +58,21 @@ function DashboardPanel<T>({ title, description, section, empty, href, linkLabel
         : <Unavailable section={section} onRetry={onRetry} />}
     </Panel>
   );
+}
+
+function DashboardSkeleton() {
+  return <div className="space-y-4" aria-hidden="true">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {Array.from({ length: 6 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-xl border bg-muted/30" />)}
+    </div>
+    <div className="grid gap-4 xl:grid-cols-2">
+      {Array.from({ length: 2 }, (_, index) => <div key={index} className="h-64 animate-pulse rounded-xl border bg-muted/30" />)}
+    </div>
+    <div className="grid gap-4 xl:grid-cols-3">
+      {Array.from({ length: 3 }, (_, index) => <div key={index} className="h-64 animate-pulse rounded-xl border bg-muted/30" />)}
+    </div>
+    <div className="h-64 animate-pulse rounded-xl border bg-muted/30" />
+  </div>;
 }
 
 function DashboardContent({ summary, onRetry }: { summary: DashboardSummary; onRetry: () => void }) {
@@ -128,7 +144,7 @@ function DashboardContent({ summary, onRetry }: { summary: DashboardSummary; onR
       <DashboardPanel title="Waiting for you" section={work} empty="Nothing waiting." onRetry={onRetry}
         href={links.approvals} linkLabel="All approvals"
         display={data => data.waiting.length ? (
-          <Table>
+          <Table aria-label="Waiting for you">
             <TableBody>
               {data.waiting.map(row => {
                 const label = row.kind === "release" ? `Release ${row.reference}` : workLabels[row.kind];
@@ -136,7 +152,9 @@ function DashboardContent({ summary, onRetry }: { summary: DashboardSummary; onR
                   <TableRow key={`${row.kind}-${row.id}`}>
                     <TableCell className="whitespace-normal">
                       {row.href ? <DashboardLink href={row.href}>{label}</DashboardLink> : <p className="font-medium">{label}</p>}
-                      <p className="text-xs text-muted-foreground">{row.member}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {row.member}{row.date ? ` · ${formatDate(row.date)}` : ""}
+                      </p>
                     </TableCell>
                     <TableCell className="text-right font-mono">{row.amount === null ? "—" : money(row.amount)}</TableCell>
                   </TableRow>
@@ -149,7 +167,7 @@ function DashboardContent({ summary, onRetry }: { summary: DashboardSummary; onR
 
     <Panel title="Recent transactions"
       actions={"data" in recentTransactions && links.journal ? <DashboardLink href={links.journal}>Open journal</DashboardLink> : undefined}>
-      <Table>
+      <Table aria-label="Recent transactions">
         <TableHeader>
           <TableRow>
             <TableHead>Date</TableHead><TableHead>Member</TableHead><TableHead>Type</TableHead>
@@ -204,13 +222,18 @@ export default function DashboardModule() {
 
   return (
     <main className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6" aria-busy={!current}>
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        {current?.data && <p className="mt-1 text-sm text-muted-foreground">
-          Savings, loans and collections as of {formatDate(current.data.asOf)}.
-        </p>}
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          {current?.data && <p className="mt-1 text-sm text-muted-foreground">
+            Savings, loans and collections as of {formatDate(current.data.asOf)} · Next payroll cutoff {formatDate(current.data.nextCutoff)}.
+          </p>}
+        </div>
+        <Button type="button" size="sm" variant="outline" onClick={retry} disabled={!current}>
+          <RefreshCw className="size-4" /> Refresh
+        </Button>
       </header>
-      {!current && <p role="status" className="text-sm text-muted-foreground">Loading dashboard…</p>}
+      {!current && <DashboardSkeleton />}
       {current?.error && <Unavailable section={{ state: "failed", message: current.error }} onRetry={retry} />}
       {current?.data && <DashboardContent summary={current.data} onRetry={retry} />}
     </main>

@@ -34,6 +34,13 @@ export function monthAfter(month: string, offset = 1) {
   return String(Math.floor(index / 12)).padStart(4, "0") + "-" + String(index % 12 + 1).padStart(2, "0");
 }
 
+export function deductionCatchUp(catchUp: boolean, history: ConfirmedDeduction[], month: string) {
+  if (!catchUp) return 0n;
+  const previous = history.find(row => row.month === monthAfter(month, -1) && (row.status === "P" || row.status === "F"));
+  const shortfall = previous ? centavos(previous.expected) - centavos(previous.amount) : 0n;
+  return shortfall > 0n ? shortfall : 0n;
+}
+
 export function expectedDeduction(schedule: LoanSchedule, history: ConfirmedDeduction[], month: string) {
   if (month < schedule.firstDeductionMonth) return "0.00";
   if (history.some(row => row.status === "X" && row.month < month)) return "0.00";
@@ -45,10 +52,7 @@ export function expectedDeduction(schedule: LoanSchedule, history: ConfirmedDedu
   const amortization = changes.filter(change => change.kind === "AMORTIZATION").at(-1)?.amount ?? schedule.amortization;
   const regular = history.filter(row => row.status !== "X" && row.month >= schedule.firstDeductionMonth && row.month < month);
   const counted = schedule.alreadyPaid + regular.filter(row => row.status !== "F" || schedule.catchUp).length;
-  const previous = regular.find(row => row.month === monthAfter(month, -1));
-  const shortfall = schedule.catchUp && previous && (previous.status === "P" || previous.status === "F")
-    ? centavos(previous.expected) - centavos(previous.amount) : 0n;
-  return amountFromCentavos((counted < schedule.term ? centavos(amortization) : 0n) + (shortfall > 0n ? shortfall : 0n));
+  return amountFromCentavos((counted < schedule.term ? centavos(amortization) : 0n) + deductionCatchUp(schedule.catchUp, regular, month));
 }
 
 export function summarizeWithholding(rows: MonthlyResult[]) {
