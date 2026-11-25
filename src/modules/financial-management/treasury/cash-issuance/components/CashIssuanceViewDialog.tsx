@@ -530,6 +530,13 @@ export function CashIssuanceViewDialog({ disbursement, open, onOpenChange, onUpd
                             </Button>
                         )}
 
+                        {!readOnly && disbursement.status === "Posted" && subModule === "all" &&
+                            disbursement.payments?.some(payment => payment.checkNo?.trim()) && (
+                            <Button variant="outline" onClick={() => handleAction("Posted")} disabled={loading}>
+                                Sync cheques
+                            </Button>
+                        )}
+
                         {!readOnly && disbursement.status === "Released" && subModule === "posting" && (
                             <div className="flex flex-col items-end gap-1">
                                 <Button 

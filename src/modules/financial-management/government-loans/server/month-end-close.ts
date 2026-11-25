@@ -16,7 +16,7 @@ import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_CLOSES, GOVERNMENT_LOAN_PAYRO
 import { readEnrollmentRows, readGroups } from "./enrollment-sources";
 import { readChangeInstructions } from "./loan-changes";
 import { isoDateTime } from "./loan-requests";
-import { buildAgencyRollforward, rollforwardSchema } from "./month-end-rollforward";
+import { buildAgencyRollforward, readOpeningRollforward, rollforwardSchema } from "./month-end-rollforward";
 import { payrollMoney, payrollMonth, readLatestReceipts, readPayrollPages, receiptSummary } from "./payroll-month-store";
 import { nextPeriodCommand, readOpenMonth } from "./period-commands";
 import { readRemittanceOverview } from "./remittance-records";
@@ -61,7 +61,7 @@ async function buildChecklist(month: string) {
       { state: { _eq: "APPROVED" }, payment_date: { _lte: endDate } }] }),
     readChangeInstructions({ action: { _in: ["SEPARATION", "REFUND"] }, effective_month: { _lte: month },
       state: { _nin: ["CANCELLED", "PAID"] } }),
-    readClose({ month: { _eq: monthAfter(month, -1) } }),
+    readOpeningRollforward(monthAfter(month, -1)),
   ]);
   const resultRows: z.output<typeof resultSchema>[] = [];
   const receiptIds = [...receipts.values()].map(receipt => receipt.id);

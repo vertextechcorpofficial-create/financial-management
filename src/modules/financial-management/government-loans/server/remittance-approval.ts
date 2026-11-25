@@ -3,6 +3,7 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { todayManila } from "@/modules/financial-management/cooperative/members/format";
+import { overdueRequestCutoff } from "../approval/rules";
 import { remittanceLiability } from "../remittances/approval/rules";
 import { remitKey, remittancePenalty } from "../remittances/preparation/rules";
 import { amountFromCentavos } from "../loans/position";
@@ -43,17 +44,11 @@ const savedEvidence = z.object({ payment: summary, review: reviewEvidence });
 const queueQuery = z.object({ q: z.string().trim().max(120).default(""), agencyId: positiveId.optional(),
   overdue: z.enum(["1"]).optional(), page: pageNumber, historyPage: pageNumber });
 
-function beforeSla(today: string) {
-  const date = new Date(today + "T00:00:00Z");
-  date.setUTCDate(date.getUTCDate() - 3);
-  return date.toISOString().slice(0, 10) + "T00:00:00+08:00";
-}
-
 export async function listRemittanceApproval(params: URLSearchParams) {
   const { q, agencyId, overdue, page, historyPage } = parseInput(queueQuery, Object.fromEntries(params));
   const today = todayManila();
   const pendingFilter = { state: { _eq: "PENDING" }, ...(agencyId ? { agency_id: { _eq: agencyId } } : {}),
-    ...(overdue ? { submitted_at: { _lt: beforeSla(today) } } : {}),
+    ...(overdue ? { submitted_at: { _lt: overdueRequestCutoff(new Date(today + "T00:00:00+08:00")) } } : {}),
     ...(q ? { _or: [{ payment_reference: { _icontains: q } }, { agency_name: { _icontains: q } },
       { batch_id: { uploaded_by: { _icontains: q } } }] } : {}) };
   const [pending, history] = await Promise.all([

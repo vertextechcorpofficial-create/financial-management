@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { AgencyActor } from "./agencies";
+
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { normalizedReference } from "../enrollment/rules";
@@ -7,14 +9,13 @@ import { deductionCatchUp, expectedDeduction, monthAfter } from "../loans/monthl
 import { amountFromCentavos } from "../loans/position";
 import { billingMaxBytes, parseAgencyBill, type BillingLine } from "../remittances/billing/csv";
 import { compareAgencyBilling, needsBillingReview, type BillingLoan } from "../remittances/billing/reconcile";
-import type { AgencyActor } from "./agencies";
 import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_BILLING_REVISIONS, GOVERNMENT_LOAN_REQUESTS,
   GovernmentLoansDirectusError, writeGovernmentLoansItem } from "./directus";
 import { readEnrollmentRows, readGroups } from "./enrollment-sources";
 import { readOpenMonth } from "./loan-enrollment";
 import { readBillingLoanSchedules } from "./loan-register";
 import { isoDateTime, referenceFor } from "./loan-requests";
-import { payrollMoney, payrollMonth, readCurrentPayrollReceipt, readPayrollPages, readPayrollResults, receiptSummary } from "./payroll-month-store";
+import { payrollMoney, payrollMonth, readCurrentPayrollReceipt, readPayrollPages, readPayrollResults, receiptSummary, type PayrollReceipt } from "./payroll-month-store";
 import { nextPeriodCommand } from "./period-commands";
 import { flag, LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
 
@@ -96,7 +97,7 @@ async function readBillingCandidates(agencyId: number, references: string[], ids
 }
 
 async function reconcile(agency: z.output<typeof agencySchema>, month: string, lines: BillingLine[] | null,
-  receipt: Awaited<ReturnType<typeof readCurrentPayrollReceipt>>) {
+  receipt: PayrollReceipt | null) {
   const results = receipt
     ? await readPayrollResults({ receipt_id: { _eq: receipt.id }, agency_id: { _eq: agency.id } }) : null;
   if (!lines) return compareAgencyBilling(null, [], results);
@@ -136,6 +137,12 @@ export async function getAgencyBillingSummary(agencyId: number, month: string) {
     agency, ...comparison, billingRevision: bill ? billingRevision(bill) : null,
     payrollReceipt: receipt ? receiptSummary(receipt) : null,
   };
+}
+
+export async function readSavedBillingComparison(agencyId: number, month: string, receipt: PayrollReceipt | null) {
+  const bill = await latestBill(agencyId, month);
+  if (!bill) return null;
+  return reconcile(await getBillingAgency(agencyId), month, bill.lines, receipt);
 }
 
 export async function viewAgencyBilling(params: URLSearchParams) {
