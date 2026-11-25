@@ -39,8 +39,10 @@ export async function readDisputes(params: URLSearchParams, owner?: number) {
     reference: z.uuid().optional(), download: z.literal("1").optional(), filing: z.literal("1").optional(), page: pageNumber, notesPage: pageNumber,
   }), Object.fromEntries(params));
   if (filing && owner !== undefined) {
-    const month = await readOpenLoanMonth();
-    const loans = await readMonthlyLoanSchedules(month, owner);
+    const openMonth = await readOpenLoanMonth();
+    const businessMonth = todayManila().slice(0, 7);
+    const month = openMonth > businessMonth ? businessMonth : openMonth;
+    const loans = await readMonthlyLoanSchedules(openMonth, owner);
     return { month, loans: loans.map(loan => ({ id: loan.row.id, reference: loan.reference, agency: loan.agency })) };
   }
   if (reference) {

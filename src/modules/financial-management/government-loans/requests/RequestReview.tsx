@@ -6,6 +6,7 @@ import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
@@ -14,13 +15,69 @@ import { RequestCapacity } from "./RequestCapacity";
 import { RequestApiError, staffRequestApi } from "./request-api";
 import { canCancelRequest } from "./request-rules";
 import {
-  applicationTypes, requestDecisionLabels, requestStatusLabels, type DocumentKind, type LoanRequest,
+  applicationTypes, requestDecisionLabels, requestStatusLabels, requestStatusTone,
+  type DocumentKind, type LoanRequest, type RequestStatus,
 } from "./types";
 
 export function RequestSection({ title, children }: { title: string; children: ReactNode }) {
   return <section className="space-y-4 rounded-lg border bg-card p-4" aria-label={title}>
     <h3 className="text-sm font-semibold">{title}</h3>
     {children}
+  </section>;
+}
+
+const requestStages: { status: RequestStatus; label: string }[] = [
+  { status: "DRAFT", label: "Draft" },
+  { status: "REQUESTED", label: "Requested" },
+  { status: "APPROVED", label: "Approved" },
+  { status: "ENROLLED", label: "For verification" },
+  { status: "VERIFIED", label: "Verified" },
+  { status: "ACTIVE", label: "Active" },
+];
+const requestStage: Partial<Record<RequestStatus, number>> = {
+  DRAFT: 0, REQUESTED: 1, APPROVED: 2, ENROLLED: 3, RETURNED: 3, VERIFIED: 4, ACTIVATING: 4, ACTIVE: 5,
+};
+const terminalStatuses: RequestStatus[] = ["REJECTED", "CANCELLED", "AGENCY_DECLINED"];
+const nextStep: Record<RequestStatus, string> = {
+  DRAFT: "Complete the required request fields and submit for approval.",
+  REQUESTED: "Waiting for company approval.",
+  APPROVED: "Approved. Record the agency terms and evidence in Enrollment.",
+  REJECTED: "The request was rejected. Review the decision history below.",
+  CANCELLED: "The request was cancelled.",
+  ENROLLED: "Waiting for a different verifier to review the enrollment.",
+  RETURNED: "Correct the returned enrollment and resubmit it for verification.",
+  VERIFIED: "Verified. A different staff member must activate the loan.",
+  ACTIVATING: "Activation is in progress.",
+  ACTIVE: "The loan is active and deductions are scheduled.",
+  AGENCY_DECLINED: "The agency did not approve the loan.",
+};
+
+export function RequestStatusSummary({ record, reason }: { record: LoanRequest; reason?: string | null }) {
+  const current = requestStage[record.status] ?? -1;
+  const terminal = terminalStatuses.includes(record.status);
+  const latestReason = reason ?? [...record.decisionHistory].reverse()
+    .find(event => event.reason || event.remarks)?.reason ??
+    [...record.decisionHistory].reverse().find(event => event.remarks)?.remarks;
+  return <section className="space-y-3 rounded-lg border bg-card p-4" aria-label="Request status">
+    <div className="flex flex-wrap items-start justify-between gap-2">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current status</p>
+        <p className="text-base font-semibold">{requestStatusLabels[record.status]}</p>
+      </div>
+      <Badge variant="outline" className={requestStatusTone[record.status]}>{requestStatusLabels[record.status]}</Badge>
+    </div>
+    {!terminal && current >= 0 && <ol className="flex flex-wrap gap-1.5 text-xs" aria-label="Request progress">
+      {requestStages.map((stage, index) => <li key={stage.status}
+        className={"rounded-full border px-2 py-0.5 " + (index < current ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+          : index === current ? "border-primary bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>
+        {stage.label}
+      </li>)}
+    </ol>}
+    <p className="text-sm text-muted-foreground">{nextStep[record.status]}</p>
+    {latestReason && (terminal || record.status === "RETURNED") && <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+      <p className="font-medium">{record.status === "RETURNED" ? "Return reason" : "Decision reason"}</p>
+      <p className="whitespace-pre-wrap break-words">{latestReason}</p>
+    </div>}
   </section>;
 }
 
@@ -131,6 +188,7 @@ export function RequestReview({ record, onBack, onCancelled, onReload, api = sta
         </AlertDialogContent>
       </AlertDialog>}
     </div>
+    <RequestStatusSummary record={record} />
     <RequestDetails record={record} documentHref={kind => api.requestDocumentUrl(record.id, kind)} />
   </div>;
 }

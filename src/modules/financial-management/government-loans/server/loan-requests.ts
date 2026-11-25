@@ -5,7 +5,7 @@ import { z } from "zod";
 import { canCancelRequest } from "../requests/request-rules";
 import {
   documentKinds, enrollmentEvidenceKinds, requestDecisionLabels, requestStatusLabels, requestViews,
-  type DocumentKind, type EnrollmentEvidenceKind, type LoanDocumentKind, type LoanRequest, type RequestAssessment, type RequestDecision, type RequestForm, type RequestListItem,
+  type DocumentKind, type EnrollmentEvidenceKind, type LoanDocumentKind, type LoanRequest, type RequestAssessment, type RequestDecision, type RequestForm, type RequestListItem, type RequestPage, type RequestSummary,
   type RequestStatus, type RequestView,
 } from "../requests/types";
 import type { AgencyActor } from "./agencies";
@@ -136,7 +136,25 @@ const listQuery = z.object({
   status: statuses.optional(), view: views.optional(), q: z.string().trim().max(120).default(""),
   agency: positiveId.optional(), page: pageNumber,
 });
-export async function listLoanRequests(params: URLSearchParams, owner?: number) {
+const summaryRow = z.object({ status: statuses, count: z.object({ id: z.coerce.number().int().nonnegative() }) });
+async function requestSummary(owner: number | undefined, agency: number | undefined): Promise<RequestSummary> {
+  const summary = Object.fromEntries(Object.keys(requestStatusLabels).map(status => [status, 0])) as RequestSummary;
+  const filter = {
+    ...(agency ? { agency_id: { _eq: agency } } : {}),
+    ...(owner === undefined ? {} : { employee_user_id: { _eq: owner } }),
+    _and: [{ _or: [{ requested_at: { _nnull: true } }, { status: { _eq: "DRAFT" } }] }],
+  };
+  const query = new URLSearchParams({ "groupBy[]": "status", "aggregate[count]": "id", limit: "100", filter: JSON.stringify(filter) });
+  try {
+    const { data } = z.object({ data: z.array(summaryRow) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+    for (const row of data) summary[row.status] = row.count.id;
+  } catch {
+    // Summary counts are supplementary; keep the request list available if they fail.
+  }
+  return summary;
+}
+
+export async function listLoanRequests(params: URLSearchParams, owner?: number): Promise<RequestPage> {
   const { status, view, q, agency, page } = parseInput(listQuery, Object.fromEntries(params));
   const ref = /^(?:GLR-)?0*([1-9]\d{0,9})$/i.exec(q)?.[1];
   const statusFilter = view
@@ -155,7 +173,8 @@ export async function listLoanRequests(params: URLSearchParams, owner?: number) 
     sort: (view ? view === "in-progress" : status && status !== "DRAFT") ? "-requested_at,-id" : "-updated_at,-id",
   });
   const { data } = z.object({ data: z.array(requestRow).max(limit + 1) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
-  return { items: data.slice(0, limit).map(listItem), hasMore: data.length > limit };
+  return { items: data.slice(0, limit).map(listItem), hasMore: data.length > limit,
+    summary: await requestSummary(owner, agency) };
 }
 
 type Command = { key: string; hash: string; actor: AgencyActor; id?: number };

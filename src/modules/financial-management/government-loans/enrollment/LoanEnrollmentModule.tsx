@@ -9,7 +9,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { peso } from "@/modules/financial-management/cooperative/members/format";
 import { agencyOptions, requestDocumentUrl } from "../requests/request-api";
-import { requestStatusLabels, type AgencyChoice, type EmployeeChoice } from "../requests/types";
+import { requestStatusLabels, requestStatusTone, type AgencyChoice, type EmployeeChoice } from "../requests/types";
 import { getEnrollment, listEnrollments } from "./api";
 import { EnrollmentDetails } from "./EnrollmentDetails";
 import { EnrollmentEditor } from "./EnrollmentEditor";
@@ -21,6 +21,23 @@ import type { EnrollmentDetail, EnrollmentPage } from "./types";
 function LoadError({ message, retry }: { message: string; retry: () => void }) {
   return <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border p-3 text-sm">
     {message}<Button type="button" variant="outline" size="sm" onClick={retry}>Retry</Button>
+  </div>;
+}
+
+function enrollmentAction(status: string) {
+  if (status === "APPROVED") return "Enter terms";
+  if (status === "RETURNED") return "Correct and resubmit";
+  if (status === "ENROLLED") return "View enrollment";
+  if (status === "VERIFIED") return "Activate";
+  if (status === "ACTIVATING") return "View activation";
+  if (status === "ACTIVE") return "View loan";
+  return "View";
+}
+
+function SummaryCard({ label, value }: { label: string; value: number }) {
+  return <div className="rounded-lg border bg-card p-3">
+    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    <p className="text-xl font-semibold tabular-nums">{value.toLocaleString("en-PH")}</p>
   </div>;
 }
 
@@ -150,6 +167,16 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
       </div>
     </div>
     {agencyError}
+    {current?.data?.summary && <section aria-label="Enrollment queue summary" className="space-y-2">
+      <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <SummaryCard label="Approved · awaiting agency" value={current.data.summary.APPROVED} />
+        <SummaryCard label="For verification" value={current.data.summary.ENROLLED} />
+        <SummaryCard label="Returned for correction" value={current.data.summary.RETURNED} />
+        <SummaryCard label="Verified · awaiting activation" value={current.data.summary.VERIFIED} />
+        <SummaryCard label="Active" value={current.data.summary.ACTIVE} />
+      </div>
+    </section>}
     <div className="flex flex-wrap gap-2">
       <Input className="max-w-sm" aria-label="Search enrollments" placeholder="Employee, loan, or agency reference" maxLength={120}
         value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} />
@@ -162,7 +189,10 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
         <option value="ENROLLED">For verification</option><option value="RETURNED">Returned for correction</option>
         <option value="VERIFIED">Verified · awaiting activation</option>
         <option value="ACTIVATING">Activation pending</option><option value="ACTIVE">Active</option>
+        <option value="AGENCY_DECLINED">Not approved by agency</option>
       </NativeSelect>
+      {(search || status || agency) && <Button type="button" variant="ghost" size="sm"
+        onClick={() => { setSearch(""); setStatus(""); setAgency(""); setPage(1); }}>Clear filters</Button>}
     </div>
     {current?.error && <LoadError message={current.error} retry={refreshMonth} />}
     {!current && <p role="status" className="text-sm text-muted-foreground">Loading enrollments…</p>}
@@ -174,10 +204,11 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
           <TableHeader><TableRow>
             <TableHead>Loan</TableHead><TableHead>Employee</TableHead><TableHead>Agency / program</TableHead>
             <TableHead className="text-right">Amortization</TableHead><TableHead>First deduction</TableHead><TableHead>Status</TableHead>
+            <TableHead>Next action</TableHead>
           </TableRow></TableHeader>
           <TableBody>
             {!current.data.items.length && <TableRow>
-              <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No enrollments match.</TableCell>
+              <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">No enrollments match.</TableCell>
             </TableRow>}
             {current.data.items.map(item => <TableRow key={item.id}>
               <TableCell>
@@ -191,9 +222,12 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
               <TableCell className="text-right tabular-nums">{item.enrollment ? peso(item.enrollment.monthlyAmortization) : "—"}</TableCell>
               <TableCell>{item.enrollment ? deductionMonthLabel(item.enrollment.firstDeductionMonth) : "—"}</TableCell>
               <TableCell>
-                <Badge variant="secondary">{item.status === "APPROVED" ? "Approved · awaiting agency" : requestStatusLabels[item.status]}</Badge>
+                <Badge variant="outline" className={requestStatusTone[item.status]}>{item.status === "APPROVED" ? "Approved · awaiting agency" : requestStatusLabels[item.status]}</Badge>
                 {item.enrollment?.externalReferenceCheck === "NEEDS_SOURCE" && <p className="mt-1 text-xs text-muted-foreground">External reference check pending</p>}
               </TableCell>
+              <TableCell><Button type="button" variant="outline" size="sm" onClick={() => {
+                setSelected(item.id); reloadDetail(value => value + 1);
+              }}>{enrollmentAction(item.status)}</Button></TableCell>
             </TableRow>)}
           </TableBody>
         </Table>

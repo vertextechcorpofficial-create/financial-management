@@ -1,4 +1,4 @@
-import type { AgencyChoice, DocumentKind, EmployeeChoice, FieldErrors, LoanRequest, Page, RequestAssessment, RequestForm, RequestListItem } from "./types";
+import type { AgencyChoice, DocumentKind, EmployeeChoice, FieldErrors, LoanRequest, Page, RequestAssessment, RequestForm, RequestPage } from "./types";
 
 export class RequestApiError extends Error {
   constructor(message: string, readonly status: number, readonly fieldErrors?: FieldErrors) {
@@ -26,7 +26,7 @@ function requestApi(workspace: "loan-applications" | "my-loans") {
   const endpoint = "/api/fm/government-loans/" + workspace + "/requests";
   const request = <T>(path: string, init?: RequestInit) => fetchRequest<T>(endpoint + path, init);
   return {
-    getRequests: (query: string, signal: AbortSignal) => request<Page<RequestListItem>>("?" + query, { signal }),
+    getRequests: (query: string, signal: AbortSignal) => request<RequestPage>("?" + query, { signal }),
     getRequest: (id: number, signal: AbortSignal) => request<LoanRequest>("/" + id, { signal }),
     agencyOptions: (page: number, signal: AbortSignal) => request<Page<AgencyChoice>>("/options?type=agencies&page=" + page, { signal }),
     employeeOptions: (query: string, signal: AbortSignal) => {

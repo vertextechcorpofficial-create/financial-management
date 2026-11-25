@@ -70,9 +70,23 @@ export type RequestStatus = keyof typeof requestStatusLabels;
 export const requestViews = {
   "in-progress": { label: "In progress", statuses: ["REQUESTED", "APPROVED"] },
   drafts: { label: "Drafts", statuses: ["DRAFT"] },
-  decided: { label: "Decided", statuses: ["APPROVED", "REJECTED", "CANCELLED", "ENROLLED", "RETURNED", "VERIFIED", "ACTIVATING", "ACTIVE", "AGENCY_DECLINED"] },
+  decided: { label: "History", statuses: ["REJECTED", "CANCELLED", "ENROLLED", "RETURNED", "VERIFIED", "ACTIVATING", "ACTIVE", "AGENCY_DECLINED"] },
 } as const satisfies Record<string, { label: string; statuses: readonly RequestStatus[] }>;
 export type RequestView = keyof typeof requestViews;
+
+export const requestStatusTone: Record<RequestStatus, string> = {
+  DRAFT: "text-muted-foreground",
+  REQUESTED: "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
+  APPROVED: "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
+  REJECTED: "border-destructive/30 bg-destructive/10 text-destructive",
+  CANCELLED: "text-muted-foreground",
+  ENROLLED: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+  RETURNED: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+  VERIFIED: "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
+  ACTIVATING: "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
+  ACTIVE: "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
+  AGENCY_DECLINED: "border-destructive/30 bg-destructive/10 text-destructive",
+};
 
 export const requestDecisionLabels = {
   REQUEST_SUBMITTED: "Request submitted",
@@ -180,3 +194,5 @@ export type LoanRequest = RequestListItem & {
   decisionHistory: RequestDecision[];
 };
 export type Page<T> = { items: T[]; hasMore: boolean };
+export type RequestSummary = Record<RequestStatus, number>;
+export type RequestPage = Page<RequestListItem> & { summary: RequestSummary };
