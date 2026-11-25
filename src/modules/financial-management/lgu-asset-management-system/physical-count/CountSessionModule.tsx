@@ -157,7 +157,11 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           {stats?.readyToLock
-            ? "Every line is counted and every not found line has a decision, so this session can be locked."
+            ? status === "submitted"
+              ? "This session is submitted and closed. Its report is final."
+              : status === "locked"
+                ? "This session is locked. Reopen it with a reason to change anything."
+                : "Every line is counted and every not found line has a decision, so this session can be locked."
             : "Locking needs every line counted and every not found line resolved."}
         </p>
       </div>

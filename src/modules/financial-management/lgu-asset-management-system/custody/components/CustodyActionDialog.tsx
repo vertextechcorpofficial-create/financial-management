@@ -78,7 +78,13 @@ export function CustodyActionDialog({
       }
       return;
     }
-    if (!officer.trim()) return setError("The accountable officer is required");
+    if (!officer.trim()) {
+      return setError(
+        mode === "issue"
+          ? "The name of the officer receiving the PAR or ICS is required"
+          : "The name of the officer receiving custody is required"
+      );
+    }
     if (!docNo.trim()) return setError("The " + form + " number on the paper form is required");
     try {
       await onSubmit({

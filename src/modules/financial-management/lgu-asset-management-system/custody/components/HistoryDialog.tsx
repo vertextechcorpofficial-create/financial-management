@@ -70,7 +70,11 @@ export function HistoryDialog({ history, offices, onClose }: HistoryDialogProps)
             <h3 className="mb-2 text-sm font-medium">Movements</h3>
             {history && history.movements.length > 0 ? (
               <div className="grid gap-2">
-                {history.movements.map((movement) => (
+                {history.movements.map((movement) => {
+                  const fromOffice = movement.from_office_id ? officeName.get(movement.from_office_id) ?? "-" : null;
+                  const toOffice = movement.to_office_id ? officeName.get(movement.to_office_id) ?? "-" : null;
+                  const sameOffice = Boolean(fromOffice) && fromOffice === toOffice;
+                  return (
                   <div key={movement.id} className="rounded-md border p-3 text-sm">
                     <div className="flex items-center justify-between gap-2">
                       <Badge variant="secondary">{MOVEMENT_LABELS[movement.movement]}</Badge>
@@ -78,14 +82,16 @@ export function HistoryDialog({ history, offices, onClose }: HistoryDialogProps)
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {movement.from_officer ? movement.from_officer : "unassigned"}
-                      {movement.from_office_id ? " (" + (officeName.get(movement.from_office_id) ?? "-") + ")" : ""}
+                      {!sameOffice && fromOffice ? " (" + fromOffice + ")" : ""}
                       {" to "}
                       {movement.to_officer ? movement.to_officer : "unassigned"}
-                      {movement.to_office_id ? " (" + (officeName.get(movement.to_office_id) ?? "-") + ")" : ""}
+                      {!sameOffice && toOffice ? " (" + toOffice + ")" : ""}
+                      {sameOffice ? ", office unchanged, " + fromOffice : ""}
                     </p>
                     {movement.remarks ? <p className="mt-1 text-xs">{movement.remarks}</p> : null}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">No movements yet.</p>

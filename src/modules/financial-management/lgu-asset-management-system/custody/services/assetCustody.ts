@@ -218,7 +218,11 @@ export async function fetchCustodyList(params: {
   sort?: string;
   dir?: string;
 }): Promise<CustodyResponse> {
-  const and: Record<string, unknown>[] = [{ status: { _eq: "active" } }];
+  const and: Record<string, unknown>[] = [
+    { status: { _eq: "active" } },
+    // a disposed asset has left the books and has no custodian to show here
+    { record_status: { _neq: "disposed" } },
+  ];
   if (params.q && params.q.trim()) {
     const n = params.q.trim();
     and.push({
