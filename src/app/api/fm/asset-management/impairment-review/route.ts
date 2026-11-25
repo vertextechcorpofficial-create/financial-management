@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { fetchAssets, fetchUsers } from "@/modules/financial-management/asset-management/registration/services/asset";
+import {
+  appendAuditLog,
+  fetchAssetClasses,
+  fetchAssets,
+  fetchUsers,
+  getDefaultUserId,
+} from "@/modules/financial-management/asset-management/registration/services/asset";
 import type { AssetTableData } from "@/modules/financial-management/asset-management/registration/types";
 import type {
   ImpairmentReviewData,
@@ -306,6 +312,50 @@ export async function GET() {
       0
     );
 
+    // 7. Fetch asset_settings thresholds & review market classes from Directus
+    let idleMonthsThreshold = 6;
+    let maintenancePctThreshold = 25;
+    let marketClasses: number[] = [];
+    let marketClassNames: string[] = [];
+
+    if (API_BASE_URL) {
+      try {
+        const [setRes, mcRes, allClasses] = await Promise.all([
+          fetch(`${API_BASE_URL}/items/asset_settings?limit=1`, {
+            headers: AUTH_HEADERS,
+            cache: "no-store",
+          }),
+          fetch(
+            `${API_BASE_URL}/items/asset_impairment_review_market_classes?filter[review_id][_eq]=${latestReview.id}&limit=100`,
+            { headers: AUTH_HEADERS, cache: "no-store" }
+          ),
+          fetchAssetClasses(),
+        ]);
+
+        if (setRes.ok) {
+          const sJson = (await setRes.json()) as {
+            data?: Array<{ idle_months?: number | string; maintenance_cost_percent?: number | string }>;
+          };
+          if (sJson.data?.[0]) {
+            idleMonthsThreshold = Number(sJson.data[0].idle_months ?? 6) || 6;
+            maintenancePctThreshold = Number(sJson.data[0].maintenance_cost_percent ?? 25) || 25;
+          }
+        }
+
+        if (mcRes.ok) {
+          const mcJson = (await mcRes.json()) as { data?: Array<{ asset_class_id: number }> };
+          if (Array.isArray(mcJson.data)) {
+            marketClasses = mcJson.data.map((m) => Number(m.asset_class_id));
+            marketClassNames = marketClasses
+              .map((cid) => allClasses.find((c) => c.id === cid)?.name || "")
+              .filter(Boolean);
+          }
+        }
+      } catch (err) {
+        console.warn("Directus settings/market_classes fetch failed:", err);
+      }
+    }
+
     const payload: ImpairmentReviewData = {
       hasActiveReview: true,
       review: {
@@ -317,9 +367,10 @@ export async function GET() {
         status_id: latestReview.status_id || 1,
         status_code: latestReview.status_id === 2 ? "SIGNED" : "OPEN",
         interest_rates_increased: Boolean(latestReview.interest_rates_increased),
-        idle_months_threshold: 6,
-        maintenance_pct_threshold: 25,
-        market_classes: [],
+        idle_months_threshold: idleMonthsThreshold,
+        maintenance_pct_threshold: maintenancePctThreshold,
+        market_classes: marketClasses,
+        market_class_names: marketClassNames,
       },
       kpis: {
         reviewDate: latestReview.review_date
@@ -453,6 +504,12 @@ export async function POST(req: Request) {
       }
     }
 
+    await appendAuditLog({
+      action_id: 14, // IMPAIRMENT_REVIEW
+      user_id: validUserId,
+      details: `Started impairment review "${reviewName}" dated ${reviewDate} (${assets.length} asset(s))`,
+    });
+
     return NextResponse.json({ success: true, id: newReviewId });
   } catch (error: unknown) {
     console.error("POST /api/fm/asset-management/impairment-review error:", error);
@@ -465,22 +522,135 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const body = (await req.json()) as { id?: number; review_date?: string; review_name?: string };
-    const { id, review_date, review_name } = body;
+    const body = (await req.json()) as {
+      id?: number;
+      review_date?: string;
+      review_name?: string;
+      interest_rates_increased?: boolean;
+      market_classes?: number[];
+      market_class_keys?: string[];
+      idle_months_threshold?: number;
+      maintenance_pct_threshold?: number;
+    };
+    const {
+      id,
+      review_date,
+      review_name,
+      interest_rates_increased,
+      market_classes,
+      market_class_keys,
+      idle_months_threshold,
+      maintenance_pct_threshold,
+    } = body;
     if (!id) {
       return NextResponse.json({ error: "Review ID is required" }, { status: 400 });
     }
 
     if (API_BASE_URL) {
       const updateData: Record<string, unknown> = {};
-      if (review_date) updateData.review_date = review_date;
-      if (review_name) updateData.summary = { name: review_name };
+      if (review_date !== undefined) updateData.review_date = review_date;
+      if (review_name !== undefined) updateData.summary = { name: review_name };
+      if (interest_rates_increased !== undefined) {
+        updateData.interest_rates_increased = interest_rates_increased ? 1 : 0;
+      }
 
-      await fetch(`${API_BASE_URL}/items/asset_impairment_reviews/${id}`, {
-        method: "PATCH",
-        headers: AUTH_HEADERS,
-        body: JSON.stringify(updateData),
-      });
+      if (Object.keys(updateData).length > 0) {
+        const patchRes = await fetch(`${API_BASE_URL}/items/asset_impairment_reviews/${id}`, {
+          method: "PATCH",
+          headers: AUTH_HEADERS,
+          body: JSON.stringify(updateData),
+        });
+        if (!patchRes.ok) {
+          const errJson = (await patchRes.json().catch(() => ({}))) as {
+            errors?: Array<{ message?: string }>;
+          };
+          return NextResponse.json(
+            { error: errJson.errors?.[0]?.message || "Failed to update impairment review in database." },
+            { status: 400 }
+          );
+        }
+      }
+
+      // Sync market decline classes into asset_impairment_review_market_classes
+      if (market_classes !== undefined || market_class_keys !== undefined) {
+        let targetClassIds: number[] = Array.isArray(market_classes) ? market_classes : [];
+        if (Array.isArray(market_class_keys)) {
+          const allClasses = await fetchAssetClasses();
+          targetClassIds = [];
+          for (const key of market_class_keys) {
+            const matched = allClasses.find((c) => c.name.toLowerCase().includes(key.toLowerCase()));
+            if (matched && !targetClassIds.includes(matched.id)) {
+              targetClassIds.push(matched.id);
+            }
+          }
+        }
+
+        const existingRes = await fetch(
+          `${API_BASE_URL}/items/asset_impairment_review_market_classes?filter[review_id][_eq]=${id}&limit=100`,
+          { headers: AUTH_HEADERS, cache: "no-store" }
+        );
+        const existingJson = existingRes.ok
+          ? ((await existingRes.json()) as { data?: Array<{ id: number; asset_class_id: number }> })
+          : { data: [] };
+        const existingRows = existingJson.data || [];
+
+        // Delete unchecked classes
+        for (const row of existingRows) {
+          if (!targetClassIds.includes(Number(row.asset_class_id))) {
+            await fetch(`${API_BASE_URL}/items/asset_impairment_review_market_classes/${row.id}`, {
+              method: "DELETE",
+              headers: AUTH_HEADERS,
+            });
+          }
+        }
+
+        // Insert newly checked classes
+        const existingIds = new Set(existingRows.map((r) => Number(r.asset_class_id)));
+        for (const classId of targetClassIds) {
+          if (!existingIds.has(classId)) {
+            const insRes = await fetch(`${API_BASE_URL}/items/asset_impairment_review_market_classes`, {
+              method: "POST",
+              headers: AUTH_HEADERS,
+              body: JSON.stringify({ review_id: id, asset_class_id: classId }),
+            });
+            if (!insRes.ok) {
+              const errJson = (await insRes.json().catch(() => ({}))) as {
+                errors?: Array<{ message?: string }>;
+              };
+              return NextResponse.json(
+                { error: errJson.errors?.[0]?.message || "Failed to save market decline indicator." },
+                { status: 400 }
+              );
+            }
+          }
+        }
+      }
+
+      // Sync idle_months / maintenance_cost_percent thresholds to asset_settings (id = 1)
+      if (idle_months_threshold !== undefined || maintenance_pct_threshold !== undefined) {
+        const settingsPatch: Record<string, unknown> = {};
+        if (idle_months_threshold !== undefined) settingsPatch.idle_months = Number(idle_months_threshold);
+        if (maintenance_pct_threshold !== undefined) {
+          settingsPatch.maintenance_cost_percent = Number(maintenance_pct_threshold);
+        }
+        const userId = await getDefaultUserId();
+        settingsPatch.updated_by = userId;
+
+        const setRes = await fetch(`${API_BASE_URL}/items/asset_settings/1`, {
+          method: "PATCH",
+          headers: AUTH_HEADERS,
+          body: JSON.stringify(settingsPatch),
+        });
+        if (!setRes.ok) {
+          const errJson = (await setRes.json().catch(() => ({}))) as {
+            errors?: Array<{ message?: string }>;
+          };
+          return NextResponse.json(
+            { error: errJson.errors?.[0]?.message || "Failed to save threshold settings." },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     return NextResponse.json({ success: true });
@@ -502,19 +672,34 @@ export async function DELETE(req: Request) {
     }
 
     if (API_BASE_URL) {
-      // 1. Get lines
+      // 1. Delete market classes linked to this review
+      const mcRes = await fetch(
+        `${API_BASE_URL}/items/asset_impairment_review_market_classes?filter[review_id][_eq]=${id}&limit=100`,
+        { headers: AUTH_HEADERS, cache: "no-store" }
+      );
+      if (mcRes.ok) {
+        const mcJson = (await mcRes.json()) as { data?: Array<{ id: number }> };
+        for (const item of mcJson.data || []) {
+          await fetch(`${API_BASE_URL}/items/asset_impairment_review_market_classes/${item.id}`, {
+            method: "DELETE",
+            headers: AUTH_HEADERS,
+          });
+        }
+      }
+
+      // 2. Get lines
       const linesRes = await fetch(
-        `${API_BASE_URL}/items/asset_impairment_review_lines?filter[review_id][_eq]=${id}&limit=200`,
-        { headers: AUTH_HEADERS }
+        `${API_BASE_URL}/items/asset_impairment_review_lines?filter[review_id][_eq]=${id}&limit=500`,
+        { headers: AUTH_HEADERS, cache: "no-store" }
       );
       const linesJson = (await linesRes.json()) as { data?: Array<{ id: number }> };
       const lineIds = (linesJson.data || []).map((l) => l.id);
 
-      // 2. Delete line indicators
+      // 3. Delete line indicators & lines
       if (lineIds.length > 0) {
         const indRes = await fetch(
-          `${API_BASE_URL}/items/asset_impairment_review_line_indicators?filter[line_id][_in]=${lineIds.join(",")}&limit=500`,
-          { headers: AUTH_HEADERS }
+          `${API_BASE_URL}/items/asset_impairment_review_line_indicators?filter[line_id][_in]=${lineIds.join(",")}&limit=1000`,
+          { headers: AUTH_HEADERS, cache: "no-store" }
         );
         const indJson = (await indRes.json()) as { data?: Array<{ id: number }> };
         for (const item of indJson.data || []) {
@@ -524,7 +709,6 @@ export async function DELETE(req: Request) {
           );
         }
 
-        // 3. Delete lines
         for (const lineId of lineIds) {
           await fetch(`${API_BASE_URL}/items/asset_impairment_review_lines/${lineId}`, {
             method: "DELETE",
@@ -534,10 +718,19 @@ export async function DELETE(req: Request) {
       }
 
       // 4. Delete review
-      await fetch(`${API_BASE_URL}/items/asset_impairment_reviews/${id}`, {
+      const delRes = await fetch(`${API_BASE_URL}/items/asset_impairment_reviews/${id}`, {
         method: "DELETE",
         headers: AUTH_HEADERS,
       });
+      if (!delRes.ok) {
+        const errJson = (await delRes.json().catch(() => ({}))) as {
+          errors?: Array<{ message?: string }>;
+        };
+        return NextResponse.json(
+          { error: errJson.errors?.[0]?.message || "Failed to delete impairment review." },
+          { status: 400 }
+        );
+      }
     }
 
     return NextResponse.json({ success: true });
