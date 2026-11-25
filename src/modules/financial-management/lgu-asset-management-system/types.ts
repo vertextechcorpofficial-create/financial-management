@@ -104,7 +104,49 @@ export interface LguAsset {
   model: string | null;
   remarks: string | null;
   record_status: AssetRecordStatus;
+  unit_of_measure: string;
+  is_bulk_child: boolean;
+  bulk_batch_id: string | null;
+  batch_total: number | null;
+  rounding_remainder: number | null;
+  voucher_no: string | null;
   status: string;
+}
+
+/** One voucher, many units. The voucher total is the source of truth. */
+export interface BulkAssetInput {
+  description: string;
+  class_id: number;
+  quantity: number;
+  batch_total: number;
+  acquisition_date: string;
+  life_months?: number | null;
+  office_id?: number | null;
+  condition_id?: number | null;
+  mode_of_acquisition?: ModeOfAcquisition;
+  fund_source_id?: number | null;
+  supplier?: string | null;
+  voucher_no?: string | null;
+  brand?: string | null;
+  model?: string | null;
+  unit_of_measure?: string | null;
+  remarks?: string | null;
+}
+
+export interface BulkCreateResult {
+  batchId: string;
+  unitCost: number;
+  remainder: number;
+  created: LguAsset[];
+}
+
+/** Splits a voucher total across units and reports the unallocated centavos. */
+export function splitBatchTotal(batchTotal: number, quantity: number): { unitCost: number; remainder: number } {
+  const safeQty = Math.max(1, Math.floor(quantity));
+  const total = Number(batchTotal) || 0;
+  const unitCost = Math.round((total / safeQty) * 100) / 100;
+  const remainder = Math.round((total - unitCost * safeQty) * 100) / 100;
+  return { unitCost, remainder };
 }
 
 /** Fields a clerk may write. The property number is never user supplied. */
@@ -131,6 +173,7 @@ export interface LguAssetInput {
   brand?: string | null;
   model?: string | null;
   remarks?: string | null;
+  unit_of_measure?: string | null;
   /** Legacy numbers from paper records. When given, it is used verbatim. */
   property_no?: string | null;
 }

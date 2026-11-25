@@ -4,10 +4,12 @@ import * as React from "react";
 import type {
   AssetRegistryQuery,
   AssetRegistryResponse,
+  BulkAssetInput,
   LguAssetInput,
 } from "../../types";
 import {
   createAssetRequest,
+  createBulkRequest,
   fetchRegistry,
   retireAssetRequest,
   updateAssetRequest,
@@ -71,6 +73,20 @@ export function useAssetRegistry(initial?: Partial<AssetRegistryQuery>) {
     [load, query]
   );
 
+  const createBulk = React.useCallback(
+    async (input: BulkAssetInput) => {
+      setBusy(true);
+      try {
+        const result = await createBulkRequest(input);
+        await load(query);
+        return result;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, query]
+  );
+
   const update = React.useCallback(
     async (id: number, input: Partial<LguAssetInput>) => {
       setBusy(true);
@@ -99,5 +115,5 @@ export function useAssetRegistry(initial?: Partial<AssetRegistryQuery>) {
     [load, query]
   );
 
-  return { query, patchQuery, data, loading, error, busy, refresh: () => load(query), create, update, retire };
+  return { query, patchQuery, data, loading, error, busy, refresh: () => load(query), create, createBulk, update, retire };
 }

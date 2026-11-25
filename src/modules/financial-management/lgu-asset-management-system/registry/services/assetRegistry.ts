@@ -1,11 +1,13 @@
 import type {
   AssetRecordStatus,
   AssetRegistryQuery,
+  BulkAssetInput,
+  BulkCreateResult,
   LguAsset,
   LguAssetInput,
   RegistryLookups,
 } from "../../types";
-import { computeResidual, isSemiExpendable } from "../../types";
+import { computeResidual, isSemiExpendable, splitBatchTotal } from "../../types";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 const TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -68,6 +70,12 @@ function mapAsset(row: Record<string, unknown>): LguAsset {
     model: (row.model as string) ?? null,
     remarks: (row.remarks as string) ?? null,
     record_status: ((row.record_status as string) ?? "active") as AssetRecordStatus,
+    unit_of_measure: text(row.unit_of_measure) || "pc",
+    is_bulk_child: toBool(row.is_bulk_child),
+    bulk_batch_id: (row.bulk_batch_id as string) ?? null,
+    batch_total: toNumber(row.batch_total),
+    rounding_remainder: toNumber(row.rounding_remainder),
+    voucher_no: (row.voucher_no as string) ?? null,
     status: text(row.status) || "active",
   };
 }
@@ -213,6 +221,7 @@ function serializeInput(input: LguAssetInput): Record<string, unknown> {
     brand: input.brand ?? null,
     model: input.model ?? null,
     remarks: input.remarks ?? null,
+    unit_of_measure: input.unit_of_measure ?? "pc",
     record_status: "active",
     status: "active",
   };
@@ -251,6 +260,108 @@ async function insertOnce(payload: Record<string, unknown>): Promise<LguAsset> {
   if (!res.ok) throw new Error("Create failed " + res.status + ": " + body.slice(0, 300));
   const json = JSON.parse(body) as { data: Record<string, unknown> };
   return mapAsset(json.data);
+}
+
+const MAX_BULK = 200;
+
+function nextNumbers(prefix: string, year: number, startAt: number, count: number): string[] {
+  const stem = prefix + "-" + year + "-";
+  const out: string[] = [];
+  for (let i = 1; i <= count; i += 1) out.push(stem + String(startAt + i).padStart(4, "0"));
+  return out;
+}
+
+async function highestSequence(prefix: string, year: number): Promise<number> {
+  const stem = prefix + "-" + year + "-";
+  const filter = JSON.stringify({ property_no: { _starts_with: stem } });
+  const path = "/items/lgu_asset?filter=" + encodeURIComponent(filter) + "&fields=property_no&limit=-1";
+  const json = (await directusGet(path)) as { data: Record<string, unknown>[] };
+  let max = 0;
+  for (const row of json.data ?? []) {
+    const n = parseInt(text(row.property_no).slice(stem.length), 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return max;
+}
+
+/**
+ * One voucher, many units. The voucher total is authoritative, the unit cost is derived,
+ * and any unallocated centavos are stored on the batch so nothing disappears.
+ */
+export async function createBulkAssets(input: BulkAssetInput): Promise<BulkCreateResult> {
+  const quantity = Math.floor(Number(input.quantity));
+  if (!Number.isFinite(quantity) || quantity < 2) throw new Error("Bulk entry needs at least 2 units");
+  if (quantity > MAX_BULK) throw new Error("Bulk entry is limited to " + MAX_BULK + " units per save");
+  if (!input.description || !input.class_id || !input.acquisition_date) {
+    throw new Error("description, class_id and acquisition_date are required");
+  }
+  const batchTotal = Number(input.batch_total);
+  if (!Number.isFinite(batchTotal) || batchTotal <= 0) throw new Error("The voucher total must be greater than zero");
+  if (!input.life_months || Number(input.life_months) <= 0) throw new Error("Useful life in months is required");
+
+  const lookups = await fetchLookups();
+  const cls = lookups.classes.find((c) => c.id === input.class_id);
+  const prefix = (cls?.property_prefix || "OTHR").toUpperCase();
+  const year = new Date(input.acquisition_date).getFullYear();
+  const { unitCost, remainder } = splitBatchTotal(batchTotal, quantity);
+  const semi = isSemiExpendable(unitCost, input.life_months);
+  const batchId = "BULK-" + Date.now().toString(36).toUpperCase() + "-" + Math.floor(Math.random() * 900 + 100);
+  const residual = computeResidual(unitCost);
+
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const start = await highestSequence(prefix, year);
+    const numbers = nextNumbers(prefix, year, start, quantity);
+    const rows = numbers.map((propertyNo) => ({
+      property_no: propertyNo,
+      description: input.description,
+      class_id: input.class_id,
+      is_semi_expendable: semi,
+      cost: unitCost,
+      acquisition_date: input.acquisition_date,
+      available_for_use_date: input.acquisition_date,
+      life_months: input.life_months,
+      residual_value: residual,
+      office_id: input.office_id ?? null,
+      condition_id: input.condition_id ?? null,
+      mode_of_acquisition: input.mode_of_acquisition ?? "purchase",
+      fund_source_id: input.fund_source_id ?? null,
+      supplier: input.supplier ?? null,
+      voucher_no: input.voucher_no ?? null,
+      brand: input.brand ?? null,
+      model: input.model ?? null,
+      unit_of_measure: input.unit_of_measure ?? "pc",
+      remarks: input.remarks ?? null,
+      is_bulk_child: true,
+      bulk_batch_id: batchId,
+      batch_total: batchTotal,
+      rounding_remainder: remainder,
+      record_status: "active",
+      status: "active",
+    }));
+
+    try {
+      const res = await fetch(itemsUrl("lgu_asset"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(rows),
+      });
+      const body = await res.text();
+      if (!res.ok) throw new Error("Bulk create failed " + res.status + ": " + body.slice(0, 250));
+      const json = JSON.parse(body) as { data: Record<string, unknown>[] };
+      return {
+        batchId,
+        unitCost,
+        remainder,
+        created: (json.data ?? []).map(mapAsset),
+      };
+    } catch (err) {
+      lastError = err;
+      const msg = String(err instanceof Error ? err.message : err);
+      if (!msg.includes("has to be unique")) throw err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Could not allocate property numbers for the batch");
 }
 
 export async function getAsset(id: number): Promise<LguAsset | null> {

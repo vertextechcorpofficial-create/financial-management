@@ -1,6 +1,8 @@
 import type {
   AssetRegistryQuery,
   AssetRegistryResponse,
+  BulkAssetInput,
+  BulkCreateResult,
   LguAsset,
   LguAssetInput,
 } from "../../types";
@@ -48,6 +50,17 @@ export async function createAssetRequest(input: LguAssetInput): Promise<LguAsset
   const data = await safeJson(res);
   if (!res.ok) throw new Error(errMsg(data));
   return data as LguAsset;
+}
+
+export async function createBulkRequest(input: BulkAssetInput): Promise<BulkCreateResult> {
+  const res = await fetch(API + "/bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(errMsg(data));
+  return data as BulkCreateResult;
 }
 
 export async function updateAssetRequest(

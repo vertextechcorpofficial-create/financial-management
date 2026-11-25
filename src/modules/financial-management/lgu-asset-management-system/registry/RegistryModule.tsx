@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Plus, RefreshCw, Search } from "lucide-react";
+import { Layers, Plus, RefreshCw, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { LguAsset, LguAssetInput } from "../types";
+import type { BulkAssetInput, LguAsset, LguAssetInput } from "../types";
 import { RECORD_STATUS_LABELS } from "../types";
 import { AssetFormDialog } from "./components/AssetFormDialog";
+import { BulkAssetDialog } from "./components/BulkAssetDialog";
 import { RegistryTable } from "./components/RegistryTable";
 import { SearchableSelect } from "./components/SearchableSelect";
 import { useAssetRegistry } from "./hooks/useAssetRegistry";
@@ -18,8 +19,9 @@ const STATUS_OPTIONS = (Object.keys(RECORD_STATUS_LABELS) as (keyof typeof RECOR
 }));
 
 export default function RegistryModule() {
-  const { query, patchQuery, data, loading, error, busy, refresh, create, update } = useAssetRegistry();
+  const { query, patchQuery, data, loading, error, busy, refresh, create, createBulk, update } = useAssetRegistry();
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [bulkOpen, setBulkOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<LguAsset | null>(null);
 
   const classOptions = React.useMemo(
@@ -64,6 +66,10 @@ export default function RegistryModule() {
           <Badge variant="secondary">{data.total} on record</Badge>
           <Button variant="outline" size="icon" onClick={() => void refresh()} aria-label="Refresh">
             <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" onClick={() => setBulkOpen(true)}>
+            <Layers className="mr-2 h-4 w-4" />
+            Bulk register
           </Button>
           <Button onClick={openCreate}>
             <Plus className="mr-2 h-4 w-4" />
@@ -147,6 +153,16 @@ export default function RegistryModule() {
           </Button>
         </div>
       </div>
+
+      <BulkAssetDialog
+        open={bulkOpen}
+        lookups={data.lookups}
+        busy={busy}
+        onClose={() => setBulkOpen(false)}
+        onSubmit={async (input: BulkAssetInput) => {
+          await createBulk(input);
+        }}
+      />
 
       <AssetFormDialog
         open={dialogOpen}

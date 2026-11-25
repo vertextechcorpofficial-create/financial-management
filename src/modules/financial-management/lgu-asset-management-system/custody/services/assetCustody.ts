@@ -103,6 +103,12 @@ function mapAsset(row: Record<string, unknown>): LguAsset {
     model: (row.model as string) ?? null,
     remarks: (row.remarks as string) ?? null,
     record_status: ((row.record_status as string) ?? "active") as LguAsset["record_status"],
+    unit_of_measure: text(row.unit_of_measure) || "pc",
+    is_bulk_child: bool(row.is_bulk_child),
+    bulk_batch_id: (row.bulk_batch_id as string) ?? null,
+    batch_total: num(row.batch_total),
+    rounding_remainder: num(row.rounding_remainder),
+    voucher_no: (row.voucher_no as string) ?? null,
     status: text(row.status) || "active",
   };
 }
