@@ -21,6 +21,7 @@ import { RemittancePreparationModule } from "../remittances/preparation/Remittan
 import { RemittanceApprovalModule } from "../remittances/approval/RemittanceApprovalModule";
 import { MonthEndCloseModule } from "../month-end-close/MonthEndCloseModule";
 import { EmployeeLedgerReport, RemittanceReport } from "../reports/GovernmentLoanReports";
+import { AuditTrailReport, YearEndSummaryReport } from "../reports/YearEndAndAuditReports";
 import { LoanRequestsModule } from "../requests/LoanRequestsModule";
 import type { GovernmentLoansTab, GovernmentLoansWorkspace, GovernmentLoansWorkspaceKey } from "../workspaces";
 
@@ -36,7 +37,8 @@ const workspaceIcons: Record<GovernmentLoansWorkspaceKey, LucideIcon> = {
   "my-loans": UserRound,
 };
 
-export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmployee }: {
+export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmployee, reportActorId }: {
+  reportActorId?: number;
   workspace: GovernmentLoansWorkspace;
   tabs: readonly GovernmentLoansTab[];
   transferEmployee?: EmployeeChoice;
@@ -102,8 +104,10 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
             hasLoans && tab.key === "onboarding-exits" ? <OnboardingExitsModule /> :
             hasLoans && tab.key === "posting-disputes" ? <PostingDisputesModule /> :
             hasLoans && tab.key === "payroll-instructions" ? <PayrollInstructionsModule /> :
-            hasReports && tab.key === "employee-ledger" ? <EmployeeLedgerReport /> :
-            hasReports && tab.key === "remittance-report" ? <RemittanceReport /> : <div className="rounded-xl border border-dashed bg-muted/20 p-6">
+            hasReports && tab.key === "employee-ledger" ? <EmployeeLedgerReport key={reportActorId} actorId={reportActorId} /> :
+            hasReports && tab.key === "remittance-report" ? <RemittanceReport key={reportActorId} actorId={reportActorId} /> :
+            hasReports && tab.key === "year-end-summary" ? <YearEndSummaryReport key={reportActorId} actorId={reportActorId} /> :
+            hasReports && tab.key === "audit-trail" ? <AuditTrailReport key={reportActorId} actorId={reportActorId} /> : <div className="rounded-xl border border-dashed bg-muted/20 p-6">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold">{tab.title}</h3>
               <Badge variant="outline">Pending delivery</Badge>
