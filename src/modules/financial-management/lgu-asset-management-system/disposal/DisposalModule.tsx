@@ -141,8 +141,15 @@ export default function DisposalModule() {
                   <TableCell className="text-right text-sm">{peso(candidate.bookValue)}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="outline" disabled={busy} onClick={() => open(candidate, "iirup")}>
-                        <FileText className="mr-1 h-4 w-4" /> IIRUP
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || candidate.hasIirup}
+                        title={candidate.hasIirup ? "IIRUP already filed: " + (candidate.iirupNo ?? "") : undefined}
+                        onClick={() => open(candidate, "iirup")}
+                      >
+                        <FileText className="mr-1 h-4 w-4" />
+                        {candidate.hasIirup ? "IIRUP filed" : "IIRUP"}
                       </Button>
                       <Button size="sm" variant="destructive" disabled={busy} onClick={() => open(candidate, "dispose")}>
                         <Trash2 className="mr-1 h-4 w-4" /> Dispose

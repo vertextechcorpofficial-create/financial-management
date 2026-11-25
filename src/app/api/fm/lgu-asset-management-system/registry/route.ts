@@ -49,6 +49,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       assets: list.assets,
       total: list.total,
+      statusCounts: list.statusCounts,
       page,
       pageSize,
       lookups,

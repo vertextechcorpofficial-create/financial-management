@@ -77,6 +77,18 @@ export default function ReportsModule() {
             <RefreshCw className="h-4 w-4" />
           </Button>
           {data ? <Badge variant="secondary">PHP {peso(data.totals.bookValue)} book value</Badge> : null}
+          {data && data.disposed.count > 0 ? (
+            <Badge
+              variant="outline"
+              title={
+                "Left the books through a PCV. Latest disposal " +
+                (data.disposed.latestDate ?? "unknown") +
+                ". Disposed assets are excluded from the figures above."
+              }
+            >
+              {data.disposed.count} disposed, PHP {peso(data.disposed.writtenOff)} written off
+            </Badge>
+          ) : null}
         </div>
       </div>
 

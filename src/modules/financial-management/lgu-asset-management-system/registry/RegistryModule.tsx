@@ -68,7 +68,22 @@ export default function RegistryModule() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary">{data.total} on record</Badge>
+          <Badge variant="secondary" title="Assets on the register right now">
+            {data.statusCounts?.active ?? data.total} active
+          </Badge>
+          {(data.statusCounts?.disposed ?? 0) > 0 ? (
+            <Button
+              size="sm"
+              variant="outline"
+              title="Assets that left the books through a PCV. They stay in reports with a frozen value."
+              onClick={() => patchQuery({ recordStatus: "disposed", page: 1 })}
+            >
+              {data.statusCounts?.disposed} disposed
+            </Button>
+          ) : null}
+          <Badge variant="outline" title="Every asset ever recorded, including disposed">
+            {data.statusCounts?.all ?? data.total} total
+          </Badge>
           <Button variant="outline" size="icon" onClick={() => void refresh()} aria-label="Refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>

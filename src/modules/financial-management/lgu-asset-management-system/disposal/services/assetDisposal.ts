@@ -123,9 +123,24 @@ export async function fetchDisposalCandidates(params: { page?: number; q?: strin
   const assets = ((assetsJson.data ?? []) as Record<string, unknown>[]).map(mapAsset);
   const today = new Date().toISOString().slice(0, 10);
 
+  const ids = assets.map((a) => a.id);
+  const docJson = ids.length
+    ? await get(
+        "/items/lgu_asset_documents?filter=" +
+          encodeURIComponent(JSON.stringify({ asset_id: { _in: ids }, doc_type: { _eq: "IIRUP" } })) +
+          "&fields=asset_id,doc_no&limit=-1"
+      )
+    : { data: [] };
+  const inspected = new Map<number, string>();
+  for (const row of (docJson.data ?? []) as { asset_id?: number; doc_no?: string }[]) {
+    if (row.asset_id) inspected.set(Number(row.asset_id), row.doc_no ?? "");
+  }
+
   const candidates: DisposalCandidate[] = assets.map((asset) => ({
     asset,
-    documents: 0,
+    documents: inspected.has(asset.id) ? 1 : 0,
+    hasIirup: inspected.has(asset.id),
+    iirupNo: inspected.get(asset.id) ?? null,
     bookValue: bookValueAt(asset, today),
   }));
 
@@ -166,6 +181,17 @@ export async function fileIirup(input: DisposalInput): Promise<DisposalResponse>
   const assetJson = await get("/items/lgu_asset/" + input.assetId);
   if (!assetJson.data) throw new Error("Asset not found");
   const asset = mapAsset(assetJson.data as Record<string, unknown>);
+  if (asset.record_status === "disposed") throw new Error("That asset is already disposed");
+
+  const existing = await get(
+    "/items/lgu_asset_documents?filter=" +
+      encodeURIComponent(JSON.stringify({ asset_id: { _eq: asset.id }, doc_type: { _eq: "IIRUP" } })) +
+      "&fields=id,doc_no&limit=1"
+  );
+  const already = ((existing.data ?? []) as { doc_no?: string }[])[0];
+  if (already) {
+    throw new Error("An IIRUP is already filed for this asset, " + (already.doc_no ?? "") + ". One inspection report per asset.");
+  }
 
   await createDoc({
     assetId: asset.id,
@@ -192,6 +218,15 @@ export async function disposeAsset(input: DisposalInput): Promise<DisposalRespon
   if (!assetJson.data) throw new Error("Asset not found");
   const asset = mapAsset(assetJson.data as Record<string, unknown>);
   if (asset.record_status === "disposed") throw new Error("That asset is already disposed");
+
+  const inspected = await get(
+    "/items/lgu_asset_documents?filter=" +
+      encodeURIComponent(JSON.stringify({ asset_id: { _eq: asset.id }, doc_type: { _eq: "IIRUP" } })) +
+      "&fields=id&limit=1"
+  );
+  if (((inspected.data ?? []) as unknown[]).length === 0) {
+    throw new Error("File the IIRUP first. The inspection report has to exist before the PCV can dispose anything.");
+  }
 
   const bookValue = bookValueAt(asset, input.docDate);
 

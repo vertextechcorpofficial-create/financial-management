@@ -143,5 +143,17 @@ export async function buildReports(asOfInput?: string): Promise<ReportsResponse>
     { count: 0, cost: 0, accumulated: 0, bookValue: 0 }
   );
 
-  return { asOf, classes, ledger, schedule, totals };
+  const disposedJson = (((await get(
+    "/items/lgu_asset?filter=" +
+      encodeURIComponent(JSON.stringify({ record_status: { _eq: "disposed" } })) +
+      "&fields=book_value_at_disposal,disposed_at&limit=-1"
+  )).data ?? []) as { book_value_at_disposal?: string | number | null; disposed_at?: string | null }[]);
+  let writtenOff = 0;
+  let latestDate: string | null = null;
+  for (const row of disposedJson) {
+    writtenOff = Math.round((writtenOff + Number(row.book_value_at_disposal ?? 0)) * 100) / 100;
+    if (row.disposed_at && (!latestDate || row.disposed_at > latestDate)) latestDate = row.disposed_at;
+  }
+
+  return { asOf, classes, ledger, schedule, totals, disposed: { count: disposedJson.length, writtenOff, latestDate } };
 }

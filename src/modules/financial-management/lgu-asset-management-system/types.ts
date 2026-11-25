@@ -202,6 +202,8 @@ export const ASSET_SORT_FIELDS: Record<AssetSortKey, string> = {
 };
 
 export interface AssetRegistryResponse {
+  /** Counts for the whole register, so a disposal is visible without opening a filter. */
+  statusCounts?: Record<string, number>;
   assets: LguAsset[];
   total: number;
   page: number;
@@ -528,6 +530,9 @@ export interface ResolveLineInput {
 export interface DisposalCandidate {
   asset: LguAsset;
   documents: number;
+  /** True once the inspection report exists, so the IIRUP action can stop offering itself. */
+  hasIirup: boolean;
+  iirupNo: string | null;
   bookValue: number;
 }
 
@@ -597,4 +602,6 @@ export interface ReportsResponse {
   ledger: LedgerRow[];
   schedule: DepreciationRow[];
   totals: { count: number; cost: number; accumulated: number; bookValue: number };
+  /** What left the books, so a dropping total is explainable on the screen. */
+  disposed: { count: number; writtenOff: number; latestDate: string | null };
 }

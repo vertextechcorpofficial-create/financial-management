@@ -142,7 +142,13 @@ export async function fetchLookups(): Promise<RegistryLookups> {
   };
 }
 
-export async function listAssets(query: AssetRegistryQuery): Promise<{ assets: LguAsset[]; total: number }> {
+export interface RegistryStatusCounts {
+  [status: string]: number;
+}
+
+export async function listAssets(
+  query: AssetRegistryQuery
+): Promise<{ assets: LguAsset[]; total: number; statusCounts: RegistryStatusCounts }> {
   const page = Math.max(1, Number(query.page ?? 1));
   const pageSize = Math.min(100, Math.max(5, Number(query.pageSize ?? 10)));
 
@@ -175,9 +181,25 @@ export async function listAssets(query: AssetRegistryQuery): Promise<{ assets: L
     "&meta=filter_count";
 
   const json = (await directusGet(path)) as { data: Record<string, unknown>[]; meta?: { filter_count?: number } };
+
+  // what the whole register holds, not just the filtered page, so a disposal is visible
+  const countsJson = (await directusGet(
+    "/items/lgu_asset?groupBy[]=record_status&aggregate[count]=id&limit=-1"
+  )) as { data?: { record_status?: string; count?: { id?: number | string } }[] };
+  const statusCounts: RegistryStatusCounts = {};
+  let all = 0;
+  for (const row of countsJson.data ?? []) {
+    const key = text(row.record_status) || "unknown";
+    const n = Number(row.count?.id ?? 0);
+    statusCounts[key] = n;
+    all += n;
+  }
+  statusCounts.all = all;
+
   return {
     assets: (json.data ?? []).map(mapAsset),
     total: Number(json.meta?.filter_count ?? (json.data ?? []).length),
+    statusCounts,
   };
 }
 
