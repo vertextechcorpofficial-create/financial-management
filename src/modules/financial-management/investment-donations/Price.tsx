@@ -10,8 +10,8 @@ import { executeLedgerCommand } from "./ledger-api";
 import { parsePriceCsv, type PriceRow } from "./form-helpers";
 import type { LedgerRegisters } from "./server/registers";
 
-export function Price({ registers, defaultDate, revision = 0, hideLauncher = false, initialOpen = false, onClose }: {
-  registers: LedgerRegisters; defaultDate: string; revision?: number;
+export function Price({ registers, defaultDate, revision = 0, hideLauncher = false, initialOpen = false, onClose, canEdit = true }: {
+  registers: LedgerRegisters; defaultDate: string; revision?: number; canEdit?: boolean;
   hideLauncher?: boolean; initialOpen?: boolean; onClose?: () => void;
 }) {
   const router = useRouter();
@@ -54,7 +54,7 @@ export function Price({ registers, defaultDate, revision = 0, hideLauncher = fal
   return <Card>
     <CardHeader><CardTitle>Prices and history</CardTitle></CardHeader>
     <CardContent className="space-y-3">
-      {!open && !hideLauncher && <Button type="button" variant="outline" disabled={!editable.length} onClick={() => { setOpen(true); setFeedback(undefined); }}>Update prices</Button>}
+      {!open && !hideLauncher && <Button type="button" variant="outline" disabled={!editable.length || !canEdit} title={!canEdit ? "Preparation permission or posting service is unavailable." : undefined} onClick={() => { setOpen(true); setFeedback(undefined); }}>Update prices</Button>}
       {open && <form onSubmit={submit} className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2"><label>Prices as of<Input type="date" required value={date} onChange={event => setDate(event.target.value)} /></label>
           <label className="grid gap-1">Entry method<select className="h-9 rounded-md border bg-background px-2" value={mode} onChange={event => { setMode(event.target.value as "manual" | "csv"); setSource(event.target.value === "manual" ? "manual" : "paste"); }}>
@@ -79,7 +79,7 @@ export function Price({ registers, defaultDate, revision = 0, hideLauncher = fal
             <tbody>{parsed.map(row => <tr key={`${row.sym}:${row.date}`}><td>{row.sym}</td><td>{peso(row.price)}</td><td>{row.date}</td></tr>)}</tbody></table></div>}
         </>}
         <p className="text-sm text-muted-foreground">Every update retains its price date and source. Historical prices do not replace a later current price. For a correction, use a distinct source reference; existing price-history observations are never replaced.</p>
-        <div className="flex gap-2"><Button type="submit" disabled={saving || (mode === "csv" && !!parseError)}>{saving ? "Saving..." : "Save prices"}</Button>
+        <div className="flex gap-2"><Button type="submit" disabled={saving || !canEdit || (mode === "csv" && !!parseError)}>{saving ? "Saving..." : "Save prices"}</Button>
           <Button type="button" variant="outline" disabled={saving} onClick={close}>Cancel</Button></div>
       </form>}
       {feedback && <p role={feedback.ok ? "status" : "alert"}>{feedback.text}</p>}

@@ -42,10 +42,11 @@ export function AnnualReviewForm({ fiscalStart, record, canPrepare, canApprove, 
           <input type="checkbox" name={`check-${index}`} defaultChecked={record?.checks[index] ?? false} />{item}
         </label>)}
       </fieldset>
-      {canPrepare && !signed && <Button type="submit" value="draft" disabled={saving}>Save checklist</Button>}
+      {!signed && <Button type="submit" value="draft" disabled={saving || !canPrepare} title={!canPrepare ? "Transactional posting service or prepare permission is unavailable." : undefined}>Save checklist</Button>}
     </form>
-    {canApprove && !signed && complete && record?.prepared_by !== actor &&
-      <form onSubmit={submit}><Button type="submit" value="sign" disabled={saving}>Sign off saved checklist</Button></form>}
+    {!signed && complete && record?.prepared_by !== actor &&
+      <form onSubmit={submit}><Button type="submit" value="sign" disabled={saving || !canApprove} title={!canApprove ? "Transactional posting service or approval permission is unavailable." : undefined}>Sign off saved checklist</Button></form>}
+    {!signed && complete && record?.prepared_by !== actor && !canApprove && <p className="text-sm text-muted-foreground">Sign-off is locked until the transactional posting service and annual-review approval permission are available.</p>}
     {!signed && !complete && <p className="text-sm text-muted-foreground">Save all five reviewed items to enable sign-off.</p>}
     {canApprove && !signed && complete && record?.prepared_by === actor && <p className="text-sm text-muted-foreground">A different authorized approver must sign this checklist.</p>}
     {canApprove && signed && <form onSubmit={submit} className="flex flex-wrap items-end gap-2">

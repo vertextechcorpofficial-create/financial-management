@@ -426,14 +426,15 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
              onClick={() => setSelectedTab({ workspace, index })}>{label}</Button>)}
          </nav>}
          {entryOptions.length > 0 && !entrySelection && <EntryLauncher options={entryOptions} onSelect={chooseEntry} disabled={!canPost} disabledReason={!canPost ? restriction : undefined} />}
-         {canPost && entrySelection?.startsWith("trade:") && <TradeForm key={`${entrySelection}:${giftLot ?? ""}`}
-           securities={registers.securities} lots={registers.lots} defaultDate={asOf} charities={workspace === "charitable-giving" ? registers.charities : undefined}
-           policy={policy} registers={approved ? registers : undefined} entries={entries} hideLauncher initialType={entrySelection.slice(6) as "buy" | "sell" | "gift"} initialLotId={giftLot} onClose={closeEntry} />}
+          {canPost && entrySelection?.startsWith("trade:") && <TradeForm key={`${entrySelection}:${giftLot ?? ""}`}
+            securities={registers.securities} lots={registers.lots} defaultDate={asOf} charities={workspace === "charitable-giving" ? registers.charities : undefined}
+            policy={policy} registers={approved ? registers : undefined} entries={entries} hideLauncher initialType={entrySelection.slice(6) as "buy" | "sell" | "gift"} initialLotId={giftLot} onClose={closeEntry} />}
+          {entrySelection === "trade:gift" && !canPost && <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Gift shares is ready to open, but posting is locked until the transactional posting service is available and you have prepare permission.</p></CardContent></Card>}
          {canPost && entrySelection?.startsWith("capital:") && <CapitalActions key={`${entrySelection}:${rowTarget ?? ""}`} registers={registers} defaultDate={asOf}
            entries={entries} hideLauncher initialType={entrySelection.slice(8) as CapitalOperation} initialTarget={rowTarget} onClose={closeEntry} />}
-         {canPost && approved && entrySelection?.startsWith("master:") && <MasterData key={entrySelection} registers={registers}
-           kind={entrySelection.slice(7) as "security" | "organization" | "holder"} hideLauncher initialOpen formOnly onClose={closeEntry} />}
-         {canPost && entrySelection === "prices" && <Price registers={registers} defaultDate={asOf} hideLauncher initialOpen onClose={closeEntry} />}
+         {entrySelection?.startsWith("master:") && <MasterData key={entrySelection} registers={registers}
+           kind={entrySelection.slice(7) as "security" | "organization" | "holder"} hideLauncher initialOpen formOnly canEdit={canPost && approved} onClose={closeEntry} />}
+         {entrySelection === "prices" && <Price registers={registers} defaultDate={asOf} hideLauncher initialOpen canEdit={canPost} onClose={closeEntry} />}
          {workspace === "tax-compliance" && !showForm && <div>
            <Button disabled={!canPost || !taxItems.length} onClick={() => {
             setFeedback(undefined);
@@ -602,7 +603,8 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                {securities.map(row => <details key={row.sym} className="my-2 rounded-md border p-3"><summary>{row.sym} price history</summary>
                  <Grid headers={["Date", "Price", "Source"]} rows={(registers.priceHist[row.sym] ?? []).map(price => [price.date, peso(price.price), price.source])} />
                </details>)}
-               {canPost && approved && <MasterData kind="security" registers={registers} hideLauncher />}
+               <Price registers={registers} defaultDate={asOf} canEdit={canPost} />
+               <MasterData kind="security" registers={registers} hideLauncher canEdit={canPost && approved} />
              </CardContent></Card>
            </Panel>
          </>}
@@ -628,8 +630,9 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                   <div className="space-y-1" key={row.id}>
                     {requiredDonationDocs(row, donationDocuments?.[row.id]).map(doc => <div key={doc.key}>{doc.label}: {doc.ok ? "Recorded" : "Missing"}</div>)}
                     {donationDocuments?.[row.id] && <div>Reference: {donationDocuments[row.id].reference}</div>}
-                   {canPost && reconciliationRole === "approve" && donationDocuments !== null && typeof row.data.exempt === "boolean" &&
-                     <Button size="sm" variant="outline" onClick={() => { setDocumentGift(row); setFeedback(undefined); }}>Update reference</Button>}
+                    {typeof row.data.exempt === "boolean" && <Button size="sm" variant="outline" disabled={!canPost || reconciliationRole !== "approve"}
+                      title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Charitable-giving approval permission is required." : undefined}
+                      onClick={() => { setDocumentGift(row); setFeedback(undefined); }}>Update documents</Button>}
                  </div>])} />
           </CardContent></Card>
             </Panel><Panel active={activeTab === 1}>
@@ -893,11 +896,14 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
              })} />
            {reconEditable && <Button type="submit" disabled={saving}>Save draft</Button>}
            </form>
-           {reconEditable && recon && reconciliationRole === "approve" && actor !== recon.prepared_by && (
-             <form onSubmit={submitReconciliation}>
-               <Button type="submit" value="sign" disabled={saving || reconChanged}>Sign off saved draft</Button>
-             </form>
-           )}
+            {recon && !reconSigned && actor !== recon.prepared_by && (
+              <form onSubmit={submitReconciliation}>
+                <Button type="submit" value="sign" disabled={saving || reconChanged || !reconEditable || reconciliationRole !== "approve"}
+                  title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Monthly-reconciliation approval permission is required." : reconChanged ? "Save a fresh draft after the ledger change." : undefined}>Sign off saved draft</Button>
+              </form>
+            )}
+            {recon && !reconSigned && actor !== recon.prepared_by && (reconChanged || !canPost || reconciliationRole !== "approve") &&
+              <p className="text-sm text-muted-foreground">Sign-off is locked: {!canPost ? "transactional posting service unavailable" : reconciliationRole !== "approve" ? "approval permission required" : "save a fresh draft after the ledger changed"}.</p>}
            {recon?.signed_at && !monthClosed && reconciliationRole === "approve" && (
              <form key={`reopen:${month}:${recon.revision}`} onSubmit={submitReconciliation} className="space-y-2">
                <label className="block max-w-md text-sm">Reason for reopening<Input name="reason" required maxLength={500} /></label>
@@ -909,7 +915,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
            <MonthNavigation value={month} first={firstMonth} onChange={selectMonth} />
            <Grid headers={["Selected month checklist", "Requirement", "Status"]} rows={closeChecklist.map(row => [row.label,
              row.required ? "Required" : "Review only", row.ok ? "Complete" : "Needs attention"])} />
-          {canPost && <form className="mb-4 flex flex-wrap items-end gap-2" onSubmit={async event => {
+           {(canPost || ["prepare", "approve"].includes(reconciliationRole)) && <form className="mb-4 flex flex-wrap items-end gap-2" onSubmit={async event => {
             event.preventDefault();
             if (saving) return;
             const type = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
@@ -922,14 +928,16 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
               if (result.ok) router.refresh();
             } finally { setSaving(false); }
           }}>
-            {monthClosed ? reconciliationRole === "approve" && <>
-              <label>Reopen reason<Input name="reason" required maxLength={500} /></label>
-              <Button value="reopen" type="submit" disabled={saving}>Reopen month</Button>
-            </> : <>
-              <Button value="accrue" type="submit" disabled={saving}>Post loan interest</Button>
-               {reconciliationRole === "approve" && <Button value="close" type="submit" disabled={saving || closeChecklist.some(row => row.required && !row.ok)}>Close month</Button>}
-            </>}
-          </form>}
+             {monthClosed ? <>
+               <label>Reopen reason<Input name="reason" required maxLength={500} /></label>
+               <Button value="reopen" type="submit" disabled={saving || !canPost || reconciliationRole !== "approve"} title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Period-close approval permission is required." : undefined}>Reopen month</Button>
+             </> : <>
+               <Button value="accrue" type="submit" disabled={saving || !canPost} title={!canPost ? "Transactional posting service is unavailable." : undefined}>Post loan interest</Button>
+                <Button value="close" type="submit" disabled={saving || !canPost || reconciliationRole !== "approve" || closeChecklist.some(row => row.required && !row.ok)}
+                  title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Period-close approval permission is required." : undefined}>Close month</Button>
+             </>}
+           </form>}
+           {!canPost && <p className="text-sm text-muted-foreground">Period actions are locked until the transactional posting service is available.</p>}
            <Grid headers={["Month", "Accrual status", "Closed on", "Closed by"]}
              rows={periodRows.map(([key, row]) => [key, row.accruedAt ? "Recorded" : "Pending", row.closedAt?.slice(0, 10) ?? "Open", row.closedBy ?? "—"])} />
            <h3 className="font-medium">Close and reopen history</h3>

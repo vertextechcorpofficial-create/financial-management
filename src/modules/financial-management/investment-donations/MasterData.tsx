@@ -15,9 +15,9 @@ export const holderTypes = { individual: "Individual (resident)", domestic: "Dom
 const selectClass = "h-9 w-full rounded-md border bg-background px-2";
 type Kind = "security" | "organization" | "holder";
 
-export function MasterData({ registers, revision = 0, kind, hideLauncher = false, initialId, initialOpen = false, onClose, onSaved, formOnly = false }: {
+export function MasterData({ registers, revision = 0, kind, hideLauncher = false, initialId, initialOpen = false, onClose, onSaved, formOnly = false, canEdit = true }: {
   registers: LedgerRegisters; revision?: number; kind: Kind; hideLauncher?: boolean;
-  initialId?: string; initialOpen?: boolean; onClose?: () => void; onSaved?: (id: string) => void; formOnly?: boolean;
+  initialId?: string; initialOpen?: boolean; onClose?: () => void; onSaved?: (id: string) => void; formOnly?: boolean; canEdit?: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState<string | null>(initialId ?? (initialOpen ? "" : null));
@@ -74,7 +74,7 @@ export function MasterData({ registers, revision = 0, kind, hideLauncher = false
   return <Card>
     <CardHeader><CardTitle>{name} register</CardTitle></CardHeader>
     <CardContent className="space-y-3">
-      {editing === null && !hideLauncher && <Button type="button" variant="outline" onClick={() => open("")}>Add {name.toLowerCase()}</Button>}
+      {editing === null && !hideLauncher && <Button type="button" variant="outline" disabled={!canEdit} title={!canEdit ? "Approval permission or posting service is unavailable." : undefined} onClick={() => open("")}>Add {name.toLowerCase()}</Button>}
       {editing !== null && <form key={`${kind}:${editing}`} onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
         <h3 className="font-medium sm:col-span-2">{editing ? "Edit" : "Add"} {name.toLowerCase()}</h3>
         {kind === "security" && <>
@@ -121,13 +121,13 @@ export function MasterData({ registers, revision = 0, kind, hideLauncher = false
         </>}
         {kind !== "security" && <label className="flex items-center gap-2"><input name="active" type="checkbox"
           defaultChecked={((kind === "holder" ? holder : charity) as { active?: boolean } | undefined)?.active !== false} />Active record</label>}
-        <div className="flex gap-2 sm:col-span-2"><Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+        <div className="flex gap-2 sm:col-span-2"><Button type="submit" disabled={saving || !canEdit} title={!canEdit ? "Approval permission or posting service is unavailable." : undefined}>{saving ? "Saving..." : "Save"}</Button>
           <Button type="button" variant="outline" disabled={saving} onClick={close}>Cancel</Button></div>
       </form>}
       {feedback && <p role={feedback.ok ? "status" : "alert"}>{feedback.text}</p>}
       {!formOnly && <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="p-2">Name</th><th className="p-2">Status / type</th><th className="p-2">Action</th></tr></thead>
         <tbody>{rows.map(row => <tr key={row.id} className="border-b"><td className="p-2">{row.name}</td><td className="p-2">{row.detail}</td><td className="p-2">
-          <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => open(row.id)}>Edit</Button></td></tr>)}</tbody></table>
+          <Button type="button" size="sm" variant="outline" disabled={saving || !canEdit} title={!canEdit ? "Approval permission or posting service is unavailable." : undefined} onClick={() => open(row.id)}>Edit</Button></td></tr>)}</tbody></table>
         {!rows.length && <p className="py-3 text-sm text-muted-foreground">No records yet.</p>}
       </div>}
     </CardContent>
