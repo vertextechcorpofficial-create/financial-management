@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Download, FileSpreadsheet, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -9,7 +9,7 @@ import StartReviewCard from "./components/StartReviewCard";
 import ImpairmentKPICards from "./components/ImpairmentKPICards";
 import ExternalIndicatorsSection from "./components/ExternalIndicatorsSection";
 import ImpairmentReviewTable from "./components/ImpairmentReviewTable";
-import { generateImpairmentReviewPDF } from "./utils/impairmentReviewPdf";
+import AssetPdfPreviewModal, { type AssetPdfSpec } from "./components/PdfPreviewModal";
 
 export default function ImpairmentReviewModule() {
   const {
@@ -74,23 +74,53 @@ export default function ImpairmentReviewModule() {
     toast.success("CSV exported successfully");
   };
 
-  const handleExportPDF = async () => {
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+
+  const pdfSpec = useMemo<AssetPdfSpec | null>(() => {
+    if (!data?.lines || data.lines.length === 0) return null;
+    const totalCarrying = filteredLines.reduce((s, l) => s + Number(l.carrying_amount || 0), 0);
+    return {
+      title: data.review?.review_name || "Impairment Review (IAS 36)",
+      subtitle: `Review Date: ${data.review?.review_date || new Date().toISOString().split("T")[0]} · Amounts in PHP`,
+      fileName: `Impairment_Review_${data.review?.review_date || new Date().toISOString().split("T")[0]}`,
+      landscape: true,
+      columns: [
+        { header: "Asset Tag" },
+        { header: "Item Name" },
+        { header: "Classification" },
+        { header: "Department" },
+        { header: "Condition" },
+        { header: "Carrying Amount", numeric: true },
+        { header: "Indicators" },
+        { header: "Conclusion" },
+      ],
+      rows: [
+        ...filteredLines.map((l) => ({
+          cells: [
+            l.asset_tag,
+            l.item_name,
+            l.classification_name,
+            l.department_name,
+            l.condition_name,
+            l.carrying_amount,
+            l.indicators.map((i) => i.label).join("; ") || "—",
+            l.conclusion_name || "Unconcluded",
+          ],
+        })),
+        {
+          isTotal: true,
+          cells: ["Total", "", "", "", "", totalCarrying, "", ""],
+        },
+      ],
+    };
+  }, [data, filteredLines]);
+
+  const handleExportPDF = () => {
     if (!data?.lines || data.lines.length === 0) {
       toast.info("No data to export");
       return;
     }
-    try {
-      toast.loading("Generating PDF report...", { id: "pdf-export" });
-      await generateImpairmentReviewPDF({
-        reviewTitle: data.review?.review_name || "Impairment Review",
-        reviewDate: data.review?.review_date || new Date().toISOString().split("T")[0],
-        kpis: data.kpis ?? undefined,
-        lines: filteredLines,
-      });
-      toast.success("PDF exported successfully", { id: "pdf-export" });
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to generate PDF", { id: "pdf-export" });
-    }
+    setPdfPreviewOpen(true);
   };
 
   if (isLoading) {
@@ -208,6 +238,12 @@ export default function ImpairmentReviewModule() {
           />
         </>
       )}
+
+      <AssetPdfPreviewModal
+        open={pdfPreviewOpen}
+        onOpenChange={setPdfPreviewOpen}
+        spec={pdfSpec}
+      />
     </div>
   );
 }

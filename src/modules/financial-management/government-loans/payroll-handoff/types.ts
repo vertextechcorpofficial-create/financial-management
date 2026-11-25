@@ -4,6 +4,7 @@ export const handoffStatusLabels = {
   RETRYABLE: "Retry available",
   NEEDS_REVIEW: "Needs review",
   ACCEPTED: "Acknowledged by Payroll",
+  CANCELLED: "Cancelled before delivery",
 } as const;
 
 export type HandoffStatus = keyof typeof handoffStatusLabels;

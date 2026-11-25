@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  Smartphone,
   FileSpreadsheet,
   FileText,
   Loader2,
@@ -23,9 +22,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SearchableSelect } from "./SearchableSelect";
+import AssetPdfPreviewModal, { type AssetPdfSpec } from "./PdfPreviewModal";
 import {
   fetchCountSessionDetail,
   completeCountApi,
+  recordReadApi,
+  resolveItemApi,
 } from "../providers/fetchProvider";
 import {
   CountSession,
@@ -74,122 +76,309 @@ export default function CountSessionDetailPage({
   const [untaggedDesc, setUntaggedDesc] = useState("");
   const [untaggedSerial, setUntaggedSerial] = useState("");
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await fetchCountSessionDetail(sessionId);
-        setSession(res.session);
-        setItems(res.items);
-        setExpectedAssets(res.expectedAssets);
-        setRecentReads(res.recentReads);
-        // Initially checked found items
-        const foundIds = res.items
-          .filter((i) => i.result_type === "found")
-          .map((i) => String(i.id));
-        setCheckedIds(foundIds);
-      } catch (err: unknown) {
-        toast.error(
-          err instanceof Error ? err.message : "Failed to load count session"
-        );
-      } finally {
-        setLoading(false);
-      }
+  // PDF Preview Modal state
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+
+  const pdfSpec = useMemo<AssetPdfSpec | null>(() => {
+    if (!session) return null;
+    const totalCarrying = items.reduce((s, i) => s + Number(i.carrying_amount || 0), 0);
+    return {
+      title: `Physical Count — ${session.name}`,
+      subtitle: `${session.count_date || ""} · ${session.departments.join(", ") || "All Departments"} · Status: ${session.status}`,
+      fileName: `Physical_Count_${session.id}_${session.count_date || new Date().toISOString().split("T")[0]}`,
+      landscape: true,
+      columns: [
+        { header: "Asset Tag" },
+        { header: "Item Name" },
+        { header: "RFID" },
+        { header: "Department" },
+        { header: "Holder" },
+        { header: "Condition" },
+        { header: "Result" },
+        { header: "Resolution" },
+        { header: "Carrying Amount", numeric: true },
+      ],
+      rows: [
+        ...items.map((i) => ({
+          cells: [
+            i.asset_tag || "—",
+            i.item_name || i.description || "—",
+            i.rfid_code || "—",
+            i.department_name || "Unassigned",
+            i.holder_name || "Unassigned",
+            i.condition_observed || "—",
+            i.result_type.toUpperCase(),
+            i.resolution || "—",
+            i.carrying_amount || 0,
+          ],
+        })),
+        ...(items.length > 0
+          ? [
+              {
+                isTotal: true,
+                cells: ["Total", "", "", "", "", "", "", "", totalCarrying],
+              },
+            ]
+          : []),
+      ],
+    };
+  }, [session, items]);
+
+  const tagInputRef = useRef<HTMLInputElement | null>(null);
+  const [isRecordingRead, setIsRecordingRead] = useState(false);
+
+  const loadSession = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const res = await fetchCountSessionDetail(sessionId);
+      setSession(res.session);
+      setItems(res.items);
+      setExpectedAssets(res.expectedAssets);
+      setRecentReads(res.recentReads);
+      const foundIds = res.items
+        .filter((i) => i.result_type === "found")
+        .map((i) => String(i.id));
+      setCheckedIds(foundIds);
+    } catch (err: unknown) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to load count session"
+      );
+    } finally {
+      if (!silent) setLoading(false);
     }
-    load();
   }, [sessionId]);
 
-  // Handle RFID sweep simulation (Image 3)
-  const handleSimulateSweep = () => {
-    toast.success("Simulating RFID reader sweep... 8 tags detected.");
+  useEffect(() => {
+    loadSession(false);
+  }, [loadSession]);
+
+  // Enter-to-scan single RFID EPC
+  const handleScanSingleTag = async () => {
+    const epc = tagInput.trim();
+    if (!epc || isRecordingRead) return;
+    setIsRecordingRead(true);
+    setTagInput("");
+    try {
+      const res = await recordReadApi(sessionId, { epc, source: "RFID" });
+      const firstMatch = res.matches?.[0];
+      if (firstMatch?.matched) {
+        toast.success(
+          `Matched ${firstMatch.tag}${firstMatch.itemName ? ` · ${firstMatch.itemName}` : ""}`
+        );
+      } else {
+        toast.warning(`Unknown RFID tag logged: ${epc}`);
+      }
+      await loadSession(true);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to record RFID scan");
+    } finally {
+      setIsRecordingRead(false);
+      tagInputRef.current?.focus();
+    }
   };
 
-  const handleAddPastedReads = () => {
-    if (!pasteInput.trim()) return;
+  // Simulate sweep using real RFIDs from this session's expected assets
+  const handleSimulateSweep = async () => {
+    const sampleEpcs = expectedAssets
+      .filter((a) => a.result_type === "missing" && a.rfid_code && a.rfid_code.trim())
+      .slice(0, 5)
+      .map((a) => a.rfid_code!.trim());
+
+    if (sampleEpcs.length === 0) {
+      toast.info("No remaining unticked assets with RFID tags to simulate.");
+      return;
+    }
+
+    setIsRecordingRead(true);
+    try {
+      await recordReadApi(sessionId, { epcs: sampleEpcs, source: "RFID" });
+      toast.success(`Scanned ${sampleEpcs.length} asset RFID tag(s)`);
+      await loadSession(true);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to simulate sweep");
+    } finally {
+      setIsRecordingRead(false);
+    }
+  };
+
+  const handleAddPastedReads = async () => {
+    if (!pasteInput.trim() || isRecordingRead) return;
     const lines = pasteInput
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
-    toast.success(`Processed ${lines.length} pasted EPC reads`);
-    setPasteInput("");
+    if (lines.length === 0) return;
+
+    setIsRecordingRead(true);
+    try {
+      const res = await recordReadApi(sessionId, { epcs: lines, source: "RFID" });
+      const matchedCount = (res.matches || []).filter((m) => m.matched).length;
+      const unknownCount = lines.length - matchedCount;
+      toast.success(
+        `Processed ${lines.length} read(s): ${matchedCount} matched, ${unknownCount} unknown`
+      );
+      setPasteInput("");
+      await loadSession(true);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to process pasted reads");
+    } finally {
+      setIsRecordingRead(false);
+    }
   };
 
-  // Resolution selection handler (Image 4 & 6)
-  const handleResolutionChange = (itemId: string | number, resolution: string) => {
+  const handleClearAllReads = async () => {
+    if (isRecordingRead) return;
+    setIsRecordingRead(true);
+    try {
+      await recordReadApi(sessionId, { clearAll: true, source: "RFID" });
+      toast.success("All reads cleared");
+      await loadSession(true);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to clear reads");
+    } finally {
+      setIsRecordingRead(false);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (items.length === 0) {
+      toast.info("No count items to export");
+      return;
+    }
+    const headers = [
+      "Asset Tag",
+      "Item Name",
+      "RFID",
+      "Department",
+      "Holder",
+      "Condition",
+      "Result",
+      "Resolution",
+      "Carrying Amount",
+    ];
+    const rows = items.map((i) => [
+      `"${(i.asset_tag || "").replace(/"/g, '""')}"`,
+      `"${(i.item_name || i.description || "").replace(/"/g, '""')}"`,
+      `"${(i.rfid_code || "").replace(/"/g, '""')}"`,
+      `"${(i.department_name || "").replace(/"/g, '""')}"`,
+      `"${(i.holder_name || "").replace(/"/g, '""')}"`,
+      `"${(i.condition_observed || "").replace(/"/g, '""')}"`,
+      `"${i.result_type.toUpperCase()}"`,
+      `"${(i.resolution || "").replace(/"/g, '""')}"`,
+      i.carrying_amount || 0,
+    ]);
+    const csv = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Physical_Count_${session?.id || sessionId}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("CSV exported successfully");
+  };
+
+  // Resolution selection handler -> persists to Directus
+  const handleResolutionChange = async (itemId: string | number, resolution: string) => {
     setItems((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, resolution } : item
       )
     );
-    toast.success(`Updated resolution: ${resolution}`);
+    try {
+      await resolveItemApi(sessionId, itemId, { resolution });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to save resolution");
+    }
   };
 
-  // Condition observation change
-  const handleConditionChange = (itemId: string | number, cond: string) => {
+  // Condition observation change -> persists directly to assets_and_equipment
+  const handleConditionChange = async (itemId: string | number, cond: string) => {
+    const targetItem = items.find((i) => i.id === itemId);
     setItems((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, condition_observed: cond } : item
       )
     );
+    if (targetItem?.asset_id) {
+      try {
+        await resolveItemApi(sessionId, itemId, {
+          assetId: targetItem.asset_id,
+          condition: cond,
+        });
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Failed to save condition");
+      }
+    }
   };
 
-  // Manual tick item
-  const handleToggleChecklist = (item: CountItemResult) => {
+  // Ignore unknown/untagged read -> deletes from asset_count_reads in Directus
+  const handleIgnoreUnknown = async (item: CountItemResult) => {
+    try {
+      await resolveItemApi(sessionId, item.id, {
+        ignoreUnknown: true,
+        epc: item.rfid_code,
+      });
+      await loadSession(true);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to ignore read");
+    }
+  };
+
+  // Manual tick item (persisted to Directus asset_count_reads)
+  const handleToggleChecklist = async (item: CountItemResult) => {
+    if (!item.asset_id || isRecordingRead) return;
     const idStr = String(item.id);
     const isNowChecked = !checkedIds.includes(idStr);
 
-    setCheckedIds((prev) =>
-      isNowChecked ? [...prev, idStr] : prev.filter((id) => id !== idStr)
-    );
-
-    setItems((prev) =>
-      prev.map((i) =>
-        i.id === item.id
-          ? {
-              ...i,
-              result_type: isNowChecked ? "found" : "missing",
-              verified_by: isNowChecked ? "Manual check" : undefined,
-            }
-          : i
-      )
-    );
-    toast.success(
-      isNowChecked
-        ? `Verified ${item.asset_tag}`
-        : `Marked ${item.asset_tag} as missing`
-    );
+    setIsRecordingRead(true);
+    try {
+      if (isNowChecked) {
+        await recordReadApi(sessionId, { asset_id: item.asset_id, source: "Manual" });
+        toast.success(`Verified ${item.asset_tag}`);
+      } else {
+        await recordReadApi(sessionId, { removeAssetId: item.asset_id, source: "Manual" });
+        toast.info(`Marked ${item.asset_tag} as missing`);
+      }
+      await loadSession(true);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to update verification");
+    } finally {
+      setIsRecordingRead(false);
+    }
   };
 
-  // Add untagged item (Image 10)
-  const handleAddUntagged = (e: React.FormEvent) => {
+  // Add untagged item (persisted to Directus asset_count_reads)
+  const handleAddUntagged = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!untaggedDesc.trim()) {
       toast.error("Please enter a description for the untagged item");
       return;
     }
-    const newItem: CountItemResult = {
-      id: `untagged-${Date.now()}`,
-      item_name: untaggedDesc,
-      serial: untaggedSerial || undefined,
-      condition_observed: "Good",
-      result_type: "unknown",
-      carrying_amount: 0,
-      description: `Untagged item added manually: ${untaggedDesc}`,
-    };
-    setItems((prev) => [...prev, newItem]);
-    setUntaggedDesc("");
-    setUntaggedSerial("");
-    setUntaggedOpen(false);
-    toast.success("Untagged item added to exceptions");
+    setIsRecordingRead(true);
+    try {
+      const desc = untaggedSerial.trim()
+        ? `${untaggedDesc.trim()} (S/N: ${untaggedSerial.trim()})`
+        : untaggedDesc.trim();
+      await recordReadApi(sessionId, { source: "Manual", untagged_description: desc });
+      setUntaggedDesc("");
+      setUntaggedSerial("");
+      setUntaggedOpen(false);
+      toast.success("Untagged item logged");
+      await loadSession(true);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to add untagged item");
+    } finally {
+      setIsRecordingRead(false);
+    }
   };
 
-  // Complete Count
+  // Complete Count -> writes asset_count_results & marks session completed in Directus
   const handleCompleteCount = async () => {
     try {
-      await completeCountApi(sessionId);
-      toast.success(
-        "Physical count completed! Confirmed lost items derecognised with loss equal to carrying amount. Custody transfers recorded."
-      );
+      await completeCountApi(sessionId, items);
       router.push("/fm/asset-management/physical-count");
     } catch (err: unknown) {
       toast.error(
@@ -251,7 +440,7 @@ export default function CountSessionDetailPage({
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Nov 14, 2026 · {session?.departments.join(", ")} · started by{" "}
+            {session?.count_date} · {session?.departments.join(", ")} · started by{" "}
             {session?.counted_by_name}
           </p>
         </div>
@@ -260,31 +449,14 @@ export default function CountSessionDetailPage({
           <Button
             variant="outline"
             className="text-xs h-9 px-3 gap-1.5"
-            onClick={() => toast.info("Phone view: Open on mobile scanner")}
-          >
-            <Smartphone className="h-3.5 w-3.5" /> Phone view
-          </Button>
-          <Button
-            variant="outline"
-            className="text-xs h-9 px-3"
-            onClick={() => {
-              navigator.clipboard?.writeText(window.location.href);
-              toast.success("Phone link copied to clipboard");
-            }}
-          >
-            Copy phone link
-          </Button>
-          <Button
-            variant="outline"
-            className="text-xs h-9 px-3 gap-1.5"
-            onClick={() => toast.info("Exporting CSV...")}
+            onClick={handleExportCSV}
           >
             <FileSpreadsheet className="h-3.5 w-3.5" /> Export CSV
           </Button>
           <Button
             variant="outline"
             className="text-xs h-9 px-3 gap-1.5"
-            onClick={() => toast.info("Exporting PDF report...")}
+            onClick={() => setPdfPreviewOpen(true)}
           >
             <FileText className="h-3.5 w-3.5" /> Export PDF
           </Button>
@@ -355,14 +527,14 @@ export default function CountSessionDetailPage({
             {scanMode === "rfid" ? "Scan" : "Manual Checklist"}
           </span>
 
-          <div className="flex items-center p-0.5 rounded-lg bg-muted/60 border">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setScanMode("rfid")}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
+              className={`px-3.5 py-1.5 text-xs rounded-xl border transition-all flex items-center gap-1.5 shadow-2xs ${
                 scanMode === "rfid"
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-primary text-primary-foreground border-primary font-semibold shadow-sm"
+                  : "bg-background text-muted-foreground border-border font-medium hover:bg-accent hover:text-accent-foreground"
               }`}
             >
               <Radio className="h-3.5 w-3.5" /> RFID reader
@@ -370,10 +542,10 @@ export default function CountSessionDetailPage({
             <button
               type="button"
               onClick={() => setScanMode("manual")}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
+              className={`px-3.5 py-1.5 text-xs rounded-xl border transition-all flex items-center gap-1.5 shadow-2xs ${
                 scanMode === "manual"
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-primary text-primary-foreground border-primary font-semibold shadow-sm"
+                  : "bg-background text-muted-foreground border-border font-medium hover:bg-accent hover:text-accent-foreground"
               }`}
             >
               <ClipboardList className="h-3.5 w-3.5" /> Manual checklist
@@ -391,15 +563,24 @@ export default function CountSessionDetailPage({
 
               <div className="flex gap-2">
                 <Input
-                  placeholder="Waiting for tag..."
+                  ref={tagInputRef}
+                  placeholder="Waiting for tag... (press Enter to scan)"
                   value={tagInput}
                   onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleScanSingleTag();
+                    }
+                  }}
+                  disabled={isRecordingRead}
                   className="h-10 text-xs font-mono"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   onClick={handleSimulateSweep}
+                  disabled={isRecordingRead}
                   className="h-10 px-3 text-xs shrink-0 font-medium"
                 >
                   Simulate reader sweep
@@ -411,6 +592,7 @@ export default function CountSessionDetailPage({
                 placeholder="...or paste EPCs here"
                 value={pasteInput}
                 onChange={(e) => setPasteInput(e.target.value)}
+                disabled={isRecordingRead}
                 className="w-full text-xs font-mono p-3 rounded-lg border bg-background"
               />
 
@@ -420,6 +602,7 @@ export default function CountSessionDetailPage({
                     type="button"
                     variant="outline"
                     onClick={handleAddPastedReads}
+                    disabled={isRecordingRead || !pasteInput.trim()}
                     className="h-8 text-xs px-3"
                   >
                     Add pasted reads
@@ -427,17 +610,15 @@ export default function CountSessionDetailPage({
                   <Button
                     type="button"
                     variant="ghost"
-                    onClick={() => {
-                      setRecentReads([]);
-                      toast.success("Recent reads cleared");
-                    }}
+                    onClick={handleClearAllReads}
+                    disabled={isRecordingRead || recentReads.length === 0}
                     className="h-8 text-xs text-rose-600 hover:text-rose-700"
                   >
                     Clear all reads
                   </Button>
                 </div>
                 <span className="text-[11px] text-muted-foreground font-mono">
-                  10 reads · 10 unique
+                  {recentReads.length} reads · {new Set(recentReads.map((r) => r.epc)).size} unique
                 </span>
               </div>
             </div>
@@ -597,57 +778,59 @@ export default function CountSessionDetailPage({
         onValueChange={(val) => setActiveTab(val as CountResultType)}
         className="space-y-4"
       >
-        <TabsList className="bg-transparent border-b rounded-none p-0 h-auto gap-6 justify-start w-full">
-          <TabsTrigger
-            value="missing"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-800 data-[state=active]:bg-transparent text-xs font-semibold px-1 pb-2"
-          >
-            Missing{" "}
-            <span className="ml-1 text-[11px] text-rose-600 font-bold">
-              {missingItems.length}
-            </span>
-          </TabsTrigger>
+        <div className="bg-card border rounded-2xl p-2 shadow-2xs overflow-x-auto">
+          <TabsList className="bg-transparent h-auto p-0 flex flex-nowrap sm:flex-wrap items-center gap-2 justify-start w-max sm:w-full">
+            <TabsTrigger
+              value="missing"
+              className="group rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Missing{" "}
+              <span className="ml-1.5 text-[11px] font-bold text-rose-600 group-data-[state=active]:text-primary-foreground">
+                {missingItems.length}
+              </span>
+            </TabsTrigger>
 
-          <TabsTrigger
-            value="found"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-800 data-[state=active]:bg-transparent text-xs font-semibold px-1 pb-2"
-          >
-            Found{" "}
-            <span className="ml-1 text-[11px] text-muted-foreground font-bold">
-              {foundItems.length}
-            </span>
-          </TabsTrigger>
+            <TabsTrigger
+              value="found"
+              className="group rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Found{" "}
+              <span className="ml-1.5 text-[11px] font-bold text-muted-foreground group-data-[state=active]:text-primary-foreground">
+                {foundItems.length}
+              </span>
+            </TabsTrigger>
 
-          <TabsTrigger
-            value="misplaced"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-800 data-[state=active]:bg-transparent text-xs font-semibold px-1 pb-2"
-          >
-            Misplaced{" "}
-            <span className="ml-1 text-[11px] text-rose-600 font-bold">
-              {misplacedItems.length}
-            </span>
-          </TabsTrigger>
+            <TabsTrigger
+              value="misplaced"
+              className="group rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Misplaced{" "}
+              <span className="ml-1.5 text-[11px] font-bold text-rose-600 group-data-[state=active]:text-primary-foreground">
+                {misplacedItems.length}
+              </span>
+            </TabsTrigger>
 
-          <TabsTrigger
-            value="unknown"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-800 data-[state=active]:bg-transparent text-xs font-semibold px-1 pb-2"
-          >
-            Unknown / untagged{" "}
-            <span className="ml-1 text-[11px] text-rose-600 font-bold">
-              {unknownItems.length}
-            </span>
-          </TabsTrigger>
+            <TabsTrigger
+              value="unknown"
+              className="group rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Unknown / untagged{" "}
+              <span className="ml-1.5 text-[11px] font-bold text-rose-600 group-data-[state=active]:text-primary-foreground">
+                {unknownItems.length}
+              </span>
+            </TabsTrigger>
 
-          <TabsTrigger
-            value="derecognised"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-800 data-[state=active]:bg-transparent text-xs font-semibold px-1 pb-2"
-          >
-            Derecognised but found{" "}
-            <span className="ml-1 text-[11px] text-muted-foreground font-bold">
-              {derecognisedItems.length}
-            </span>
-          </TabsTrigger>
-        </TabsList>
+            <TabsTrigger
+              value="derecognised"
+              className="group rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Derecognised but found{" "}
+              <span className="ml-1.5 text-[11px] font-bold text-muted-foreground group-data-[state=active]:text-primary-foreground">
+                {derecognisedItems.length}
+              </span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Tab 1: Missing Items (Image 4) */}
         <TabsContent value="missing" className="space-y-4">
@@ -722,6 +905,11 @@ export default function CountSessionDetailPage({
                               )
                             )
                           }
+                          onBlur={(e) => {
+                            resolveItemApi(sessionId, item.id, { note: e.target.value }).catch(
+                              () => {}
+                            );
+                          }}
                           className="h-9 text-xs"
                         />
                       </td>
@@ -915,12 +1103,7 @@ export default function CountSessionDetailPage({
                         </Button>
                         <Button
                           variant="ghost"
-                          onClick={() => {
-                            setItems((prev) =>
-                              prev.filter((i) => i.id !== item.id)
-                            );
-                            toast.info("Unknown read ignored");
-                          }}
+                          onClick={() => handleIgnoreUnknown(item)}
                           className="h-8 text-xs text-muted-foreground hover:text-foreground"
                         >
                           Ignore
@@ -981,6 +1164,12 @@ export default function CountSessionDetailPage({
           </Button>
         </div>
       </div>
+
+      <AssetPdfPreviewModal
+        open={pdfPreviewOpen}
+        onOpenChange={setPdfPreviewOpen}
+        spec={pdfSpec}
+      />
     </div>
   );
 }

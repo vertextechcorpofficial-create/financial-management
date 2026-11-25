@@ -26,7 +26,15 @@ export async function startImpairmentReview(payload: StartReviewPayload): Promis
 
 export async function updateReviewDetails(
   id: number,
-  payload: { review_date?: string; review_name?: string }
+  payload: {
+    review_date?: string;
+    review_name?: string;
+    interest_rates_increased?: boolean;
+    market_classes?: number[];
+    market_class_keys?: string[];
+    idle_months_threshold?: number;
+    maintenance_pct_threshold?: number;
+  }
 ): Promise<{ success: boolean }> {
   const res = await fetch("/api/fm/asset-management/impairment-review", {
     method: "PATCH",

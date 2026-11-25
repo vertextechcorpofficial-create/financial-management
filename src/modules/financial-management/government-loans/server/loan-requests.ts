@@ -49,6 +49,7 @@ const documentFields = Object.keys(documentRow.shape).join(",");
 export const referenceFor = (id: number) => "GLR-" + String(id).padStart(6, "0");
 
 type Stored = z.output<typeof requestDetailRow>;
+type RevisionSource = Pick<Stored, "id" | "revision" | "status">;
 type Operation = RequestDecision["action"] | "DRAFT_CREATED" | "DRAFT_SAVED" | "DOCUMENT_ATTACHED" | "DOCUMENT_REPLACED";
 
 export function requestId(value: string) {
@@ -215,7 +216,7 @@ async function receiptAfterWriteError(command: Command) {
   });
 }
 
-export function requestRevisionValues(command: Command, action: Operation, current: Stored | null,
+export function requestRevisionValues(command: Command, action: Operation, current: RevisionSource | null,
   data: object, before: object | null, after: object, now: string) {
   const revision = (current?.revision ?? 0) + 1;
   return {
@@ -225,9 +226,11 @@ export function requestRevisionValues(command: Command, action: Operation, curre
   };
 }
 
-export async function commitRequestRevision(command: Command, action: Operation, current: Stored | null,
-  data: object, before: object | null, after: object, now = new Date().toISOString()): Promise<CommandReceipt> {
+export async function commitRequestRevision(command: Command, action: Operation, current: RevisionSource | null,
+  data: object, before: object | null, after: object, now = new Date().toISOString(),
+  periodCommand?: { month: string; sequence: number; revision_key: string }): Promise<CommandReceipt> {
   const patch = requestRevisionValues(command, action, current, data, before, after, now);
+  if (periodCommand) Object.assign(patch.history_entries.create[0], { period_command_id: periodCommand });
   try {
     const { data: saved } = z.object({ data: z.object({ id: positiveId }) }).parse(
       await writeGovernmentLoansItem(GOVERNMENT_LOAN_REQUESTS, patch, "id", current?.id),
