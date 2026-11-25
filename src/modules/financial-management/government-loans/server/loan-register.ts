@@ -115,6 +115,16 @@ export async function readMonthlyLoanSchedules(month: string, employeeId?: numbe
   }
 }
 
+export async function readBillingLoanSchedules(month: string, agencyId: number, ids: number[]) {
+  const result: Awaited<ReturnType<typeof schedules>> = [];
+  for (let start = 0; start < ids.length; start += batchSize) {
+    const group = ids.slice(start, start + batchSize);
+    const rows = await readEnrolled({ agency_id: { _eq: agencyId }, id: { _in: group } }, group.length);
+    if (rows.length) result.push(...await schedules(rows, month));
+  }
+  return result;
+}
+
 export async function readLoanSchedule(id: number, month: string, owner?: number) {
   const rows = await readEnrolled({ id: { _eq: id }, ...(owner === undefined ? {} : { employee_user_id: { _eq: owner } }) }, 1);
   if (!rows.length) throw new LoanRequestError(404, "Verified loan could not be found.");
