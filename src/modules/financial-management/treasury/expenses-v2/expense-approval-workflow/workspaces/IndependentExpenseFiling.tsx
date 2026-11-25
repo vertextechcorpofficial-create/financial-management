@@ -15,6 +15,20 @@ import { specialRuleProblems, PURCHASE_CATEGORIES } from "../domain/filingSpecia
 const ROOT = "/fm/treasury/expenses-v2/expense-approval-workflow";
 const API = "/api/fm/treasury/expenses-v2/expense-approval-workflow/requests";
 const blank = (): IndependentExpenseForm => ({ expenseDate: "", amount: "", category: "", purpose: "", payee: "", requestedCompany: "", department: "", attachments: [], specialDetails: {} });
+function requestKey() {
+  const webCrypto = globalThis.crypto;
+  if (typeof webCrypto?.randomUUID === "function") return webCrypto.randomUUID();
+  if (typeof webCrypto?.getRandomValues === "function") {
+    const bytes = webCrypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    return [...bytes].map((byte, index) => `${byte.toString(16).padStart(2, "0")}${[3, 5, 7, 9].includes(index) ? "-" : ""}`).join("");
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, value => {
+    const random = Math.random() * 16 | 0;
+    return (value === "x" ? random : (random & 0x3) | 0x8).toString(16);
+  });
+}
 type Context = { actor: { id: number; name: string }; organization: { companyId: number | null; companyName: string; departmentId: number | null; departmentName: string }; categories: { code: string; name: string }[]; items: IndependentExpenseEvent[]; dummyEnabled: boolean };
 
 export function IndependentExpenseFiling({ showForm = true, embedded = false }: { showForm?: boolean; embedded?: boolean }) {
@@ -44,7 +58,7 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
     const submittedForm = action === "SUBMIT" ? { ...form, executionMode: "DUMMY" as const } : form;
     const value = { action, ...(editing ? { requestId: editing.case_id, expectedRevision: editing.revision } : {}), form: submittedForm };
     const signature = JSON.stringify(value);
-    if (pending.current?.signature !== signature) pending.current = { signature, requestKey: crypto.randomUUID() };
+    if (pending.current?.signature !== signature) pending.current = { signature, requestKey: requestKey() };
     try {
       const response = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...value, requestKey: pending.current.requestKey }) });
       const result = await response.json();
