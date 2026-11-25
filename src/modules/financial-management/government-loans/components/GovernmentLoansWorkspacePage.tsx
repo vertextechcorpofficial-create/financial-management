@@ -45,6 +45,7 @@ export async function GovernmentLoansWorkspacePage({ workspace, transferEmployee
       </div>
     </header>
     <GovernmentLoansWorkspaceShell workspace={definition} tabs={GOVERNMENT_LOANS_TABS[workspace]} transferEmployee={transferEmployee}
+      requestApplicant={workspace === "my-loans" ? { id: actorId, name: actorName } : undefined}
       reportActorId={workspace === "reports" ? actorId : undefined} />
   </>;
 }

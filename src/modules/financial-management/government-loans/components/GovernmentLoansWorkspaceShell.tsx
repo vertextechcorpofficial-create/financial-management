@@ -13,6 +13,7 @@ import { LoanRegisterModule } from "../loans/LoanRegisterModule";
 import { LoanChangesModule } from "../loans/LoanChangesModule";
 import { OnboardingExitsModule } from "../loans/OnboardingExitsModule";
 import { PostingDisputesModule } from "../loans/PostingDisputesModule";
+import { MyLoansModule } from "../my-loans/MyLoansModule";
 import type { EmployeeChoice } from "../requests/types";
 import { PayrollInstructionsModule } from "../payroll-handoff/PayrollInstructionsModule";
 import { AgenciesModule } from "../remittances/agencies/AgenciesModule";
@@ -37,8 +38,9 @@ const workspaceIcons: Record<GovernmentLoansWorkspaceKey, LucideIcon> = {
   "my-loans": UserRound,
 };
 
-export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmployee, reportActorId }: {
+export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmployee, reportActorId, requestApplicant }: {
   reportActorId?: number;
+  requestApplicant?: Pick<EmployeeChoice, "id" | "name">;
   workspace: GovernmentLoansWorkspace;
   tabs: readonly GovernmentLoansTab[];
   transferEmployee?: EmployeeChoice;
@@ -117,7 +119,8 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
             </p>
           </div>}
         </TabsContent>)}
-      </Tabs> : hasMonthEndClose ? <MonthEndCloseModule /> : hasRemittanceApproval ? <RemittanceApprovalModule /> : hasMyLoans ? <PostingDisputesModule self /> : <div className="mt-4 rounded-xl border border-dashed bg-muted/20 p-6">
+      </Tabs> : hasMonthEndClose ? <MonthEndCloseModule /> : hasRemittanceApproval ? <RemittanceApprovalModule /> : hasMyLoans && requestApplicant
+        ? <MyLoansModule key={requestApplicant.id} applicant={requestApplicant} /> : <div className="mt-4 rounded-xl border border-dashed bg-muted/20 p-6">
         <p className="text-sm font-medium">Single-view workspace</p>
         <p className="mt-1 text-sm text-muted-foreground">The prototype does not define sub-tabs for this workspace. Content will be implemented in its assigned delivery.</p>
       </div>}
