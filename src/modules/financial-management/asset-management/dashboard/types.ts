@@ -19,6 +19,7 @@ export interface ComplianceAlert {
   message: string;
   badge?: string;
   assetTag?: string;
+  href?: string;
 }
 
 export interface RecentAccountingEvent {

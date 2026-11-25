@@ -64,10 +64,13 @@ export async function recordReadApi(
   sessionId: number | string,
   payload: {
     epc?: string;
+    epcs?: string[];
     source: "RFID" | "Manual";
     untagged_description?: string;
     serial?: string;
     asset_id?: number;
+    clearAll?: boolean;
+    removeAssetId?: number;
   }
 ) {
   const res = await fetch(`${API}/${sessionId}/read`, {
@@ -77,17 +80,24 @@ export async function recordReadApi(
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(errMsg(data));
-  return data;
+  return data as {
+    success: boolean;
+    recordedCount?: number;
+    matches?: { epc: string; matched: boolean; tag?: string; itemName?: string }[];
+  };
 }
 
 export async function resolveItemApi(
   sessionId: number | string,
   itemId: string | number,
   payload: {
-    resolution: string;
+    assetId?: number | null;
+    resolution?: string;
     note?: string;
     transferToDeptId?: number;
     condition?: string;
+    epc?: string;
+    ignoreUnknown?: boolean;
   }
 ) {
   const res = await fetch(`${API}/${sessionId}/resolve`, {
@@ -100,9 +110,14 @@ export async function resolveItemApi(
   return data;
 }
 
-export async function completeCountApi(sessionId: number | string) {
+export async function completeCountApi(
+  sessionId: number | string,
+  items?: CountItemResult[]
+) {
   const res = await fetch(`${API}/${sessionId}/complete`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(errMsg(data));

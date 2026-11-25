@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PostingRow } from "../types";
+import AssetPdfPreviewModal, { type AssetPdfSpec } from "./PdfPreviewModal";
 
 const formatCurrency = (val?: number | null) => {
   if (val === null || val === undefined || val === 0) return "—";
@@ -40,8 +41,27 @@ export default function DepreciationPostingTable({
     document.body.removeChild(link);
   };
 
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+
+  const pdfSpec = useMemo<AssetPdfSpec>(() => ({
+    title: `Depreciation Posting — ${postingYmLabel}`,
+    subtitle: "Expense by cost centre; accumulated depreciation by classification · Amounts in PHP",
+    fileName: `depreciation_posting_${postingYmLabel.replace(/\s+/g, "_")}`,
+    landscape: false,
+    columns: [
+      { header: "Account" },
+      { header: "Cost Centre" },
+      { header: "Debit", numeric: true },
+      { header: "Credit", numeric: true },
+    ],
+    rows: rows.map((r) => ({
+      isTotal: Boolean(r.isTotal),
+      cells: [r.account, r.costCentre, r.debit, r.credit],
+    })),
+  }), [postingYmLabel, rows]);
+
   const handleExportPDF = () => {
-    window.print();
+    setPdfPreviewOpen(true);
   };
 
   return (
@@ -149,6 +169,12 @@ export default function DepreciationPostingTable({
           </table>
         </div>
       </div>
+
+      <AssetPdfPreviewModal
+        open={pdfPreviewOpen}
+        onOpenChange={setPdfPreviewOpen}
+        spec={pdfSpec}
+      />
     </div>
   );
 }
