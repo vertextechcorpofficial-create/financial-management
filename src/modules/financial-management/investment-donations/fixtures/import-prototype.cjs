@@ -1,4 +1,5 @@
 // Offline fixture generation from the trusted repository prototype, never from an upload.
+/* eslint-disable @typescript-eslint/no-require-imports -- This standalone .cjs tool intentionally uses Node CommonJS. */
 const fs = require("node:fs");
 const vm = require("node:vm");
 const path = require("node:path");

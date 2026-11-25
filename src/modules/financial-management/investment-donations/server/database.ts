@@ -1,5 +1,7 @@
 import "server-only";
 import type { Knex } from "knex";
+import { assertStorageReady } from "./storage.mjs";
+import { remotePostingAvailable } from "./remote-client";
 
 let pool: Knex | undefined;
 
@@ -24,7 +26,10 @@ export function ledgerDatabase() {
 }
 
 export async function postingAvailable() {
+  if (!process.env.CGL_MYSQL_URL) return remotePostingAvailable();
   try {
+    await assertStorageReady(ledgerDatabase());
+    await ledgerDatabase()("cgl_ledger_commands").first("command_id");
     const policy = await ledgerDatabase()("cgl_registers").where({ name: "policy" }).first("name");
     return Boolean(policy);
   } catch {

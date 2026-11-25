@@ -1,0 +1,53 @@
+export function workspaceRole(access, workspace, config = process.env.CGL_WORKSPACE_ROLES) {
+    if (!access?.workspaces.includes(workspace))
+        return "none";
+    if (access.rolesAuthoritative === true) {
+        const role = access.roles?.[workspace];
+        return role === "none" || role === "view" || role === "prepare" || role === "approve" ? role : "none";
+    }
+    if (config !== undefined) {
+        try {
+            const roles = JSON.parse(config);
+            const user = roles && typeof roles === "object" && Object.hasOwn(roles, String(access.id)) ? roles[String(access.id)] : null;
+            const role = user && typeof user === "object" && Object.hasOwn(user, workspace) ? user[workspace] : null;
+            if (role === "none" || role === "view" || role === "prepare" || role === "approve")
+                return role;
+        }
+        catch {
+            // Invalid configuration cannot grant writes.
+        }
+        return "view";
+    }
+    const member = (list) => list?.split(",").some(id => id.trim() === String(access.id));
+    const explicitLegacyRoles = process.env.CGL_RECON_APPROVER_IDS !== undefined || process.env.CGL_RECON_PREPARER_IDS !== undefined;
+    if (access.roles && !explicitLegacyRoles)
+        return access.roles[workspace] ?? "view";
+    if (workspace === "monthly-reconciliation" || workspace === "period-close") {
+        if (member(process.env.CGL_RECON_APPROVER_IDS))
+            return "approve";
+        return workspace === "monthly-reconciliation" && member(process.env.CGL_RECON_PREPARER_IDS) ? "prepare" : "view";
+    }
+    return access.admin ? "approve" : "view";
+}
+export const masterWorkspaces = {
+    classes: "policy-targets", policy: "policy-targets", corp: "policy-targets", accountMappings: "policy-targets",
+    securities: "portfolio-rebalancing", prices: "portfolio-rebalancing", charities: "charitable-giving",
+    holders: "capital-stock", calls: "capital-stock", capitalIncreases: "capital-stock",
+    debts: "inflows-investing",
+};
+export function canManageMaster(access, entity) {
+    const workspace = Object.hasOwn(masterWorkspaces, entity) ? masterWorkspaces[entity] : undefined;
+    return Boolean(workspace && allows(workspaceRole(access, workspace), entity === "prices" ? "prepare" : "approve"));
+}
+const allWorkspaces = ["overview", "transactions", "inflows-investing", "capital-stock", "portfolio-rebalancing",
+    "charitable-giving", "tax-compliance", "monthly-reconciliation", "period-close", "annual-review", "policy-targets"];
+export function canUseDataTools(access) {
+    return Boolean(access?.admin && allWorkspaces.every(workspace => allows(workspaceRole(access, workspace), "approve")));
+}
+export function canExportFullLedger(access) {
+    return Boolean(access && allWorkspaces.every(workspace => allows(workspaceRole(access, workspace), "view")));
+}
+export function allows(role, required) {
+    const levels = ["none", "view", "prepare", "approve"];
+    return levels.indexOf(role) >= levels.indexOf(required);
+}

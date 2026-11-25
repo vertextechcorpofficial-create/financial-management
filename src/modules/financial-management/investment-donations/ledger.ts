@@ -19,6 +19,12 @@ export type Entry = {
   lines: Line[]; reversedBy?: string; data: Record<string, unknown>;
 };
 
+export function journalDebitTotal(entry: Entry): number | null {
+  if (entry.lines.length) return entry.lines.reduce((sum, line) => sum + centavos(line.dr), 0) / 100;
+  const total = entry.data.debitTotal;
+  return typeof total === "number" && Number.isFinite(total) && total >= 0 && Number.isSafeInteger(Math.round(total * 100)) && total === centavos(total) / 100 ? total : null;
+}
+
 export function centavos(value: number) {
   const cents = Math.round(Math.abs(value) * 100 + 1e-8);
   if (!Number.isSafeInteger(cents)) throw new Error("Amount is outside the supported range.");

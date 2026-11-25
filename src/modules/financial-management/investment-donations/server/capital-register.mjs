@@ -1,5 +1,6 @@
 import { balance, centavos } from "../ledger.ts";
 import { certificateActiveAt, certificateHistory } from "../certificates.ts";
+import { assertFutureBalances, dividendDeadline } from "../financial-engine.mjs";
 
 const certNumber = value => typeof value === "string" && /^[A-Za-z0-9-]{1,40}$/.test(value);
 const validDate = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
@@ -14,10 +15,6 @@ const changeCert = (cert, date, action, transferId) => ({
 export function transferShares({ certs, transfers, dividends, holders, corp, policy, input, id }) {
   const { date } = input;
   if (!validDate(date)) throw new Error("Enter a valid transfer date.");
-  if (transfers.some(row => (row.voidedAt ?? row.date) > date) ||
-      certs.some(row => row.date > date || certificateHistory(row).some(event => event.date > date))) {
-    throw new Error("Use a date on or after the latest certificate and transfer event.");
-  }
   if (input.type === "voidTransfer") {
     const transfer = transfers.find(row => row.id === input.target && !row.voidedAt);
     if (!transfer || date < transfer.date || typeof input.reason !== "string" || !input.reason.trim() || input.reason.length > 500) {
@@ -45,7 +42,7 @@ export function transferShares({ certs, transfers, dividends, holders, corp, pol
         issued.some(cert => ![transfer.fromId, transfer.toId].includes(cert.holderId))) {
       throw new Error("A subsequent transaction or inconsistent imported history prevents this correction.");
     }
-    if (dividends.some(row => !row.cancelled && row.recordDate >= transfer.date)) {
+    if (dividends.some(row => !row.cancelled && row.date >= transfer.date)) {
       throw new Error("This transfer affected a recorded dividend entitlement.");
     }
     return {
@@ -56,7 +53,7 @@ export function transferShares({ certs, transfers, dividends, holders, corp, pol
         cert.transferId === transfer.id ? changeCert(cert, date, "void", transfer.id) : cert),
     };
   }
-  if (dividends.some(row => !row.cancelled && row.recordDate >= date)) {
+  if (dividends.some(row => !row.cancelled && row.date >= date)) {
     throw new Error("Transfer corrections cannot change a recorded dividend entitlement.");
   }
   const ids = input.targets ?? [input.target];
@@ -65,16 +62,16 @@ export function transferShares({ certs, transfers, dividends, holders, corp, pol
   }
   const sources = ids.map(key => certs.find(cert => cert.id === key));
   const owner = sources[0]?.holderId;
-  if (sources.some(cert => !cert || cert.holderId !== owner || !certificateActiveAt(cert, date)) ||
-      !holders.some(holder => holder.id === input.toId) || input.toId === owner) {
+  if (sources.some(cert => !cert || cert.holderId !== owner || !certificateActiveAt(cert, date) || certificateHistory(cert).some(event => event.date > date)) ||
+      !holders.some(holder => holder.id === input.toId && !holder.inactive && holder.active !== false) || input.toId === owner) {
     throw new Error("Select active certificates belonging to one seller and a different receiving stockholder.");
   }
   const total = sources.reduce((sum, cert) => sum + cert.shares, 0);
   if (!Number.isSafeInteger(total) || !Number.isSafeInteger(input.shares) || input.shares < 1 || input.shares > total) {
     throw new Error("Transfer exceeds the surrendered certificates' shares.");
   }
-  if (!Number.isFinite(input.price) || input.price < 0 || input.price * input.shares > 1e12 ||
-      !reference(input.carRef) || !reference(input.deedRef)) throw new Error("Enter valid consideration, eCAR and deed references.");
+  if ((input.price != null && (!Number.isFinite(input.price) || input.price < 0 || input.price * input.shares > 1e12)) ||
+      !reference(input.carRef) || (input.deedRef != null && (typeof input.deedRef !== "string" || input.deedRef.length > 200))) throw new Error("Enter valid consideration, eCAR and deed references.");
   const remaining = total - input.shares;
   const newCerts = remaining ? [input.buyerNo, input.balanceNo] : [input.buyerNo];
   const used = new Set(certs.map(cert => String(cert.no).toUpperCase()));
@@ -84,8 +81,8 @@ export function transferShares({ certs, transfers, dividends, holders, corp, pol
   }
   if (!Number.isFinite(corp.par) || corp.par <= 0 || !Number.isFinite(policy.dstTransfer) ||
       policy.dstTransfer < 0 || policy.dstTransfer > 100) throw new Error("Invalid transfer tax settings.");
-  const after = { id, date, fromId: owner, toId: input.toId, shares: input.shares, price: input.price,
-    carRef: input.carRef.trim(), deedRef: input.deedRef.trim(), sourceCertId: sources[0].id,
+  const after = { id, date, fromId: owner, toId: input.toId, shares: input.shares, price: input.price ?? null,
+    carRef: input.carRef.trim(), deedRef: input.deedRef?.trim() ?? "", sourceCertId: sources[0].id,
     sourceCertIds: ids, surrendered: sources.map(cert => cert.no), newCerts,
     dstSeller: centavos(input.shares * corp.par * policy.dstTransfer / 100) / 100, recordedAt: new Date().toISOString() };
   const created = [{ id, no: input.buyerNo, holderId: input.toId, shares: input.shares, date, source: "transfer", transferId: id }];
@@ -107,11 +104,16 @@ export function postDividend({ entries, holders, subs, certs, dividends, policy,
         input.confirmUnrestricted !== true || !validDate(input.payDate) || input.payDate < date) {
       throw new Error("Enter a payment date and confirm unrestricted earnings.");
     }
+    const recordDate = input.recordDate ?? date;
+    if (!validDate(recordDate) || recordDate < date || recordDate > input.payDate ||
+        (input.boardRef !== undefined && (typeof input.boardRef !== "string" || input.boardRef.length > 200))) {
+      throw new Error("Enter a record date between declaration and payment, and a valid board reference.");
+    }
     const shares = new Map();
     for (const cert of certs.filter(cert => certificateActiveAt(cert, date))) {
       shares.set(cert.holderId, (shares.get(cert.holderId) ?? 0) + cert.shares);
     }
-    for (const sub of subs.filter(sub => !sub.cancelled && sub.date <= date && (!sub.issuedAt || sub.issuedAt > date))) {
+    for (const sub of subs.filter(sub => sub.date <= date && balance(entries, "3010", sub.id, date) < 0)) {
       shares.set(sub.holderId, (shares.get(sub.holderId) ?? 0) + sub.shares);
     }
     const allocations = [...shares].map(([holderId, units]) => {
@@ -125,8 +127,9 @@ export function postDividend({ entries, holders, subs, certs, dividends, policy,
     if (total > -centavos(balance(entries, "3800", undefined, date))) throw new Error("Dividend exceeds recorded retained earnings.");
     add("3800", total, 0);
     add("2300", 0, total, id);
-    record = { id, date, recordDate: date, payDate: input.payDate, perShare: input.perShare, gross: total / 100, allocations };
-    data = { dividendId: id, gross: total / 100, confirmUnrestricted: true };
+    record = { id, txnId: id, date, recordDate, payDate: input.payDate, perShare: input.perShare, gross: total / 100, allocations };
+    data = { dividendId: id, gross: total / 100, perShare: input.perShare, recordDate, payDate: input.payDate,
+      boardRef: input.boardRef?.trim() ?? "", allocations, confirmUnrestricted: true };
     memo = "Cash dividend declaration";
   } else {
     record = dividends.find(row => row.id === input.target && !row.paidAt && !row.cancelled);
@@ -144,13 +147,13 @@ export function postDividend({ entries, holders, subs, certs, dividends, policy,
       const holder = holders.find(row => row.id === allocation.holderId);
       if (!holder) throw new Error("A stockholder is missing from the register.");
       const rate = holder.type === "domestic" ? 0 : holder.type === "individual" ? policy.divWhtInd :
-        holder.type === "nonresident" ? policy.divWhtNr : NaN;
+        ["nonresident", "nrfc", "nra"].includes(holder.type) ? policy.divWhtNr : NaN;
       if (!Number.isFinite(rate) || rate < 0 || rate > 100) throw new Error("A stockholder has no supported withholding classification.");
       const gross = centavos(allocation.gross);
       const withheld = centavos(allocation.gross * rate / 100);
       let remainder = gross - withheld;
       const offsets = [];
-      for (const sub of subs.filter(row => row.holderId === holder.id && !row.cancelled && row.callDue && row.callDue <= date)
+      for (const sub of subs.filter(row => row.holderId === holder.id && (!row.cancelled || row.cancelledAt > date) && row.date <= date && row.callDue && row.callDue <= date && (!row.callDate || row.callDate <= date))
         .sort((a, b) => a.callDue.localeCompare(b.callDue) || a.id.localeCompare(b.id))) {
         const delinquency = new Date(`${sub.callDue}T00:00:00Z`);
         delinquency.setUTCDate(delinquency.getUTCDate() + 30);
@@ -162,7 +165,7 @@ export function postDividend({ entries, holders, subs, certs, dividends, policy,
           remainder -= amount;
         }
       }
-      payments.push({ ...allocation, rate, withheld: withheld / 100, cash: remainder / 100, offsets });
+      payments.push({ ...allocation, type: holder.type, name: holder.name, tin: holder.tin ?? "", rate, withheld: withheld / 100, cash: remainder / 100, offsets });
       tax += withheld;
       cash += remainder;
     }
@@ -170,10 +173,13 @@ export function postDividend({ entries, holders, subs, certs, dividends, policy,
     add("2300", total, 0, record.id);
     add(input.account, 0, cash);
     add("2200", 0, tax, id);
-    data = { dividendId: record.id, payments, taxForm: tax ? "Dividend withholding" : null };
+    data = { dividendId: record.id, payments, gross: total / 100, withheld: tax / 100, net: cash / 100,
+      ...(tax ? dividendDeadline(date) : { taxForm: null, taxDue: null }) };
     record = { ...record, paidAt: date, paymentId: id };
     memo = "Cash dividend payment";
   }
-  return { record, entry: { id, date, no: entries.reduce((max, row) => Math.max(max, row.no), 0) + 1,
-    type: type === "declareDividend" ? "divdeclare" : "divpay", data, lines, memo } };
+  const entry = { id, date, no: entries.reduce((max, row) => Math.max(max, row.no), 0) + 1,
+    type: type === "declareDividend" ? "divdeclare" : "divpay", data, lines, memo };
+  assertFutureBalances(entries, entry);
+  return { record, entry };
 }

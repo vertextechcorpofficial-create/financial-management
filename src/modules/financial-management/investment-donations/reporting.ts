@@ -1,4 +1,4 @@
-import { balance, centavos, validateLines, type Entry } from "./ledger";
+import { accounts, balance, centavos, validateLines, type Entry } from "./ledger";
 import type { LedgerRegisters } from "./server/registers";
 import { certificateActiveAt, certificateHistory } from "./certificates";
 
@@ -10,6 +10,76 @@ export function csvReport(rows: Cell[][]) {
     const safe = typeof value === "string" && /^[\s\uFEFF]*[=+\-@]/.test(text) ? `'${text}` : text;
     return `"${safe.replaceAll('"', '""')}"`;
   }).join(",")).join("\r\n");
+}
+
+export function financialStatementExport(entries: readonly Entry[], registers: LedgerRegisters,
+  mapping: Record<string, string>, afterEntry = 0, includeClosing = true) {
+  const closed = new Set(Object.entries(registers.periods).filter(([, value]) => value.closedAt).map(([month]) => month));
+  const selected = entries.filter(entry => entry.no > afterEntry && closed.has(entry.date.slice(0, 7)) &&
+    (includeClosing || (entry.type !== "closing" && !(entry.type === "reversal" &&
+      entries.some(source => source.id === entry.data.reverses && source.type === "closing")))));
+  for (const entry of selected) for (const line of entry.lines) {
+    if (!mapping[line.acct]?.trim()) throw new Error(`Map ledger account ${line.acct} to the main chart before exporting.`);
+  }
+  const journal = csvReport([[
+    "JE number", "Date", "Month", "Ledger account", "Ledger account name", "Main account", "Debit", "Credit", "Description", "Year-end closing",
+  ], ...selected.flatMap(entry => entry.lines.map(line => [entry.no, entry.date, entry.date.slice(0, 7), line.acct,
+    accounts[line.acct], mapping[line.acct], line.dr, line.cr, entry.memo, entry.type === "closing" ? "Yes" : "No"]))]);
+  const trial = new Map<string, { month: string; account: string; debit: number; credit: number }>();
+  for (const entry of selected) for (const line of entry.lines) {
+    const month = entry.date.slice(0, 7);
+    const key = `${month}:${line.acct}`;
+    const row = trial.get(key) ?? { month, account: line.acct, debit: 0, credit: 0 };
+    row.debit += centavos(line.dr);
+    row.credit += centavos(line.cr);
+    trial.set(key, row);
+  }
+  const trialBalance = csvReport([["Month", "Ledger account", "Ledger account name", "Main account", "Debits", "Credits", "Net debit"],
+    ...Array.from(trial.values()).sort((a, b) => a.month.localeCompare(b.month) || a.account.localeCompare(b.account))
+      .map(row => [row.month, row.account, accounts[row.account], mapping[row.account], row.debit / 100, row.credit / 100, (row.debit - row.credit) / 100])]);
+  const marketMemo: Cell[][] = [["Month", "Security", "Account type", "Units", "Price", "Price date", "Source", "Market value", "Historical cost"]];
+  for (const month of Array.from(closed).sort()) {
+    const end = new Date(`${month}-01T00:00:00Z`);
+    end.setUTCMonth(end.getUTCMonth() + 1, 0);
+    const date = end.toISOString().slice(0, 10);
+    const units = new Map<string, { sym: string; account: string; qty: number; cost: number }>();
+    const byId = new Map(entries.map(entry => [entry.id, entry]));
+    for (const entry of entries.filter(row => row.date <= date)) {
+      const source = entry.type === "reversal" ? byId.get(String(entry.data.reverses)) : entry;
+      if (!source) continue;
+      const sign = entry.type === "reversal" ? -1 : 1;
+      if (source.type === "buy") {
+        const lot = registers.lots.find(row => row.id === source.data.lotId);
+        if (!lot) continue;
+        const key = `${lot.sym}|${lot.acctType}`;
+        const row = units.get(key) ?? { sym: lot.sym, account: lot.acctType, qty: 0, cost: 0 };
+        row.qty += sign * Number(source.data.qty ?? lot.qty);
+        row.cost += sign * centavos(lot.cost);
+        units.set(key, row);
+      } else if (Array.isArray(source.data.consumed)) {
+        for (const item of source.data.consumed) {
+          const lot = registers.lots.find(row => row.id === item.lotId);
+          if (!lot) continue;
+          const key = `${lot.sym}|${lot.acctType}`;
+          const row = units.get(key) ?? { sym: lot.sym, account: lot.acctType, qty: 0, cost: 0 };
+          row.qty -= sign * Number(item.qty);
+          row.cost -= sign * centavos(Number(item.cost));
+          units.set(key, row);
+        }
+      }
+    }
+    for (const row of units.values()) {
+      if (Number(row.qty.toFixed(6)) === 0) continue;
+      const price = (registers.priceHist[row.sym] ?? []).filter(item => item.date <= date).sort((a, b) => b.date.localeCompare(a.date))[0];
+      const security = registers.securities[row.sym];
+      const fallback = security?.priceDate <= date ? security : undefined;
+      const value = price?.price ?? fallback?.price;
+      marketMemo.push([month, row.sym, row.account, Number(row.qty.toFixed(6)), value ?? "Missing month-end price",
+        price?.date ?? fallback?.priceDate ?? "", price?.source ?? (fallback ? "master" : ""),
+        value == null ? "" : centavos(value * row.qty) / 100, row.cost / 100]);
+    }
+  }
+  return { journal, trialBalance, marketMemo: csvReport(marketMemo), lastEntry: Math.max(afterEntry, ...selected.map(entry => entry.no)) };
 }
 
 export function stockReports(entries: readonly Entry[], registers: LedgerRegisters, asOf: string) {

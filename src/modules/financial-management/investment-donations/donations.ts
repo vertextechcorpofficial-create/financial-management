@@ -1,7 +1,8 @@
 import { balance, centavos, type Entry, type Line } from "./ledger";
+import { assertFutureBalances, validPostingDate } from "./financial-engine.mjs";
 
 type Charity = { id: string; name: string; isDAF: boolean; donee: string; accredUntil: string;
-  expenseRatio: number; checks: Record<string, string | null> };
+  expenseRatio: number; checks: Record<string, string | null>; active?: boolean; inactive?: boolean };
 type Policy = { donorRate: number; donorExempt: number };
 
 export function donorTaxBalance(entries: readonly Entry[], year: string, through: string, policy: Policy) {
@@ -19,24 +20,25 @@ export function donorTaxBalance(entries: readonly Entry[], year: string, through
 const taxOn = (base: number, policy: Policy) => centavos(Math.max(0, base / 100 - policy.donorExempt) * policy.donorRate / 100);
 
 export function vetDonee(charity: Charity | undefined, date: string) {
-  if (!charity) throw new Error("Select a registered organization.");
+  if (!charity || charity.inactive || charity.active === false) throw new Error("Select an active registered organization.");
   if (!["reg", "gov", "pay"].every(key => {
     const checked = charity.checks?.[key];
-    return checked && /^\d{4}-\d{2}-\d{2}$/.test(checked) && checked <= date;
+    return validPostingDate(checked) && checked! <= date;
   })) throw new Error("Complete all three vetting checks before the gift date.");
   if (!["government", "accredited", "nonaccredited"].includes(charity.donee)) throw new Error("Select an organization with a known donee status.");
-  if (charity.donee === "accredited" && (!charity.accredUntil || charity.accredUntil < date)) throw new Error("The organization's accreditation has expired or is missing.");
+  if (charity.donee === "accredited" && (!validPostingDate(charity.accredUntil) || charity.accredUntil < date)) throw new Error("The organization's accreditation has expired or is missing.");
   return charity;
 }
 
 export function buildCashDonation(entries: readonly Entry[], closed: readonly string[], command: {
-  date: string; amount: number; account: string; target: string; memo: string;
+   date: string; amount: number; account: string; target: string; memo: string; vehicle?: "Cash" | "Securities" | "DAF";
 }, id: string, organization: Charity | undefined, policy: Policy,
   securities?: { cost: number; lines: Line[]; data: Record<string, unknown>; valuation: string }) {
   const { date, amount, account } = command;
+  if (!validPostingDate(date)) throw new Error("Enter a valid gift date.");
   if (closed.includes(date.slice(0, 7))) throw new Error("This month is closed.");
-  if (entries.some(entry => entry.date > date)) throw new Error("Use a date on or after the latest journal entry.");
   const charity = vetDonee(organization, date);
+  if (command.vehicle && (command.vehicle === "DAF") !== charity.isDAF) throw new Error("Select the pooled-fund vehicle only for a pooled fund.");
   if (!["1000", "1010", "1020"].includes(account) || amount <= 0 || centavos(amount) / 100 !== amount) throw new Error("Enter a valid cash account and amount.");
   if (!securities && amount > balance(entries, account, undefined, date)) throw new Error("Payment exceeds the cash account balance.");
   const exempt = charity.donee === "government" || (charity.donee === "accredited" &&
@@ -59,7 +61,9 @@ export function buildCashDonation(entries: readonly Entry[], closed: readonly st
       amount, exempt, donorTax, donee: charity.donee, taxYear,
       deductBasis: securities?.cost ?? amount, receipt: { cert: false, f1800: false }, taxForm: exempt ? null : "1800", taxDue },
   };
-  return { entry, adjustment: exempt ? 0 : (annualTax - prior.booked - centavos(donorTax)) / 100 };
+  assertFutureBalances(entries, entry);
+  const totals = donorTaxBalance([...entries, entry], taxYear, `${taxYear}-12-31`, policy);
+  return { entry, adjustment: exempt ? 0 : (totals.due - totals.booked) / 100 };
 }
 
 export function pooledBalance(entries: readonly Entry[], grants: readonly { date: string; dafId: string; amount: number }[],

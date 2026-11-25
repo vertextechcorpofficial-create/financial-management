@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { ledgerDatabase } from "./database";
+import { ledgerClient, ledgerRows } from "./directus-ledger.mjs";
 import { reviewItems, type ReviewEvent } from "../annual-review";
 
 const review = z.object({
@@ -11,7 +12,8 @@ const review = z.object({
 
 export async function readAnnualReviews(): Promise<ReviewEvent[] | null> {
   try {
-    const events = await ledgerDatabase()("cgl_annual_review_events").orderBy("revision").select("*");
+    const events = process.env.CGL_MYSQL_URL ? await ledgerDatabase()("cgl_annual_review_events").orderBy("revision").select("*") :
+      await ledgerRows(ledgerClient(), "cgl_annual_review_events", "fiscal_start,revision,id");
     const latest = new Map<string, ReviewEvent>();
     for (const event of events) {
       const parsed = review.parse({ ...event, checks: typeof event.checks === "string" ? JSON.parse(event.checks) : event.checks });

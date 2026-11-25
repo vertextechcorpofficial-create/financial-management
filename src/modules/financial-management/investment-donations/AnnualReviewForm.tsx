@@ -7,13 +7,15 @@ import { Input } from "@/components/ui/input";
 import { reviewItems, type ReviewEvent } from "./annual-review";
 import { submitLedger } from "./ledger-api";
 
-export function AnnualReviewForm({ fiscalStart, record, canPrepare, canApprove, actor }: {
+export function AnnualReviewForm({ fiscalStart, record, canPrepare, canApprove, actor, history = [] }: {
   fiscalStart: string; record?: ReviewEvent; canPrepare: boolean; canApprove: boolean; actor: number;
+  history?: readonly ReviewEvent[];
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string }>();
   const signed = record?.action === "sign";
+  const complete = record?.checks.length === reviewItems.length && record.checks.every(Boolean);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving) return;
@@ -26,11 +28,13 @@ export function AnnualReviewForm({ fiscalStart, record, canPrepare, canApprove, 
         reason: intent === "reopen" ? data.get("reason") : undefined });
       setFeedback({ ok: result.ok, text: result.ok ? "Annual review updated." : result.message });
       if (result.ok) router.refresh();
-    } finally { setSaving(false); }
+    } catch { setFeedback({ ok: false, text: "Review save could not be confirmed. Refresh before retrying." }); }
+    finally { setSaving(false); }
   }
   return <div className="space-y-3">
+    <p className="text-sm text-muted-foreground">Review the ledger evidence for all five items, save the checklist, then have a different authorized approver sign the saved revision. Sign-off is recorded under the authenticated user.</p>
     {record && <p className="text-sm">{signed ? `Signed by user ${record.actor} on ${record.occurred_at.slice(0, 10)}` :
-      `Draft prepared by user ${record.prepared_by}`}</p>}
+      `Draft prepared by user ${record.prepared_by}`} · Revision {record.revision}</p>}
     <form key={record?.revision ?? 0} onSubmit={submit} className="space-y-2">
       <fieldset disabled={signed || !canPrepare || saving} className="space-y-1">
         <legend className="font-medium">Review checklist</legend>
@@ -40,12 +44,18 @@ export function AnnualReviewForm({ fiscalStart, record, canPrepare, canApprove, 
       </fieldset>
       {canPrepare && !signed && <Button type="submit" value="draft" disabled={saving}>Save checklist</Button>}
     </form>
-    {canApprove && !signed && record?.checks.every(Boolean) && record.prepared_by !== actor &&
+    {canApprove && !signed && complete && record?.prepared_by !== actor &&
       <form onSubmit={submit}><Button type="submit" value="sign" disabled={saving}>Sign off saved checklist</Button></form>}
+    {!signed && !complete && <p className="text-sm text-muted-foreground">Save all five reviewed items to enable sign-off.</p>}
+    {canApprove && !signed && complete && record?.prepared_by === actor && <p className="text-sm text-muted-foreground">A different authorized approver must sign this checklist.</p>}
     {canApprove && signed && <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
       <label>Reopen reason<Input name="reason" maxLength={500} required /></label>
       <Button type="submit" value="reopen" variant="outline" disabled={saving}>Reopen review</Button>
     </form>}
     {feedback && <p role={feedback.ok ? "status" : "alert"}>{feedback.text}</p>}
+    {history.length > 0 && <details><summary className="cursor-pointer font-medium">Review history</summary>
+      <div className="overflow-x-auto"><table className="mt-2 w-full text-sm"><thead><tr className="border-b text-left"><th className="p-2">Revision</th><th className="p-2">Action</th><th className="p-2">User</th><th className="p-2">When</th><th className="p-2">Reason</th></tr></thead>
+        <tbody>{history.map(row => <tr key={`${row.fiscal_start}:${row.revision}`} className="border-b"><td className="p-2">{row.revision}</td><td className="p-2">{row.action}</td><td className="p-2">{row.actor}</td><td className="p-2 whitespace-nowrap">{row.occurred_at.slice(0, 19).replace("T", " ")}</td><td className="p-2">{row.reason ?? ""}</td></tr>)}</tbody></table></div>
+    </details>}
   </div>;
 }

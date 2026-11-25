@@ -1,6 +1,9 @@
 import "server-only";
 import { z } from "zod";
-import { proxySpring } from "@/app/api/fm/financial-statements/adjusting-journal-entries/_spring";
+import { proxySpring, refreshedAccessToken } from "@/app/api/fm/financial-statements/adjusting-journal-entries/_spring";
+import { cookies } from "next/headers";
+import { remoteLedgerRoles } from "./remote-client";
+import { ledgerConnectionBase } from "./connection-url.mjs";
 import { INVESTMENT_DONATIONS_PARENT, INVESTMENT_DONATIONS_WORKSPACES } from "../workspaces";
 
 const Id = z.coerce.number().int().positive();
@@ -13,7 +16,7 @@ async function rows<T extends z.ZodType>(collection: string, fields: string, fil
   const token = process.env.DIRECTUS_STATIC_TOKEN;
   if (!base || !token) throw new Error("Ledger access service is not configured.");
   const query = new URLSearchParams({ fields, filter: JSON.stringify(filter), limit: "-1" });
-  const response = await fetch(`${base}/items/${collection}?${query}`, {
+  const response = await fetch(`${ledgerConnectionBase(base)}/items/${collection}?${query}`, {
     headers: { Authorization: `Bearer ${token}` }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(10000),
   });
   if (!response.ok) throw new Error("Ledger access service is unavailable.");
@@ -25,6 +28,7 @@ export async function ledgerAccess() {
   if ([401, 403, 404].includes(session.status)) return null;
   if (!session.ok) throw new Error("Sign-in service is unavailable.");
   const { id } = z.object({ id: Id }).parse(await session.json());
+  const userToken = refreshedAccessToken(session) ?? (await cookies()).get("vos_access_token")?.value;
   const profiles = await rows("user", "user_id,role,is_blocked,is_deleted", { user_id: { _eq: id } },
     z.object({ user_id: Id, role: z.string().nullable(), is_blocked: z.unknown(), is_deleted: z.unknown() }));
   const active = (flag: unknown) => flag === false || flag === 0 || flag === "0" || flag === null ||
@@ -50,5 +54,7 @@ export async function ledgerAccess() {
     const row = find(workspace.slug, workspace.path, parent.id);
     return row && (!grants || grants.has(row.id));
   }).map(row => row.key);
-  return { id, admin, workspaces };
+  const remoteRoles = !process.env.CGL_MYSQL_URL ? (userToken ? await remoteLedgerRoles(userToken, id) : {}) : undefined;
+  const roles = remoteRoles && Object.fromEntries(workspaces.map(key => [key, remoteRoles[key] ?? "view"]));
+  return { id, admin, workspaces, roles, userToken };
 }
