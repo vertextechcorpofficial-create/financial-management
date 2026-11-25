@@ -19,7 +19,7 @@ import {
 import { readStagedEnrollment } from "./loan-enrollment";
 import { LoanRequestError, positiveId } from "./request-input";
 
-async function privateRequestFolder() {
+export async function privateRequestFolder() {
   const filters = new URLSearchParams({
     fields: "id", limit: "2", "filter[name][_eq]": requestDocumentFolder, "filter[parent][_null]": "true",
   });
@@ -130,7 +130,7 @@ export async function downloadEnrollmentEvidence(id: number, kind: EnrollmentEvi
   return downloadLoanDocument(document);
 }
 
-async function downloadLoanDocument(document: StoredLoanDocument) {
+export async function downloadLoanDocument(document: Pick<StoredLoanDocument, "file_id" | "file_name" | "mime_type" | "size_bytes">) {
   await privateRequestFolder();
   const bytes = await readCooperativeAsset(document.file_id, document.size_bytes);
   const filename = encodeURIComponent(document.file_name).replace(/['()*]/g, character =>
