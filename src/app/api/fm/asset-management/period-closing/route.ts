@@ -62,6 +62,18 @@ function formatYm(ym: string): string {
   return `${MONTH_NAMES[monthIdx] || m} ${y}`;
 }
 
+function getNextMonth(ym: string): string {
+  if (!ym || !ym.includes("-")) return "2026-11";
+  const [yStr, mStr] = ym.split("-");
+  let y = parseInt(yStr, 10);
+  let m = parseInt(mStr, 10) + 1;
+  if (m > 12) {
+    m = 1;
+    y += 1;
+  }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+
 function formatDateDisplay(dtStr?: string | null): string {
   if (!dtStr) return "";
   try {
@@ -282,8 +294,10 @@ export async function GET() {
       };
     });
 
-    // 5. Pre-close checklist calculated from real data
-    const targetToClose = isActivelyClosed ? null : "2026-10";
+    // 5. Compute dynamic ended open months & targetToClose
+    const endedOpenMonths = months.filter((m) => m.status === "Open");
+    const targetToClose = endedOpenMonths.length > 0 ? endedOpenMonths[0].ym : null;
+    const spansDecember = endedOpenMonths.some((m) => m.ym.endsWith("-12"));
 
     // Count real untested impairment indicators
     const assetsWithUntestedIndicators = assets.filter((a) => {
@@ -298,7 +312,10 @@ export async function GET() {
     // Count real accounting events that fall in the period being closed
     const eventsInClosingPeriod = events.filter((e) => {
       const p = e.period || (e.event_date ? e.event_date.slice(0, 7) : "");
-      return p && p <= (targetToClose || "2026-10");
+      if (!p) return false;
+      const afterClosed = !activeClosedThrough || p > activeClosedThrough;
+      const upToTarget = p <= (targetToClose || "2026-10");
+      return afterClosed && upToTarget;
     });
 
     // Count real pending approvals
@@ -344,8 +361,8 @@ export async function GET() {
       },
     ];
 
-    // If reopening or closing when Decembers are spanned, add the December reviews check
-    if (!isActivelyClosed) {
+    // If closing range spans a December, add December impairment review checks
+    if (spansDecember) {
       for (const yr of ["2023", "2024", "2025"]) {
         const isSigned = signedReviewsByYear.has(yr);
         checks.push({
@@ -357,10 +374,10 @@ export async function GET() {
       }
     }
 
-    const closeOptions = [
-      { label: "Oct 2026", value: "2026-10" },
-      { label: "Nov 2026", value: "2026-11" },
-    ];
+    const closeOptions = endedOpenMonths.map((m) => ({
+      label: m.label,
+      value: m.ym,
+    }));
 
     const balances: { asset_id: number; carrying_amount: number | string }[] = balancesJson.data || [];
     let varianceCount = 0;
@@ -376,11 +393,14 @@ export async function GET() {
       }
     }
 
+    const openPeriodYm =
+      isActivelyClosed && activeClosedThrough ? getNextMonth(activeClosedThrough) : "2025-12";
+
     const payload: PeriodCloseData = {
       closedThrough: isActivelyClosed ? activeClosedThrough : null,
       closedThroughLabel: isActivelyClosed && activeClosedThrough ? formatYm(activeClosedThrough) : "None",
-      openPeriod: isActivelyClosed ? "2026-11" : "2026-10",
-      openPeriodLabel: isActivelyClosed ? "Nov 2026" : "Oct 2026",
+      openPeriod: openPeriodYm,
+      openPeriodLabel: formatYm(openPeriodYm),
       lastClosedBy: isActivelyClosed
         ? `${closerName} · ${formatDateDisplay(latestClose?.closed_at)}`
         : latestClose?.reopened_at
@@ -393,7 +413,7 @@ export async function GET() {
       targetToClose,
       closeOptions,
       checks,
-      isYearEnd: !isActivelyClosed,
+      isYearEnd: spansDecember,
       canClose: true,
       postingDetails,
     };

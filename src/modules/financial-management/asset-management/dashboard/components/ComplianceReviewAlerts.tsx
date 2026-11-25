@@ -14,38 +14,51 @@ export default function ComplianceReviewAlerts({ alerts }: ComplianceReviewAlert
       </h2>
 
       <div className="space-y-2.5">
-        {alerts.map((alert) => {
-          const isBlue =
-            alert.type === "info" ||
-            alert.message.includes("Warranty") ||
-            alert.message.includes("clearance") ||
-            alert.message.includes("physical count");
+        {alerts.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-4 text-center">
+            No active compliance alerts.
+          </p>
+        ) : (
+          alerts.map((alert) => {
+            const isBlue =
+              alert.type === "info" ||
+              alert.type === "count" ||
+              alert.message.includes("Warranty") ||
+              alert.message.includes("clearance") ||
+              alert.message.includes("physical count");
 
-          return (
-            <div
-              key={alert.id}
-              className={`px-3.5 py-2.5 rounded-lg text-xs leading-relaxed border transition-colors ${
-                isBlue
-                  ? "bg-[#eef4ff] text-[#1e3a8a] border-[#dbeafe]"
-                  : "bg-[#fef9ee] text-[#854d0e] border-[#fef08a]/80"
-              }`}
-            >
-              {alert.assetTag ? (
-                <span>
-                  <Link
-                    href={`/fm/asset-management/registration`}
-                    className="font-mono underline font-semibold mr-1.5 hover:text-foreground"
-                  >
-                    {alert.assetTag}
-                  </Link>
-                  {alert.message}
+            const containerClass = `block px-3.5 py-2.5 rounded-lg text-xs leading-relaxed border transition-colors ${
+              isBlue
+                ? "bg-[#eef4ff] text-[#1e3a8a] border-[#dbeafe] hover:bg-[#e0ecff]"
+                : "bg-[#fef9ee] text-[#854d0e] border-[#fef08a]/80 hover:bg-[#fef3c7]"
+            }`;
+
+            const inner = alert.assetTag ? (
+              <span>
+                <span className="font-mono underline font-semibold mr-1.5">
+                  {alert.assetTag}
                 </span>
-              ) : (
-                <span>{alert.message}</span>
-              )}
-            </div>
-          );
-        })}
+                {alert.message}
+              </span>
+            ) : (
+              <span>{alert.message}</span>
+            );
+
+            if (alert.href) {
+              return (
+                <Link key={alert.id} href={alert.href} className={containerClass}>
+                  {inner}
+                </Link>
+              );
+            }
+
+            return (
+              <div key={alert.id} className={containerClass}>
+                {inner}
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

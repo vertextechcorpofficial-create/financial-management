@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getDefaultUserId } from "@/modules/financial-management/asset-management/registration/services/asset";
 import type { UpdateLinePayload } from "@/modules/financial-management/asset-management/impairment-review/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -20,35 +21,24 @@ export async function PATCH(
 
       if (body.conclusion_id !== undefined) {
         updateData.conclusion_id = body.conclusion_id;
-        updateData.concluded_at = body.conclusion_id ? new Date().toISOString() : null;
+        updateData.concluded_at = body.conclusion_id
+          ? new Date().toISOString().slice(0, 19).replace("T", " ")
+          : null;
+        updateData.concluded_by = body.conclusion_id ? await getDefaultUserId() : null;
       }
-      if (body.notes !== undefined) {
-        updateData.note = body.notes;
-      }
-      if (body.fvlcd !== undefined) {
-        updateData.fvlcd = body.fvlcd;
-      }
-      if (body.viu !== undefined) {
-        updateData.viu = body.viu;
-      }
-      if (body.fvlcts !== undefined) {
-        updateData.fvlcts = body.fvlcts;
-      }
-      if (body.cgu_name !== undefined) {
-        updateData.cgu_name = body.cgu_name;
-      }
+      if (body.notes !== undefined) updateData.note = body.notes;
+      if (body.fvlcd !== undefined) updateData.fvlcd = body.fvlcd;
+      if (body.viu !== undefined) updateData.viu = body.viu;
+      if (body.fvlcts !== undefined) updateData.fvlcts = body.fvlcts;
+      if (body.cgu_name !== undefined) updateData.cgu_name = body.cgu_name;
       if (body.new_remaining_months !== undefined) {
         updateData.new_remaining_months = body.new_remaining_months;
       }
       if (body.new_residual_value !== undefined) {
         updateData.new_residual_value = body.new_residual_value;
       }
-      if (body.loss_amount !== undefined) {
-        updateData.loss_amount = body.loss_amount;
-      }
-      if (body.is_obsolete !== undefined) {
-        updateData.is_obsolete = body.is_obsolete ? 1 : 0;
-      }
+      if (body.loss_amount !== undefined) updateData.loss_amount = body.loss_amount;
+      if (body.is_obsolete !== undefined) updateData.is_obsolete = body.is_obsolete ? 1 : 0;
 
       if (Object.keys(updateData).length > 0) {
         const patchRes = await fetch(`${API_BASE_URL}/items/asset_impairment_review_lines/${id}`, {
@@ -58,8 +48,13 @@ export async function PATCH(
         });
 
         if (!patchRes.ok) {
-          const errData = await patchRes.json().catch(() => ({}));
-          console.warn("Directus PATCH review line error:", errData);
+          const errData = (await patchRes.json().catch(() => ({}))) as {
+            errors?: Array<{ message?: string }>;
+          };
+          return NextResponse.json(
+            { error: errData.errors?.[0]?.message || "Failed to update review line in database." },
+            { status: 400 }
+          );
         }
       }
 
@@ -67,19 +62,38 @@ export async function PATCH(
         const obsoleteId = 8; // OBSOLETE indicator id
 
         if (body.is_obsolete) {
-          await fetch(`${API_BASE_URL}/items/asset_impairment_review_line_indicators`, {
-            method: "POST",
-            headers: AUTH_HEADERS,
-            body: JSON.stringify({
-              line_id: Number(id),
-              indicator_id: obsoleteId,
-            }),
-          });
+          // Avoid duplicate obsolete indicator row
+          const existsRes = await fetch(
+            `${API_BASE_URL}/items/asset_impairment_review_line_indicators?filter[line_id][_eq]=${id}&filter[indicator_id][_eq]=${obsoleteId}`,
+            { headers: AUTH_HEADERS, cache: "no-store" }
+          );
+          const existsJson = existsRes.ok
+            ? ((await existsRes.json()) as { data?: Array<{ id: number }> })
+            : { data: [] };
+
+          if (!existsJson.data || existsJson.data.length === 0) {
+            const insRes = await fetch(`${API_BASE_URL}/items/asset_impairment_review_line_indicators`, {
+              method: "POST",
+              headers: AUTH_HEADERS,
+              body: JSON.stringify({
+                line_id: Number(id),
+                indicator_id: obsoleteId,
+              }),
+            });
+            if (!insRes.ok) {
+              const errData = (await insRes.json().catch(() => ({}))) as {
+                errors?: Array<{ message?: string }>;
+              };
+              return NextResponse.json(
+                { error: errData.errors?.[0]?.message || "Failed to add obsolete indicator." },
+                { status: 400 }
+              );
+            }
+          }
         } else {
-          // Delete existing OBSOLETE indicator for this line
           const findRes = await fetch(
             `${API_BASE_URL}/items/asset_impairment_review_line_indicators?filter[line_id][_eq]=${id}&filter[indicator_id][_eq]=${obsoleteId}`,
-            { headers: AUTH_HEADERS }
+            { headers: AUTH_HEADERS, cache: "no-store" }
           );
           const findJson = (await findRes.json()) as { data?: Array<{ id: number }> };
           if (findJson.data && findJson.data.length > 0) {
