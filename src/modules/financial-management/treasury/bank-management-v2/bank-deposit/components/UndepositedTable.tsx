@@ -98,9 +98,11 @@ export function UndepositedTable({
           </p>
         </div>
         <Badge variant="outline" className="tabular-nums text-[11px]">
+          {/* One receipt settles in several lines (cash, each cheque, the odd adjustment), so the
+              count names lines; a receipt's own total is printed on its rows, not here. */}
           {hasFilters
-            ? `${formatNumber(assets.length)} of ${formatNumber(totalCount)} collections`
-            : `${formatNumber(totalCount)} collections`}
+            ? `${formatNumber(assets.length)} of ${formatNumber(totalCount)} lines`
+            : `${formatNumber(totalCount)} lines`}
         </Badge>
       </header>
 
@@ -200,9 +202,12 @@ export function UndepositedTable({
                       <TableCell>
                         <Badge
                           variant="outline"
-                          className={cn("text-[11px] font-semibold", toneClass(asset.assetType === "CASH" ? "success" : "info"))}
+                          className={cn(
+                            "text-[11px] font-semibold",
+                            toneClass(asset.methodLabel === "Cash" ? "success" : asset.methodLabel === "Check" ? "info" : "warning"),
+                          )}
                         >
-                          {asset.assetType === "CASH" ? "Cash" : "Check"}
+                          {asset.methodLabel}
                         </Badge>
                         {asset.assetType === "CHECK" && asset.bankName ? (
                           <p className="mt-0.5 max-w-[140px] truncate text-[11px] text-muted-foreground" title={asset.bankName}>
@@ -294,7 +299,7 @@ export function UndepositedTable({
                       <span className="shrink-0 text-sm tabular-nums">{formatCurrency(asset.amount)}</span>
                     </div>
                     <p className="truncate text-xs text-muted-foreground" title={asset.customer ?? undefined}>
-                      {asset.assetType === "CASH" ? "Cash" : "Check"} · {asset.customer ?? "Unassigned customer"}
+                      {asset.methodLabel} · {asset.customer ?? "Unassigned customer"}
                     </p>
                     {asset.customerCode && asset.customerCode !== asset.customer ? (
                       <p className="truncate font-mono text-[11px] text-muted-foreground">{asset.customerCode}</p>

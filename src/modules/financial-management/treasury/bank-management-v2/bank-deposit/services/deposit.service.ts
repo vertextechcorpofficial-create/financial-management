@@ -215,6 +215,12 @@ async function loadInvoices(
   );
 }
 
+/**
+ * Settlement types that put money in the drawer. MEMO is a note, DRAFT is not posted yet, EWT is
+ * tax withheld before the money reached us, and RETURN takes money back out.
+ */
+const DEPOSITABLE_TYPES = ["CASH", "CHECK", "ADJUSTMENT"] as const;
+
 type SettlementRow = {
   id: number;
   collection_id: number | null;
@@ -222,6 +228,25 @@ type SettlementRow = {
   amount: number | string | null;
   type: string | null;
 };
+
+/**
+ * Invoices settled short. An adjustment tender with remarks starting `adj-` and a balance side of
+ * 2 is a shortage; balance side 1 is an overage, which is money the customer did pay.
+ * `invoice_id` is the identifier both tables carry, so the match is on it and nothing else.
+ */
+async function loadShortageInvoices(collectionIds: number[]): Promise<Set<number>> {
+  if (!collectionIds.length) return new Set();
+  const { rows } = await listItems<{ invoice_id: number | null }>("collection_details", {
+    fields: ["invoice_id"],
+    filter: {
+      collection_id: { _in: collectionIds },
+      balance_type_id: { _eq: 2 },
+      remarks: { _starts_with: "adj-" },
+    },
+    limit: 800,
+  });
+  return new Set(rows.map((row) => Number(row.invoice_id ?? 0)).filter((id) => Number.isInteger(id) && id > 0));
+}
 
 /**
  * The money waiting to be banked is the settlement row, not the tender line: the Collection
@@ -233,7 +258,9 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
   const [{ rows: settlements }, { rows: links }, checkResult] = await Promise.all([
     listItems<SettlementRow>("collection_invoices", {
       fields: ["id", "collection_id", "invoice_id", "amount", "type"],
-      filter: { type: { _in: ["CASH", "ADJUSTMENT"] } },
+      // A receipt settles with cash, cheques and the odd adjustment. Leaving CHECK out is why a
+      // cheque-funded receipt showed only its 21.00 adjustment instead of the money that arrived.
+      filter: { type: { _in: DEPOSITABLE_TYPES } },
       limit: 800,
     }),
     listItems<{ collection_invoice_id: number | null }>("bank_deposit_details", {
@@ -248,7 +275,16 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
   ]);
 
   const deposited = new Set(links.map((link) => Number(link.collection_invoice_id)));
-  const pending = settlements.filter((row) => !deposited.has(Number(row.id)));
+  const shortageInvoices = await loadShortageInvoices([
+    ...new Set(settlements.map((row) => Number(row.collection_id)).filter(Boolean)),
+  ]);
+  const pending = settlements.filter((row) => {
+    if (deposited.has(Number(row.id))) return false;
+    // A shortage adjustment (`adj-…`, balance_type_id 2) has no money to bank: the customer paid
+    // less than the invoice, so a slip carrying it would deposit a negative hole. Overage
+    // (balance_type_id 1) is real cash and stays. invoice_id is the identifier both tables share.
+    return !(asString(row.type) === "ADJUSTMENT" && shortageInvoices.has(Number(row.invoice_id ?? 0)));
+  });
   if (!pending.length) return [];
 
   const collectionIds = [...new Set(pending.map((row) => Number(row.collection_id)).filter(Boolean))];
@@ -292,7 +328,10 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
         invoiceNo: invoice?.invoiceNo ?? null,
         documentNumber,
         collectionReference: parent?.docNo ?? null,
-        assetType: check ? "CHECK" : "CASH",
+        // The settlement type says what arrived; the cheque lookup only adds the number and bank.
+        assetType: check || asString(row.type) === "CHECK" ? "CHECK" : "CASH",
+        methodLabel:
+          check || asString(row.type) === "CHECK" ? "Check" : asString(row.type) === "ADJUSTMENT" ? "Adjustment" : "Cash",
         customer: (customerCode ? customerNames.get(customerCode) : undefined) ?? customerCode,
         customerCode,
         bankName: check?.draweeBank ?? null,

@@ -147,6 +147,8 @@ export interface UndepositedAsset {
   collectionId: number;
   invoiceId: number | null;
   invoiceNo: string | null;
+  /** What arrived: cash, a cheque, or an adjustment applied to the invoice. */
+  methodLabel: "Cash" | "Check" | "Adjustment";
   documentNumber: string;
   collectionReference: string | null;
   assetType: "CASH" | "CHECK";
