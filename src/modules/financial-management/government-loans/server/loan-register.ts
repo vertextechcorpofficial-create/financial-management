@@ -94,6 +94,7 @@ async function schedules(rows: Enrolled[], month: string) {
     };
     return {
       row, schedule, history: deductions.get(row.id) ?? [],
+      receipts,
       coveredThrough: payrollCoveredThrough(receipts, schedule.firstDeductionMonth, month),
       reference: row.requested_at ? referenceFor(row.id) : "GL-" + String(row.id).padStart(6, "0"),
       employee: row.employee_name ?? "Employee " + row.employee_user_id,

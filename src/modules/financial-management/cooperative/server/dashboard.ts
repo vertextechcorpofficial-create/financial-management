@@ -206,6 +206,8 @@ export async function getDashboard(grants: readonly CooperativeWorkspaceKey[]) {
       approvals: "/fm/cooperative/approvals",
       aging: "/fm/cooperative/reports",
       journal: "/fm/cooperative/transactions",
+      members: "/fm/cooperative/members",
+      loans: "/fm/cooperative/loans",
     },
   };
   return buildDashboardSummary(asOf, sources, grants, nextCutoffDate(asOf));

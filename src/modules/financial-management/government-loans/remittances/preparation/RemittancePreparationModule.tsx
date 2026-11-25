@@ -21,8 +21,8 @@ type Saved = Exclude<Awaited<ReturnType<typeof readPreparedRemittance>>, Respons
 const money = (value: string | null) => value === null ? "—" : peso(value);
 const validAmount = /^(?:\d{1,13})(?:\.\d{1,2})?$/;
 
-function IncludedDeductions({ url }: { url: string }) {
-  const [expanded, setExpanded] = useState(false);
+export function IncludedDeductions({ url, initiallyExpanded = false }: { url: string; initiallyExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const [page, setPage] = useState(1);
   const [refresh, reload] = useState(0);
   const loaded = useLifecycleRead<Awaited<ReturnType<typeof listRemittanceDeductions>>>(expanded ? url + "&page=" + page : null, refresh);

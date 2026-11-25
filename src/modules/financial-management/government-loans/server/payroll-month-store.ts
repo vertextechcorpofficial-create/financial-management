@@ -98,7 +98,7 @@ function payrollResult(row: z.output<typeof resultRow>): MonthlyResult & { recei
 }
 
 export async function readLatestLoanPayroll(loanIds: number[], receipts: ReadonlyMap<string, PayrollReceipt>) {
-  const result = new Map<number, MonthlyResult[]>();
+  const result = new Map<number, Awaited<ReturnType<typeof readPayrollResults>>>();
   if (!loanIds.length || !receipts.size) return result;
   const months = [...receipts.keys()].sort();
   const rows = await readPayrollResults({

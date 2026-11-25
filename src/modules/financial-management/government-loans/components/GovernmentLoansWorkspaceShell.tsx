@@ -18,6 +18,9 @@ import { PayrollInstructionsModule } from "../payroll-handoff/PayrollInstruction
 import { AgenciesModule } from "../remittances/agencies/AgenciesModule";
 import { AgencyBillingModule } from "../remittances/billing/AgencyBillingModule";
 import { RemittancePreparationModule } from "../remittances/preparation/RemittancePreparationModule";
+import { RemittanceApprovalModule } from "../remittances/approval/RemittanceApprovalModule";
+import { MonthEndCloseModule } from "../month-end-close/MonthEndCloseModule";
+import { EmployeeLedgerReport, RemittanceReport } from "../reports/GovernmentLoanReports";
 import { LoanRequestsModule } from "../requests/LoanRequestsModule";
 import type { GovernmentLoansTab, GovernmentLoansWorkspace, GovernmentLoansWorkspaceKey } from "../workspaces";
 
@@ -44,7 +47,10 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
   const hasApprovals = workspace.key === "loan-approval";
   const hasLoans = workspace.key === "loans";
   const hasMyLoans = workspace.key === "my-loans";
-  const isScaffold = !hasAgencies && !hasRequests && !hasApprovals && !hasLoans && !hasMyLoans;
+  const hasRemittanceApproval = workspace.key === "remittance-approval";
+  const hasMonthEndClose = workspace.key === "month-end-close";
+  const hasReports = workspace.key === "reports";
+  const isScaffold = !hasAgencies && !hasRequests && !hasApprovals && !hasLoans && !hasMyLoans && !hasRemittanceApproval && !hasMonthEndClose && !hasReports;
 
   return <main className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
     <section className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-xs sm:p-5">
@@ -95,7 +101,9 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
             hasLoans && tab.key === "changes" ? <LoanChangesModule /> :
             hasLoans && tab.key === "onboarding-exits" ? <OnboardingExitsModule /> :
             hasLoans && tab.key === "posting-disputes" ? <PostingDisputesModule /> :
-            hasLoans && tab.key === "payroll-instructions" ? <PayrollInstructionsModule /> : <div className="rounded-xl border border-dashed bg-muted/20 p-6">
+            hasLoans && tab.key === "payroll-instructions" ? <PayrollInstructionsModule /> :
+            hasReports && tab.key === "employee-ledger" ? <EmployeeLedgerReport /> :
+            hasReports && tab.key === "remittance-report" ? <RemittanceReport /> : <div className="rounded-xl border border-dashed bg-muted/20 p-6">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold">{tab.title}</h3>
               <Badge variant="outline">Pending delivery</Badge>
@@ -105,7 +113,7 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
             </p>
           </div>}
         </TabsContent>)}
-      </Tabs> : hasMyLoans ? <PostingDisputesModule self /> : <div className="mt-4 rounded-xl border border-dashed bg-muted/20 p-6">
+      </Tabs> : hasMonthEndClose ? <MonthEndCloseModule /> : hasRemittanceApproval ? <RemittanceApprovalModule /> : hasMyLoans ? <PostingDisputesModule self /> : <div className="mt-4 rounded-xl border border-dashed bg-muted/20 p-6">
         <p className="text-sm font-medium">Single-view workspace</p>
         <p className="mt-1 text-sm text-muted-foreground">The prototype does not define sub-tabs for this workspace. Content will be implemented in its assigned delivery.</p>
       </div>}
