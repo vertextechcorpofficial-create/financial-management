@@ -58,18 +58,33 @@ const FEATURES: FeatureLink[] = [
     href: "/fm/lgu-asset-management-system/custody",
     description: "PAR and ICS issuance, transfers, returns, and the movement log.",
   },
+  {
+    title: "Physical Count",
+    href: "/fm/lgu-asset-management-system/physical-count",
+    description: "Count sessions, reconciliation, and the RPCPPE and RPCSP reports.",
+  },
+  {
+    title: "Disposal",
+    href: "/fm/lgu-asset-management-system/disposal",
+    description: "Unserviceable and missing assets through IIRUP and PCV.",
+  },
+  {
+    title: "Reports",
+    href: "/fm/lgu-asset-management-system/reports",
+    description: "Property ledger and straight line depreciation schedule.",
+  },
 ];
 
 const UPCOMING: FeatureLink[] = [
   {
-    title: "Physical count",
+    title: "Attachments",
     href: "#",
-    description: "Count sessions per office, with the RPCPPE view.",
+    description: "Photographs and scanned forms on the asset record.",
   },
   {
-    title: "Disposal",
+    title: "Bulk import",
     href: "#",
-    description: "Unserviceable assets through IIRUP and PCV.",
+    description: "Load an existing register from a spreadsheet.",
   },
 ];
 

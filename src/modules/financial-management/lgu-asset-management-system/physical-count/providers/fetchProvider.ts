@@ -1,5 +1,6 @@
 import type {
   CountLineRow,
+  CountReport,
   CountSessionDetail,
   CountSessionInput,
   CountSessionsResponse,
@@ -44,6 +45,41 @@ export async function fetchCountSessionRequest(id: number): Promise<CountSession
   const data = await safeJson(res);
   if (!res.ok) throw new Error(errMsg(data));
   return data as CountSessionDetail;
+}
+
+export async function resolveLineRequest(
+  id: number,
+  body: { lineId: number; resolution: "missing" | "moved"; toOfficeId?: number | null; toOfficer?: string | null; locationSeen?: string | null; remarks?: string | null }
+): Promise<CountSessionDetail> {
+  const res = await fetch(API + "/" + id + "/resolution", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(errMsg(data));
+  return data as CountSessionDetail;
+}
+
+export async function sessionActionRequest(
+  id: number,
+  body: { action: "lock" | "reopen" | "submit"; reason?: string; submittedTo?: string }
+): Promise<CountSessionDetail> {
+  const res = await fetch(API + "/" + id, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(errMsg(data));
+  return data as CountSessionDetail;
+}
+
+export async function fetchReportRequest(id: number, form: "rpcppe" | "rpcsp"): Promise<CountReport> {
+  const res = await fetch(API + "/" + id + "/report?form=" + form, { cache: "no-store" });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(errMsg(data));
+  return data as CountReport;
 }
 
 export async function markCountLineRequest(

@@ -15,13 +15,14 @@ import {
   transferAssetRequest,
 } from "../providers/fetchProvider";
 
-const EMPTY: CustodyResponse = { rows: [], total: 0, officers: [], offices: [] };
+const EMPTY: CustodyResponse = { rows: [], total: 0, page: 1, pageSize: 50, officers: [], offices: [] };
 
 export function useAssetCustody(initial?: { q?: string; officeId?: number | null; onlyWithOfficer?: boolean }) {
   const [params, setParams] = React.useState({
     q: "",
     officeId: null as number | null,
     onlyWithOfficer: false,
+    page: 1,
     ...initial,
   });
   const [data, setData] = React.useState<CustodyResponse>(EMPTY);
@@ -43,7 +44,10 @@ export function useAssetCustody(initial?: { q?: string; officeId?: number | null
   }, []);
 
   React.useEffect(() => {
-    void load(params);
+    const timer = window.setTimeout(() => {
+      void load(params);
+    }, 300);
+    return () => window.clearTimeout(timer);
   }, [load, params]);
 
   const patchParams = React.useCallback((patch: Partial<typeof params>) => {

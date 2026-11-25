@@ -1,12 +1,15 @@
 "use client";
 
 import * as React from "react";
-import type { CountSessionDetail, CountSessionInput, CountSessionsResponse } from "../../types";
+import type { CountReport, CountSessionDetail, CountSessionInput, CountSessionsResponse } from "../../types";
 import {
   createCountSessionRequest,
   fetchCountSessionRequest,
   fetchCountSessions,
+  fetchReportRequest,
   markCountLineRequest,
+  resolveLineRequest,
+  sessionActionRequest,
 } from "../providers/fetchProvider";
 
 const EMPTY: CountSessionsResponse = {
@@ -56,6 +59,7 @@ export function useCountSessions() {
 
 export function useCountSession(id: number | null) {
   const [detail, setDetail] = React.useState<CountSessionDetail | null>(null);
+  const [report, setReport] = React.useState<CountReport | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -93,5 +97,53 @@ export function useCountSession(id: number | null) {
     [id]
   );
 
-  return { detail, loading, error, busy, refresh: load, mark };
+  const resolve = React.useCallback(
+    async (payload: { lineId: number; resolution: "missing" | "moved"; toOfficeId?: number | null; toOfficer?: string | null; locationSeen?: string | null; remarks?: string | null }) => {
+      if (!id) return;
+      setBusy(true);
+      setError(null);
+      try {
+        setDetail(await resolveLineRequest(id, payload));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [id]
+  );
+
+  const act = React.useCallback(
+    async (action: "lock" | "reopen" | "submit", opts?: { reason?: string; submittedTo?: string }) => {
+      if (!id) return;
+      setBusy(true);
+      setError(null);
+      try {
+        setDetail(await sessionActionRequest(id, { action, ...opts }));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [id]
+  );
+
+  const loadReport = React.useCallback(
+    async (form: "rpcppe" | "rpcsp") => {
+      if (!id) return;
+      setBusy(true);
+      setError(null);
+      try {
+        setReport(await fetchReportRequest(id, form));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [id]
+  );
+
+  return { detail, report, loading, error, busy, refresh: load, mark, resolve, act, loadReport };
 }

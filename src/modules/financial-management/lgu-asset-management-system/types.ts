@@ -104,6 +104,9 @@ export interface LguAsset {
   model: string | null;
   remarks: string | null;
   record_status: AssetRecordStatus;
+  disposed_at: string | null;
+  disposal_reason: string | null;
+  book_value_at_disposal: number | null;
   unit_of_measure: string;
   is_bulk_child: boolean;
   bulk_batch_id: string | null;
@@ -275,6 +278,8 @@ export interface CustodyRow {
 export interface CustodyResponse {
   rows: CustodyRow[];
   total: number;
+  page: number;
+  pageSize: number;
   officers: string[];
   offices: LguOffice[];
 }
@@ -340,6 +345,10 @@ export interface LguCountSession {
   verified_by: string | null;
   witnessed_by: string | null;
   remarks: string | null;
+  total_lines: number;
+  counted_lines: number;
+  not_found_lines: number;
+  pending_lines: number;
   status: string;
 }
 
@@ -347,6 +356,8 @@ export interface LguCountLine {
   id: number;
   count_id: number;
   asset_id: number | null;
+  expected_property_no: string | null;
+  expected_description: string | null;
   expected_officer: string | null;
   expected_office_id: number | null;
   found: boolean | null;
@@ -412,6 +423,7 @@ export interface CountSessionDetail {
   session: LguCountSession;
   lines: CountLineRow[];
   stats: CountStats;
+  lookups: CountLookups;
 }
 
 export interface CountLinesResponse {
@@ -437,4 +449,133 @@ export const RESOLUTION_LABELS: Record<CountResolution, string> = {
 /** PC-YEAR-SEQ, the count session identity. */
 export function countPrefix(year: number): string {
   return "PC-" + year + "-";
+}
+
+/* ---------- count reconciliation and report ---------- */
+
+export interface CountReportRow {
+  propertyNo: string;
+  article: string;
+  description: string;
+  unit: string;
+  unitValue: number;
+  dateAcquired: string | null;
+  balanceQty: number;
+  onHandQty: number;
+  shortageQty: number;
+  shortageValue: number;
+  remarks: string;
+}
+
+export interface CountReportGroup {
+  className: string;
+  rows: CountReportRow[];
+  totalQty: number;
+  totalValue: number;
+  totalShortageQty: number;
+  totalShortageValue: number;
+}
+
+export interface CountReportSummary {
+  totalLines: number;
+  found: number;
+  missing: number;
+  moved: number;
+  notCounted: number;
+  totalValue: number;
+  totalShortageValue: number;
+}
+
+export interface CountReport {
+  form: "rpcppe" | "rpcsp";
+  session: LguCountSession;
+  groups: CountReportGroup[];
+  summary: CountReportSummary;
+}
+
+export interface ResolveLineInput {
+  countId: number;
+  lineId: number;
+  resolution: "missing" | "moved";
+  toOfficeId?: number | null;
+  toOfficer?: string | null;
+  locationSeen?: string | null;
+  remarks?: string | null;
+  encoder?: string | null;
+}
+
+/* ---------- disposal ---------- */
+
+export interface DisposalCandidate {
+  asset: LguAsset;
+  documents: number;
+  bookValue: number;
+}
+
+export interface DisposalResponse {
+  candidates: DisposalCandidate[];
+  total: number;
+  page: number;
+  pageSize: number;
+  offices: LguOffice[];
+  conditions: LguCondition[];
+}
+
+export interface DisposalInput {
+  assetId: number;
+  docNo: string;
+  docDate: string;
+  reason: string;
+  remarks?: string | null;
+  encoder?: string | null;
+}
+
+/** Straight line, straight from the GAM: 5 percent residual, life in months. */
+export function monthlyDepreciation(cost: number, residual: number, lifeMonths: number | null): number {
+  const life = Number(lifeMonths ?? 0);
+  if (!Number.isFinite(life) || life <= 0) return 0;
+  const depreciable = Math.max(0, cost - residual);
+  return Math.round((depreciable / life) * 100) / 100;
+}
+
+function monthsBetween(from: string | null, to: string): number {
+  if (!from) return 0;
+  const a = new Date(from);
+  const b = new Date(to);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+  const months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  return Math.max(0, months);
+}
+
+export function bookValueAt(asset: Pick<LguAsset, "cost" | "residual_value" | "life_months" | "available_for_use_date" | "acquisition_date">, at: string): number {
+  const cost = Number(asset.cost ?? 0);
+  const residual = Number(asset.residual_value ?? 0);
+  const monthly = monthlyDepreciation(cost, residual, asset.life_months);
+  const elapsed = Math.min(monthsBetween(asset.available_for_use_date ?? asset.acquisition_date, at), Number(asset.life_months ?? 0));
+  const value = cost - monthly * elapsed;
+  return Math.round(Math.max(residual, value) * 100) / 100;
+}
+
+export interface DepreciationRow {
+  asset: LguAsset;
+  monthly: number;
+  monthsElapsed: number;
+  accumulated: number;
+  bookValue: number;
+}
+
+export interface LedgerRow {
+  className: string;
+  count: number;
+  cost: number;
+  accumulated: number;
+  bookValue: number;
+}
+
+export interface ReportsResponse {
+  asOf: string;
+  classes: LguAssetClass[];
+  ledger: LedgerRow[];
+  schedule: DepreciationRow[];
+  totals: { count: number; cost: number; accumulated: number; bookValue: number };
 }

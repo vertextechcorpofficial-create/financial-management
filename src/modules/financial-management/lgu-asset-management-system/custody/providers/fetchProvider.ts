@@ -25,11 +25,13 @@ export async function fetchCustody(params: {
   q?: string;
   officeId?: number | null;
   onlyWithOfficer?: boolean;
+  page?: number;
 }): Promise<CustodyResponse> {
   const search = new URLSearchParams();
   if (params.q) search.set("q", params.q);
   if (params.officeId) search.set("officeId", String(params.officeId));
   if (params.onlyWithOfficer) search.set("onlyWithOfficer", "1");
+  if (params.page) search.set("page", String(params.page));
   const res = await fetch(API + "?" + search.toString(), { cache: "no-store" });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(errMsg(data));

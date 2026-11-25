@@ -54,6 +54,7 @@ export default function CustodyModule() {
   }
 
   const assigned = data.rows.filter((r) => Boolean(r.asset.accountable_officer_name)).length;
+  const totalPages = Math.max(1, Math.ceil(data.total / (data.pageSize || 50)));
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -65,8 +66,8 @@ export default function CustodyModule() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary">{assigned} assigned</Badge>
-          <Badge variant="outline">{data.total - assigned} unassigned</Badge>
+          <Badge variant="secondary">{data.total} on record</Badge>
+          <Badge variant="outline">{assigned} assigned this page</Badge>
           <Button variant="outline" size="icon" onClick={() => void refresh()} aria-label="Refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -78,7 +79,7 @@ export default function CustodyModule() {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={params.q ?? ""}
-            onChange={(e) => patchParams({ q: e.target.value })}
+            onChange={(e) => patchParams({ q: e.target.value, page: 1 })}
             placeholder="Search property number, description, officer..."
             className="pl-9"
           />
@@ -87,7 +88,7 @@ export default function CustodyModule() {
           <SearchableSelect
             options={officeOptions}
             value={params.officeId ? String(params.officeId) : ""}
-            onChange={(v) => patchParams({ officeId: v ? Number(v) : null })}
+            onChange={(v) => patchParams({ officeId: v ? Number(v) : null, page: 1 })}
             placeholder="All offices"
           />
         </div>
@@ -116,6 +117,20 @@ export default function CustodyModule() {
           onReturn={(r) => start("return", r)}
           onHistory={(r) => void openHistory(r.asset.id)}
         />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Page {data.page} of {totalPages}
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" disabled={data.page <= 1} onClick={() => patchParams({ page: data.page - 1 })}>
+            Previous
+          </Button>
+          <Button variant="outline" size="sm" disabled={data.page >= totalPages} onClick={() => patchParams({ page: data.page + 1 })}>
+            Next
+          </Button>
+        </div>
       </div>
 
       <CustodyActionDialog

@@ -52,7 +52,10 @@ export function useAssetRegistry(initial?: Partial<AssetRegistryQuery>) {
   }, []);
 
   React.useEffect(() => {
-    void load(query);
+    const timer = window.setTimeout(() => {
+      void load(query);
+    }, 300);
+    return () => window.clearTimeout(timer);
   }, [load, query]);
 
   const patchQuery = React.useCallback((patch: Partial<AssetRegistryQuery>) => {

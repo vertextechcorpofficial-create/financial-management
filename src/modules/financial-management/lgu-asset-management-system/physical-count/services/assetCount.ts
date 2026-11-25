@@ -2,6 +2,9 @@ import type {
   CountLineRow,
   CountLinesResponse,
   CountLookups,
+  CountReport,
+  CountReportGroup,
+  CountReportRow,
   CountSessionDetail,
   CountSessionInput,
   CountSessionSummary,
@@ -11,6 +14,7 @@ import type {
   LguAsset,
   LguCountLine,
   LguCountSession,
+  ResolveLineInput,
 } from "../../types";
 import { countPrefix } from "../../types";
 
@@ -78,6 +82,10 @@ function mapSession(row: Record<string, unknown>): LguCountSession {
     verified_by: (row.verified_by as string) ?? null,
     witnessed_by: (row.witnessed_by as string) ?? null,
     remarks: (row.remarks as string) ?? null,
+    total_lines: Number(row.total_lines ?? 0),
+    counted_lines: Number(row.counted_lines ?? 0),
+    not_found_lines: Number(row.not_found_lines ?? 0),
+    pending_lines: Number(row.pending_lines ?? 0),
     status: text(row.status) || "active",
   };
 }
@@ -87,6 +95,8 @@ function mapLine(row: Record<string, unknown>): LguCountLine {
     id: Number(row.id),
     count_id: Number(row.count_id),
     asset_id: num(row.asset_id),
+    expected_property_no: (row.expected_property_no as string) ?? null,
+    expected_description: (row.expected_description as string) ?? null,
     expected_officer: (row.expected_officer as string) ?? null,
     expected_office_id: num(row.expected_office_id),
     found: row.found === null || row.found === undefined ? null : bool(row.found),
@@ -136,6 +146,9 @@ function mapAsset(row: Record<string, unknown>): LguAsset {
     model: (row.model as string) ?? null,
     remarks: (row.remarks as string) ?? null,
     record_status: ((row.record_status as string) ?? "active") as LguAsset["record_status"],
+    disposed_at: (row.disposed_at as string) ?? null,
+    disposal_reason: (row.disposal_reason as string) ?? null,
+    book_value_at_disposal: num(row.book_value_at_disposal),
     unit_of_measure: text(row.unit_of_measure) || "pc",
     is_bulk_child: bool(row.is_bulk_child),
     bulk_batch_id: (row.bulk_batch_id as string) ?? null,
@@ -146,7 +159,10 @@ function mapAsset(row: Record<string, unknown>): LguAsset {
   };
 }
 
-async function fetchLookups(): Promise<CountLookups> {
+let lookupCache: { at: number; data: CountLookups } | null = null;
+const LOOKUP_TTL_MS = 60_000;
+
+async function fetchLookupsRaw(): Promise<CountLookups> {
   const active = encodeURIComponent(JSON.stringify({ status: { _eq: "active" } }));
   const [offices, classes, conditions] = await Promise.all([
     get("/items/lgu_office?filter=" + active + "&sort=sort&limit=-1"),
@@ -176,6 +192,47 @@ async function fetchLookups(): Promise<CountLookups> {
   };
 }
 
+/**
+ * Offices, classes and conditions change rarely, so they are cached for a
+ * minute per server instance. Three round trips per request become one a minute.
+ */
+async function fetchLookups(): Promise<CountLookups> {
+  const now = Date.now();
+  if (lookupCache && now - lookupCache.at < LOOKUP_TTL_MS) return lookupCache.data;
+  const data = await fetchLookupsRaw();
+  lookupCache = { at: now, data };
+  return data;
+}
+
+async function countLinesWhere(filter: Record<string, unknown>): Promise<number> {
+  const json = await get(
+    "/items/lgu_asset_count_lines?aggregate[count]=id&filter=" + encodeURIComponent(JSON.stringify(filter))
+  );
+  const row = ((json.data ?? []) as Record<string, unknown>[])[0];
+  const count = row?.count as Record<string, unknown> | undefined;
+  return Number(count?.id ?? 0);
+}
+
+/**
+ * Recomputes the counters stored on the session. Called after every mutation,
+ * so the sessions list never has to read a single count line.
+ */
+export async function recountSession(id: number): Promise<void> {
+  const base = { count_id: { _eq: id }, status: { _eq: "active" } };
+  const [total, counted, notFound, pending] = await Promise.all([
+    countLinesWhere(base),
+    countLinesWhere({ ...base, found: { _nnull: true } }),
+    countLinesWhere({ ...base, found: { _eq: false } }),
+    countLinesWhere({ ...base, found: { _eq: false }, resolution: { _eq: "pending" } }),
+  ]);
+  await patch("/items/lgu_asset_counts/" + id, {
+    total_lines: total,
+    counted_lines: counted,
+    not_found_lines: notFound,
+    pending_lines: pending,
+  });
+}
+
 export function computeStats(lines: LguCountLine[]): CountStats {
   const total = lines.length;
   const counted = lines.filter((l) => l.found !== null).length;
@@ -186,33 +243,24 @@ export function computeStats(lines: LguCountLine[]): CountStats {
   return { total, counted, found, notFound, pendingResolution, foundAtStation, readyToLock: total > 0 && counted === total && pendingResolution === 0 };
 }
 
+/**
+ * Reads only the session rows. Progress comes from the counters maintained on
+ * each row, so this stays constant however many count lines exist.
+ */
 export async function fetchCountSessions(): Promise<CountSessionsResponse> {
-  const [sessionsJson, linesJson, lookups] = await Promise.all([
+  const [sessionsJson, lookups] = await Promise.all([
     get("/items/lgu_asset_counts?filter=" + encodeURIComponent(JSON.stringify({ status: { _eq: "active" } })) + "&sort=-as_of_date,-id&limit=-1"),
-    get("/items/lgu_asset_count_lines?fields=count_id,found,resolution&limit=-1"),
     fetchLookups(),
   ]);
 
   const sessions = ((sessionsJson.data ?? []) as Record<string, unknown>[]).map(mapSession);
-  const bySession = new Map<number, LguCountLine[]>();
-  for (const raw of (linesJson.data ?? []) as Record<string, unknown>[]) {
-    const line = mapLine(raw);
-    const list = bySession.get(line.count_id) ?? [];
-    list.push(line);
-    bySession.set(line.count_id, list);
-  }
-
-  const summaries: CountSessionSummary[] = sessions.map((session) => {
-    const lines = bySession.get(session.id) ?? [];
-    const stats = computeStats(lines);
-    return {
-      session,
-      totalLines: stats.total,
-      counted: stats.counted,
-      notFound: stats.notFound,
-      pendingResolution: stats.pendingResolution,
-    };
-  });
+  const summaries: CountSessionSummary[] = sessions.map((session) => ({
+    session,
+    totalLines: session.total_lines,
+    counted: session.counted_lines,
+    notFound: session.not_found_lines,
+    pendingResolution: session.pending_lines,
+  }));
 
   return { sessions: summaries, lookups };
 }
@@ -286,6 +334,8 @@ export async function createCountSession(input: CountSessionInput): Promise<Coun
   const lines = assets.map((asset) => ({
     count_id: session!.id,
     asset_id: asset.id,
+    expected_property_no: asset.property_no,
+    expected_description: asset.description,
     expected_officer: asset.accountable_officer_name,
     expected_office_id: asset.office_id,
     found: null,
@@ -298,10 +348,12 @@ export async function createCountSession(input: CountSessionInput): Promise<Coun
   }));
 
   await post("/items/lgu_asset_count_lines", lines);
+  await patch("/items/lgu_asset_counts/" + session.id, { total_lines: lines.length });
+  await recountSession(session.id);
   return fetchCountSession(session.id);
 }
 
-export async function fetchCountSession(id: number): Promise<CountSessionDetail> {
+export async function fetchCountSession(id: number, withAssets = false): Promise<CountSessionDetail> {
   const sessionJson = await get("/items/lgu_asset_counts/" + id);
   if (!sessionJson.data) throw new Error("Count session " + id + " not found");
   const session = mapSession(sessionJson.data as Record<string, unknown>);
@@ -310,6 +362,17 @@ export async function fetchCountSession(id: number): Promise<CountSessionDetail>
     "/items/lgu_asset_count_lines?filter=" + encodeURIComponent(JSON.stringify({ count_id: { _eq: id }, status: { _eq: "active" } })) + "&sort=id&limit=-1"
   );
   const lines = ((linesJson.data ?? []) as Record<string, unknown>[]).map(mapLine);
+
+  // the sheet renders from the snapshot, so the asset join is only needed for reports
+  if (!withAssets) {
+    const lookups = await fetchLookups();
+    return {
+      session,
+      lines: lines.map((line) => ({ line, asset: null })),
+      stats: computeStats(lines),
+      lookups,
+    };
+  }
 
   const assetIds = Array.from(new Set(lines.map((l) => l.asset_id).filter((v): v is number => typeof v === "number")));
   let assetMap = new Map<number, LguAsset>();
@@ -326,7 +389,8 @@ export async function fetchCountSession(id: number): Promise<CountSessionDetail>
     asset: line.asset_id ? assetMap.get(line.asset_id) ?? null : null,
   }));
 
-  return { session, lines: rows, stats: computeStats(lines) };
+  const lookups = await fetchLookups();
+  return { session, lines: rows, stats: computeStats(lines), lookups };
 }
 
 export async function fetchCountLines(
@@ -386,6 +450,251 @@ export async function markCountLine(input: {
   if (session.session_status === "draft") {
     await patch("/items/lgu_asset_counts/" + session.id, { session_status: "counting" });
   }
+  await recountSession(session.id);
 
   return fetchCountSession(session.id);
+}
+
+/* ---------- reconciliation ---------- */
+
+async function loadSession(id: number): Promise<LguCountSession> {
+  const json = await get("/items/lgu_asset_counts/" + id);
+  if (!json.data) throw new Error("Count session " + id + " not found");
+  return mapSession(json.data as Record<string, unknown>);
+}
+
+async function loadLine(lineId: number): Promise<LguCountLine> {
+  const json = await get("/items/lgu_asset_count_lines/" + lineId);
+  if (!json.data) throw new Error("Count line " + lineId + " not found");
+  return mapLine(json.data as Record<string, unknown>);
+}
+
+function assertOpen(session: LguCountSession) {
+  if (session.session_status === "locked" || session.session_status === "submitted") {
+    throw new Error("This session is locked. Reopen it before changing lines");
+  }
+}
+
+/**
+ * A not found line becomes either missing or moved.
+ * Moved is a real custody transfer: the asset changes hands in the register,
+ * and the count records where it was actually seen.
+ */
+export async function resolveCountLine(input: ResolveLineInput): Promise<CountSessionDetail> {
+  const session = await loadSession(input.countId);
+  assertOpen(session);
+  const line = await loadLine(input.lineId);
+  if (line.count_id !== session.id) throw new Error("That line does not belong to this session");
+  if (line.found !== false && input.resolution === "missing") {
+    throw new Error("Only a line marked not found can be resolved");
+  }
+
+  if (input.resolution === "missing") {
+    await patch("/items/lgu_asset_count_lines/" + line.id, {
+      resolution: "missing",
+      remarks: input.remarks ?? line.remarks,
+    });
+    await recountSession(session.id);
+    return fetchCountSession(session.id);
+  }
+
+  if (!input.toOfficeId) throw new Error("A moved asset needs the office where it was actually found");
+
+  const assetJson = line.asset_id ? await get("/items/lgu_asset/" + line.asset_id) : null;
+  const asset = assetJson && assetJson.data ? mapAsset(assetJson.data as Record<string, unknown>) : null;
+  if (!asset) throw new Error("That line has no asset on the register, so it cannot be transferred");
+
+  await post("/items/lgu_asset_movements", {
+    asset_id: asset.id,
+    movement: "transfer",
+    movement_date: new Date().toISOString().slice(0, 10),
+    from_office_id: asset.office_id,
+    to_office_id: input.toOfficeId,
+    from_officer: asset.accountable_officer_name,
+    to_officer: input.toOfficer ?? asset.accountable_officer_name,
+    document_id: null,
+    remarks: "Established during " + session.count_no + (input.remarks ? ": " + input.remarks : ""),
+    created_by: input.encoder ?? null,
+    status: "active",
+  });
+
+  await patch("/items/lgu_asset/" + asset.id, {
+    office_id: input.toOfficeId,
+    accountable_officer_name: input.toOfficer ?? asset.accountable_officer_name,
+    record_status: "active",
+  });
+
+  await patch("/items/lgu_asset_count_lines/" + line.id, {
+    found: true,
+    resolution: "moved",
+    location_seen: input.locationSeen ?? line.location_seen,
+    remarks: input.remarks ?? line.remarks,
+  });
+  await recountSession(session.id);
+
+  return fetchCountSession(session.id);
+}
+
+/* ---------- lock, reopen, submit ---------- */
+
+export async function lockCountSession(id: number): Promise<CountSessionDetail> {
+  const session = await loadSession(id);
+  if (session.session_status === "locked" || session.session_status === "submitted") {
+    throw new Error("This session is already locked");
+  }
+  const detail = await fetchCountSession(id);
+  if (detail.stats.total === 0) throw new Error("An empty session cannot be locked");
+  if (detail.stats.counted !== detail.stats.total) {
+    throw new Error("Cannot lock: " + (detail.stats.total - detail.stats.counted) + " lines are still uncounted");
+  }
+  if (detail.stats.pendingResolution > 0) {
+    throw new Error("Cannot lock: " + detail.stats.pendingResolution + " not found lines still need a decision");
+  }
+
+  await patch("/items/lgu_asset_counts/" + id, {
+    session_status: "locked",
+    locked_at: new Date().toISOString(),
+  });
+
+  // the register only changes here, never during counting
+  const missingAssetIds = detail.lines
+    .filter((row) => row.line.resolution === "missing" && row.line.asset_id)
+    .map((row) => row.line.asset_id as number);
+  for (const assetId of missingAssetIds) {
+    await patch("/items/lgu_asset/" + assetId, { record_status: "missing" });
+  }
+
+  return fetchCountSession(id);
+}
+
+export async function reopenCountSession(id: number, reason: string): Promise<CountSessionDetail> {
+  const session = await loadSession(id);
+  if (session.session_status !== "locked") throw new Error("Only a locked session can be reopened");
+  if (!reason || !reason.trim()) throw new Error("A reason is required to reopen a locked session");
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  await patch("/items/lgu_asset_counts/" + id, {
+    session_status: "counting",
+    locked_at: null,
+    remarks: ((session.remarks ? session.remarks + " | " : "") + "Reopened " + stamp + ": " + reason.trim()).slice(0, 2000),
+  });
+  return fetchCountSession(id);
+}
+
+export async function submitCountSession(id: number, submittedTo: string): Promise<CountSessionDetail> {
+  const session = await loadSession(id);
+  if (session.session_status !== "locked") throw new Error("Only a locked session can be submitted");
+  if (!submittedTo || !submittedTo.trim()) throw new Error("Say who received the report");
+
+  await patch("/items/lgu_asset_counts/" + id, {
+    session_status: "submitted",
+    submitted_at: new Date().toISOString(),
+    submitted_to: submittedTo.trim(),
+  });
+  return fetchCountSession(id);
+}
+
+/* ---------- report ---------- */
+
+async function classNameMap(): Promise<Map<number, string>> {
+  const json = await get("/items/lgu_asset_class?fields=id,name&limit=-1");
+  const map = new Map<number, string>();
+  for (const row of (json.data ?? []) as Record<string, unknown>[]) {
+    map.set(Number(row.id), text(row.name));
+  }
+  return map;
+}
+
+function lineRemark(row: CountLineRow, conditionName: string | undefined): string {
+  const bits: string[] = [];
+  if (conditionName) bits.push(conditionName);
+  if (row.line.resolution === "missing") bits.push("missing");
+  if (row.line.resolution === "moved") bits.push("found elsewhere");
+  if (row.line.location_seen) bits.push(row.line.location_seen);
+  if (row.line.remarks) bits.push(row.line.remarks);
+  return bits.join(", ");
+}
+
+/**
+ * Builds the RPCPPE (PPE) or RPCSP (semi-expendable) report from the same rows
+ * the screen shows, so the printed form and the screen can never disagree.
+ */
+export async function buildCountReport(id: number, form: "rpcppe" | "rpcsp"): Promise<CountReport> {
+  const detail = await fetchCountSession(id, true);
+  const classes = await classNameMap();
+  const conditions = new Map<number, string>();
+  const condJson = await get("/items/lgu_condition?fields=id,name&limit=-1");
+  for (const row of (condJson.data ?? []) as Record<string, unknown>[]) {
+    conditions.set(Number(row.id), text(row.name));
+  }
+
+  const groups = new Map<string, CountReportGroup>();
+  let totalValue = 0;
+  let totalShortageValue = 0;
+  let missing = 0;
+  let moved = 0;
+  let found = 0;
+  let notCounted = 0;
+
+  for (const row of detail.lines) {
+    if (row.line.found === null) {
+      notCounted += 1;
+      continue;
+    }
+    if (row.line.resolution === "missing") missing += 1;
+    else if (row.line.resolution === "moved") moved += 1;
+    else if (row.line.found) found += 1;
+
+    const asset = row.asset;
+    if (!asset) continue;
+    const semi = asset.is_semi_expendable;
+    if (form === "rpcppe" && semi) continue;
+    if (form === "rpcsp" && !semi) continue;
+
+    const unitValue = asset.cost ?? 0;
+    const onHandQty = row.line.found === true ? 1 : 0;
+    const shortageQty = 1 - onHandQty;
+    const shortageValue = Math.round(unitValue * shortageQty * 100) / 100;
+
+    const reportRow: CountReportRow = {
+      propertyNo: asset.property_no,
+      article: asset.class_id ? classes.get(asset.class_id) ?? "Other" : "Other",
+      description: asset.description,
+      unit: asset.unit_of_measure || "pc",
+      unitValue,
+      dateAcquired: asset.acquisition_date,
+      balanceQty: 1,
+      onHandQty,
+      shortageQty,
+      shortageValue,
+      remarks: lineRemark(row, row.line.condition_id ? conditions.get(row.line.condition_id) : undefined),
+    };
+
+    const key = reportRow.article;
+    const group = groups.get(key) ?? { className: key, rows: [], totalQty: 0, totalValue: 0, totalShortageQty: 0, totalShortageValue: 0 };
+    group.rows.push(reportRow);
+    group.totalQty += onHandQty;
+    group.totalValue = Math.round((group.totalValue + unitValue) * 100) / 100;
+    group.totalShortageQty += shortageQty;
+    group.totalShortageValue = Math.round((group.totalShortageValue + shortageValue) * 100) / 100;
+    groups.set(key, group);
+
+    totalValue = Math.round((totalValue + unitValue) * 100) / 100;
+    totalShortageValue = Math.round((totalShortageValue + shortageValue) * 100) / 100;
+  }
+
+  return {
+    form,
+    session: detail.session,
+    groups: Array.from(groups.values()).sort((a, b) => a.className.localeCompare(b.className)),
+    summary: {
+      totalLines: detail.lines.length,
+      found,
+      missing,
+      moved,
+      notCounted,
+      totalValue,
+      totalShortageValue,
+    },
+  };
 }

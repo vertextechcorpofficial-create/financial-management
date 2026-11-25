@@ -41,6 +41,7 @@ function bool(v: unknown): boolean {
 
 interface JsonResult {
   data?: unknown;
+  meta?: { filter_count?: number };
 }
 
 async function get(path: string): Promise<JsonResult> {
@@ -103,6 +104,9 @@ function mapAsset(row: Record<string, unknown>): LguAsset {
     model: (row.model as string) ?? null,
     remarks: (row.remarks as string) ?? null,
     record_status: ((row.record_status as string) ?? "active") as LguAsset["record_status"],
+    disposed_at: (row.disposed_at as string) ?? null,
+    disposal_reason: (row.disposal_reason as string) ?? null,
+    book_value_at_disposal: num(row.book_value_at_disposal),
     unit_of_measure: text(row.unit_of_measure) || "pc",
     is_bulk_child: bool(row.is_bulk_child),
     bulk_batch_id: (row.bulk_batch_id as string) ?? null,
@@ -159,8 +163,8 @@ async function fetchOffices(): Promise<LguOffice[]> {
 /** Autocomplete source: names already used on assets and on past movements. */
 async function fetchOfficerNames(): Promise<string[]> {
   const [fromAssets, fromMovements] = await Promise.all([
-    get("/items/lgu_asset?limit=-1&fields=accountable_officer_name"),
-    get("/items/lgu_asset_movements?limit=-1&fields=to_officer"),
+    get("/items/lgu_asset?filter=" + encodeURIComponent(JSON.stringify({ accountable_officer_name: { _nnull: true } })) + "&limit=500&fields=accountable_officer_name"),
+    get("/items/lgu_asset_movements?sort=-movement_date&limit=500&fields=to_officer"),
   ]);
   const names = new Set<string>();
   for (const r of (fromAssets.data ?? []) as Record<string, unknown>[]) {
@@ -174,10 +178,13 @@ async function fetchOfficerNames(): Promise<string[]> {
   return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
 
+const CUSTODY_PAGE_SIZE = 50;
+
 export async function fetchCustodyList(params: {
   q?: string;
   officeId?: number | null;
   onlyWithOfficer?: boolean;
+  page?: number;
 }): Promise<CustodyResponse> {
   const and: Record<string, unknown>[] = [{ status: { _eq: "active" } }];
   if (params.q && params.q.trim()) {
@@ -193,39 +200,56 @@ export async function fetchCustodyList(params: {
   if (params.officeId) and.push({ office_id: { _eq: params.officeId } });
   if (params.onlyWithOfficer) and.push({ accountable_officer_name: { _nnull: true } });
 
+  const page = Math.max(1, Number(params.page ?? 1));
   const filter = encodeURIComponent(JSON.stringify({ _and: and }));
-  const [assets, documents, movements, offices, officers] = await Promise.all([
-    get("/items/lgu_asset?filter=" + filter + "&sort=property_no&limit=-1&fields=id,property_no,description,class_id,is_semi_expendable,cost,office_id,accountable_officer_name,condition_id,record_status,status,location"),
-    get("/items/lgu_asset_documents?filter=" + encodeURIComponent(JSON.stringify({ status: { _eq: "active" } })) + "&limit=-1&fields=asset_id"),
-    get("/items/lgu_asset_movements?filter=" + encodeURIComponent(JSON.stringify({ status: { _eq: "active" } })) + "&limit=-1&fields=asset_id,movement_date&sort=-movement_date"),
-    fetchOffices(),
-    fetchOfficerNames(),
+
+  // one page of assets, nothing else
+  const assetsJson = await get(
+    "/items/lgu_asset?filter=" + filter +
+    "&sort=property_no&limit=" + CUSTODY_PAGE_SIZE +
+    "&offset=" + (page - 1) * CUSTODY_PAGE_SIZE +
+    "&meta=filter_count" +
+    "&fields=id,property_no,description,class_id,is_semi_expendable,cost,office_id,accountable_officer_name,condition_id,record_status,status,location,unit_of_measure"
+  );
+  const assetRows = ((assetsJson.data ?? []) as Record<string, unknown>[]).map(mapAsset);
+  const total = Number(assetsJson.meta?.filter_count ?? assetRows.length);
+
+  const [offices, officers] = await Promise.all([fetchOffices(), fetchOfficerNames()]);
+
+  if (assetRows.length === 0) {
+    return { rows: [], total, page, pageSize: CUSTODY_PAGE_SIZE, officers, offices };
+  }
+
+  const ids = assetRows.map((a) => a.id);
+  const idFilter = encodeURIComponent(JSON.stringify({ asset_id: { _in: ids } }));
+
+  // two bounded queries instead of two full table scans
+  const [documentsJson, movementsJson] = await Promise.all([
+    get("/items/lgu_asset_documents?filter=" + idFilter + "&aggregate[count]=id&groupBy[]=asset_id"),
+    get("/items/lgu_asset_movements?filter=" + idFilter + "&sort=-movement_date&fields=asset_id,movement_date&limit=" + ids.length * 5),
   ]);
 
   const docCount = new Map<number, number>();
-  for (const d of (documents.data ?? []) as Record<string, unknown>[]) {
-    const id = Number(d.asset_id);
-    docCount.set(id, (docCount.get(id) ?? 0) + 1);
+  for (const d of (documentsJson.data ?? []) as Record<string, unknown>[]) {
+    const countWrapper = d.count as Record<string, unknown> | undefined;
+    docCount.set(Number(d.asset_id), Number(countWrapper?.id ?? 0));
   }
 
   const lastDate = new Map<number, string>();
-  for (const m of (movements.data ?? []) as Record<string, unknown>[]) {
+  for (const m of (movementsJson.data ?? []) as Record<string, unknown>[]) {
     const id = Number(m.asset_id);
     if (lastDate.has(id)) continue;
     const date = (m.movement_date as string) ?? "";
     if (date) lastDate.set(id, date);
   }
 
-  const rows: CustodyRow[] = ((assets.data ?? []) as Record<string, unknown>[]).map((r) => {
-    const asset = mapAsset(r);
-    return {
-      asset,
-      lastMovementDate: lastDate.get(asset.id) ?? null,
-      documentCount: docCount.get(asset.id) ?? 0,
-    };
-  });
+  const rows: CustodyRow[] = assetRows.map((asset) => ({
+    asset,
+    lastMovementDate: lastDate.get(asset.id) ?? null,
+    documentCount: docCount.get(asset.id) ?? 0,
+  }));
 
-  return { rows, total: rows.length, officers, offices };
+  return { rows, total, page, pageSize: CUSTODY_PAGE_SIZE, officers, offices };
 }
 
 export async function fetchHistory(assetId: number): Promise<AssetHistory> {
