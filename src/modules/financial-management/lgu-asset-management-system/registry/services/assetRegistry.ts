@@ -146,12 +146,7 @@ export interface RegistryStatusCounts {
   [status: string]: number;
 }
 
-export async function listAssets(
-  query: AssetRegistryQuery
-): Promise<{ assets: LguAsset[]; total: number; statusCounts: RegistryStatusCounts }> {
-  const page = Math.max(1, Number(query.page ?? 1));
-  const pageSize = Math.min(100, Math.max(5, Number(query.pageSize ?? 10)));
-
+function assetFilter(query: AssetRegistryQuery): Record<string, unknown>[] {
   const and: Record<string, unknown>[] = [];
   if (query.q && query.q.trim()) {
     const needle = query.q.trim();
@@ -169,6 +164,25 @@ export async function listAssets(
   if (query.recordStatus !== "all") {
     and.push({ record_status: { _eq: query.recordStatus ?? "active" } });
   }
+  return and;
+}
+
+/** Every row that matches the filters, for a spreadsheet rather than a page. */
+export async function exportAssets(query: AssetRegistryQuery): Promise<LguAsset[]> {
+  const and = assetFilter(query);
+  const json = (await directusGet(
+    "/items/lgu_asset?filter=" + encodeURIComponent(JSON.stringify({ _and: and })) +
+      "&sort=property_no&limit=-1"
+  )) as { data: Record<string, unknown>[] };
+  return (json.data ?? []).map(mapAsset);
+}
+
+export async function listAssets(
+  query: AssetRegistryQuery
+): Promise<{ assets: LguAsset[]; total: number; statusCounts: RegistryStatusCounts }> {
+  const page = Math.max(1, Number(query.page ?? 1));
+  const pageSize = Math.min(100, Math.max(5, Number(query.pageSize ?? 10)));
+  const and = assetFilter(query);
 
   const sortKey = (query.sort && query.sort in ASSET_SORT_FIELDS ? query.sort : "property_no") as AssetSortKey;
   const sortParam = (query.dir === "desc" ? "-" : "") + ASSET_SORT_FIELDS[sortKey];

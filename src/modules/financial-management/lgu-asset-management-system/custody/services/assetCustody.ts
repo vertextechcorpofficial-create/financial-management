@@ -208,7 +208,7 @@ const SORTABLE: Record<CustodySortKey, string> = {
 
 export type CustodyFormFilter = "par" | "ics" | null;
 
-export async function fetchCustodyList(params: {
+interface CustodyQuery {
   q?: string;
   officeId?: number | null;
   onlyWithOfficer?: boolean;
@@ -218,7 +218,9 @@ export async function fetchCustodyList(params: {
   page?: number;
   sort?: string;
   dir?: string;
-}): Promise<CustodyResponse> {
+}
+
+function custodyFilter(params: CustodyQuery): Record<string, unknown>[] {
   const and: Record<string, unknown>[] = [
     { status: { _eq: "active" } },
     // a disposed asset has left the books and has no custodian to show here
@@ -245,7 +247,54 @@ export async function fetchCustodyList(params: {
   else if (params.officer) and.push({ accountable_officer_name: { _eq: params.officer } });
 
   if (params.prefix) and.push({ property_no: { _starts_with: params.prefix + "-" } });
+  return and;
+}
 
+/** Every row that matches the filters, with its document count and last movement. */
+export async function exportCustodyRows(params: CustodyQuery): Promise<{
+  rows: { asset: LguAsset; documents: number; lastMovement: string | null }[];
+  offices: LguOffice[];
+}> {
+  const filter = encodeURIComponent(JSON.stringify({ _and: custodyFilter(params) }));
+  const assetsJson = await get(
+    "/items/lgu_asset?filter=" + filter +
+    "&sort=property_no&limit=-1" +
+    "&fields=id,property_no,description,class_id,is_semi_expendable,cost,office_id,accountable_officer_name,condition_id,record_status,status,location,unit_of_measure"
+  );
+  const assets = ((assetsJson.data ?? []) as Record<string, unknown>[]).map(mapAsset);
+  const offices = await fetchOffices();
+  if (assets.length === 0) return { rows: [], offices };
+
+  const ids = assets.map((a) => a.id);
+  const idFilter = encodeURIComponent(JSON.stringify({ asset_id: { _in: ids } }));
+  const [documentsJson, movementsJson] = await Promise.all([
+    get("/items/lgu_asset_documents?filter=" + idFilter + "&aggregate[count]=id&groupBy[]=asset_id&limit=-1"),
+    get("/items/lgu_asset_movements?filter=" + idFilter + "&sort=-movement_date&fields=asset_id,movement_date&limit=-1"),
+  ]);
+
+  const docCount = new Map<number, number>();
+  for (const d of (documentsJson.data ?? []) as Record<string, unknown>[]) {
+    docCount.set(Number(d.asset_id), Number((d.count as Record<string, unknown> | undefined)?.id ?? 0));
+  }
+  const lastDate = new Map<number, string>();
+  for (const m of (movementsJson.data ?? []) as Record<string, unknown>[]) {
+    const id = Number(m.asset_id);
+    const date = (m.movement_date as string) ?? "";
+    if (!lastDate.has(id) && date) lastDate.set(id, date);
+  }
+
+  return {
+    rows: assets.map((asset) => ({
+      asset,
+      documents: docCount.get(asset.id) ?? 0,
+      lastMovement: lastDate.get(asset.id) ?? null,
+    })),
+    offices,
+  };
+}
+
+export async function fetchCustodyList(params: CustodyQuery): Promise<CustodyResponse> {
+  const and = custodyFilter(params);
   const page = Math.max(1, Number(params.page ?? 1));
   const filter = encodeURIComponent(JSON.stringify({ _and: and }));
 

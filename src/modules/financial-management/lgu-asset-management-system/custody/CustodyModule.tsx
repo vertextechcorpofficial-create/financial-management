@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { RefreshCw, Search, X } from "lucide-react";
+import { FileSpreadsheet, RefreshCw, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,6 +110,24 @@ export default function CustodyModule() {
         <div className="flex items-center gap-2">
           <Badge variant="secondary">{data.total} on record</Badge>
           <Badge variant="outline">{assigned} assigned this page</Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const out = new URLSearchParams();
+              if (params.q) out.set("q", params.q);
+              if (params.officeId) out.set("officeId", String(params.officeId));
+              if (params.onlyWithOfficer) out.set("onlyWithOfficer", "1");
+              if (params.form) out.set("form", params.form);
+              if (params.officer) out.set("officer", params.officer);
+              if (params.prefix) out.set("prefix", params.prefix);
+              window.location.href = "/api/fm/lgu-asset-management-system/custody/export?" + out;
+            }}
+            title="Download the rows currently filtered"
+          >
+            <FileSpreadsheet className="mr-1 h-3.5 w-3.5" />
+            Excel
+          </Button>
           <Button variant="outline" size="icon" onClick={() => void refresh()} aria-label="Refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>

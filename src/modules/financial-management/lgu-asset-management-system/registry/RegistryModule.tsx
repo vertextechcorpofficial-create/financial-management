@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Layers, Plus, RefreshCw, Search, X } from "lucide-react";
+import { FileSpreadsheet, Layers, Plus, RefreshCw, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -95,6 +95,21 @@ export default function RegistryModule() {
           </Badge>
           <Button variant="outline" size="icon" onClick={() => void refresh()} aria-label="Refresh">
             <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const params = new URLSearchParams();
+              if (query.q) params.set("q", query.q);
+              if (query.classId) params.set("classId", String(query.classId));
+              if (query.officeId) params.set("officeId", String(query.officeId));
+              params.set("recordStatus", query.recordStatus ?? "active");
+              window.location.href = "/api/fm/lgu-asset-management-system/registry/export?" + params;
+            }}
+            title="Download the rows currently filtered"
+          >
+            <FileSpreadsheet className="mr-2 h-4 w-4" />
+            Excel
           </Button>
           <Button variant="outline" onClick={() => setBulkOpen(true)}>
             <Layers className="mr-2 h-4 w-4" />
