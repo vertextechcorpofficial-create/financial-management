@@ -21,7 +21,9 @@ import {
   readRequestDocuments, recordLoanBatchEvent, type StoredLoanDocument,
 } from "./loan-requests";
 import { LoanRequestError, parseInput, positiveId } from "./request-input";
-import { handoffStatus, readSuccessorHandoff } from "./payroll-handoff-store";
+import { handoffStatus, readPayrollHandoff, readSuccessorHandoff } from "./payroll-handoff-store";
+import { nextPeriodCommand } from "./period-commands";
+import { readMonthReceipts } from "./payroll-month-store";
 import { activeEmployee } from "./request-assessment";
 
 type Enrollment = Awaited<ReturnType<typeof readStagedEnrollment>>;
@@ -91,7 +93,9 @@ export async function getEnrollmentVerification(id: number, actor: AgencyActor):
     record: { ...record, enrollment: row.enrollment },
     canDecide: row.status === "ENROLLED" && canReview,
     canActivate: row.status === "VERIFIED" && canReview,
-    canManageHandoff: Boolean(record.payrollHandoff && record.payrollHandoff.state !== "ACCEPTED" && canReview),
+    canManageHandoff: Boolean(record.payrollHandoff && !["ACCEPTED", "CANCELLED"].includes(record.payrollHandoff.state) && canReview),
+    canReturnRenewal: canReview && row.status === "ACTIVE" && Boolean(record.payrollHandoff?.payload.stop) &&
+      record.payrollHandoff?.state === "QUEUED" && record.payrollHandoff.fileExchange,
     checks: validation?.checks ?? [], payrollWarnings: validation?.warnings ?? row.enrollment.payrollWarnings ?? [],
   };
 }
@@ -154,6 +158,24 @@ export async function decideEnrollmentVerification(id: number, body: unknown, ke
   const command = loanCommand(key, { operation: "enrollment-verification", ...input }, actor, id);
   async function decide() {
     const row = await readStagedEnrollment(id);
+    if (input.decision === "RETURN" && row.status === "ACTIVE" && row.enrollment.priorLoanId) {
+      if (row.revision !== input.expectedRevision) throw stale();
+      if (isEnrollmentPreparer(row.enrollment, actor.actorId)) throw preparer();
+      const month = await readOpenMonth();
+      if (!month) throw new LoanRequestError(503, "Set the Government Loans open month before returning a renewal.");
+      const period = await nextPeriodCommand(month);
+      const [handoff, receipts] = await Promise.all([readPayrollHandoff(id), readMonthReceipts(month)]);
+      if (!handoff?.payload.stop || handoff.state !== "QUEUED" || !handoff.delivery.fileExchange ||
+        handoff.delivery.lastExportedAt || handoff.delivery.acknowledgements.length ||
+        row.enrollment.firstDeductionMonth < month || (row.enrollment.firstDeductionMonth === month && receipts.length)) {
+        throw new LoanRequestError(409, "The renewal can only be returned before Payroll delivery and before its effective receipt is confirmed.");
+      }
+      if (await readOpenMonth() !== month) throw stale();
+      return commitRequestRevision(command, "ENROLLMENT_RETURNED", row, {
+        status: "RETURNED", enrollment: { ...row.enrollment, returnReason: input.reason },
+        payroll_handoffs: { update: [{ id: handoff.id, prior_payroll_loan_id: null, state: "CANCELLED", updated_at: new Date().toISOString() }] },
+      }, { status: row.status }, { status: "RETURNED", reason: input.reason, handoffId: handoff.id }, undefined, period);
+    }
     assertCanDecide(row, input.expectedRevision, actor);
     if (input.decision === "VERIFY") return verifyEnrollment(row, command);
     const enrollment = { ...row.enrollment, returnReason: input.reason };

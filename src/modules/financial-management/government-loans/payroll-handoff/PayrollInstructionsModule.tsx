@@ -10,6 +10,7 @@ import { deductionMonthLabel } from "../enrollment/rules";
 import type { Page } from "../requests/types";
 import { payrollAcknowledgementTemplate } from "./file-exchange";
 import { PayrollInstructionDetails } from "./PayrollInstructionDetails";
+import { PayrollResults } from "./PayrollResults";
 import { handoffStatusLabels, type PayrollInstructionRow } from "./types";
 
 export function PayrollInstructionsModule() {
@@ -40,6 +41,8 @@ export function PayrollInstructionsModule() {
   }, [query, key]);
 
   return <div className="space-y-4">
+    <PayrollResults />
+    <h2 className="text-lg font-semibold">Outbound instructions</h2>
     <div className="flex flex-wrap gap-2">
       <Input className="max-w-sm" value={search} maxLength={120} placeholder="Employee, loan, or agency reference"
         aria-label="Search Payroll instructions" onChange={event => { setSearch(event.target.value); setPage(1); }} />

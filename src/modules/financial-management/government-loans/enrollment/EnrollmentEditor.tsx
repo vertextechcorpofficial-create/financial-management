@@ -21,8 +21,9 @@ function Field({ label, error, hint, children }: { label: string; error?: string
   </label>;
 }
 
-export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload, refreshMonth, onSaved }: {
+export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload, refreshMonth, onSaved, transferEmployee }: {
   record?: EnrollmentDetail;
+  transferEmployee?: EmployeeChoice;
   agencies: AgencyChoice[];
   openMonth: string | null;
   onBack: () => void;
@@ -33,10 +34,10 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
   const filed = record?.request.form;
   const saved = record?.enrollment;
   const correcting = record?.status === "RETURNED";
-  const [employee, setEmployee] = useState<EmployeeChoice | null>(null);
+  const [employee, setEmployee] = useState<EmployeeChoice | null>(transferEmployee ?? null);
   const [selectedAgency, setSelectedAgency] = useState("");
   const [program, setProgram] = useState("");
-  const [transfer, setTransfer] = useState(false);
+  const [transfer, setTransfer] = useState(!!transferEmployee);
   const [fields, setFields] = useState({
     agencyReference: saved?.agencyReference ?? filed?.agencyReference ?? "",
     originalPrincipal: saved?.originalPrincipal ?? "", monthlyAmortization: saved?.monthlyAmortization ?? "",
