@@ -32,7 +32,9 @@ const actions = ["LOAN_TERMS_CHANGED", "LOAN_REFUND_RECORDED", "LOAN_TERMS_CHANG
 const after = z.object({
   instructionId: z.uuid(), recordedMonth: payrollMonth, remarks: z.string(),
   loanChange: z.object({ kind: z.enum(Object.keys(changeLabels) as [keyof typeof changeLabels, ...(keyof typeof changeLabels)[]]),
-    month: payrollMonth, amount: payrollMoney.optional(), throughMonth: payrollMonth.optional(), reference: z.string().optional() }).optional(),
+    month: payrollMonth, amount: payrollMoney.optional(), throughMonth: payrollMonth.optional(), reference: z.string().optional(),
+    previousAmount: payrollMoney.optional(), separationDate: z.iso.date().optional(), balance: payrollMoney.optional(),
+    statementId: z.uuid().optional() }).optional(),
   reversedRevision: positiveId.optional(),
 });
 const historyRow = z.object({ request_id: positiveId, action: z.enum(actions), revision: positiveId,
@@ -69,12 +71,12 @@ export async function readOpenLoanMonth() {
   return month;
 }
 
-const loadHistory = (id: number) => readPayrollPages(GOVERNMENT_LOAN_REQUEST_HISTORY, historyRow,
+export const readLoanChangeHistory = (id: number) => readPayrollPages(GOVERNMENT_LOAN_REQUEST_HISTORY, historyRow,
   Object.keys(historyRow.shape).join(","), { request_id: { _eq: id }, action: { _in: actions } }, "-revision,id");
 
 export async function getLoanChanges(id: number) {
   const [detail, history, instructions] = await Promise.all([
-    getRegisterLoan(id, new URLSearchParams()), loadHistory(id), readChangeInstructions({ request_id: { _eq: id } }),
+    getRegisterLoan(id, new URLSearchParams()), readLoanChangeHistory(id), readChangeInstructions({ request_id: { _eq: id } }),
   ]);
   const reversed = new Set(history.map(event => event.after_values.reversedRevision));
   const settled = detail.loan.status === "SEPARATED" ? (await readLoanSchedule(id, detail.openMonth)).history.find(result => result.status === "X") : undefined;
@@ -93,7 +95,7 @@ export async function recordLoanChange(id: number, body: unknown, key: string | 
   const month = await readOpenLoanMonth();
   const guard = await nextPeriodCommand(month);
   const [selected, history, receipts, instructions] = await Promise.all([
-    readLoanSchedule(id, month), loadHistory(id), readMonthReceipts(month), readChangeInstructions({ request_id: { _eq: id } }),
+    readLoanSchedule(id, month), readLoanChangeHistory(id), readMonthReceipts(month), readChangeInstructions({ request_id: { _eq: id } }),
   ]);
   if (selected.row.revision !== data.expectedRevision) throw new LoanRequestError(409, "The loan changed. Reload and review it.");
   const today = todayManila();

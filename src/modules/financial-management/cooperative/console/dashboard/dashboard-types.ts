@@ -31,10 +31,17 @@ export type DashboardWorkItem = {
   href?: string;
 };
 
-export type DashboardLinks = { approvals?: string; aging?: string; journal?: string };
+export type DashboardLinks = {
+  approvals?: string;
+  aging?: string;
+  journal?: string;
+  members?: string;
+  loans?: string;
+};
 
 export type DashboardSummary = {
   asOf: string;
+  nextCutoff: string;
   months: DashboardMonth[];
   members: DashboardSection<{ active: number; applying: number; notJoined: number }>;
   savings: DashboardSection<{ total: string; lastMonthChange: string; balances: string[] }>;

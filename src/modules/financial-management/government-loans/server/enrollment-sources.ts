@@ -35,7 +35,7 @@ function valueGroups<T extends string | number>(values: T[]) {
   return result;
 }
 
-async function readGroups<T, K extends string | number>(collection: GovernmentLoansCollection, schema: z.ZodObject<z.ZodRawShape>,
+export async function readGroups<T, K extends string | number>(collection: GovernmentLoansCollection, schema: z.ZodObject<z.ZodRawShape>,
   keys: K[], filter: (group: K[]) => object, sort: string) {
   const found = new Map<unknown, T>();
   const fields = Object.keys(schema.shape).join(",");

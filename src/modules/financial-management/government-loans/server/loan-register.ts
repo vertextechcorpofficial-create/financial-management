@@ -94,6 +94,7 @@ async function schedules(rows: Enrolled[], month: string) {
     };
     return {
       row, schedule, history: deductions.get(row.id) ?? [],
+      receipts,
       coveredThrough: payrollCoveredThrough(receipts, schedule.firstDeductionMonth, month),
       reference: row.requested_at ? referenceFor(row.id) : "GL-" + String(row.id).padStart(6, "0"),
       employee: row.employee_name ?? "Employee " + row.employee_user_id,
@@ -113,6 +114,16 @@ export async function readMonthlyLoanSchedules(month: string, employeeId?: numbe
     if (rows.length < batchSize) return result;
     beforeId = rows[rows.length - 1].id;
   }
+}
+
+export async function readBillingLoanSchedules(month: string, agencyId: number, ids: number[]) {
+  const result: Awaited<ReturnType<typeof schedules>> = [];
+  for (let start = 0; start < ids.length; start += batchSize) {
+    const group = ids.slice(start, start + batchSize);
+    const rows = await readEnrolled({ agency_id: { _eq: agencyId }, id: { _in: group } }, group.length);
+    if (rows.length) result.push(...await schedules(rows, month));
+  }
+  return result;
 }
 
 export async function readLoanSchedule(id: number, month: string, owner?: number) {

@@ -9,7 +9,7 @@ export const paidColumn = 7;
 
 type CsvRow = { rowNumber: number; cells: string[] };
 
-export function readEnrollmentCsv(text: string) {
+export function readEnrollmentCsv(text: string, maxRows = enrollmentCsvMaxRows) {
   const rows: CsvRow[] = [];
   let cells: string[] = [];
   let value = "";
@@ -27,7 +27,7 @@ export function readEnrollmentCsv(text: string) {
   const endRow = () => {
     endCell();
     if (cells.some(cell => cell.trim())) rows.push({ rowNumber, cells });
-    if (rows.length > enrollmentCsvMaxRows + 1) throw new Error("Choose a CSV with up to 250 loan rows.");
+    if (rows.length > maxRows + 1) throw new Error("Choose a CSV with up to " + maxRows + " loan rows.");
     cells = [];
   };
   for (let i = text.charCodeAt(0) === 0xfeff ? 1 : 0; i < text.length; i++) {

@@ -52,6 +52,12 @@ export function readMonthReceipts(month: string) {
     { month: { _eq: month } }, "-revision,id");
 }
 
+export async function readCurrentPayrollReceipt(month: string) {
+  const [receipt] = await readEnrollmentRows(GOVERNMENT_LOAN_PAYROLL_RECEIPTS, receiptRow, Object.keys(receiptRow.shape).join(","),
+    { month: { _eq: month } }, 1, "-revision,id");
+  return receipt ?? null;
+}
+
 export async function readReceiptByCommand(key: string) {
   const [receipt] = await readEnrollmentRows(GOVERNMENT_LOAN_PAYROLL_RECEIPTS, receiptRow, Object.keys(receiptRow.shape).join(","),
     { command_key: { _eq: key } }, 1);
@@ -75,15 +81,24 @@ export async function hasLaterReceipt(month: string) {
 
 export async function readPayrollResults(filter: object): Promise<(MonthlyResult & { receiptId: string })[]> {
   const rows = await readPayrollPages(GOVERNMENT_LOAN_PAYROLL_RESULTS, resultRow, Object.keys(resultRow.shape).join(","), filter, "id");
-  return rows.map(row => ({
+  return rows.map(payrollResult);
+}
+
+export async function readPayrollResultPage(filter: object, limit: number, offset: number) {
+  return (await readEnrollmentRows(GOVERNMENT_LOAN_PAYROLL_RESULTS, resultRow, Object.keys(resultRow.shape).join(","),
+    filter, limit, "id", offset)).map(payrollResult);
+}
+
+function payrollResult(row: z.output<typeof resultRow>): MonthlyResult & { receiptId: string } {
+  return {
     receiptId: row.receipt_id, loanId: row.request_id, agencyId: row.agency_id, employeeId: row.employee_id,
     payrollLoanId: row.payroll_loan_id, month: row.month, status: row.status, amount: row.amount, expected: row.expected,
     evidence: row.evidence,
-  }));
+  };
 }
 
 export async function readLatestLoanPayroll(loanIds: number[], receipts: ReadonlyMap<string, PayrollReceipt>) {
-  const result = new Map<number, MonthlyResult[]>();
+  const result = new Map<number, Awaited<ReturnType<typeof readPayrollResults>>>();
   if (!loanIds.length || !receipts.size) return result;
   const months = [...receipts.keys()].sort();
   const rows = await readPayrollResults({
