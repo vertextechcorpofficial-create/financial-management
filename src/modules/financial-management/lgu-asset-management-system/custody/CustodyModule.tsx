@@ -6,6 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { CustodyRow, CustodyTransferInput } from "../types";
+import type { CustodySortKey } from "./services/assetCustody";
+
+const SORT_LABELS: Record<CustodySortKey, string> = {
+  property_no: "Property No.",
+  is_semi_expendable: "Form",
+  accountable_officer_name: "Accountable officer",
+};
 import { SearchableSelect } from "./components/SearchableSelect";
 import { CustodyActionDialog, type CustodyMode } from "./components/CustodyActionDialog";
 import { CustodyTable } from "./components/CustodyTable";
@@ -107,11 +114,37 @@ export default function CustodyModule() {
         </div>
       ) : null}
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Sorted by {SORT_LABELS[(params.sort ?? "property_no") as CustodySortKey] ?? "Property No."}
+          {", "}
+          {params.dir === "desc" ? "descending" : "ascending"}
+        </p>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => patchParams({ sort: "property_no", dir: "asc", page: 1 })}
+          disabled={(params.sort ?? "property_no") === "property_no" && (params.dir ?? "asc") === "asc"}
+        >
+          Reset sort
+        </Button>
+      </div>
+
       <div className="rounded-lg border">
         <CustodyTable
           rows={data.rows}
           offices={data.offices}
           loading={loading}
+          sort={params.sort ?? "property_no"}
+          dir={params.dir ?? "asc"}
+          onSort={(key) => {
+            const sameKey = (params.sort ?? "property_no") === key;
+            patchParams({
+              sort: key,
+              dir: sameKey && (params.dir ?? "asc") === "asc" ? "desc" : "asc",
+              page: 1,
+            });
+          }}
           onIssue={(r) => start("issue", r)}
           onTransfer={(r) => start("transfer", r)}
           onReturn={(r) => start("return", r)}

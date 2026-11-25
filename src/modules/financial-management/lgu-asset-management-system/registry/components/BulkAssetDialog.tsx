@@ -242,7 +242,7 @@ export function BulkAssetDialog({ open, lookups, busy, onClose, onSubmit }: Bulk
           ) : null}
         </div>
 
-        <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background px-6 py-4">
+        <DialogFooter className="sticky bottom-0 z-10 -mx-6 border-t bg-background px-6 py-4">
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>

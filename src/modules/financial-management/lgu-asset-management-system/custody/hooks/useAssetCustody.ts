@@ -23,6 +23,8 @@ export function useAssetCustody(initial?: { q?: string; officeId?: number | null
     officeId: null as number | null,
     onlyWithOfficer: false,
     page: 1,
+    sort: "property_no",
+    dir: "asc",
     ...initial,
   });
   const [data, setData] = React.useState<CustodyResponse>(EMPTY);

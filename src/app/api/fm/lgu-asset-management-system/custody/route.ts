@@ -24,10 +24,14 @@ export async function GET(req: Request) {
     const q = searchParams.get("q") ?? undefined;
     const officeId = searchParams.get("officeId");
     const onlyWithOfficer = searchParams.get("onlyWithOfficer") === "1";
+    const sort = searchParams.get("sort") ?? undefined;
+    const dir = searchParams.get("dir") ?? undefined;
     const data = await fetchCustodyList({
       q,
       officeId: officeId ? Number(officeId) : null,
       onlyWithOfficer,
+      sort,
+      dir,
     });
     return NextResponse.json(data);
   } catch (err) {

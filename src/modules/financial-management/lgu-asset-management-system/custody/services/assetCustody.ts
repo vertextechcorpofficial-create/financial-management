@@ -180,11 +180,21 @@ async function fetchOfficerNames(): Promise<string[]> {
 
 const CUSTODY_PAGE_SIZE = 50;
 
+export type CustodySortKey = "property_no" | "is_semi_expendable" | "accountable_officer_name";
+
+const SORTABLE: Record<CustodySortKey, string> = {
+  property_no: "property_no",
+  is_semi_expendable: "is_semi_expendable",
+  accountable_officer_name: "accountable_officer_name",
+};
+
 export async function fetchCustodyList(params: {
   q?: string;
   officeId?: number | null;
   onlyWithOfficer?: boolean;
   page?: number;
+  sort?: string;
+  dir?: string;
 }): Promise<CustodyResponse> {
   const and: Record<string, unknown>[] = [{ status: { _eq: "active" } }];
   if (params.q && params.q.trim()) {
@@ -204,9 +214,13 @@ export async function fetchCustodyList(params: {
   const filter = encodeURIComponent(JSON.stringify({ _and: and }));
 
   // one page of assets, nothing else
+  const sortKey = (params.sort && (params.sort in SORTABLE) ? params.sort : "property_no") as CustodySortKey;
+  const sortDir = params.dir === "desc" ? "-" : "";
+  const sortParam = sortDir + SORTABLE[sortKey];
+
   const assetsJson = await get(
     "/items/lgu_asset?filter=" + filter +
-    "&sort=property_no&limit=" + CUSTODY_PAGE_SIZE +
+    "&sort=" + sortParam + ",property_no&limit=" + CUSTODY_PAGE_SIZE +
     "&offset=" + (page - 1) * CUSTODY_PAGE_SIZE +
     "&meta=filter_count" +
     "&fields=id,property_no,description,class_id,is_semi_expendable,cost,office_id,accountable_officer_name,condition_id,record_status,status,location,unit_of_measure"

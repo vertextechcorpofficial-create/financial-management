@@ -207,7 +207,7 @@ export default function DisposalModule() {
             ) : null}
           </div>
 
-          <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background px-6 py-4">
+          <DialogFooter className="sticky bottom-0 z-10 -mx-6 border-t bg-background px-6 py-4">
             <Button variant="outline" onClick={() => setTarget(null)} disabled={busy}>
               Cancel
             </Button>
