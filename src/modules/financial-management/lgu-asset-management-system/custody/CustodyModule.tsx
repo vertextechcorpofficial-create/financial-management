@@ -245,7 +245,14 @@ export default function CustodyModule() {
         onReturn={doReturn}
       />
 
-      <HistoryDialog history={history} offices={data.offices} onClose={closeHistory} />
+      <HistoryDialog
+        history={history}
+        offices={data.offices}
+        onClose={closeHistory}
+        onUploaded={() => {
+          if (history) void openHistory(history.asset.id);
+        }}
+      />
     </div>
   );
 }

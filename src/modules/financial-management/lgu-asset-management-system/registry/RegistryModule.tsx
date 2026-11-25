@@ -5,7 +5,8 @@ import { Layers, Plus, RefreshCw, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { BulkAssetInput, LguAsset, LguAssetInput } from "../types";
+import type { AssetHistory, BulkAssetInput, LguAsset, LguAssetInput } from "../types";
+import { HistoryDialog } from "../custody/components/HistoryDialog";
 import { RECORD_STATUS_LABELS } from "../types";
 import { AssetFormDialog } from "./components/AssetFormDialog";
 import { BulkAssetDialog } from "./components/BulkAssetDialog";
@@ -25,9 +26,17 @@ export default function RegistryModule() {
   const { query, patchQuery, data, loading, error, busy, refresh, create, createBulk, update } = useAssetRegistry();
   const hasActiveFilters =
     Boolean(query.q) || Boolean(query.classId) || Boolean(query.officeId) || (query.recordStatus ?? "active") !== "active";
+  const [history, setHistory] = React.useState<AssetHistory | null>(null);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<LguAsset | null>(null);
+
+  // a disposed asset leaves custody, so its papers have to stay reachable from here
+  async function openHistory(asset: LguAsset) {
+    const res = await fetch("/api/fm/lgu-asset-management-system/custody/history?assetId=" + asset.id);
+    const json = (await res.json().catch(() => null)) as AssetHistory | { message?: string } | null;
+    if (res.ok && json && "asset" in json) setHistory(json);
+  }
 
   const classOptions = React.useMemo(
     () => data.lookups.classes.map((c) => ({ label: c.name, value: String(c.id) })),
@@ -164,6 +173,7 @@ export default function RegistryModule() {
             patchQuery({ sort: key, dir: sameKey && (query.dir ?? "asc") === "asc" ? "desc" : "asc", page: 1 });
           }}
           onEdit={openEdit}
+          onHistory={(asset) => void openHistory(asset)}
           onRetire={() => undefined}
         />
       </div>
@@ -209,6 +219,15 @@ export default function RegistryModule() {
         initial={editing}
         busy={busy}
         onSubmit={handleSubmit}
+      />
+
+      <HistoryDialog
+        history={history}
+        offices={data.lookups.offices}
+        onClose={() => setHistory(null)}
+        onUploaded={() => {
+          if (history) void openHistory(history.asset);
+        }}
       />
     </div>
   );

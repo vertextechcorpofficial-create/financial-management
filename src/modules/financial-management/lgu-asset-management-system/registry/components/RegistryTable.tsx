@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, History, Pencil, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +23,7 @@ interface RegistryTableProps {
   dir: string;
   onSort: (key: AssetSortKey) => void;
   onEdit: (asset: LguAsset) => void;
+  onHistory?: (asset: LguAsset) => void;
   onRetire: (asset: LguAsset) => void;
 }
 
@@ -66,7 +67,7 @@ function peso(value: number | null): string {
   return "PHP " + value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function RegistryTable({ assets, lookups, loading, sort, dir, onSort, onEdit, onRetire }: RegistryTableProps) {
+export function RegistryTable({ assets, lookups, loading, sort, dir, onSort, onEdit, onHistory, onRetire }: RegistryTableProps) {
   const className = React.useMemo(() => {
     const map = new Map<number, string>();
     for (const c of lookups.classes) map.set(c.id, c.name);
@@ -142,6 +143,17 @@ export function RegistryTable({ assets, lookups, loading, sort, dir, onSort, onE
             </TableCell>
             <TableCell className="text-right">
               <div className="flex justify-end gap-1">
+                {onHistory ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onHistory(asset)}
+                    aria-label="Papers and movements"
+                    title="Documents, movements and scans for this asset"
+                  >
+                    <History className="h-4 w-4" />
+                  </Button>
+                ) : null}
                 <Button variant="ghost" size="icon" onClick={() => onEdit(asset)} aria-label="Edit">
                   <Pencil className="h-4 w-4" />
                 </Button>

@@ -264,6 +264,8 @@ export interface LguAssetDocument {
   issued_to: string | null;
   issued_to_office_id: number | null;
   remarks: string | null;
+  /** Directus file id of the signed paper, when one has been attached. */
+  attachment?: string | null;
   status: string;
 }
 

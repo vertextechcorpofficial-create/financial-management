@@ -127,6 +127,7 @@ function mapDocument(row: Record<string, unknown>): LguAssetDocument {
     issued_to: (row.issued_to as string) ?? null,
     issued_to_office_id: num(row.issued_to_office_id),
     remarks: (row.remarks as string) ?? null,
+    attachment: (row.attachment as string) ?? null,
     status: text(row.status) || "active",
   };
 }
@@ -313,6 +314,50 @@ export async function fetchHistory(assetId: number): Promise<AssetHistory> {
     documents: ((docJson.data ?? []) as Record<string, unknown>[]).map(mapDocument),
     movements: ((movJson.data ?? []) as Record<string, unknown>[]).map(mapMovement),
   };
+}
+
+/** Uploads the signed paper and points the document at it. Returns the stored file id. */
+export async function attachDocumentScan(documentId: number, file: File): Promise<{ fileId: string }> {
+  const doc = await get("/items/lgu_asset_documents/" + documentId);
+  if (!doc.data) throw new Error("Document " + documentId + " not found");
+
+  const form = new FormData();
+  form.append("file", file, file.name || "scan");
+  const upload = await fetch(url("/files"), {
+    method: "POST",
+    headers: { Authorization: "Bearer " + (TOKEN ?? "") },
+    body: form,
+  });
+  const uploaded = (await upload.json().catch(() => null)) as { data?: { id?: string }; errors?: { message?: string }[] } | null;
+  if (!upload.ok || !uploaded?.data?.id) {
+    throw new Error(uploaded?.errors?.[0]?.message ?? "The file could not be uploaded");
+  }
+
+  const fileId = uploaded.data.id;
+  const patchRes = await fetch(url("/items/lgu_asset_documents/" + documentId), {
+    method: "PATCH",
+    headers: auth(),
+    body: JSON.stringify({ attachment: fileId }),
+  });
+  if (!patchRes.ok) throw new Error("The scan uploaded but the document could not be updated");
+
+  return { fileId };
+}
+
+/** Streams the stored scan back, so the browser never sees the Directus token. */
+export async function readDocumentScan(fileId: string): Promise<Response> {
+  const res = await fetch(url("/assets/" + encodeURIComponent(fileId)), {
+    headers: { Authorization: "Bearer " + (TOKEN ?? "") },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("That scan is not available");
+  return new Response(res.body, {
+    status: 200,
+    headers: {
+      "Content-Type": res.headers.get("content-type") ?? "application/octet-stream",
+      "Cache-Control": "private, max-age=60",
+    },
+  });
 }
 
 async function createDocument(input: {
