@@ -1,9 +1,11 @@
--- MySQL 8.0.21+. Apply once, after normalized-storage.mysql.sql, with writers paused.
+-- MySQL 8.0.21+. Run this whole file in DBeaver with Execute SQL Script (Alt+X),
+-- not Execute Statement (Ctrl+Enter). Apply after normalized-storage.mysql.sql,
+-- with ledger writers paused. Existing compatible tables are left in place.
 -- Directus database connection: SELECT settings; SELECT/INSERT/UPDATE commands.
 -- Neither table should expose ordinary user access through /items, including
 -- READ: command inputs can contain financial and personal information. Use the
 -- authenticated, actor-scoped endpoint for status instead.
-CREATE TABLE cgl_endpoint_settings (
+CREATE TABLE IF NOT EXISTS cgl_endpoint_settings (
   id TINYINT UNSIGNED PRIMARY KEY CHECK (id = 1),
   service_user CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   auth_me_url VARCHAR(2048) NOT NULL,
@@ -18,7 +20,7 @@ CREATE TABLE cgl_endpoint_settings (
 -- VALUES (1,'DIRECTUS-SERVICE-USER-UUID','https://YOUR-EXISTING-AUTH-SERVER/auth/me',
 --   JSON_OBJECT('101',JSON_OBJECT('transactions','approve','inflows-investing','prepare')),TRUE); -- template only
 
-CREATE TABLE cgl_ledger_commands (
+CREATE TABLE IF NOT EXISTS cgl_ledger_commands (
   actor BIGINT UNSIGNED NOT NULL,
   command_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -34,9 +36,11 @@ CREATE TABLE cgl_ledger_commands (
     (state IN ('completed','failed') AND result IS NOT NULL AND completed_at IS NOT NULL))
 ) ENGINE=InnoDB;
 
-DELIMITER //
+DELIMITER $$
+DROP TRIGGER IF EXISTS cgl_commands_no_delete$$
 CREATE TRIGGER cgl_commands_no_delete BEFORE DELETE ON cgl_ledger_commands
-FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Command receipts cannot be deleted.'//
+FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Command receipts cannot be deleted.'$$
+DROP TRIGGER IF EXISTS cgl_commands_finish_only$$
 CREATE TRIGGER cgl_commands_finish_only BEFORE UPDATE ON cgl_ledger_commands
 FOR EACH ROW
 BEGIN
@@ -46,7 +50,7 @@ BEGIN
      NOT (NEW.request_data <=> OLD.request_data) OR NOT (NEW.created_at <=> OLD.created_at) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Command receipts are immutable after completion.';
   END IF;
-END//
+END$$
 DELIMITER ;
                 
                 
