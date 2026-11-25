@@ -21,6 +21,7 @@ export type VerificationReview = {
   canDecide: boolean;
   canActivate: boolean;
   canManageHandoff: boolean;
+  canReturnRenewal: boolean;
   checks: { label: string; reason: string | null }[];
   payrollWarnings: string[];
 };

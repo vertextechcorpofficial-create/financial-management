@@ -91,6 +91,11 @@ export const requestDecisionLabels = {
   PAYROLL_ACKNOWLEDGEMENT_IMPORTED: "Payroll acknowledgement imported",
   PAYROLL_HANDOFF_UPDATED: "Payroll handoff updated",
   PAYROLL_HANDOFF_ACCEPTED: "Payroll handoff accepted",
+  AGENCY_BALANCE_RECORDED: "Agency balance recorded",
+  LOAN_TERMS_CHANGED: "Loan terms changed",
+  LOAN_REFUND_RECORDED: "Agency refund recorded",
+  LOAN_CHANGE_PAYROLL_UPDATED: "Payroll instruction updated",
+  LOAN_TERMS_CHANGE_REVERSED: "Loan change reversed",
   REQUEST_AGENCY_DECLINED: "Agency did not approve",
 } as const;
 export type RequestDecision = {

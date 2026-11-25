@@ -196,6 +196,7 @@ export async function importPayrollAcknowledgements(id: number, request: Request
   }
   if (row.revision !== upload.revision) throw stale();
   if (handoff.state === "ACCEPTED") throw new LoanRequestError(409, "This handoff already has confirmed Payroll receipts.");
+  if (handoff.state === "CANCELLED") throw new LoanRequestError(409, "The replacement enrollment was returned before Payroll delivery.");
   if (handoff.state === "QUEUED" && handoff.delivery.fileExchange) {
     throw new LoanRequestError(409, "Download the instruction CSV before importing a Payroll acknowledgement.");
   }

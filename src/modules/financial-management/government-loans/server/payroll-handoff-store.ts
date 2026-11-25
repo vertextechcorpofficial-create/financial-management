@@ -39,6 +39,25 @@ export async function readSuccessorHandoff(payrollLoanId: number) {
   return handoff ?? null;
 }
 
+type Successor = { enrollmentId: number; effectiveMonth: string; state: HandoffStatus };
+
+function successorView(handoff: StoredHandoff | null): Successor | null {
+  if (!handoff?.payload.stop || handoff.state === "CANCELLED" || (!handoff.delivery.fileExchange && handoff.state !== "ACCEPTED")) return null;
+  return { enrollmentId: handoff.request_id, effectiveMonth: handoff.payload.stop.effectiveMonth, state: handoff.state };
+}
+
+export async function readRegisterRenewals(payrollLoanIds: number[]): Promise<Map<number, Successor>> {
+  if (!payrollLoanIds.length) return new Map();
+  const handoffs = await readEnrollmentRows(GOVERNMENT_LOAN_PAYROLL_HANDOFFS, storedHandoff, handoffFields,
+    { prior_payroll_loan_id: { _in: payrollLoanIds } }, payrollLoanIds.length);
+  const renewals = new Map<number, Successor>();
+  for (const handoff of handoffs) {
+    const successor = successorView(handoff);
+    if (successor && handoff.payload.stop) renewals.set(handoff.payload.stop.payrollLoanId, successor);
+  }
+  return renewals;
+}
+
 export function hasPayrollLease(handoff: StoredHandoff, now = Date.now()) {
   return handoff.delivery.lease !== null && Date.parse(handoff.delivery.lease.expiresAt) > now;
 }
@@ -59,9 +78,7 @@ export async function enrollmentPayrollLinks(row: { id: number; status: string; 
   ]);
   return {
     payrollHandoff: handoff ? instructionDetails(handoff) : null,
-    successor: successor?.payload.stop && (successor.delivery.fileExchange || successor.state === "ACCEPTED") ? {
-      enrollmentId: successor.request_id, effectiveMonth: successor.payload.stop.effectiveMonth, state: successor.state,
-    } : null,
+    successor: successorView(successor),
   };
 }
 
