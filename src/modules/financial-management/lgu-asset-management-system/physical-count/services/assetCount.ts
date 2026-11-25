@@ -489,6 +489,28 @@ export async function resolveCountLine(input: ResolveLineInput): Promise<CountSe
     throw new Error("Only a line marked not found can be resolved");
   }
 
+  // found at another station: the asset exists, but not with its accountable officer
+  if (input.resolution === "station") {
+    const description = (input.stationDescription ?? "").trim();
+    if (!description) throw new Error("Say which station it was found at");
+    const cost = Number(input.stationCost ?? 0);
+    if (!Number.isFinite(cost) || cost < 0) throw new Error("The value at the station must be zero or more");
+
+    await patch("/items/lgu_asset_count_lines/" + line.id, {
+      found: true,
+      resolution: "station",
+      is_found_at_station: true,
+      station_description: description,
+      station_location: (input.stationLocation ?? "").trim() || null,
+      station_cost: cost,
+      approved_by: (input.approvedBy ?? "").trim() || null,
+      location_seen: input.locationSeen ?? line.location_seen,
+      remarks: input.remarks ?? line.remarks,
+    });
+    await recountSession(session.id);
+    return fetchCountSession(session.id);
+  }
+
   if (input.resolution === "missing") {
     await patch("/items/lgu_asset_count_lines/" + line.id, {
       resolution: "missing",
@@ -610,6 +632,14 @@ function lineRemark(row: CountLineRow, conditionName: string | undefined): strin
   if (conditionName) bits.push(conditionName);
   if (row.line.resolution === "missing") bits.push("missing");
   if (row.line.resolution === "moved") bits.push("found elsewhere");
+  if (row.line.resolution === "station") {
+    bits.push(
+      "found at " + (row.line.station_description ?? "another station") +
+      (row.line.station_location ? " (" + row.line.station_location + ")" : "") +
+      (row.line.station_cost ? ", value PHP " + row.line.station_cost.toFixed(2) : "") +
+      (row.line.approved_by ? ", approved by " + row.line.approved_by : "")
+    );
+  }
   if (row.line.location_seen) bits.push(row.line.location_seen);
   if (row.line.remarks) bits.push(row.line.remarks);
   return bits.join(", ");
@@ -635,8 +665,17 @@ export async function buildCountReport(id: number, form: "rpcppe" | "rpcsp"): Pr
   let moved = 0;
   let found = 0;
   let notCounted = 0;
+  let included = 0;
 
   for (const row of detail.lines) {
+    const asset = row.asset;
+    if (!asset) continue;
+    const semi = asset.is_semi_expendable;
+    // the report only covers the form it prints, so its figures must too
+    if (form === "rpcppe" && semi) continue;
+    if (form === "rpcsp" && !semi) continue;
+
+    included += 1;
     if (row.line.found === null) {
       notCounted += 1;
       continue;
@@ -644,12 +683,6 @@ export async function buildCountReport(id: number, form: "rpcppe" | "rpcsp"): Pr
     if (row.line.resolution === "missing") missing += 1;
     else if (row.line.resolution === "moved") moved += 1;
     else if (row.line.found) found += 1;
-
-    const asset = row.asset;
-    if (!asset) continue;
-    const semi = asset.is_semi_expendable;
-    if (form === "rpcppe" && semi) continue;
-    if (form === "rpcsp" && !semi) continue;
 
     const unitValue = asset.cost ?? 0;
     const onHandQty = row.line.found === true ? 1 : 0;
@@ -688,7 +721,7 @@ export async function buildCountReport(id: number, form: "rpcppe" | "rpcsp"): Pr
     session: detail.session,
     groups: Array.from(groups.values()).sort((a, b) => a.className.localeCompare(b.className)),
     summary: {
-      totalLines: detail.lines.length,
+      totalLines: included,
       found,
       missing,
       moved,

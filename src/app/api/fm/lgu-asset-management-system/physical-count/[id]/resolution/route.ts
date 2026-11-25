@@ -6,20 +6,24 @@ export const dynamic = "force-dynamic";
 
 interface Body {
   lineId: number;
-  resolution: "missing" | "moved";
+  resolution: "missing" | "moved" | "station";
   toOfficeId?: number | null;
   toOfficer?: string | null;
   locationSeen?: string | null;
   remarks?: string | null;
   encoder?: string | null;
+  stationDescription?: string | null;
+  stationLocation?: string | null;
+  stationCost?: number | null;
+  approvedBy?: string | null;
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
     const body = (await req.json()) as Body;
-    if (body.resolution !== "missing" && body.resolution !== "moved") {
-      return NextResponse.json({ message: "resolution must be missing or moved" }, { status: 400 });
+    if (body.resolution !== "missing" && body.resolution !== "moved" && body.resolution !== "station") {
+      return NextResponse.json({ message: "resolution must be missing, moved or station" }, { status: 400 });
     }
     if (!body.lineId) return NextResponse.json({ message: "lineId is required" }, { status: 400 });
     const detail = await resolveCountLine({ ...body, countId: Number(id) });

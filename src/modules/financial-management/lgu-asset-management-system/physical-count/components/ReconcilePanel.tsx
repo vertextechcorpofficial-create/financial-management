@@ -28,12 +28,27 @@ interface ReconcilePanelProps {
   offices: LguOffice[];
   busy: boolean;
   locked: boolean;
-  onResolve: (payload: { lineId: number; resolution: "missing" | "moved"; toOfficeId?: number | null; toOfficer?: string | null; locationSeen?: string | null; remarks?: string | null }) => Promise<void>;
+  onResolve: (payload: {
+    lineId: number;
+    resolution: "missing" | "moved" | "station";
+    toOfficeId?: number | null;
+    toOfficer?: string | null;
+    locationSeen?: string | null;
+    remarks?: string | null;
+    stationDescription?: string | null;
+    stationLocation?: string | null;
+    stationCost?: number | null;
+    approvedBy?: string | null;
+  }) => Promise<void>;
 }
 
 export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: ReconcilePanelProps) {
   const [target, setTarget] = React.useState<CountLineRow | null>(null);
-  const [mode, setMode] = React.useState<"missing" | "moved">("missing");
+  const [mode, setMode] = React.useState<"missing" | "moved" | "station">("missing");
+  const [stationDescription, setStationDescription] = React.useState("");
+  const [stationLocation, setStationLocation] = React.useState("");
+  const [stationCost, setStationCost] = React.useState("");
+  const [approvedBy, setApprovedBy] = React.useState("");
   const [toOfficeId, setToOfficeId] = React.useState("");
   const [toOfficer, setToOfficer] = React.useState("");
   const [locationSeen, setLocationSeen] = React.useState("");
@@ -41,16 +56,22 @@ export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: Recon
   const [error, setError] = React.useState<string | null>(null);
 
   const pending = rows.filter((row) => row.line.found === false && row.line.resolution === "pending");
-  const resolved = rows.filter((row) => row.line.found === false && row.line.resolution !== "pending");
+  const resolved = rows.filter(
+    (row) => row.line.resolution !== "pending" && (row.line.found === false || row.line.is_found_at_station)
+  );
   const officeOptions = offices.map((o) => ({ label: o.name, value: String(o.id) }));
 
-  function open(row: CountLineRow, nextMode: "missing" | "moved") {
+  function open(row: CountLineRow, nextMode: "missing" | "moved" | "station") {
     setTarget(row);
     setMode(nextMode);
     setToOfficeId("");
     setToOfficer(row.line.expected_officer ?? "");
     setLocationSeen("");
     setRemarks("");
+    setStationDescription("");
+    setStationLocation("");
+    setStationCost(row.asset?.cost ? String(row.asset.cost) : "");
+    setApprovedBy("");
     setError(null);
   }
 
@@ -58,6 +79,10 @@ export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: Recon
     if (!target) return;
     setError(null);
     if (mode === "moved" && !toOfficeId) return setError("Say which office it was actually found in");
+    if (mode === "station" && !stationDescription.trim()) return setError("Say which station it was found at");
+    if (mode === "station" && !(Number(stationCost) > 0)) {
+      return setError("Give the value of the property at that station");
+    }
     try {
       await onResolve({
         lineId: target.line.id,
@@ -66,6 +91,10 @@ export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: Recon
         toOfficer: toOfficer.trim() || null,
         locationSeen: locationSeen.trim() || null,
         remarks: remarks.trim() || null,
+        stationDescription: mode === "station" ? stationDescription.trim() : null,
+        stationLocation: mode === "station" ? stationLocation.trim() || null : null,
+        stationCost: mode === "station" ? Number(stationCost || 0) : null,
+        approvedBy: mode === "station" ? approvedBy.trim() || null : null,
       });
       setTarget(null);
     } catch (err) {
@@ -106,9 +135,12 @@ export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: Recon
                   <TableCell className="text-sm">{row.line.expected_officer ?? "unassigned"}</TableCell>
                   <TableCell className="text-sm">{row.line.location_seen ?? "-"}</TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <Button size="sm" variant="outline" disabled={busy || locked} onClick={() => open(row, "moved")}>
                         It exists elsewhere
+                      </Button>
+                      <Button size="sm" variant="secondary" disabled={busy || locked} onClick={() => open(row, "station")}>
+                        Found at another station
                       </Button>
                       <Button size="sm" variant="destructive" disabled={busy || locked} onClick={() => open(row, "missing")}>
                         Confirm missing
@@ -122,9 +154,14 @@ export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: Recon
         )}
       </div>
 
-      {resolved.length > 0 ? (
-        <div>
-          <h2 className="text-base font-semibold">Already decided</h2>
+      <div>
+        <h2 className="text-base font-semibold">Already decided</h2>
+        {resolved.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">
+            Nothing decided yet. A decision made here stays listed with where the asset was found.
+          </p>
+        ) : null}
+        {resolved.length > 0 ? (
           <div className="mt-2 rounded-lg border">
             <Table>
               <TableHeader>
@@ -138,27 +175,93 @@ export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: Recon
                 {resolved.map((row) => (
                   <TableRow key={row.line.id}>
                     <TableCell className="font-mono text-xs">{row.line.expected_property_no ?? row.asset?.property_no ?? "-"}</TableCell>
-                    <TableCell className="text-sm">{row.line.resolution === "missing" ? "Confirmed missing" : "Found elsewhere"}</TableCell>
-                    <TableCell className="text-sm">{row.line.remarks ?? "-"}</TableCell>
+                    <TableCell className="text-sm">
+                      {row.line.resolution === "missing"
+                        ? "Confirmed missing"
+                        : row.line.resolution === "station"
+                          ? "Found at " + (row.line.station_description ?? "another station")
+                          : "Found elsewhere"}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {row.line.resolution === "station"
+                        ? [
+                            row.line.station_location,
+                            row.line.station_cost ? "value PHP " + Number(row.line.station_cost).toLocaleString("en-PH", { minimumFractionDigits: 2 }) : null,
+                            row.line.approved_by ? "approved by " + row.line.approved_by : null,
+                            row.line.remarks,
+                          ]
+                            .filter(Boolean)
+                            .join(", ")
+                        : row.line.remarks ?? "-"}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       <Dialog open={Boolean(target)} onOpenChange={(next) => (!next ? setTarget(null) : undefined)}>
         <DialogContent className="flex flex-col gap-0 overflow-hidden p-0 max-h-[90vh] sm:max-w-xl">
           <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
-            <DialogTitle>{mode === "missing" ? "Confirm this asset as missing" : "Record where it actually is"}</DialogTitle>
+            <DialogTitle>
+              {mode === "missing"
+                ? "Confirm this asset as missing"
+                : mode === "station"
+                  ? "Record that it was found at another station"
+                  : "Record where it actually is"}
+            </DialogTitle>
             <DialogDescription>
               {target?.asset?.property_no ?? ""} {target?.asset?.description ?? ""}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-6 pb-2">
-            {mode === "moved" ? (
+            {mode === "station" ? (
+              <>
+                <div className="grid gap-2">
+                  <Label>Station where it was found</Label>
+                  <Input
+                    value={stationDescription}
+                    onChange={(e) => setStationDescription(e.target.value)}
+                    placeholder="For example, Barangay Matalava road project"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Exact location</Label>
+                  <Input
+                    value={stationLocation}
+                    onChange={(e) => setStationLocation(e.target.value)}
+                    placeholder="Site, room, or officer holding it there"
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label>Value at the station</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={stationCost}
+                      onChange={(e) => setStationCost(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Approved by</Label>
+                    <Input
+                      value={approvedBy}
+                      onChange={(e) => setApprovedBy(e.target.value)}
+                      placeholder="Officer who verified it there"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  COA Circular 2020-006. The asset counts as found and stops being a shortage for the accountable officer.
+                  The register is not moved here. Use Custody to transfer it to the officer who now holds it.
+                </p>
+              </>
+            ) : mode === "moved" ? (
               <>
                 <div className="grid gap-2">
                   <Label>Office where it was found</Label>
@@ -197,7 +300,13 @@ export function ReconcilePanel({ rows, offices, busy, locked, onResolve }: Recon
               Cancel
             </Button>
             <Button onClick={() => void submit()} disabled={busy}>
-              {busy ? "Saving..." : mode === "missing" ? "Confirm missing" : "Record transfer"}
+              {busy
+                ? "Saving..."
+                : mode === "missing"
+                  ? "Confirm missing"
+                  : mode === "station"
+                    ? "Record station"
+                    : "Record transfer"}
             </Button>
           </DialogFooter>
         </DialogContent>

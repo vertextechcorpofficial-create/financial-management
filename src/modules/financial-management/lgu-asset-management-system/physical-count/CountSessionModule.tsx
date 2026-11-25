@@ -29,7 +29,7 @@ import { ReconcilePanel } from "./components/ReconcilePanel";
 import { ReportPanel } from "./components/ReportPanel";
 import { useCountSession } from "./hooks/useCountSessions";
 
-type SheetFilter = "all" | "uncounted" | "found" | "notfound";
+type SheetFilter = "all" | "uncounted" | "found" | "notfound" | "station";
 type Tab = "sheet" | "reconcile" | "report";
 type PendingAction = "lock" | "reopen" | "submit" | null;
 
@@ -38,6 +38,7 @@ const FILTERS: { key: SheetFilter; label: string }[] = [
   { key: "uncounted", label: "Not yet counted" },
   { key: "found", label: "Found" },
   { key: "notfound", label: "Not found" },
+  { key: "station", label: "At station" },
 ];
 
 export default function CountSessionModule({ sessionId }: { sessionId: number }) {
@@ -53,6 +54,14 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
   const status = detail?.session.session_status ?? "draft";
   const locked = status === "locked" || status === "submitted";
 
+  // opening the Report tab should show the PPE report, not an empty frame
+  const autoReport = React.useRef(false);
+  React.useEffect(() => {
+    if (tab !== "report" || report || autoReport.current) return;
+    autoReport.current = true;
+    void loadReport("rpcppe");
+  }, [tab, report, loadReport]);
+
   const rows = React.useMemo(() => {
     const all = detail?.lines ?? [];
     const needle = q.trim().toLowerCase();
@@ -60,6 +69,7 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
       if (filter === "uncounted" && row.line.found !== null) return false;
       if (filter === "found" && row.line.found !== true) return false;
       if (filter === "notfound" && row.line.found !== false) return false;
+      if (filter === "station" && !row.line.is_found_at_station) return false;
       if (!needle) return true;
       const hay = [row.line.expected_property_no, row.line.expected_description, row.line.expected_officer]
         .filter(Boolean)
@@ -122,12 +132,10 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={locked ? "default" : "secondary"}>{COUNT_STATUS_LABELS[status]}</Badge>
           <Badge variant="outline">{stats?.counted ?? 0} of {stats?.total ?? 0} counted</Badge>
-          {status !== "submitted" ? (
-            stats?.readyToLock ? (
-              <Button size="sm" onClick={() => { setPending("lock"); setInput(""); }} disabled={busy}>
-                Lock session
-              </Button>
-            ) : null
+          {status !== "submitted" && status !== "locked" && stats?.readyToLock ? (
+            <Button size="sm" onClick={() => { setPending("lock"); setInput(""); }} disabled={busy}>
+              Lock session
+            </Button>
           ) : null}
           {status === "locked" ? (
             <>
@@ -233,16 +241,39 @@ export default function CountSessionModule({ sessionId }: { sessionId: number })
                         ) : (
                           <Badge variant="destructive">Not found</Badge>
                         )}
+                        {row.line.is_found_at_station ? (
+                          <Badge
+                            variant="outline"
+                            className="ml-2"
+                            title={row.line.station_description ?? "found at another station"}
+                          >
+                            at station
+                          </Badge>
+                        ) : null}
                         {row.line.resolution !== "pending" && !row.line.found ? (
                           <span className="ml-2 text-xs text-muted-foreground">{row.line.resolution}</span>
                         ) : null}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" aria-label="Found" disabled={busy || locked} onClick={() => void markRow(row, true)}>
+                        <div className="flex justify-end gap-1" title={locked ? "This session is locked. Reopen it to change a mark." : undefined}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Found"
+                            disabled={busy || locked}
+                            className={locked ? "cursor-not-allowed opacity-25" : undefined}
+                            onClick={() => void markRow(row, true)}
+                          >
                             <Check className="h-4 w-4 text-emerald-600" />
                           </Button>
-                          <Button variant="ghost" size="icon" aria-label="Not found" disabled={busy || locked} onClick={() => void markRow(row, false)}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Not found"
+                            disabled={busy || locked}
+                            className={locked ? "cursor-not-allowed opacity-25" : undefined}
+                            onClick={() => void markRow(row, false)}
+                          >
                             <X className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>

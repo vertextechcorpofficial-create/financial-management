@@ -345,7 +345,7 @@ export function custodyFormFor(asset: Pick<LguAsset, "is_semi_expendable">): Doc
 
 export type CountStatus = "draft" | "counting" | "locked" | "submitted";
 
-export type CountResolution = "pending" | "confirmed" | "moved" | "missing";
+export type CountResolution = "pending" | "confirmed" | "moved" | "missing" | "station";
 
 export interface LguCountSession {
   id: number;
@@ -457,6 +457,7 @@ export const RESOLUTION_LABELS: Record<CountResolution, string> = {
   confirmed: "Confirmed",
   moved: "Moved",
   missing: "Missing",
+  station: "Found at another station",
 };
 
 /** PC-YEAR-SEQ, the count session identity. */
@@ -509,12 +510,17 @@ export interface CountReport {
 export interface ResolveLineInput {
   countId: number;
   lineId: number;
-  resolution: "missing" | "moved";
+  resolution: "missing" | "moved" | "station";
   toOfficeId?: number | null;
   toOfficer?: string | null;
   locationSeen?: string | null;
   remarks?: string | null;
   encoder?: string | null;
+  /** COA Circular 2020-006: PPE found at another station. */
+  stationDescription?: string | null;
+  stationLocation?: string | null;
+  stationCost?: number | null;
+  approvedBy?: string | null;
 }
 
 /* ---------- disposal ---------- */

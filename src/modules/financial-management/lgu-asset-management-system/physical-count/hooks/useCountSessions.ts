@@ -98,7 +98,18 @@ export function useCountSession(id: number | null) {
   );
 
   const resolve = React.useCallback(
-    async (payload: { lineId: number; resolution: "missing" | "moved"; toOfficeId?: number | null; toOfficer?: string | null; locationSeen?: string | null; remarks?: string | null }) => {
+    async (payload: {
+      lineId: number;
+      resolution: "missing" | "moved" | "station";
+      toOfficeId?: number | null;
+      toOfficer?: string | null;
+      locationSeen?: string | null;
+      remarks?: string | null;
+      stationDescription?: string | null;
+      stationLocation?: string | null;
+      stationCost?: number | null;
+      approvedBy?: string | null;
+    }) => {
       if (!id) return;
       setBusy(true);
       setError(null);

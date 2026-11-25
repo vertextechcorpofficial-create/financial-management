@@ -49,7 +49,18 @@ export async function fetchCountSessionRequest(id: number): Promise<CountSession
 
 export async function resolveLineRequest(
   id: number,
-  body: { lineId: number; resolution: "missing" | "moved"; toOfficeId?: number | null; toOfficer?: string | null; locationSeen?: string | null; remarks?: string | null }
+  body: {
+    lineId: number;
+    resolution: "missing" | "moved" | "station";
+    toOfficeId?: number | null;
+    toOfficer?: string | null;
+    locationSeen?: string | null;
+    remarks?: string | null;
+    stationDescription?: string | null;
+    stationLocation?: string | null;
+    stationCost?: number | null;
+    approvedBy?: string | null;
+  }
 ): Promise<CountSessionDetail> {
   const res = await fetch(API + "/" + id + "/resolution", {
     method: "POST",
