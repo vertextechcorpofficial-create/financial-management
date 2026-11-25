@@ -322,3 +322,119 @@ export const MOVEMENT_LABELS: Record<MovementType, string> = {
 export function custodyFormFor(asset: Pick<LguAsset, "is_semi_expendable">): DocType {
   return asset.is_semi_expendable ? "ICS" : "PAR";
 }
+
+/* ---------- physical count ---------- */
+
+export type CountStatus = "draft" | "counting" | "locked" | "submitted";
+
+export type CountResolution = "pending" | "confirmed" | "moved" | "missing";
+
+export interface LguCountSession {
+  id: number;
+  count_no: string;
+  as_of_date: string | null;
+  office_id: number | null;
+  class_id: number | null;
+  session_status: CountStatus;
+  counted_by: string | null;
+  verified_by: string | null;
+  witnessed_by: string | null;
+  remarks: string | null;
+  status: string;
+}
+
+export interface LguCountLine {
+  id: number;
+  count_id: number;
+  asset_id: number | null;
+  expected_officer: string | null;
+  expected_office_id: number | null;
+  found: boolean | null;
+  condition_id: number | null;
+  location_seen: string | null;
+  resolution: CountResolution;
+  remarks: string | null;
+  counted_at: string | null;
+  counted_by: string | null;
+  is_found_at_station: boolean;
+  station_description: string | null;
+  station_cost: number | null;
+  station_location: string | null;
+  approved_by: string | null;
+  status: string;
+}
+
+export interface CountSessionSummary {
+  session: LguCountSession;
+  totalLines: number;
+  counted: number;
+  notFound: number;
+  pendingResolution: number;
+}
+
+export interface CountLookups {
+  offices: LguOffice[];
+  classes: LguAssetClass[];
+  conditions: LguCondition[];
+}
+
+export interface CountSessionsResponse {
+  sessions: CountSessionSummary[];
+  lookups: CountLookups;
+}
+
+export interface CountSessionInput {
+  as_of_date: string;
+  office_id?: number | null;
+  class_id?: number | null;
+  counted_by?: string | null;
+  verified_by?: string | null;
+  witnessed_by?: string | null;
+  remarks?: string | null;
+}
+
+export interface CountLineRow {
+  line: LguCountLine;
+  asset: LguAsset | null;
+}
+
+export interface CountStats {
+  total: number;
+  counted: number;
+  found: number;
+  notFound: number;
+  pendingResolution: number;
+  foundAtStation: number;
+  readyToLock: boolean;
+}
+
+export interface CountSessionDetail {
+  session: LguCountSession;
+  lines: CountLineRow[];
+  stats: CountStats;
+}
+
+export interface CountLinesResponse {
+  session: LguCountSession;
+  lines: CountLineRow[];
+  stats: CountStats;
+}
+
+export const COUNT_STATUS_LABELS: Record<CountStatus, string> = {
+  draft: "Draft",
+  counting: "Counting",
+  locked: "Locked",
+  submitted: "Submitted",
+};
+
+export const RESOLUTION_LABELS: Record<CountResolution, string> = {
+  pending: "Pending",
+  confirmed: "Confirmed",
+  moved: "Moved",
+  missing: "Missing",
+};
+
+/** PC-YEAR-SEQ, the count session identity. */
+export function countPrefix(year: number): string {
+  return "PC-" + year + "-";
+}
