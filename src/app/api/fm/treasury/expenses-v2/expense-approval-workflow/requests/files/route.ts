@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { AuthorityError } from "@/modules/financial-management/treasury/expenses-v2/expense-approval-workflow/domain/authorityErrors";
-import { attachmentProof, latestRequests, requestEvents, requireWorkflowAccess, responseHeaders } from "../../_lib/independent";
+import { assertWorkflowMutationOrigin, attachmentProof, latestRequests, requestEvents, requireWorkflowAccess, responseHeaders } from "../../_lib/independent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,9 +25,7 @@ async function boundedBody(body: ReadableStream<Uint8Array> | null, limit: numbe
 }
 export async function POST(request: NextRequest) {
   try {
-    // Multipart counterpart of the JSON command origin guard.
-    const origin = request.headers.get("origin");
-    if (!origin || origin !== new URL(request.url).origin || request.headers.get("sec-fetch-site") === "cross-site") throw new AuthorityError("INVALID_ORIGIN", "A same-origin upload is required.", 403);
+    assertWorkflowMutationOrigin(request);
     const actor = await requireWorkflowAccess(request);
     const contentType = request.headers.get("content-type") || "";
     if (!contentType.startsWith("multipart/form-data;")) throw new AuthorityError("INVALID_CONTENT_TYPE", "Upload a multipart file.", 415);

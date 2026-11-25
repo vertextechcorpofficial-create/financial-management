@@ -10,6 +10,34 @@ export const REQUEST_FIELDS = "id,case_id,revision,company_id,requester_id,actor
 export const responseHeaders = { "Cache-Control": "no-store", Vary: "Cookie" };
 const ROOT = "/fm/treasury/expenses-v2/expense-approval-workflow";
 
+function firstHeaderValue(value: string | null) {
+  return value?.split(",", 1)[0]?.trim() || null;
+}
+
+function normalizedOrigin(value: string | null) {
+  if (!value) return null;
+  try { return new URL(value).origin; } catch { return null; }
+}
+
+/** Accept the public origin when Next is behind a reverse proxy. */
+export function assertWorkflowMutationOrigin(request: NextRequest) {
+  const requestUrl = new URL(request.url);
+  const expectedOrigins = new Set([requestUrl.origin]);
+  const forwardedHost = firstHeaderValue(request.headers.get("x-forwarded-host"));
+  const host = forwardedHost || firstHeaderValue(request.headers.get("host"));
+  const protocol = firstHeaderValue(request.headers.get("x-forwarded-proto")) || requestUrl.protocol.slice(0, -1);
+  if (host) {
+    expectedOrigins.add(normalizedOrigin(`${protocol}://${host}`) || "");
+    const forwardedPort = firstHeaderValue(request.headers.get("x-forwarded-port"));
+    if (forwardedHost && forwardedPort && !forwardedHost.includes(":")) expectedOrigins.add(normalizedOrigin(`${protocol}://${forwardedHost}:${forwardedPort}`) || "");
+  }
+
+  const origin = normalizedOrigin(request.headers.get("origin"));
+  if (!origin || !expectedOrigins.has(origin) || request.headers.get("sec-fetch-site")?.toLowerCase() === "cross-site") {
+    throw new AuthorityError("INVALID_ORIGIN", "A same-origin browser request is required.", 403);
+  }
+}
+
 export async function requireWorkflowAccess(request: NextRequest) {
   const actor = await requireAuthorityAccess(request);
   if (!actor.admin) {
