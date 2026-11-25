@@ -26,7 +26,13 @@ const LEGEND = [
   { label: "Overdue", className: "bg-red-500" },
 ] as const;
 
-const STATUS_RANK: Record<CalendarStatus, number> = { OVERDUE: 3, DUE: 2, PAID: 1, UNKNOWN: 0 };
+const STATUS_RANK: Record<CalendarStatus, number> = {
+  OVERDUE: 3,
+  DUE: 2,
+  PAID: 1,
+  UNVERIFIED: 0,
+  UNKNOWN: 0,
+};
 
 type DayChip = { formCode: string; count: number; status: CalendarStatus };
 

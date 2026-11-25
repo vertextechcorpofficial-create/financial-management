@@ -91,7 +91,12 @@ export function OptionCombobox({
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[340px] max-w-[calc(100vw-2rem)] p-0" align="start">
+      {/* 340px is the floor for a record picker; a wider field must not clip the list it opens
+            down from, so the trigger width wins when it is larger. */}
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] min-w-[340px] max-w-[calc(100vw-2rem)] p-0"
+        align="start"
+      >
         <Command>
           <CommandInput
             placeholder={searchPlaceholder}
@@ -107,9 +112,12 @@ export function OptionCombobox({
           >
             <CommandEmpty>{emptyLabel}</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => (
+              {options.map((option, index) => (
                 <CommandItem
-                  key={option.value}
+                  // The value is only unique if the caller's list is: bank_names holds the same
+                  // name several times, so two rows can share a value and React rejects the pair.
+                  // The index keeps the key unique without hiding a genuinely repeated option.
+                  key={`${option.value}::${index}`}
                   value={option.searchText ?? option.label}
                   onSelect={() => choose(option.value)}
                 >

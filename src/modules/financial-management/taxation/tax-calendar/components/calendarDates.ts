@@ -9,15 +9,14 @@ export function monthLabel(year: number, month: number): string {
   );
 }
 
-/** `Tuesday, 3 March 2026`. */
+/** `Tuesday, 03/03/2026` — the weekday still says why the date moved, the date reads house style. */
 export function formatLongDate(iso: string): string {
-  return new Intl.DateTimeFormat("en-PH", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${iso}T00:00:00Z`));
+  const [year, month, day] = iso.split("-");
+  if (!year || !month || !day) return iso;
+  const weekday = new Intl.DateTimeFormat("en-PH", { weekday: "long", timeZone: "UTC" }).format(
+    new Date(`${iso}T00:00:00Z`),
+  );
+  return `${weekday}, ${month}/${day}/${year}`;
 }
 
 export interface MonthCell {

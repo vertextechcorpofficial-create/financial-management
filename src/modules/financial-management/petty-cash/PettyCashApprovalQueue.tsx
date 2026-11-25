@@ -3,8 +3,8 @@ import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useFundRead } from "./hooks/useFunds";
-import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
 import { UpdatedAgo } from "./components/UpdatedAgo";
+import { PettyCashPageHeader } from "./components/PettyCashPageHeader";
 import type { ApprovalRow } from "./master-types";
 import type { Page } from "./onboarding-types";
 import { ApprovalFilterBar } from "./components/ApprovalFilterBar";
@@ -18,12 +18,11 @@ import { dateTime, dateOnly } from "./utils/dateTime";
 const PENDING_HEADERS = ["Request", "Type", "Fund", "Detail", "Requested by", "Date", "Status", ""];
 const DECIDED_HEADERS = ["Request", "Type", "Fund", "Requested by", "Decided by", "Status", "Entry"];
 
-export default function PettyCashApprovalQueue({ actorName, canDecide, renderFund }: { actorName: string; canDecide: boolean; renderFund: (id: string, close: () => void, changed: (message?: string) => void) => ReactNode }) {
+export default function PettyCashApprovalQueue({ canDecide, renderFund }: { canDecide: boolean; renderFund: (id: string, close: () => void, changed: (message?: string) => void) => ReactNode }) {
   const [selected, setSelected] = useState<ApprovalRow | null>(null), [pendingPage, setPendingPage] = useState(1), [decidedPage, setDecidedPage] = useState(1);
   const [pendingFilters, setPendingFilters] = useState<ApprovalFilterState>({ ...EMPTY_APPROVAL_FILTERS.pending }), [decidedFilters, setDecidedFilters] = useState<ApprovalFilterState>({ ...EMPTY_APPROVAL_FILTERS.decided });
   const pending = useFundRead<Page<ApprovalRow>>(`onboarding-approval/requests?${approvalFilterParams({ queue: "pending", page: pendingPage, filters: pendingFilters })}`, 250);
   const decided = useFundRead<Page<ApprovalRow>>(`onboarding-approval/requests?${approvalFilterParams({ queue: "decided", page: decidedPage, filters: decidedFilters })}`, 250);
-  usePettyCashRefresh(pending.refresh, pending.loading || pending.refreshing);
   function updatePending(patch: Partial<ApprovalFilterState>) { setPendingFilters(filters => ({ ...filters, ...patch })); setPendingPage(1); }
   function updateDecided(patch: Partial<ApprovalFilterState>) { setDecidedFilters(filters => ({ ...filters, ...patch })); setDecidedPage(1); }
   function clearPending() { setPendingFilters({ ...EMPTY_APPROVAL_FILTERS.pending }); setPendingPage(1); }
@@ -34,7 +33,7 @@ export default function PettyCashApprovalQueue({ actorName, canDecide, renderFun
     if (pendingPage > 1 && pending.data?.items.length === 1) setPendingPage(page => page - 1);
     setDecidedPage(1); pending.refresh(); decided.refresh();
   }
-  return <section className="space-y-5"><div><h1 className="text-2xl font-semibold">Onboarding Approval</h1><p className="mt-2 text-sm text-muted-foreground">Approve or reject new funds and changes to existing funds. Select a request to review its details and posting.</p></div>
+  return <section className="space-y-5"><PettyCashPageHeader title="Onboarding Approval" description="Approve or reject new funds and changes to existing funds. Select a request to review its details and posting." />
     {([
       { name: "Awaiting approval", queue: "pending" as const, read: pending, page: pendingPage, setPage: setPendingPage, isPending: true, filters: pendingFilters, update: updatePending, clear: clearPending },
       { name: "Decided requests", queue: "decided" as const, read: decided, page: decidedPage, setPage: setDecidedPage, isPending: false, filters: decidedFilters, update: updateDecided, clear: clearDecided },
@@ -42,7 +41,7 @@ export default function PettyCashApprovalQueue({ actorName, canDecide, renderFun
       const active = approvalFiltersActive(filters, queue);
       const empty = isPending ? (active ? "No pending requests match these filters." : "Nothing waiting. New fund requests and Master List changes appear here.") : (active ? "No decided requests match these filters." : "None yet.");
       return <section key={name} className="space-y-3 rounded-xl border bg-card p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold">{isPending ? `Awaiting approval${read.data ? ` (${read.data.total})` : ""}` : `Decided${read.data ? ` (${read.data.total})` : ""}`}</h2>{isPending && <UpdatedAgo at={read.updatedAt} onRefresh={read.refresh} />}</div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold">{isPending ? `Awaiting approval${read.data ? ` (${read.data.total})` : ""}` : `Decided${read.data ? ` (${read.data.total})` : ""}`}</h2>{isPending && <UpdatedAgo at={read.updatedAt} />}</div>
         <ApprovalFilterBar queue={queue} filters={filters} onChange={update} onClear={clear} />
         <MasterError error={read.error} retry={read.refresh} title={isPending ? "Could not load approval queue" : "Could not load decided requests"} />
         {read.loading && <TableSkeleton label={isPending ? "Loading pending approval requests" : "Loading decided requests"} rows={5} columns={(isPending ? PENDING_HEADERS : DECIDED_HEADERS).length} />}
@@ -76,6 +75,6 @@ export default function PettyCashApprovalQueue({ actorName, canDecide, renderFun
       </section>;
     })}
     <section className="space-y-3 rounded-xl border bg-card p-5"><h2 className="text-lg font-semibold">Entries posted on approval</h2><MasterTable label="Entries posted on approval" headers={["Event", "Debit", "Credit"]}>{[["New fund / Increase imprest", "Fund account (GL)", "Selected cash / bank"], ["Decrease imprest", "Selected cash / bank", "Fund account (GL)"], ["Close fund", "Cash / bank (counted), Cash Over/Short if short", "Fund account (GL), Cash Over/Short if over"], ["Change custodian", "No entry", "No entry"]].map(([event, dr, cr]) => <tr key={event}><td>{event}</td><td>{dr}</td><td>{cr}</td></tr>)}</MasterTable></section>
-    {selected && (selected.kind === "FUND" ? renderFund(selected.id, () => setSelected(null), changed) : <FundChangeReview key={selected.id} id={selected.id} actorName={actorName} canDecide={canDecide} onClose={() => setSelected(null)} onChanged={changed} />)}
+    {selected && (selected.kind === "FUND" ? renderFund(selected.id, () => setSelected(null), changed) : <FundChangeReview key={selected.id} id={selected.id} canDecide={canDecide} onClose={() => setSelected(null)} onChanged={changed} />)}
   </section>;
 }

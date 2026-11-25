@@ -67,8 +67,14 @@ export const MATCH_TOLERANCE = 1;
 export const DIRECTIONS: CertificateDirection[] = ["RECEIVED", "ISSUED"];
 
 export const DIRECTION_LABELS: Record<CertificateDirection, string> = {
-  RECEIVED: "Received (from payee)",
-  ISSUED: "Issued (to supplier)",
+  RECEIVED: "Received (from customer / payor)",
+  ISSUED: "Issued (to supplier / payee)",
+};
+
+/** What each direction means, in the words a preparer uses. */
+export const DIRECTION_DESCRIPTIONS: Record<CertificateDirection, string> = {
+  RECEIVED: "A customer or payor withheld tax from you. The credit is an asset.",
+  ISSUED: "You withheld tax from a supplier or payee. The liability is yours to remit.",
 };
 
 /** Doc Table 5 — withholding rates as fractions of the income amount. */
@@ -112,10 +118,25 @@ export const BIR_FORMS = [
 ] as const;
 
 /**
- * Everything the tax calendar can ask a company to settle. The certificate list above stays
- * at nine forms because a 2307 is a certificate; these four are the filings that get paid.
+ * Every rate a 2307 may carry, as a percent of the VAT-exclusive income. A figure outside this
+ * list means the withheld amount was computed on a different base, so it is not a 2307 rate.
  */
-export const PAYMENT_FORMS = [...BIR_FORMS, "2307", "SEC", "RPT", "LGU"] as const;
+export const STATUTORY_RATES_PERCENT = [1, 2, 5, 10, 15] as const;
+
+export function isStatutoryRate(percent: number): boolean {
+  return STATUTORY_RATES_PERCENT.some((rate) => Math.abs(percent - rate) < 0.005);
+}
+
+/** The statutory rate a derived percent sits within rounding distance of, or null. */
+export function statutoryRateNear(percent: number): number | null {
+  return STATUTORY_RATES_PERCENT.find((rate) => Math.abs(percent - rate) <= 0.06) ?? null;
+}
+
+/**
+ * Forms that can be recorded as a tax payment. A 2307 is a certificate, not a return, so it is
+ * absent here even though it appears in the tax calendar's filing list.
+ */
+export const PAYMENT_FORMS = [...BIR_FORMS, "SEC", "RPT", "LGU"] as const;
 
 /**
  * Periods a form can be filed for, per the taxation doc: 1601-C monthly (P98); 0619-E only in

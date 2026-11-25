@@ -174,14 +174,25 @@ export interface RegisterSummary {
 // Schedules
 // ---------------------------------------------------------------------------
 
-/** One row of the loan picker: the loan plus the schedule versions it actually has. */
+/** One row of the directorate and of the loan header strip: the loan plus the versions it has. */
 export interface ScheduleLoanEntry {
   id: number;
   loanNo: string;
   lenderName: string;
+  /** Promissory note / loan account, the number the lender quotes. */
+  accountNo: string;
   status: LoanStatus;
   principal: number;
   outstandingPrincipal: number;
+  nominalRate: number;
+  currentRate: number;
+  rateType: RateType;
+  repaymentMethod: RepaymentMethod;
+  paymentFrequency: PaymentFrequency;
+  releaseDate: string;
+  maturityDate: string | null;
+  /** Effective interest rate after fees and DST, the rate the carrying amount accrues at. */
+  eirRate: number;
   scheduleVersion: number;
   /** Versions present in `loan_schedule`, newest first; empty before the schedule is generated. */
   versions: number[];
@@ -247,7 +258,30 @@ export interface CurrentPortionSplit {
   loanPrincipal: number;
 }
 
-/** The whole tab-1 payload: picker, the chosen loan's rows, and the arithmetic around them. */
+/** The installment the desk pays next, and what it costs. */
+export interface NextInstallment {
+  periodNo: number;
+  dueDate: string;
+  paymentDate: string;
+  amount: number;
+}
+
+/**
+ * The five KPI tiles. They are computed over every period of the version, not the page, so the
+ * numbers do not change when the reader pages through the table.
+ */
+export interface ScheduleKpis {
+  nextInstallment: NextInstallment | null;
+  /** Installments whose payment date has passed and which still owe money. */
+  overdueAmount: number;
+  overdueCount: number;
+  principalPayable: number;
+  /** Amortized cost at the as-of date; null when nothing has been released yet. */
+  carryingAmount: number | null;
+  eirRate: number;
+}
+
+/** The whole tab-1 payload: directory, the chosen loan's rows, and the arithmetic around them. */
 export interface SchedulePayload {
   loans: ScheduleLoanEntry[];
   loan: ScheduleLoanEntry | null;
@@ -257,6 +291,9 @@ export interface SchedulePayload {
   totals: ScheduleTotals;
   tie: ScheduleTie | null;
   currentPortion: CurrentPortionSplit | null;
+  kpis: ScheduleKpis;
+  /** `loan_holiday` as date → name, so a moved payment date can name the day it moved off. */
+  holidays: Record<string, string>;
   /** Aging for the chosen loan, or the whole portfolio when no loan is picked. */
   agingRows: LoanAgingRow[];
   aging: AgingBuckets;
@@ -269,4 +306,8 @@ export interface RefreshResult {
   updated: number;
   markedDue: number;
   markedOverdue: number;
+  /** Loans whose stored status moved to match their schedule. */
+  loansUpdated: number;
+  loansOverdue: number;
+  loansCurrent: number;
 }

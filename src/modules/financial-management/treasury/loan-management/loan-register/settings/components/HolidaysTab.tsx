@@ -10,6 +10,18 @@ import { formatNumber } from "@/lib/utils";
 
 import { ACCENT, HOLIDAY_KIND_LABEL, HOLIDAY_KIND_TONE, SETTINGS_PAGE_SIZE } from "../constants";
 import { phtDate } from "../pht";
+
+/** The column stores an ISO date; QA asked for mm/dd/yyyy on screen. */
+function displayDate(iso: string) {
+  const parsed = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return parsed.toLocaleDateString("en-PH", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
 import type { HolidayBody } from "../schemas";
 import type { SettingsHoliday } from "../types";
 import { HolidayDialog } from "./HolidayDialog";
@@ -66,7 +78,7 @@ export function HolidaysTab({ holidays, isSaving, onAdd, onEdit, onDelete }: Pro
                 <p className="truncate font-medium" title={holiday.name}>
                   {holiday.name}
                 </p>
-                <p className="text-xs tabular-nums text-muted-foreground">{holiday.holidayDate}</p>
+                <p className="text-xs tabular-nums text-muted-foreground">{displayDate(holiday.holidayDate)}</p>
                 <StatusBadge tone={HOLIDAY_KIND_TONE[holiday.kind]}>{HOLIDAY_KIND_LABEL[holiday.kind]}</StatusBadge>
               </button>
               <Button
@@ -108,7 +120,7 @@ export function HolidaysTab({ holidays, isSaving, onAdd, onEdit, onDelete }: Pro
                   <TableCell className="max-w-[420px] truncate font-medium" title={holiday.name}>
                     {holiday.name}
                   </TableCell>
-                  <TableCell className="tabular-nums">{holiday.holidayDate}</TableCell>
+                  <TableCell className="tabular-nums">{displayDate(holiday.holidayDate)}</TableCell>
                   <TableCell>
                     <StatusBadge tone={HOLIDAY_KIND_TONE[holiday.kind]}>{HOLIDAY_KIND_LABEL[holiday.kind]}</StatusBadge>
                   </TableCell>

@@ -123,9 +123,14 @@ export function AccountsTab({ accounts, chartAccounts, isSaving, onAdd, onEdit }
                   <TableCell className="max-w-[240px] truncate font-medium" title={account.name}>
                     {account.name}
                   </TableCell>
-                  <TableCell className="truncate text-sm text-muted-foreground">{ACCOUNT_KIND_LABEL[account.kind]}</TableCell>
-                  <TableCell className="truncate text-sm" title={`${account.glCode} · ${account.glTitle}`}>
-                    <span className="tabular-nums">{account.glCode}</span> · {account.glTitle}
+                  <TableCell title={ACCOUNT_KIND_LABEL[account.kind]} className="truncate text-sm text-muted-foreground">{ACCOUNT_KIND_LABEL[account.kind]}</TableCell>
+                  <TableCell className="text-sm">
+                    <span className="block truncate tabular-nums" title={account.glCode}>
+                      {account.glCode}
+                    </span>
+                    <span className="block truncate text-muted-foreground" title={account.glTitle}>
+                      {account.glTitle}
+                    </span>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{account.chargePct}%</TableCell>
                   <TableCell className="text-right tabular-nums">{formatNumber(account.paymentCount)}</TableCell>

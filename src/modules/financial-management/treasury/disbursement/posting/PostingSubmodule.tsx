@@ -16,11 +16,25 @@ import { disbursementProvider } from "../providers/fetchProvider";
 import { formatCurrency, formatManilaDate, getVoucherStepIndex, VOUCHER_STEPS, getCookie, decodeToken } from "../utils/disbursement-utils";
 import { StickyTableWrapper } from "../components/StickyTableWrapper";
 import { cn } from "@/lib/utils";
-import { useAttachmentPreview } from "../hooks/useAttachmentPreview";
 import { Input } from "@/components/ui/input";
 
 function AttachmentPreview({ docUrl }: { docUrl: string }) {
-    const { viewUrl, isPdf, loadingPreview, previewFailed, onPreviewError } = useAttachmentPreview(docUrl);
+    const [contentType, setContentType] = useState<string>("");
+    const cleanBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
+    const token = process.env.NEXT_PUBLIC_DIRECTUS_STATIC_TOKEN || "AAKv73dkIV8DfAIA5vEt3eXVdIebzmBW";
+    const viewUrl = docUrl.startsWith("http") ? docUrl : `${cleanBase}/assets/${docUrl}?access_token=${token}`;
+
+    useEffect(() => {
+        if (!viewUrl) return;
+        fetch(viewUrl, { method: "HEAD" })
+            .then((res) => {
+                const type = res.headers.get("content-type");
+                if (type) setContentType(type.toLowerCase());
+            })
+            .catch((err) => console.warn("Failed to fetch document headers:", err));
+    }, [viewUrl]);
+
+    const isPdf = docUrl.toLowerCase().endsWith(".pdf") || viewUrl.toLowerCase().endsWith(".pdf") || contentType.includes("pdf");
 
     return (
         <div className="space-y-3">
@@ -49,7 +63,7 @@ function AttachmentPreview({ docUrl }: { docUrl: string }) {
                     <span>Attachment Preview</span>
                 </div>
                 <div className="p-3 flex justify-center items-center bg-card max-h-[320px] overflow-hidden">
-                    {loadingPreview ? <p className="p-4 text-xs text-muted-foreground">Loading preview…</p> : previewFailed ? <p className="p-4 text-xs text-muted-foreground">Preview unavailable. Use View to open the document.</p> : isPdf ? (
+                    {isPdf ? (
                         <iframe 
                             src={viewUrl} 
                             className="w-full h-[280px] border-0 rounded-lg" 
@@ -61,7 +75,13 @@ function AttachmentPreview({ docUrl }: { docUrl: string }) {
                             src={viewUrl} 
                             alt="Supporting Document" 
                             className="max-h-[280px] max-w-full object-contain rounded-lg shadow-sm"
-                            onError={onPreviewError}
+                            onError={(e) => {
+                                e.currentTarget.style.display = "none";
+                                const parent = e.currentTarget.parentElement;
+                                if (parent) {
+                                    parent.innerHTML = '<div class="text-[10px] font-black uppercase tracking-widest text-muted-foreground p-4 text-center">Preview not available. Click "View" above to open.</div>';
+                                }
+                            }}
                         />
                     )}
                 </div>
@@ -74,7 +94,7 @@ export default function PostingSubmodule() {
     const {
         data, loading, changeStatus, actionLoading, refresh,
         docNoSearch, setDocNoSearch, applyFilters, clearFilters
-    } = useDisbursement("Released,Partially Released");
+    } = useDisbursement();
 
     const [selectedDisbursement, setSelectedDisbursement] = useState<Disbursement | null>(null);
 
@@ -114,9 +134,6 @@ export default function PostingSubmodule() {
     }, [totalDebit, totalCredit]);
 
     const isBalanced = Math.abs(balance) < 0.01;
-    const isFullyReleased = Boolean(selectedDisbursement
-        && selectedDisbursement.paidAmount + 0.01 >= selectedDisbursement.totalAmount
-        && selectedDisbursement.payments.every(line => Boolean(line.releasedDate)));
 
     const isApproverOfSelected = useMemo(() => {
         if (!selectedDisbursement || !currentUserId) return false;
@@ -446,7 +463,7 @@ export default function PostingSubmodule() {
 
                             <Button 
                                 onClick={handlePost} 
-                                disabled={actionLoading || !isBalanced || !isFullyReleased || isApproverOfSelected}
+                                disabled={actionLoading || !isBalanced || isApproverOfSelected}
                                 className="h-11 px-10 text-xs font-black uppercase tracking-widest bg-primary hover:bg-primary/95 text-primary-foreground shadow-md disabled:opacity-50"
                             >
                                 {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}

@@ -4,11 +4,11 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, cn } from "@/lib/utils";
 
-import { phtDisplayStamp } from "../pht";
+import { formatDateMDY, phtDisplayStamp } from "../pht";
 import type { ReconciliationRow, RollForward } from "../types";
 import { RESULT_LABEL, RESULT_TONE } from "../constants";
 import { DateField } from "./DateField";
@@ -102,7 +102,7 @@ export function RollForwardPanel({
           </Notice>
         ) : null}
         {readOnly ? (
-          <Notice tone="warning" title={`Books closed through ${rollForward?.lockedThrough}`} className="mt-2">
+          <Notice tone="warning" title={`Books closed through ${formatDateMDY(rollForward?.lockedThrough)}`} className="mt-2">
             This period is read-only: it can be built and read, but not saved or signed.
           </Notice>
         ) : null}
@@ -113,7 +113,7 @@ export function RollForwardPanel({
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
             <div className="min-w-0">
               <h3 className="text-sm font-semibold">
-                {rollForward.periodStart} to {rollForward.periodEnd}
+                {formatDateMDY(rollForward.periodStart)} to {formatDateMDY(rollForward.periodEnd)}
               </h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {rollForward.accounts.map((account) => account.title ?? `Account ${account.coaId}`).join(" · ")}
@@ -125,7 +125,7 @@ export function RollForwardPanel({
           <dl className="divide-y divide-border/60">
             {rollForward.lines.map((line) => (
               <div key={line.key} className="flex items-center justify-between gap-4 px-4 py-2">
-                <dt className="min-w-0 truncate text-sm">
+                <dt title={line.label} className="min-w-0 truncate text-sm">
                   {line.label}
                   <span className="ml-2 text-xs text-muted-foreground tabular-nums">
                     {line.count > 0 ? `${line.count} ${line.count === 1 ? "line" : "lines"}` : "nothing"}
@@ -176,11 +176,13 @@ export function RollForwardPanel({
                 <Label htmlFor="reconciliation-remarks" className="mb-1.5 block text-xs font-medium text-muted-foreground">
                   Remarks for this period
                 </Label>
-                <Input
+                <Textarea
                   id="reconciliation-remarks"
                   value={remarks}
                   onChange={(event) => setRemarks(event.target.value)}
                   placeholder="What explains this period"
+                  rows={3}
+                  className="resize-none"
                   disabled={readOnly || isSaving}
                 />
               </div>
@@ -188,7 +190,7 @@ export function RollForwardPanel({
                 type="button"
                 onClick={() => void handleSave()}
                 disabled={readOnly || isSaving}
-                title={readOnly ? `The books are closed through ${rollForward.lockedThrough}` : undefined}
+                title={readOnly ? `The books are closed through ${formatDateMDY(rollForward.lockedThrough)}` : undefined}
                 className="min-h-11 md:min-h-9"
               >
                 {isSaving ? <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" /> : null}
@@ -197,7 +199,7 @@ export function RollForwardPanel({
             </div>
             {saved ? (
               <p className="mt-2 text-xs text-muted-foreground">
-                Saved {saved.periodStart} to {saved.periodEnd} on {phtDisplayStamp(saved.createdAt ?? today)}. Sign it
+                Saved {formatDateMDY(saved.periodStart)} to {formatDateMDY(saved.periodEnd)} on {phtDisplayStamp(saved.createdAt ?? today)}. Sign it
                 off from the list below.
               </p>
             ) : null}

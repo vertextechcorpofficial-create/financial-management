@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { closeException, fetchBoard, fileMemo, fetchDetail, recordReading, scan, type BoardQuery } from "../providers/varianceApi";
+import { DEFAULT_POLICY } from "../services/engine";
 import type { ExceptionBoard, ExceptionDetail } from "../types";
 
 export interface VarianceFilters {
@@ -21,6 +22,7 @@ const EMPTY: ExceptionBoard = {
   page: 1,
   size: 10,
   rows: [],
+  policy: DEFAULT_POLICY,
 };
 
 /** The filter a shared variance link names, so the register opens on what the link says. */
@@ -71,6 +73,7 @@ export function useVariance(initialSize = 10) {
   const [size, setSizeState] = useState(() => (initial.size > 0 ? initial.size : readStoredSize(SIZE_KEY, 10)));
   const [board, setBoard] = useState<ExceptionBoard>(EMPTY);
   const [isLoading, setLoading] = useState(true);
+  const [hasRead, setHasRead] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isScanning, setScanning] = useState(false);
   const [detail, setDetail] = useState<ExceptionDetail | null>(null);
@@ -88,6 +91,7 @@ export function useVariance(initialSize = 10) {
       if (requestSeq.current !== seq) return;
       setBoard(payload);
       setError(null);
+      setHasRead(true);
     } catch (caught) {
       if (requestSeq.current !== seq) return;
       setError(caught instanceof Error ? caught.message : "The register could not be read.");
@@ -183,6 +187,7 @@ export function useVariance(initialSize = 10) {
     isScanning,
     isSaving,
     error,
+    hasRead,
     detail,
     setDetail,
     updateFilters,

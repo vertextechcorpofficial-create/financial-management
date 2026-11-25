@@ -4,7 +4,7 @@ import { z } from "zod";
 const dateOnly = z
   .string()
   .trim()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-02-28.");
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the date on the calendar.");
 
 const money = z.coerce
   .number({ error: "Enter an amount." })

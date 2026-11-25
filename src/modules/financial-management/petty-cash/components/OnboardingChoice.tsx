@@ -2,19 +2,20 @@
 import { useId, useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Choice, Page } from "../onboarding-types";
 import { useOnboardingRead } from "../hooks/useOnboarding";
 
-export function OnboardingChoice({ label, resource, role = "EXPENSE", selected, disabled, onSelect, id, error, eligibleOnly = false, placeholder, fundRequest = false, excludeFundId }: {
-    label: string; resource: string; role?: string; selected: Choice | null; disabled?: boolean; onSelect: (choice: Choice | null) => void; id?: string; error?: string; eligibleOnly?: boolean; placeholder?: string; fundRequest?: boolean; excludeFundId?: number;
+export function OnboardingChoice({ label, resource, role = "EXPENSE", selected, disabled, onSelect, id, error, eligibleOnly = false, placeholder, fundRequest = false, excludeFundId, required = false, wrap = false }: {
+    label: string; resource: string; role?: string; selected: Choice | null; disabled?: boolean; onSelect: (choice: Choice | null) => void; id?: string; error?: string; eligibleOnly?: boolean; placeholder?: string; fundRequest?: boolean; excludeFundId?: number; required?: boolean; wrap?: boolean;
 }) {
   const generatedId = useId(); const buttonId = id || `${generatedId}-button`, errorId = error ? `${buttonId}-error` : undefined; const [open, setOpen] = useState(false);
-  return <div className="min-w-0 space-y-2"><label id={`${generatedId}-label`} className="text-sm font-medium">{label}</label>
+  return <div className="min-w-0 space-y-2"><label id={`${generatedId}-label`} className="text-sm font-medium">{label}{required && <span className="ml-0.5 text-destructive" aria-hidden="true">*</span>}</label>
     <Popover modal open={open} onOpenChange={setOpen}><PopoverTrigger asChild>
-      <Button id={buttonId} type="button" variant="outline" role="combobox" aria-labelledby={`${generatedId}-label`} aria-expanded={open} aria-invalid={Boolean(error)} aria-describedby={errorId} disabled={disabled} className="w-full min-w-0 justify-between font-normal">
-        <span className="truncate">{selected ? `${selected.code} · ${selected.name}` : placeholder || `Select ${label.toLowerCase()}`}</span><ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+      <Button id={buttonId} type="button" variant="outline" role="combobox" aria-labelledby={`${generatedId}-label`} aria-expanded={open} aria-required={required} aria-invalid={Boolean(error)} aria-describedby={errorId} disabled={disabled} className={cn("w-full min-w-0 justify-between font-normal", wrap && "h-auto min-h-9 whitespace-normal py-2 text-left")}>
+        <span className={cn("min-w-0", wrap ? "break-words text-left" : "truncate")}>{selected ? `${selected.code} · ${selected.name}` : placeholder || `Select ${label.toLowerCase()}`}</span><ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
       </Button></PopoverTrigger>
       <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] p-0">
         {open && <Choices label={label} resource={resource} role={role} selected={selected} eligibleOnly={eligibleOnly} fundRequest={fundRequest} excludeFundId={excludeFundId} onSelect={value => { onSelect(value); setOpen(false); }} />}

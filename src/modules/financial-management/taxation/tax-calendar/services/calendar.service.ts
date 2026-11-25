@@ -86,7 +86,9 @@ export function buildObligations(
       dueDate: moved.date,
       estimated: estimated === null ? null : round(estimated),
       status: statusOf(moved.date, paid, today),
-      note: [moved.reason, note].filter(Boolean).join(" · ") || null,
+      note,
+      moveReason: moved.reason || null,
+      movedFrom: moved.reason ? rawDue : null,
     });
   };
 

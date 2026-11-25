@@ -1,22 +1,18 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { fundApi } from "../providers/funds.api";
 import { onboardingRequestId, OnboardingError } from "../providers/onboarding.api";
-import { sameResource } from "../utils/readResource";
+import { useCachedRead } from "./useCachedRead";
 import type { FundDetails } from "../fund-types";
 
 export function useFundRead<T>(path: string | null, delay = 0) {
-  const [revision, setRevision] = useState(0), [result, setResult] = useState<{ path: string; key: string; data?: T; error?: Error; updatedAt?: number } | null>(null);
-  const key = JSON.stringify([path, revision]);
-  useEffect(() => {
-    if (!path) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => { fundApi<T>(path, { signal: controller.signal }).then(data => { if (!controller.signal.aborted) setResult({ path, key, data, updatedAt: Date.now() }); })
-      .catch(cause => { if (!controller.signal.aborted) setResult(previous => ({ path, key, data: previous?.path === path ? previous.data : undefined, updatedAt: previous?.path === path ? previous.updatedAt : undefined, error: cause instanceof Error ? cause : new Error("Unable to load funds.") })); }); }, delay);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [path, key, delay]);
-  const active = result && path !== null && (result.path === path || sameResource(result.path, path)) ? result : null, current = active?.key === key;
-  return { data: active?.data, updatedAt: active?.updatedAt ?? null, error: active?.path === path ? active.error : undefined, loading: path !== null && !active, refreshing: path !== null && Boolean(active) && !current, refresh: useCallback(() => setRevision(value => value + 1), []) };
+  return useCachedRead<T>({
+    namespace: "funds",
+    path,
+    delay,
+    load: fundApi,
+    errorMessage: "Unable to load funds.",
+  });
 }
 export function useFundDecision<T = FundDetails>() {
   const pending = useRef<{ key: string; path: string; payload: object } | null>(null), active = useRef(false);

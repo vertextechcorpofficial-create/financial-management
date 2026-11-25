@@ -11,6 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 import { mappingLabel, MAPPING_BLOCKS } from "../constants";
 import type { GlAccountOption, SettingsMapping } from "../types";
@@ -28,9 +30,10 @@ export function MappingDialog({
   chartAccounts: GlAccountOption[];
   isSaving: boolean;
   onClose: () => void;
-  onSubmit: (coaId: number | null) => Promise<unknown>;
+  onSubmit: (coaId: number | null, description: string) => Promise<unknown>;
 }) {
   const [value, setValue] = useState(mapping.coaId === null ? "" : String(mapping.coaId));
+  const [description, setDescription] = useState(mapping.description ?? "");
 
   const options = chartAccounts.map((row) => ({
     value: String(row.coaId),
@@ -39,7 +42,7 @@ export function MappingDialog({
   }));
 
   async function submit(next: number | null) {
-    const result = await onSubmit(next);
+    const result = await onSubmit(next, description.trim());
     if (result) onClose();
   }
 
@@ -66,6 +69,17 @@ export function MappingDialog({
           <p className="text-xs text-muted-foreground">
             Clearing this key blocks every entry that needs it. The page says which one at the top.
           </p>
+          <div className="space-y-2 pt-2">
+            <Label htmlFor="mapping-usage">Usage Description</Label>
+            <Textarea
+              id="mapping-usage"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="What this line is used for"
+              maxLength={255}
+              rows={3}
+            />
+          </div>
         </div>
 
         <DialogFooter className="border-t bg-muted/20 px-6 py-4">

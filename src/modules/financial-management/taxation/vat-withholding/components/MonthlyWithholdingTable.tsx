@@ -31,6 +31,8 @@ export function MonthlyWithholdingTable({ rows }: { rows: MonthlyWithholdingRow[
   }
 
   const due = (value: number | null) => (value == null ? "—" : formatCurrency(value));
+  // A month whose orders carry no withheld amount would read as ₱0.00 paid; say unknown instead.
+  const withheld = (row: MonthlyWithholdingRow) => (row.unknown ? "—" : formatCurrency(row.withheld));
 
   return (
     <>
@@ -68,10 +70,15 @@ export function MonthlyWithholdingTable({ rows }: { rows: MonthlyWithholdingRow[
                       <Badge variant="outline" className="shrink-0 text-[11px]">
                         {row.quarter}
                       </Badge>
+                      {row.unknown ? (
+                        <Badge variant="outline" className="shrink-0 border-amber-500/40 text-[11px] text-amber-700 dark:text-amber-400">
+                          unknown
+                        </Badge>
+                      ) : null}
                     </span>
                   </td>
                   <td className={cn(numeric, "px-4 py-2.5")}>{formatCurrency(row.purchases)}</td>
-                  <td className={cn(numeric, "px-4 py-2.5 font-medium")}>{formatCurrency(row.withheld)}</td>
+                  <td className={cn(numeric, "px-4 py-2.5 font-medium")}>{withheld(row)}</td>
                   <td className={cn(numeric, "px-4 py-2.5")}>{due(row.agentDue)}</td>
                   <td className={cn(numeric, "px-4 py-2.5")}>{due(row.quarterlyDue)}</td>
                 </tr>
@@ -109,7 +116,7 @@ export function MonthlyWithholdingTable({ rows }: { rows: MonthlyWithholdingRow[
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">Withheld</dt>
-                  <dd className="font-medium tabular-nums">{formatCurrency(row.withheld)}</dd>
+                  <dd className="font-medium tabular-nums">{withheld(row)}</dd>
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">0619-E due</dt>
@@ -125,7 +132,9 @@ export function MonthlyWithholdingTable({ rows }: { rows: MonthlyWithholdingRow[
         </ul>
 
         <p className="border-t px-4 py-3 text-xs text-muted-foreground">
-          Amounts come from purchase orders; this system keeps no remittance ledger.
+          Amounts come from the purchase orders posted in each month, with VAT read off the order lines.
+          A month marked unknown recorded purchases but no withheld amount, so its withholding is not known
+          rather than zero. This system keeps no remittance ledger, so these are amounts due, not amounts paid.
         </p>
       </section>
 

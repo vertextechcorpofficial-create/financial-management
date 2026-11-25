@@ -8,6 +8,7 @@ import {
   WorksheetApiError,
   fetchWorksheet,
   recordCarryoverLot as requestCarryoverLot,
+  saveManualEntry as requestManualEntry,
   updateOpeningCarryovers as requestOpeningUpdate,
   saveProfile as requestProfileSave,
   updateCarryoverUsed as requestCarryoverUsed,
@@ -164,8 +165,31 @@ export function useWorksheet(initialYear: number) {
     [companyId, load, year],
   );
 
-  /** P71: accept last year's closing balances as this year's openings. */
-  const updateOpenings = useCallback(async (): Promise<boolean> => {
+  /**
+   * Manual entry mode (deck item 10): one typed figure replaces the ledger figure on that
+   * line and quarter; null clears it. Re-reads the sheet so every dependent line moves with it.
+   */
+  const saveManualEntry = useCallback(
+    async (lineKey: string, quarter: number, amount: number | null): Promise<boolean> => {
+      if (companyId == null) return false;
+      setIsSaving(true);
+      try {
+        await requestManualEntry({ companyId, taxYear: year, lineKey, quarter, amount });
+        toast.success(amount == null ? "Line returned to the computed figure." : "Manual figure saved.");
+        await load(companyId, year, { quiet: true, fresh: true });
+        return true;
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : null;
+        toast.error(message || "The manual figure could not be saved.");
+        return false;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [companyId, load, year],
+  );
+
+  /** P71: accept last year's closing balances as this year's openings. */  const updateOpenings = useCallback(async (): Promise<boolean> => {
     if (companyId == null) return false;
     setIsSaving(true);
     try {
@@ -215,6 +239,7 @@ export function useWorksheet(initialYear: number) {
     saveProfile,
     saveCarryoverLot,
     saveCarryoverUsed,
+    saveManualEntry,
     updateOpenings,
     // Refresh means "pull again", so it bypasses the server's short-lived snapshot cache.
     refetch: () => (companyId ? load(companyId, year, { fresh: true }) : Promise.resolve()),

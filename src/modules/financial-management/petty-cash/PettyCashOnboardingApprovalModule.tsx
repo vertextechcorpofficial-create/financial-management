@@ -3,7 +3,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FundingAccountChoice } from "./components/FundingAccountChoice";
 import { DecisionConfirm } from "./components/DecisionConfirm";
@@ -11,8 +10,8 @@ import { ReviewActions } from "./components/ReviewActions";
 import { ErrorBox, Field, OnboardingFeedback } from "./components/OnboardingCommon";
 import { ReviewSkeleton, PreviewSkeleton, TableSkeleton } from "./components/PettyCashSkeletons";
 import { useFundDecision, useFundRead } from "./hooks/useFunds";
-import { usePettyCashRefresh } from "./hooks/usePettyCashRefresh";
 import { UpdatedAgo } from "./components/UpdatedAgo";
+import { PettyCashPageHeader } from "./components/PettyCashPageHeader";
 import { OnboardingError } from "./providers/onboarding.api";
 import type { Choice, Page } from "./onboarding-types";
 import type { FundDetails, FundRecord } from "./fund-types";
@@ -35,19 +34,18 @@ function Pagination({ label, page, data, onPage }: { label: string; page: number
   return <div aria-label={`${label} pagination`} className="flex flex-wrap items-center justify-end gap-3 p-4 text-sm"><span>Page {page}</span><Button size="sm" variant="outline" disabled={page === 1} onClick={() => onPage(page - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={page * data.pageSize >= data.total} onClick={() => onPage(page + 1)}>Next</Button></div>;
 }
 
-export default function PettyCashOnboardingApprovalModule({ actorName, canDecide, changesEnabled = false }: { actorName: string; canDecide: boolean; changesEnabled?: boolean }) {
-  if (changesEnabled) return <PettyCashApprovalQueue actorName={actorName} canDecide={canDecide} renderFund={(id, close, changed) => <FundApprovalReview key={id} id={id} actorName={actorName} canDecide={canDecide} onClose={close} onChanged={result => changed(result.fund.status === "ACTIVE"
+export default function PettyCashOnboardingApprovalModule({ canDecide, changesEnabled = false }: { canDecide: boolean; changesEnabled?: boolean }) {
+  if (changesEnabled) return <PettyCashApprovalQueue canDecide={canDecide} renderFund={(id, close, changed) => <FundApprovalReview key={id} id={id} canDecide={canDecide} onClose={close} onChanged={result => changed(result.fund.status === "ACTIVE"
     ? `${result.fund.docNo} approved and funded.${result.journal ? ` Establishment entry ${result.journal.number} was posted.` : ""}`
     : `${result.fund.docNo} rejected. The requester can review the reason and resubmit.`)} />} />;
-  return <LegacyFundApproval actorName={actorName} canDecide={canDecide} />;
+  return <LegacyFundApproval canDecide={canDecide} />;
 }
 
-function LegacyFundApproval({ actorName, canDecide }: { actorName: string; canDecide: boolean }) {
+function LegacyFundApproval({ canDecide }: { canDecide: boolean }) {
   const [pendingPage, setPendingPage] = useState(1), [decidedPage, setDecidedPage] = useState(1);
   const [selected, setSelected] = useState<string | null>(null);
   const pending = useFundRead<Page<FundRecord>>(`${root}/funds?queue=pending&page=${pendingPage}&pageSize=25`);
   const decided = useFundRead<Page<FundRecord>>(`${root}/funds?queue=decided&page=${decidedPage}&pageSize=25`);
-  usePettyCashRefresh(pending.refresh, pending.loading || pending.refreshing);
   function changed(result: FundDetails) {
     toast.success(result.fund.status === "ACTIVE"
       ? `${result.fund.docNo} approved and funded.${result.journal ? ` Establishment entry ${result.journal.number} was posted.` : ""}`
@@ -56,8 +54,8 @@ function LegacyFundApproval({ actorName, canDecide }: { actorName: string; canDe
     if (pendingPage > 1 && pending.data?.items.length === 1) setPendingPage(pendingPage - 1);
     setDecidedPage(1); pending.refresh(); decided.refresh();
   }
-  return <section className="space-y-5"><div><h1 className="text-2xl font-semibold tracking-tight">Onboarding Approval</h1><p className="mt-2 text-sm text-muted-foreground">Approve or reject new fund requests. Select a request to see its details and decide. Approval records funding and posts the entry.</p></div>
-    <section className="overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center justify-between gap-2 p-5"><h2 className="text-lg font-semibold">Awaiting approval{pending.data ? ` (${pending.data.total})` : ""}</h2><UpdatedAgo at={pending.updatedAt} onRefresh={pending.refresh} /></div>
+  return <section className="space-y-5"><PettyCashPageHeader title="Onboarding Approval" description="Approve or reject new fund requests. Select a request to see its details and decide. Approval records funding and posts the entry." />
+    <section className="overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center justify-between gap-2 p-5"><h2 className="text-lg font-semibold">Awaiting approval{pending.data ? ` (${pending.data.total})` : ""}</h2><UpdatedAgo at={pending.updatedAt} /></div>
       {pending.loading && <div className="px-5 pb-5"><TableSkeleton label="Loading pending approval requests" rows={5} columns={LEGACY_PENDING_HEADERS.length} /></div>}<ErrorBox error={pending.error || null} retry={pending.refresh} title="Could not load approval queue" />
       {pending.data && <>{pending.data.items.length ? <><div className="hidden overflow-x-auto md:block"><table aria-label="Awaiting approval" className="w-full text-left text-sm [&_th]:whitespace-nowrap [&_th]:p-3 [&_th]:font-medium [&_td]:p-3"><thead className="border-y bg-muted/40"><tr>{LEGACY_PENDING_HEADERS.map((label, index) => <th key={index}>{label}</th>)}</tr></thead><tbody>
         {pending.data.items.map(fund => <tr key={fund.id} tabIndex={0} className="cursor-pointer border-b align-top last:border-0 hover:bg-muted/30 focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setSelected(fund.id)} onKeyDown={event => { if (event.target === event.currentTarget && event.key === "Enter") setSelected(fund.id); }}>
@@ -74,11 +72,11 @@ function LegacyFundApproval({ actorName, canDecide }: { actorName: string; canDe
     <section className="overflow-hidden rounded-xl border bg-card"><h2 className="p-5 text-lg font-semibold">Entries posted on approval</h2><div className="overflow-x-auto"><table aria-label="Entries posted on approval" className="w-full text-left text-sm [&_th]:p-3 [&_th]:font-medium [&_td]:p-3"><thead className="border-y bg-muted/40"><tr><th>Event</th><th>Debit</th><th>Credit</th></tr></thead><tbody>
       {[["New fund", "Fund account (GL)", "Selected funding cash / bank"], ["Increase imprest", "Fund account (GL)", "Funding cash / bank"], ["Decrease imprest", "Funding cash / bank", "Fund account (GL)"], ["Close fund", "Funding cash / bank (counted) and Cash Over/Short if short", "Fund account (GL) and Cash Over/Short if over"], ["Change custodian", "No entry", "No entry"]].map(([event, debit, credit]) => <tr key={event} className="border-b last:border-0"><td>{event}</td><td>{debit}</td><td>{credit}</td></tr>)}
     </tbody></table></div></section>
-    {selected && <FundApprovalReview key={selected} id={selected} actorName={actorName} canDecide={canDecide} onClose={() => setSelected(null)} onChanged={changed} />}
+    {selected && <FundApprovalReview key={selected} id={selected} canDecide={canDecide} onClose={() => setSelected(null)} onChanged={changed} />}
   </section>;
 }
 
-function FundApprovalReview({ id, actorName, canDecide, onClose, onChanged }: { id: string; actorName: string; canDecide: boolean; onClose: () => void; onChanged: (result: FundDetails) => void }) {
+function FundApprovalReview({ id, canDecide, onClose, onChanged }: { id: string; canDecide: boolean; onClose: () => void; onChanged: (result: FundDetails) => void }) {
   const [funding, setFunding] = useState<Choice | null>(null), [remarks, setRemarks] = useState(""), [confirmed, setConfirmed] = useState(false), [confirming, setConfirming] = useState(false), [decision, setDecision] = useState<"approve" | "reject" | null>(null);
   const read = useFundRead<FundDetails>(`${root}/funds/${id}`);
   const selectedPreview = useFundRead<FundDetails>(funding ? `${root}/funds/${id}?fundingAccountId=${funding.id}` : null);
@@ -112,9 +110,7 @@ function FundApprovalReview({ id, actorName, canDecide, onClose, onChanged }: { 
         </section>
         {!canDecide && <OnboardingFeedback tone="info" title="Review only"><p>You can review this request, but only users with approval access can approve or reject it.</p></OnboardingFeedback>}
         {canDecide && !data.canDecide && data.decisionBlocker && <OnboardingFeedback tone="warning" title="This request cannot be decided yet"><p>{data.decisionBlocker}</p></OnboardingFeedback>}
-        {canDecide && <><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><label htmlFor="fund-approver" className="text-sm font-medium">Approver</label><Input id="fund-approver" value={actorName} readOnly /></div><Field label="Remarks (required to reject)" id="fund-approval-remarks" value={remarks} onChange={value => { setRemarks(value); command.clearError(); }} maxLength={1000} disabled={locked} error={remarksError} /></div>
-
-        </>}
+        {canDecide && <Field label="Remarks (required to reject)" id="fund-approval-remarks" value={remarks} onChange={value => { setRemarks(value); command.clearError(); }} maxLength={1000} disabled={locked} error={remarksError} />}
       </>}
       {!pending && <p className="text-sm text-muted-foreground">This request has already been decided. Close the review to see its decision in the register.</p>}
     </>}

@@ -3,7 +3,7 @@
 import * as XLSX from "xlsx";
 
 import { PERIOD_KEYS } from "../constants";
-import { phtToday } from "../pht";
+import { phtDisplayDate, phtToday } from "../pht";
 import { carryOut } from "../vatMath";
 import type { CertificateRegister, MonthlyWithholdingRow, QuarterFigures, VatComputation } from "../types";
 
@@ -59,7 +59,7 @@ export function downloadVatWorkbook(input: {
     row.incomeAmount,
     row.taxRate,
     row.taxWithheld,
-    row.dateReceived,
+    phtDisplayDate(row.dateReceived),
     row.sourceRef,
   ]);
 
@@ -102,5 +102,5 @@ export function downloadVatWorkbook(input: {
   );
 
   const today = phtToday(); // PHT, not the UTC date a 01:00 export would otherwise carry
-  XLSX.writeFile(book, `VAT and withholding ${companyName} ${taxYear} ${today}.xlsx`);
+  XLSX.writeFile(book, `vat-withholding-${companyName}-${taxYear}-as-at-${today}.xlsx`);
 }

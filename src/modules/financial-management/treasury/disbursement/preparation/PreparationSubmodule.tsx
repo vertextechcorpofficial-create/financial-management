@@ -24,9 +24,6 @@ import { disbursementProvider } from "../providers/fetchProvider";
 import { formatCurrency } from "../utils/disbursement-utils";
 import { generateDisbursementPDF } from "../utils/pdfGenerator";
 import { StickyTableWrapper } from "../components/StickyTableWrapper";
-import { SearchableDropdown } from "../components/SearchableDropdown";
-import { attachmentUrl, uploadSupportingDocument } from "../utils/attachments";
-import { availablePurchaseOrders, findDuplicateVoucherReference, referenceKey, toggleRecordSelection } from "../utils/references";
 import { isInheritedVatSplitLine, updateVatSplitDivision } from "@/modules/financial-management/treasury/components/payable-line-splits";
 import { replaceEmptyPayablePlaceholders } from "@/modules/financial-management/treasury/components/payable-line-state";
 import { getMemoPayableAmount, isMemoPayableLine, normalizeMemoReference, stripMemoLineMetadata } from "@/modules/financial-management/treasury/components/memo-payable-line";
@@ -60,7 +57,7 @@ function SearchSelect<T extends string | number>({ options, value, onSelect, pla
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
-                <Button disabled={disabled} variant="outline" role="combobox" aria-label={placeholder} aria-expanded={open} className={cn("justify-between w-full h-9 text-xs font-bold uppercase bg-background px-2.5", className)}>
+                <Button disabled={disabled} variant="outline" role="combobox" aria-expanded={open} className={cn("justify-between w-full h-9 text-xs font-bold uppercase bg-background px-2.5", className)}>
                     <span className="truncate text-left">{selectedLabel}</span>
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-55" />
                 </Button>
@@ -173,8 +170,6 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
     const [submitting, setSubmitting] = useState(false);
     const submitLockRef = useRef(false);
     const [uploading, setUploading] = useState(false);
-    const uploadRequestRef = useRef(0);
-    const hydratedVoucherRef = useRef<number | null | undefined>(undefined);
 
     // Print Success Modal
     const [showPrintModal, setShowPrintModal] = useState(false);
@@ -245,7 +240,7 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                 // Filter by date range
                 const matchesDateRange =
                     (!sidebarStartDate || (v.transactionDate && v.transactionDate >= sidebarStartDate)) &&
-                    (!sidebarEndDate || (v.transactionDate && v.transactionDate.split("T")[0] <= sidebarEndDate));
+                    (!sidebarEndDate || (v.transactionDate && v.transactionDate <= sidebarEndDate));
 
                 // Filter by payee supplier
                 const matchesPayee =
@@ -293,12 +288,6 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
 
     // Synchronize form values with active edit voucher
     useEffect(() => {
-        const voucherId = activeVoucher?.id ?? null;
-        // List refreshes must not overwrite unsaved fields or a completed upload.
-        if (hydratedVoucherRef.current === voucherId) return;
-        hydratedVoucherRef.current = voucherId;
-        uploadRequestRef.current += 1;
-        setUploading(false);
         if (activeVoucher) {
             setTransactionTypeId(activeVoucher.transactionTypeName === "Non-Trade" ? 2 : 1);
             setPayeeId(activeVoucher.payeeId || "");
@@ -445,8 +434,6 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
         if (!nextOpen) {
             poAbortControllerRef.current?.abort();
             poRequestIdRef.current += 1;
-            setSelectedPoIds([]);
-            setTaxTypes({});
             setLoadingPos(false);
         }
     }, []);
@@ -526,14 +513,13 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
     }, []);
 
     const handleImportPos = useCallback(() => {
-        const selected = availablePurchaseOrders(unpaidPos, payables).filter(po => selectedPoIds.includes(po.uniqueKey));
+        const selected = unpaidPos.filter(po => selectedPoIds.includes(po.uniqueKey));
         const newPayables = calculateTaxedPayables(selected, taxTypes, today);
 
-        setPayables((prev) => replaceEmptyPayablePlaceholders(prev, newPayables.filter(line => !prev.some(p => referenceKey(p.referenceNo) === referenceKey(line.referenceNo)))));
-        setSelectedPoIds([]);
-        handlePoModalOpenChange(false);
+        setPayables((prev) => replaceEmptyPayablePlaceholders(prev, newPayables));
+        setIsPoModalOpen(false);
         toast.success(`Imported ${selected.length} record(s) successfully`);
-    }, [unpaidPos, payables, selectedPoIds, taxTypes, today, calculateTaxedPayables, handlePoModalOpenChange]);
+    }, [unpaidPos, selectedPoIds, taxTypes, today, calculateTaxedPayables]);
 
     const handleOpenMemoModal = () => {
         if (!payeeId) return toast.error("Please select a Payee first.");
@@ -563,7 +549,7 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
         }
         const finalAmount = getMemoPayableAmount(memo.type, requestedAmount);
 
-        setPayables(current => current.some(line => referenceKey(line.referenceNo) === referenceKey(memo.memo_number)) ? current : [...current, {
+        setPayables([...payables, {
             isMemo: true,
             memoId: memo.id,
             memoType: memo.type,
@@ -585,7 +571,6 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
         () => memos.filter((memo) =>
             Number(memo.supplier_id) === Number(payeeId)
             && [1, 2].includes(Number(memo.type))
-            && !payables.some(line => referenceKey(line.referenceNo) === referenceKey(memo.memo_number))
             && (Number(memo.remaining_amount ?? memo.amount) > 0.01
                 || Boolean(memo.is_locked)
                 || payables.some((payable) => normalizeMemoReference(payable.referenceNo) === normalizeMemoReference(memo.memo_number))),
@@ -626,9 +611,6 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
     const totalAmount = useMemo(() => {
         return payables.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
     }, [payables]);
-    const availablePos = availablePurchaseOrders(unpaidPos, payables);
-    const selectedPoCount = availablePos.filter(po => selectedPoIds.includes(po.uniqueKey)).length;
-    const filteredPos = availablePos.filter(po => `${po.poNo} ${po.receiptNo}`.toLowerCase().includes(poSearchQuery.toLowerCase()));
 
     // Handlers for payable line editing
     const handleAddPayable = () => {
@@ -636,11 +618,11 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
             coaId: undefined,
             divisionId: undefined,
             referenceNo: "",
-            date: "",
+            date: today,
             amount: 0,
             remarks: ""
         };
-        setPayables(current => [...current, newLine]);
+        setPayables([...payables, newLine]);
     };
 
     const handleRemovePayable = (idx: number) => {
@@ -666,26 +648,32 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        const input = e.target;
-        const requestId = ++uploadRequestRef.current;
+
         setUploading(true);
+        const formData = new FormData();
+        formData.append("file", file);
 
         try {
-            const id = await uploadSupportingDocument(file);
-            if (requestId !== uploadRequestRef.current) return;
-            setSupportingDocumentsUrl(id);
+            const res = await fetch("/api/fm/treasury/disbursements/upload", {
+                method: "POST",
+                body: formData,
+            });
+            if (!res.ok) throw new Error("Upload failed");
+            const data = await res.json();
+            const cleanUrl = data.data?.id || data.url || data.uuid || data.id || "";
+            setSupportingDocumentsUrl(cleanUrl);
             toast.success("Supporting document uploaded successfully");
         } catch (err) {
-            if (requestId === uploadRequestRef.current) toast.error(err instanceof Error ? err.message : "Failed to upload supporting document.");
+            console.error(err);
+            toast.error("Failed to upload supporting document.");
         } finally {
-            input.value = "";
-            if (requestId === uploadRequestRef.current) setUploading(false);
+            setUploading(false);
         }
     };
 
     // Submit for approval (Draft -> Submitted)
     const handleSave = async (submitImmediate: boolean) => {
-        if (submitting || submitLockRef.current || uploading) return;
+        if (submitting || submitLockRef.current) return;
         let hasError = false;
         if (!payeeId) hasError = true;
         if (!departmentId) hasError = true;
@@ -713,19 +701,8 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
         }
 
         // Validate line items
-        const duplicateReference = findDuplicateVoucherReference(payables);
-        if (duplicateReference) {
-            setShowValidationErrors(true);
-            toast.error(`Reference ${duplicateReference} is already applied to this voucher.`);
-            return;
-        }
         for (let i = 0; i < payables.length; i++) {
             const p = payables[i];
-            if (!p.divisionId) {
-                setShowValidationErrors(true);
-                toast.error(`Please select a Cost Division on payable row ${i + 1}`);
-                return;
-            }
             if (!p.coaId) {
                 setShowValidationErrors(true);
                 toast.error(`Please select a GL COA account on payable row ${i + 1}`);
@@ -942,14 +919,16 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
 
                         <div className="space-y-1 pt-1">
                             <Label className="text-[8px] font-black uppercase tracking-wider text-muted-foreground/80">Filter Payee</Label>
-                            <SearchableDropdown
-                                options={[{ value: "", label: "All Payees" }, ...suppliers.map(s => ({ value: String(s.id), label: s.supplier_name }))]}
-                                value={String(sidebarPayeeId)}
-                                onSelect={value => setSidebarPayeeId(value === "" ? "" : Number(value))}
-                                placeholder="All Payees"
-                                ariaLabel="Filter payee"
-                                className="h-8 w-full text-xs"
-                            />
+                            <select
+                                className="h-7 w-full rounded-md border border-border/60 bg-background px-2 text-[9px] font-bold uppercase outline-none focus:ring-1 focus:ring-primary/20 cursor-pointer text-foreground"
+                                value={sidebarPayeeId}
+                                onChange={(e) => setSidebarPayeeId(e.target.value === "" ? "" : Number(e.target.value))}
+                            >
+                                <option value="">All Payees</option>
+                                {suppliers.map(s => (
+                                    <option key={s.id} value={s.id}>{s.supplier_name}</option>
+                                ))}
+                            </select>
                         </div>
 
                         {(sidebarStartDate || sidebarEndDate || sidebarPayeeId !== "") && (
@@ -1025,7 +1004,7 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                 <Card className="shadow-md border-border/60 bg-card rounded-2xl overflow-hidden relative">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-primary" />
                     <CardHeader className="border-b bg-muted/5 py-4">
-                        <CardTitle className="text-sm font-black uppercase text-foreground flex flex-wrap items-center justify-between gap-3">
+                        <CardTitle className="text-sm font-black uppercase text-foreground flex items-center justify-between">
                             <span className="flex items-center gap-2">
                                 <Button
                                     variant="outline"
@@ -1157,11 +1136,13 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                                  {/* Supporting Doc Upload */}
                                  <div className="space-y-2 sm:col-span-2 lg:col-span-4 border-t border-dashed border-border pt-4">
                                      <Label className="text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5"><UploadCloud className="w-3.5 h-3.5" /> Supporting Document File <span className="text-destructive">*</span></Label>
-                                     <div className="flex flex-wrap items-center gap-4">
-                                         <Input type="file" accept="image/*,application/pdf" aria-label="Supporting document" aria-invalid={showValidationErrors && !supportingDocumentsUrl} onChange={handleFileUpload} disabled={uploading || submitting} className={cn("max-w-[320px] text-xs cursor-pointer", showValidationErrors && !supportingDocumentsUrl && "border-rose-500 ring-rose-500/30")} />
+                                     <div className="flex items-center gap-4">
+                                         <Input type="file" aria-invalid={showValidationErrors && !supportingDocumentsUrl} onChange={handleFileUpload} disabled={uploading} className={cn("max-w-[320px] text-xs cursor-pointer", showValidationErrors && !supportingDocumentsUrl && "border-rose-500 ring-rose-500/30")} />
                                          {uploading && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
                                          {supportingDocumentsUrl && (
-                                             <a href={attachmentUrl(supportingDocumentsUrl)} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-primary underline">View supporting document</a>
+                                             <Badge variant="outline" className="text-xs bg-emerald-500/10 border-emerald-500/35 text-emerald-600 dark:text-emerald-400 font-bold max-w-[400px] truncate">
+                                                 Doc URL: {supportingDocumentsUrl}
+                                             </Badge>
                                          )}
                                          {showValidationErrors && !supportingDocumentsUrl && (
                                              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Required for approval submission.</span>
@@ -1176,7 +1157,7 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                 {/* Payables allocation Grid */}
                 <Card className="shadow-md border-border/60 bg-card rounded-2xl overflow-hidden relative">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-500" />
-                    <CardHeader className="border-b bg-muted/5 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <CardHeader className="border-b bg-muted/5 py-4 flex flex-row justify-between items-center">
                         <CardTitle className="text-sm font-black uppercase text-foreground flex items-center gap-2">
                             <Calculator className="w-4.5 h-4.5 text-emerald-500 opacity-80" />
                             Debit Payables & Accounts Allocation
@@ -1204,10 +1185,10 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                     <CardContent className="p-0">
                         <StickyTableWrapper className="max-h-[38vh] overflow-auto custom-scrollbar">
                             <Table className="min-w-[1100px] table-fixed">
-                                <TableHeader className="bg-muted sticky top-0 z-10">
+                                <TableHeader className="bg-muted/70 sticky top-0 z-10">
                                     <TableRow>
                                         <TableHead className="text-[9px] font-black uppercase text-muted-foreground w-[220px]">GL Account (COA) <span className="text-destructive">*</span></TableHead>
-                                        <TableHead className="text-[9px] font-black uppercase text-muted-foreground w-[160px]">Cost Division <span className="text-destructive">*</span></TableHead>
+                                        <TableHead className="text-[9px] font-black uppercase text-muted-foreground w-[160px]">Cost Division</TableHead>
                                         <TableHead className="text-[9px] font-black uppercase text-muted-foreground w-[160px]">Reference / PO</TableHead>
                                         <TableHead className="text-[9px] font-black uppercase text-muted-foreground w-[130px]">Invoice Date <span className="text-destructive">*</span></TableHead>
                                         <TableHead className="text-[9px] font-black uppercase text-muted-foreground w-[160px] text-right">Amount (PHP) <span className="text-destructive">*</span></TableHead>
@@ -1244,7 +1225,7 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                                                         onSelect={val => setPayables(updateVatSplitDivision(payables, idx, Number(val)))}
                                                         placeholder="Select Division..."
                                                         disabled={isInheritedVatSplitLine(payables, idx)}
-                                                        className={cn("h-9 font-bold text-xs bg-background", showValidationErrors && !line.divisionId && "border-rose-500 ring-rose-500/20")}
+                                                        className="h-9 font-bold text-xs bg-background"
                                                     />
                                                 </TableCell>
 
@@ -1315,11 +1296,11 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                 </Card>
 
                 {/* Actions Bar */}
-                <div className="flex flex-wrap justify-end gap-3 pt-2">
+                <div className="flex justify-end gap-3 pt-2">
                     <Button 
                         variant="outline" 
                         onClick={() => handleSave(false)} 
-                        disabled={submitting || uploading}
+                        disabled={submitting} 
                         className="h-11 px-6 font-bold uppercase tracking-widest text-xs border-border/80"
                     >
                         {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2 text-muted-foreground" />}
@@ -1327,7 +1308,7 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                     </Button>
                     <Button 
                         onClick={() => handleSave(true)} 
-                        disabled={submitting || uploading}
+                        disabled={submitting} 
                         className="h-11 px-8 font-black uppercase tracking-widest text-xs shadow-md shadow-primary/20 hover:shadow-lg transition-all"
                     >
                         {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FileText className="w-4 h-4 mr-2" />}
@@ -1338,12 +1319,12 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
 
             {/* 🌟 INSTANT PRINT DIALOG (Submodule 1 Feature Integration) 🌟 */}
             <Dialog open={showPrintModal} onOpenChange={setShowPrintModal}>
-                <DialogContent className="w-[calc(100%-2rem)] sm:max-w-[460px] max-h-[90dvh] overflow-y-auto border-border shadow-2xl p-6 bg-background rounded-2xl text-center">
+                <DialogContent className="max-w-[95vw] sm:max-w-[460px] w-full border-border shadow-2xl p-6 bg-background rounded-2xl text-center">
                     <DialogHeader className="flex flex-col items-center">
                         <div className="h-16 w-16 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center mb-4">
                             <Check className="w-8 h-8 stroke-[3]" />
                         </div>
-                        <DialogTitle className="max-w-full break-words text-lg font-black uppercase tracking-tight text-foreground">Voucher Submitted Successfully!</DialogTitle>
+                        <DialogTitle className="text-lg font-black uppercase tracking-tight text-foreground">Voucher Submitted Successfully!</DialogTitle>
                         <DialogDescription className="text-xs font-bold text-muted-foreground uppercase tracking-wider mt-1">
                             Voucher No: {createdDisbursement?.docNo}
                         </DialogDescription>
@@ -1353,7 +1334,7 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                         Do you want to print a copy of this voucher for physical records or ledger archiving now?
                     </div>
 
-                    <div className="flex flex-wrap gap-2.5 justify-center">
+                    <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
                         <Button 
                             variant="outline" 
                             onClick={() => {
@@ -1430,20 +1411,39 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                                             {poLoadError}
                                         </TableCell>
                                     </TableRow>
-                                ) : filteredPos.length === 0 ? (
+                                ) : unpaidPos.filter(po => {
+                                    const matchesSearch = po.poNo.toLowerCase().includes(poSearchQuery.toLowerCase()) ||
+                                        (po.receiptNo && po.receiptNo.toLowerCase().includes(poSearchQuery.toLowerCase()));
+                                    const isAlreadyImported = payables.some(p => p.referenceNo.startsWith(`${po.poNo} / ${po.receiptNo}`));
+                                    return matchesSearch && !isAlreadyImported;
+                                }).length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={5} className="h-24 text-center text-sm font-medium text-muted-foreground">
                                             No matching records found.
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    filteredPos.map(po => (
+                                    unpaidPos.filter(po => {
+                                        const matchesSearch = po.poNo.toLowerCase().includes(poSearchQuery.toLowerCase()) ||
+                                            (po.receiptNo && po.receiptNo.toLowerCase().includes(poSearchQuery.toLowerCase()));
+                                        const isAlreadyImported = payables.some(p => p.referenceNo.startsWith(`${po.poNo} / ${po.receiptNo}`));
+                                        return matchesSearch && !isAlreadyImported;
+                                    }).map(po => (
                                         <TableRow key={po.uniqueKey} className="cursor-pointer hover:bg-muted/50 border-border" onClick={() => {
-                                            setSelectedPoIds(prev => toggleRecordSelection(prev, po.uniqueKey));
+                                            const isChecking = !selectedPoIds.includes(po.uniqueKey);
+                                            setSelectedPoIds(prev => isChecking ? [...prev, po.uniqueKey] : prev.filter(id => id !== po.uniqueKey));
+                                            if (isChecking && !taxTypes[po.uniqueKey]) {
+                                                setTaxTypes(prev => ({...prev, [po.uniqueKey]: "VAT"}));
+                                            }
                                         }}>
                                             <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                                                 <Checkbox checked={selectedPoIds.includes(po.uniqueKey)} onCheckedChange={(checked) => {
-                                                    setSelectedPoIds(prev => toggleRecordSelection(prev, po.uniqueKey, checked === true));
+                                                    if (checked === true) {
+                                                        setSelectedPoIds(prev => prev.includes(po.uniqueKey) ? prev : [...prev, po.uniqueKey]);
+                                                        if (!taxTypes[po.uniqueKey]) setTaxTypes(prev => ({ ...prev, [po.uniqueKey]: "VAT" }));
+                                                    } else {
+                                                        setSelectedPoIds(prev => prev.filter(id => id !== po.uniqueKey));
+                                                    }
                                                 }}/>
                                             </TableCell>
                                             <TableCell className="font-bold text-xs uppercase flex flex-col gap-1 text-foreground mt-1.5 border-none">
@@ -1477,9 +1477,9 @@ export default function PreparationSubmodule({ onSuccess, editData }: Preparatio
                     </StickyTableWrapper>
 
                     <DialogFooter className="mt-4 border-t border-border pt-4">
-                        <Button variant="outline" onClick={() => handlePoModalOpenChange(false)} className="text-[10px] font-black uppercase tracking-widest">Cancel</Button>
-                        <Button onClick={handleImportPos} disabled={selectedPoCount === 0} className="text-[10px] font-black uppercase tracking-widest bg-amber-500 hover:bg-amber-600 text-white">
-                            Import {selectedPoCount} Record(s)
+                        <Button variant="outline" onClick={() => setIsPoModalOpen(false)} className="text-[10px] font-black uppercase tracking-widest">Cancel</Button>
+                        <Button onClick={handleImportPos} disabled={selectedPoIds.length === 0} className="text-[10px] font-black uppercase tracking-widest bg-amber-500 hover:bg-amber-600 text-white">
+                            Import {selectedPoIds.length} Record(s)
                         </Button>
                     </DialogFooter>
                 </DialogContent>

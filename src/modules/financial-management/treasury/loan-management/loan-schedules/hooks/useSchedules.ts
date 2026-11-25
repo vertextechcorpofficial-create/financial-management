@@ -25,6 +25,15 @@ const EMPTY: SchedulePayload = {
   },
   tie: null,
   currentPortion: null,
+  kpis: {
+    nextInstallment: null,
+    overdueAmount: 0,
+    overdueCount: 0,
+    principalPayable: 0,
+    carryingAmount: null,
+    eirRate: 0,
+  },
+  holidays: {},
   agingRows: [],
   aging: emptyBuckets(),
   asOf: "",
@@ -35,6 +44,9 @@ export interface ScheduleFilters {
   version: number | null;
   status: string;
   asOf: string;
+  /** `YYYY-MM-DD`, empty when the desk has not bounded the window. */
+  dueFrom: string;
+  dueTo: string;
 }
 
 /**
@@ -47,6 +59,8 @@ export function useSchedules() {
     version: null,
     status: "ALL",
     asOf: phtToday(),
+    dueFrom: "",
+    dueTo: "",
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSizeState] = useState(SCHEDULE_PAGE_SIZE);
@@ -60,7 +74,13 @@ export function useSchedules() {
     const seq = ++requestSeq.current;
     setIsLoading(true);
     try {
-      const payload = await fetchSchedules({ ...filters, page, pageSize });
+      const payload = await fetchSchedules({
+        ...filters,
+        dueFrom: filters.dueFrom || null,
+        dueTo: filters.dueTo || null,
+        page,
+        pageSize,
+      });
       if (seq !== requestSeq.current) return;
       setData(payload);
       setError(null);

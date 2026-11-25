@@ -150,6 +150,8 @@ export interface ExceptionBoard {
   page: number;
   size: number;
   rows: ExceptionListRow[];
+  /** The rule in force, so the board can state it without guessing. */
+  policy: Policy;
 }
 
 export interface VarianceScanResult {
