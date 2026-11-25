@@ -4,12 +4,14 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { changeLabels } from "../loans/lifecycle";
 import { useLifecycleRead } from "../loans/lifecycle-client";
 import { registerStatusLabels } from "../loans/types";
 import type { reportAgencyRemittances, reportEmployeeLedger, reportEmployees, reportLedgerLoan } from "../server/loan-reports";
+import { CopyReport, ReportControls, useReportView, type ReportView } from "./ReportControls";
 
 const base = "/api/fm/government-loans/reports";
 const labels = { D: "Deducted", P: "Partial", F: "Failed", X: "Final pay", AWAITING: "Awaiting Payroll", NO_RESULT: "No loan result" };
@@ -18,14 +20,14 @@ const refunds = { QUEUED: "Awaiting export", EXPORTED: "Awaiting Payroll", ACKNO
 const money = (value: string | null) => value === null ? "—" : peso(value);
 const idText = (value: string | null, label: string) => value ? <span className="block break-all text-xs text-muted-foreground">{label} {value}</span> : null;
 
-function ReadFeedback({ error, retry, message }: { error?: string; retry: () => void; message: string }) {
+export function ReadFeedback({ error, retry, message }: { error?: string; retry: () => void; message: string }) {
   return <div className="flex flex-wrap items-center gap-2 text-sm">
     <p role={error ? "alert" : "status"}>{error ?? message}</p>
     {error && <Button size="sm" variant="outline" onClick={retry}>Retry</Button>}
   </div>;
 }
 
-function ReportPages({ page, more, change, label }: { page: number; more: boolean; change: (page: number) => void; label: string }) {
+export function ReportPages({ page, more, change, label }: { page: number; more: boolean; change: (page: number) => void; label: string }) {
   if (page === 1 && !more) return null;
   return <nav aria-label={label} className="flex items-center gap-2 text-sm">
     <Button size="sm" variant="outline" disabled={page === 1} onClick={() => change(page - 1)}>Previous</Button>
@@ -87,16 +89,14 @@ function PayrollRows({ employeeId, loanId }: { employeeId: number; loanId: numbe
   </div>;
 }
 
-export function EmployeeLedgerReport() {
+export function EmployeeLedgerReport({ actorId }: { actorId?: number }) {
+  const state = useReportView("ledger", actorId);
   const [q, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [refresh, retry] = useState(0);
-  const [employee, select] = useState<{ id: number; name: string }>();
-  const [loan, setLoan] = useState<number>();
+  const employeeId = state.view.filters.employeeId;
   const options = useLifecycleRead<Awaited<ReturnType<typeof reportEmployees>>>(base + "/employees?" +
     new URLSearchParams({ q, page: String(page) }), refresh);
-  const ledger = useLifecycleRead<Awaited<ReturnType<typeof reportEmployeeLedger>>>(
-    employee ? base + "/employee-ledger?employeeId=" + employee.id : null, refresh);
   return <section className="space-y-4">
     <div className="space-y-2">
       <label className="grid max-w-sm gap-1 text-sm">Search employees with verified loans
@@ -105,16 +105,44 @@ export function EmployeeLedgerReport() {
       {!options?.data && <ReadFeedback error={options?.error} retry={() => retry(value => value + 1)} message="Loading employees…" />}
       {options?.data && <>
         <div className="flex flex-wrap gap-2">{options.data.items.map(option => <Button type="button" size="sm" variant="outline"
-          aria-pressed={employee?.id === option.id} key={option.id} onClick={() => { select(option); setLoan(undefined); }}>
+          aria-pressed={employeeId === String(option.id)} key={option.id} onClick={() => {
+            state.apply({ ...state.view, filters: { ...state.view.filters, employeeId: String(option.id), agency: "" } });
+          }}>
           {option.name} · {option.id}</Button>)}</div>
         {!options.data.items.length && <p className="text-sm text-muted-foreground">No employees with verified loans match.</p>}
         <ReportPages page={page} more={options.data.hasMore} change={setPage} label="Employee pages" />
       </>}
     </div>
-    {employee && <div className="space-y-2">
-      <h3 className="font-semibold">{employee.name} · Loan ledger</h3>
-      {!ledger?.data && <ReadFeedback error={ledger?.error} retry={() => retry(value => value + 1)} message="Loading loan ledger…" />}
-      {ledger?.data && !ledger.data.loans.length && <p className="text-sm text-muted-foreground">No verified loans for this employee.</p>}
+    <EmployeeLoans key={employeeId ?? "unselected"} employeeId={employeeId} state={state} />
+  </section>;
+}
+
+function EmployeeLoans({ employeeId, state }: { employeeId: string | undefined; state: ReportView }) {
+  const [refresh, retry] = useState(0);
+  const [loan, setLoan] = useState<number>();
+  const url = base + "/employee-ledger?" + state.params;
+  const ledger = useLifecycleRead<Awaited<ReturnType<typeof reportEmployeeLedger>>>(employeeId ? url : null, refresh);
+  const data = ledger?.data;
+  return <div className="space-y-3">
+      {employeeId && <h3 className="font-semibold">{data?.employee ?? "Employee " + employeeId} · Loan ledger</h3>}
+      <ReportControls state={state}>
+        {employeeId && <input type="hidden" name="employeeId" value={employeeId} />}
+        <label className="grid gap-1 text-sm">Agency<NativeSelect aria-label="Agency" name="agency"
+          defaultValue={state.view.filters.agency ?? ""}>
+          <option value="">All agencies</option>
+          {!data && state.view.filters.agency && <option value={state.view.filters.agency}>{state.view.filters.agency}</option>}
+          {data?.agencies.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
+        </NativeSelect></label>
+        <label className="grid gap-1 text-sm">Loan status<NativeSelect aria-label="Loan status" name="status"
+          defaultValue={state.view.filters.status ?? ""}>
+          <option value="">Active and closed</option><option value="active">Active</option><option value="closed">Closed</option>
+        </NativeSelect></label>
+      </ReportControls>
+      {data && <><p className="text-sm text-muted-foreground">{data.total} matching loan(s) · Estimated balance {money(data.totalEstimated)}</p>
+        <CopyReport key={url} url={url + "&format=csv"} filename="government-loans-employee-ledger.csv" countLabel="loans" /></>}
+      {!employeeId && <p className="text-sm text-muted-foreground">Select an employee to view their loan ledger.</p>}
+      {employeeId && !ledger?.data && <ReadFeedback error={ledger?.error} retry={() => retry(value => value + 1)} message="Loading loan ledger…" />}
+      {ledger?.data && !ledger.data.loans.length && <p className="text-sm text-muted-foreground">No verified loans match these filters.</p>}
       {ledger?.data?.loans.map(item => <article key={item.id} className="space-y-2 rounded-md border p-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div><h4 className="font-medium">{item.reference} · {item.agency}</h4><p className="text-sm text-muted-foreground">{item.program} · {item.agencyReference}</p></div>
@@ -130,30 +158,48 @@ export function EmployeeLedgerReport() {
         <Button type="button" size="sm" variant="outline" aria-expanded={loan === item.id}
           onClick={() => setLoan(previous => previous === item.id ? undefined : item.id)}>
           {loan === item.id ? "Hide" : "View"} history for {item.reference}</Button>
-        {loan === item.id && <PayrollRows employeeId={employee.id} loanId={item.id} />}
+        {loan === item.id && employeeId && <PayrollRows employeeId={Number(employeeId)} loanId={item.id} />}
       </article>)}
-    </div>}
-    {!employee && <p className="text-sm text-muted-foreground">Select an employee to view their loan ledger.</p>}
-  </section>;
+      {data && <ReportPages page={state.page} more={data.hasMore} change={state.setPage} label="Ledger pages" />}
+    </div>;
 }
 
-export function RemittanceReport() {
-  const [period, setPeriod] = useState("");
-  const [page, setPage] = useState(1);
+const remittanceFilters = { awaiting_payroll: "Awaiting Payroll", nothing: "Nothing to remit", open: "Not yet remitted",
+  pending: "Awaiting approval", returned: "Returned", on_time: "Remitted on time", late: "Remitted late" };
+
+export function RemittanceReport({ actorId }: { actorId?: number }) {
+  const state = useReportView("remittances", actorId);
   const [refresh, retry] = useState(0);
-  const params = new URLSearchParams({ page: String(page) });
-  if (period) params.set("month", period);
-  const report = useLifecycleRead<Awaited<ReturnType<typeof reportAgencyRemittances>>>(base + "/remittances?" + params, refresh);
+  const url = base + "/remittances?" + state.params;
+  const report = useLifecycleRead<Awaited<ReturnType<typeof reportAgencyRemittances>>>(url, refresh);
+  const data = report?.data;
   return <section className="space-y-3">
-    <div className="flex flex-wrap items-end gap-2">
+    <ReportControls state={state}>
       <label className="grid gap-1 text-sm">Payroll month
-        <Input type="month" value={period} max={report?.data?.openMonth} onChange={event => { setPeriod(event.target.value); setPage(1); }} />
+        <Input type="month" name="month" defaultValue={state.view.filters.month ?? ""} max={data?.openMonth} />
       </label>
-      {period && <Button size="sm" variant="outline" onClick={() => { setPeriod(""); setPage(1); }}>Recent 14 months</Button>}
-    </div>
+      <label className="grid gap-1 text-sm">Payroll year
+        <Input type="number" name="year" min={1000} max={data?.openMonth.slice(0, 4) ?? 9999}
+          defaultValue={state.view.filters.year ?? ""} />
+      </label>
+      <label className="grid gap-1 text-sm">Agency<NativeSelect aria-label="Agency" name="agency"
+        defaultValue={state.view.filters.agency ?? ""}>
+        <option value="">All agencies</option>
+        {!data && state.view.filters.agency && <option value={state.view.filters.agency}>{state.view.filters.agency}</option>}
+        {data?.agencies.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
+      </NativeSelect></label>
+      <label className="grid gap-1 text-sm">Remittance status<NativeSelect aria-label="Remittance status" name="status"
+        defaultValue={state.view.filters.status ?? ""}>
+        <option value="">All statuses</option>
+        {Object.entries(remittanceFilters).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </NativeSelect></label>
+    </ReportControls>
     {!report?.data && <ReadFeedback error={report?.error} retry={() => retry(value => value + 1)} message="Loading remittance report…" />}
     {report?.data && <>
-      <p className="text-sm text-muted-foreground">{report.data.total} agency-month record(s)</p>
+      <p className="text-sm text-muted-foreground">{report.data.total} agency-month record(s) · {report.data.totals.awaiting} awaiting Payroll</p>
+      <p className="text-sm">Filtered totals · Confirmed withholding {money(report.data.totals.withheld)} · Remitted {money(report.data.totals.remitted)}
+        {" · Known outstanding " + money(report.data.totals.outstanding) + " · Approved penalties " + money(report.data.totals.penalties)}</p>
+      <CopyReport key={url} url={url + "&format=csv"} filename="government-loans-remittances.csv" />
       <div className="rounded-md border"><Table><TableHeader><TableRow>
         {["Agency", "Payroll month", "Withheld", "Remitted principal", "Outstanding", "Due date", "Payment date", "Days late", "Penalty", "Reference", "Status"]
           .map(label => <TableHead key={label}>{label}</TableHead>)}
@@ -171,7 +217,7 @@ export function RemittanceReport() {
         </TableRow>)}
         {!report.data.items.length && <TableRow><TableCell colSpan={11}>No remittance records for this period.</TableCell></TableRow>}
       </TableBody></Table></div>
-      <ReportPages page={page} more={report.data.hasMore} change={setPage} label="Remittance report pages" />
+      <ReportPages page={state.page} more={report.data.hasMore} change={state.setPage} label="Remittance report pages" />
     </>}
   </section>;
 }
