@@ -57,7 +57,8 @@ export type EnrollmentListItem = {
   importBatchId: number | null;
 };
 
-export type EnrollmentPage = Page<EnrollmentListItem> & { openMonth: string | null };
+export type EnrollmentSummary = Record<EnrollmentStatus, number>;
+export type EnrollmentPage = Page<EnrollmentListItem> & { openMonth: string | null; summary: EnrollmentSummary };
 export type EnrollmentEvidence = { kind: EnrollmentEvidenceKind; name: string };
 export type EnrollmentDetail = EnrollmentListItem & {
   request: LoanRequest;
