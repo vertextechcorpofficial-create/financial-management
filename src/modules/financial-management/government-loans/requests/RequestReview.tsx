@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { RequestCapacity } from "./RequestCapacity";
-import { cancelRequest, RequestApiError, requestDocumentUrl } from "./request-api";
+import { RequestApiError, staffRequestApi } from "./request-api";
 import { canCancelRequest } from "./request-rules";
 import {
   applicationTypes, requestDecisionLabels, requestStatusLabels, type DocumentKind, type LoanRequest,
@@ -70,8 +70,9 @@ export function RequestDecisionHistory({ items }: { items: LoanRequest["decision
     </RequestSection>;
 }
 
-export function RequestReview({ record, onBack, onCancelled, onReload }: {
+export function RequestReview({ record, onBack, onCancelled, onReload, api = staffRequestApi }: {
   record: LoanRequest; onBack: () => void; onCancelled: () => void; onReload: () => void;
+  api?: typeof staffRequestApi;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -86,7 +87,7 @@ export function RequestReview({ record, onBack, onCancelled, onReload }: {
     try {
       const text = reason.trim();
       if (attempt.current?.reason !== text) attempt.current = { reason: text, key: consignmentRequestId() };
-      await cancelRequest(record, text, attempt.current.key);
+      await api.cancelRequest(record, text, attempt.current.key);
       setOpen(false);
       onCancelled();
     } catch (cause) {
@@ -130,6 +131,6 @@ export function RequestReview({ record, onBack, onCancelled, onReload }: {
         </AlertDialogContent>
       </AlertDialog>}
     </div>
-    <RequestDetails record={record} documentHref={kind => requestDocumentUrl(record.id, kind)} />
+    <RequestDetails record={record} documentHref={kind => api.requestDocumentUrl(record.id, kind)} />
   </div>;
 }

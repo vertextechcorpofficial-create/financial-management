@@ -8,9 +8,9 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { agencyOptions, getRequest, getRequests } from "./request-api";
+import { employeeRequestApi, staffRequestApi } from "./request-api";
 import { RequestEditor } from "./RequestEditor";
-import { requestStatusLabels, requestViews, type AgencyChoice, type LoanRequest, type Page, type RequestListItem, type RequestView } from "./types";
+import { requestStatusLabels, requestViews, type AgencyChoice, type EmployeeChoice, type LoanRequest, type Page, type RequestListItem, type RequestView } from "./types";
 
 function LoadError({ message, retry }: { message: string; retry: () => void }) {
   return <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border p-3 text-sm">
@@ -18,7 +18,8 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-export function LoanRequestsModule() {
+export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeChoice, "id" | "name"> } = {}) {
+  const { agencyOptions, getRequest, getRequests } = applicant ? employeeRequestApi : staffRequestApi;
   const [view, setView] = useState<RequestView>("in-progress");
   const [selected, setSelected] = useState<number | "new" | null>(null);
   const [search, setSearch] = useState("");
@@ -53,7 +54,7 @@ export function LoanRequestsModule() {
       if (!controller.signal.aborted) setAgencies({ items: [], error: error instanceof Error ? error.message : "Agencies could not be loaded." });
     });
     return () => controller.abort();
-  }, [agencyAttempt]);
+  }, [agencyAttempt, agencyOptions]);
 
   useEffect(() => {
     if (selected !== null) return;
@@ -66,7 +67,7 @@ export function LoanRequestsModule() {
       });
     }, 160);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [selected, serialized, listKey]);
+  }, [selected, serialized, listKey, getRequests]);
 
   useEffect(() => {
     if (typeof selected !== "number") return;
@@ -77,7 +78,7 @@ export function LoanRequestsModule() {
       if (!controller.signal.aborted) setDetail({ id: selected, attempt, error: error instanceof Error ? error.message : "The request could not be loaded." });
     });
     return () => controller.abort();
-  }, [selected, attempt]);
+  }, [selected, attempt, getRequest]);
 
   function showList(next?: RequestView) {
     setSelected(null);
@@ -96,7 +97,7 @@ export function LoanRequestsModule() {
   if (selected !== null) return <div className="space-y-3">
     {agencyError}
     {selected === "new" || record?.record ? <RequestEditor key={selected + ":" + attempt} initial={record?.record ?? null}
-      agencies={agencies.items} onBack={showList} onReload={id => { setSelected(id); setAttempt(value => value + 1); }} /> :
+      agencies={agencies.items} applicant={applicant} onBack={showList} onReload={id => { setSelected(id); setAttempt(value => value + 1); }} /> :
       <div className="space-y-3">
         <Button variant="ghost" onClick={() => showList()}>Back to requests</Button>
         {record?.error ? <LoadError message={record.error} retry={() => setAttempt(value => value + 1)} /> :
@@ -106,8 +107,8 @@ export function LoanRequestsModule() {
 
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <h2 className="text-base font-semibold">Loan requests</h2>
-      <Button type="button" onClick={() => setSelected("new")}><Plus /> New request</Button>
+      <h2 className="text-base font-semibold">{applicant ? isDrafts ? "Your unfinished requests" : "Your loan requests" : "Loan requests"}</h2>
+      <Button type="button" onClick={() => setSelected("new")}><Plus /> {applicant ? "Apply for a loan" : "New request"}</Button>
     </div>
     {agencyError}
     <div className="flex flex-wrap items-center gap-2">
@@ -116,7 +117,7 @@ export function LoanRequestsModule() {
           onClick={() => { setView(value); setPage(1); }}>{requestViews[value].label}</Button>)}
     </div>
     <div className="flex flex-wrap gap-2">
-      <Input className="max-w-sm" aria-label="Search requests" placeholder="Employee, agency, or request no."
+      <Input className="max-w-sm" aria-label="Search requests" placeholder={applicant ? "Agency or request no." : "Employee, agency, or request no."}
         value={search} maxLength={120} onChange={event => { setSearch(event.target.value); setPage(1); }} />
       <NativeSelect aria-label="Filter by agency" value={agency} onChange={event => { setAgency(event.target.value); setPage(1); }}>
         <option value="">All agencies</option>
@@ -129,18 +130,18 @@ export function LoanRequestsModule() {
       <div className="overflow-hidden rounded-lg border">
         <Table>
           <TableHeader><TableRow>
-            <TableHead>Request</TableHead><TableHead>Employee</TableHead><TableHead>Agency / program</TableHead>
+            <TableHead>Request</TableHead>{!applicant && <TableHead>Employee</TableHead>}<TableHead>Agency / program</TableHead>
             <TableHead className="text-right">Amount</TableHead>
             <TableHead>{isDrafts ? "Missing fields" : "Status"}</TableHead>
             <TableHead>{isDrafts ? "Last saved" : view === "decided" ? "Last updated" : "Filed"}</TableHead>
           </TableRow></TableHeader>
           <TableBody>
-            {!current.data.items.length && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+            {!current.data.items.length && <TableRow><TableCell colSpan={applicant ? 5 : 6} className="py-8 text-center text-muted-foreground">
               {isDrafts ? "No drafts found." : view === "decided" ? "No decisions found." : "No submitted requests found."}
             </TableCell></TableRow>}
             {current.data.items.map(item => <TableRow key={item.id}>
               <TableCell><Button variant="link" size="sm" className="px-0" type="button" onClick={() => setSelected(item.id)}>{item.reference}</Button></TableCell>
-              <TableCell>{item.employeeName ?? "—"}</TableCell>
+              {!applicant && <TableCell>{item.employeeName ?? "—"}</TableCell>}
               <TableCell>{item.agencyName ?? "—"}{item.program && <span className="block text-xs text-muted-foreground">{item.program}</span>}</TableCell>
               <TableCell className="text-right tabular-nums">{item.amount ? peso(item.amount) : "—"}</TableCell>
               <TableCell>{isDrafts ? Object.keys(item.missing).length
