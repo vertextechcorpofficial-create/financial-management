@@ -10,6 +10,7 @@ import {
 } from "./directus";
 import { readEnrollmentRows } from "./enrollment-sources";
 import { isoDateTime } from "./loan-requests";
+import { payrollMonthFilter } from "./payroll-month-filter";
 import { positiveId } from "./request-input";
 
 export const payrollMonth = z.string().regex(/^[1-9]\d{3}-(0[1-9]|1[0-2])$/);
@@ -66,7 +67,7 @@ export async function readReceiptByCommand(key: string) {
 
 export async function readLatestReceipts(firstMonth: string, throughMonth: string) {
   const rows = await readPayrollPages(GOVERNMENT_LOAN_PAYROLL_RECEIPTS, receiptRow, Object.keys(receiptRow.shape).join(","),
-    { month: { _gte: firstMonth, _lte: throughMonth } }, "month,-revision,id");
+    payrollMonthFilter("month", firstMonth, throughMonth), "month,-revision,id");
   const latest = new Map<string, PayrollReceipt>();
   for (const row of rows) {
     if (!latest.has(row.month)) latest.set(row.month, row);
@@ -75,7 +76,9 @@ export async function readLatestReceipts(firstMonth: string, throughMonth: strin
 }
 
 export async function hasLaterReceipt(month: string) {
-  const rows = await readEnrollmentRows(GOVERNMENT_LOAN_PAYROLL_RECEIPTS, z.object({ id: z.uuid() }), "id", { month: { _gt: month } }, 1);
+  if (month === "9999-12") return false;
+  const rows = await readEnrollmentRows(GOVERNMENT_LOAN_PAYROLL_RECEIPTS, z.object({ id: z.uuid() }), "id",
+    payrollMonthFilter("month", monthAfter(month), "9999-12"), 1);
   return rows.length > 0;
 }
 
@@ -100,14 +103,16 @@ function payrollResult(row: z.output<typeof resultRow>): MonthlyResult & { recei
 export async function readLatestLoanPayroll(loanIds: number[], receipts: ReadonlyMap<string, PayrollReceipt>) {
   const result = new Map<number, Awaited<ReturnType<typeof readPayrollResults>>>();
   if (!loanIds.length || !receipts.size) return result;
-  const months = [...receipts.keys()].sort();
-  const rows = await readPayrollResults({
-    request_id: { _in: loanIds }, month: { _gte: months[0], _lte: months.at(-1) },
-  });
-  for (const row of rows) {
-    if (receipts.get(row.month)?.id !== row.receiptId) continue;
-    if (!result.has(row.loanId)) result.set(row.loanId, []);
-    result.get(row.loanId)!.push(row);
+  const receiptIds = [...receipts.values()].map(receipt => receipt.id);
+  for (let start = 0; start < receiptIds.length; start += 25) {
+    const rows = await readPayrollResults({
+      request_id: { _in: loanIds }, receipt_id: { _in: receiptIds.slice(start, start + 25) },
+    });
+    for (const row of rows) {
+      if (receipts.get(row.month)?.id !== row.receiptId) continue;
+      if (!result.has(row.loanId)) result.set(row.loanId, []);
+      result.get(row.loanId)!.push(row);
+    }
   }
   return result;
 }

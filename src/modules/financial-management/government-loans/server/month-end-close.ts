@@ -18,6 +18,7 @@ import { readChangeInstructions } from "./loan-changes";
 import { isoDateTime } from "./loan-requests";
 import { buildAgencyRollforward, readOpeningRollforward, rollforwardSchema } from "./month-end-rollforward";
 import { payrollMoney, payrollMonth, readLatestReceipts, readPayrollPages, receiptSummary } from "./payroll-month-store";
+import { payrollMonthFilter } from "./payroll-month-filter";
 import { nextPeriodCommand, readOpenMonth } from "./period-commands";
 import { readRemittanceOverview } from "./remittance-records";
 import { flag, LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
@@ -57,9 +58,9 @@ async function buildChecklist(month: string) {
   const [agencies, receipts, payments, instructions, previous] = await Promise.all([
     readPayrollPages(GOVERNMENT_LOAN_AGENCIES, agencySchema, Object.keys(agencySchema.shape).join(","), {}, "id"),
     readLatestReceipts("1000-01", month),
-    readRemittanceOverview({ _or: [{ payroll_month: { _lt: month } },
+    readRemittanceOverview({ _or: [payrollMonthFilter("payroll_month", "1000-01", monthAfter(month, -1)),
       { state: { _eq: "APPROVED" }, payment_date: { _lte: endDate } }] }),
-    readChangeInstructions({ action: { _in: ["SEPARATION", "REFUND"] }, effective_month: { _lte: month },
+    readChangeInstructions({ ...payrollMonthFilter("effective_month", "1000-01", month), action: { _in: ["SEPARATION", "REFUND"] },
       state: { _nin: ["CANCELLED", "PAID"] } }),
     readOpeningRollforward(monthAfter(month, -1)),
   ]);

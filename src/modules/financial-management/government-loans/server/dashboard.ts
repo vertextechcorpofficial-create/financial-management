@@ -7,7 +7,7 @@ import { amountFromCentavos, projectLoanPosition } from "../loans/position";
 import { centavos } from "../payroll-handoff/contract";
 import { remittanceLiability } from "../remittances/approval/rules";
 import { dayDifference, remitKey, remittanceDeadline, remittanceStatus } from "../remittances/preparation/rules";
-import { GOVERNMENT_LOANS_WORKSPACES, type GovernmentLoansWorkspaceKey } from "../workspaces";
+
 import { readSavedBillingComparison } from "./agency-billing";
 import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_PAYROLL_RESULTS, GOVERNMENT_LOAN_REMITTANCES, GOVERNMENT_LOAN_REQUESTS,
   GOVERNMENT_LOAN_STAFF_EVENTS, readGovernmentLoansItems, type GovernmentLoansCollection } from "./directus";
@@ -18,6 +18,7 @@ import { readMonthlyLoanSchedules } from "./loan-register";
 import { isoDateTime } from "./loan-requests";
 import { buildAgencyRollforward, readOpeningRollforward, signedRollforwardAmount } from "./month-end-rollforward";
 import { readLatestReceipts, readPayrollPages, type PayrollReceipt } from "./payroll-month-store";
+import { payrollMonthFilter } from "./payroll-month-filter";
 import { nextPeriodCommand } from "./period-commands";
 import { latestRemittances, readRemittanceOverview } from "./remittance-records";
 import { flag, LoanRequestError, positiveId } from "./request-input";
@@ -70,7 +71,7 @@ async function readWithholding(receipts: ReadonlyMap<string, PayrollReceipt>) {
   return result;
 }
 
-export async function readLoanDashboard(grants: readonly GovernmentLoansWorkspaceKey[], now = new Date()) {
+export async function readLoanDashboard(now = new Date()) {
   const month = await readOpenLoanMonth();
   const priorMonth = monthAfter(month, -1);
   const businessDate = manilaDate.format(now);
@@ -81,11 +82,11 @@ export async function readLoanDashboard(grants: readonly GovernmentLoansWorkspac
     await Promise.all([
       readPayrollPages(GOVERNMENT_LOAN_AGENCIES, agencyRow, Object.keys(agencyRow.shape).join(","), {}, "id"),
       readLatestReceipts("1000-01", month),
-      readRemittanceOverview({ _or: [{ payroll_month: { _lte: month } }, { state: { _eq: "APPROVED" },
+      readRemittanceOverview({ _or: [payrollMonthFilter("payroll_month", "1000-01", month), { state: { _eq: "APPROVED" },
         payment_date: { _gte: year + "-01-01", _lte: businessDate } }] }),
       priorMonth < businessDate.slice(0, 7) ? readOpeningRollforward(priorMonth) : null,
       readMonthlyLoanSchedules(month),
-      readChangeInstructions({ action: { _in: ["REFUND", "SEPARATION"] }, effective_month: { _lte: month },
+      readChangeInstructions({ ...payrollMonthFilter("effective_month", "1000-01", month), action: { _in: ["REFUND", "SEPARATION"] },
         state: { _nin: ["PAID", "CANCELLED"] } }),
       count(GOVERNMENT_LOAN_REQUESTS, { status: { _eq: "REQUESTED" }, requested_at: { _nnull: true, _lt: cutoff } }),
       overdueEnrollments(now),
@@ -130,11 +131,11 @@ export async function readLoanDashboard(grants: readonly GovernmentLoansWorkspac
     if (row.action === "SEPARATION" && (finalPayMonths.get(row.request_id) ?? "") < row.effective_month) pendingSeparation.add(row.request_id);
   }
 
-  const alerts: { key: string; title: string; detail: string; count: number; href: string | null }[] = [];
-  function alert(key: string, title: string, total: number, workspace: GovernmentLoansWorkspaceKey, tab?: string, detail = "") {
+  const alerts: { key: string; title: string; detail: string; count: number;
+    severity: "critical" | "warning" | "info" }[] = [];
+  function alert(key: string, title: string, total: number, detail = "", severity: "critical" | "warning" | "info" = "warning") {
     if (!total) return;
-    const target = grants.includes(workspace) && GOVERNMENT_LOANS_WORKSPACES.find(item => item.key === workspace);
-    alerts.push({ key, title, count: total, detail, href: target ? target.path + (tab ? "?tab=" + tab : "") : null });
+    alerts.push({ key, title, count: total, detail, severity });
   }
 
   const monthByReceipt = new Map([...receipts].map(([period, receipt]) => [receipt.id, period]));
@@ -166,7 +167,8 @@ export async function readLoanDashboard(grants: readonly GovernmentLoansWorkspac
       const status = remittanceStatus(withheld, payment?.state ?? null, businessDate, due, agency.reminder_days, payment?.payment_date);
       const residual = payment?.state === "APPROVED" && amount > centavos(payment.withheld);
       if (period === month || period === priorMonth) {
-        deadlines.push({ key, agency: agency.display_name, month: period, withheld, due,
+        deadlines.push({ key, agencyId: agency.id, agency: agency.display_name, month: period, withheld, due,
+          daysUntilDue: dayDifference(businessDate, due),
           label: residual ? "Balance to reconcile" : status.label, status: status.status });
       }
       if (residual || status.reminder) deadlineAlerts.push({ key, agency: agency.display_name, month: period, due,
@@ -174,16 +176,24 @@ export async function readLoanDashboard(grants: readonly GovernmentLoansWorkspac
     }
   }
   deadlineAlerts.sort((a, b) => a.due.localeCompare(b.due) || a.key.localeCompare(b.key));
-  for (const row of deadlineAlerts) {
-    alert("deadline:" + row.key, row.agency + (row.residual ? " remittance balance changed" : row.overdue ? " remittance overdue" : " remittance due soon"),
-      1, "remittances", "to-remit", row.month + " · Due " + row.due);
+  if (deadlineAlerts.length) {
+    const overdue = deadlineAlerts.filter(row => row.overdue).length;
+    const residual = deadlineAlerts.filter(row => row.residual).length;
+    const first = deadlineAlerts[0];
+    const summary = [overdue ? overdue + " overdue" : "", residual ? residual + " balance changed" : ""]
+      .filter(Boolean).join(" · ");
+    alert("deadlines", overdue ? "Overdue remittance deadlines" : residual ? "Remittance balances changed" : "Remittances due soon",
+      deadlineAlerts.length,
+      first.agency + " · " + first.month + " · due " + first.due +
+      (deadlineAlerts.length > 1 ? " · +" + (deadlineAlerts.length - 1) + " more" : "") + (summary ? " · " + summary : ""),
+      overdue ? "critical" : "warning");
   }
-  alert("loan-approval", "Loan requests past the approval SLA", waitingRequests, "loan-approval", "loan-requests");
-  alert("verification", "Enrollments past the verification SLA", waitingVerification, "loan-approval", "enrollment-verification");
-  alert("remittance-approval", "Remittances past the approval SLA", waitingPayments, "remittance-approval");
-  alert("payroll", "Payroll receipt is missing", receipts.has(month) ? 0 : 1, "month-end-close", undefined, month);
-  alert("final-pay", "Loans awaiting final-pay results", pendingSeparation.size, "loans", "changes");
-  alert("separation", "Separating employees with active loans", separating.length, "loans", "onboarding-exits");
+  alert("loan-approval", "Loan requests past the approval SLA", waitingRequests, "", "critical");
+  alert("verification", "Enrollments past the verification SLA", waitingVerification, "", "critical");
+  alert("remittance-approval", "Remittances past the approval SLA", waitingPayments, "", "critical");
+  alert("payroll", "Payroll receipt is missing", receipts.has(month) ? 0 : 1, month, "critical");
+  alert("final-pay", "Loans awaiting final-pay results", pendingSeparation.size, "", "warning");
+  alert("separation", "Separating employees with active loans", separating.length, "", "info");
 
   for (const period of [month, priorMonth]) {
     let projected = 0;
@@ -197,13 +207,23 @@ export async function readLoanDashboard(grants: readonly GovernmentLoansWorkspac
       } else if (comparison.mode === "actual") actual += comparison.totals.discrepancies;
       else projected += comparison.totals.discrepancies;
     }
-    alert("billing:actual:" + period, "Actual billing differences", actual, "remittances", "billing-reconciliation", period);
-    alert("billing:projected:" + period, "Projected billing differences", projected, "remittances", "billing-reconciliation", period);
-    alert("billing:missing:" + period, "Expected agency bills are missing", missing, "remittances", "billing-reconciliation", period);
+    alert("billing:actual:" + period, "Actual billing differences", actual, period, "warning");
+    alert("billing:projected:" + period, "Projected billing differences", projected, period, "warning");
+    alert("billing:missing:" + period, "Expected agency bills are missing", missing, period, "warning");
   }
-  alert("missed", "Active loans with a partial or missed deduction", missed, "loans", "payroll-instructions");
-  alert("refund", "Employee refunds awaiting payout", refund, "loans", "changes");
-  alert("disputes", "Unresolved posting disputes", filedDisputes - resolvedDisputes, "loans", "posting-disputes");
+  alert("missed", "Active loans with a partial or missed deduction", missed, "", "warning");
+  alert("refund", "Employee refunds awaiting payout", refund, "", "warning");
+  alert("disputes", "Unresolved posting disputes", filedDisputes - resolvedDisputes, "", "info");
+
+  const severityOrder = { critical: 0, warning: 1, info: 2 } as const;
+  const alertOrder = ["payroll", "loan-approval", "verification", "remittance-approval", "deadlines",
+    "billing", "missed", "final-pay", "refund", "separation", "disputes"];
+  const alertRank = (key: string) => {
+    const index = alertOrder.indexOf(key.split(":")[0]);
+    return index === -1 ? alertOrder.length : index;
+  };
+  alerts.sort((left, right) => severityOrder[left.severity] - severityOrder[right.severity] ||
+    alertRank(left.key) - alertRank(right.key) || left.title.localeCompare(right.title));
 
   if ((await nextPeriodCommand(month)).sequence !== sequence.sequence) {
     throw new LoanRequestError(409, "Government Loans activity changed while loading. Refresh the dashboard.");
@@ -211,8 +231,12 @@ export async function readLoanDashboard(grants: readonly GovernmentLoansWorkspac
   const { closing, opening: openingBalance, remitted } = rollforward.totals;
   const knownBalance = (balance: string | null, start: string, paid: string) =>
     balance ?? amountFromCentavos(signedRollforwardAmount(start) - signedRollforwardAmount(paid));
+  const programTotals = [...groups.values()].reduce((total, row) => ({
+    count: total.count + row.count, amortization: total.amortization + row.amortization, remaining: total.remaining + row.remaining,
+  }), { count: 0, amortization: 0n, remaining: 0n });
   return {
-    month, businessDate, year, activeLoans, monthlyAmortizations: amountFromCentavos(monthlyAmortizations),
+    month, businessDate, year, refreshedAt: now.toISOString(), activeLoans, activeEmployees: activeEmployees.size,
+    monthlyAmortizations: amountFromCentavos(monthlyAmortizations),
     withheld: knownBalance(closing, openingBalance, remitted),
     payrollReceived: rollforward.complete, penalties, alerts,
     agencyBalances: rollforward.rows.map(row => ({ agencyId: row.agencyId, agency: row.agency, code: row.code,
@@ -220,5 +244,7 @@ export async function readLoanDashboard(grants: readonly GovernmentLoansWorkspac
     deadlines: deadlines.sort((a, b) => b.month.localeCompare(a.month) || a.due.localeCompare(b.due) || a.agency.localeCompare(b.agency)),
     programs: [...groups.values()].sort((a, b) => a.agency.localeCompare(b.agency) || a.program.localeCompare(b.program))
       .map(row => ({ ...row, amortization: amountFromCentavos(row.amortization), remaining: amountFromCentavos(row.remaining) })),
+    programTotals: { count: programTotals.count, amortization: amountFromCentavos(programTotals.amortization),
+      remaining: amountFromCentavos(programTotals.remaining) },
   };
 }
