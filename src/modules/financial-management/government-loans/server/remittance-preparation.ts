@@ -19,8 +19,8 @@ import { readOpenMonth } from "./loan-enrollment";
 import { readCurrentPayrollReceipt, readLatestReceipts, readPayrollResultPage, readPayrollResults,
   readPayrollPages, payrollMoney, payrollMonth } from "./payroll-month-store";
 import { nextPeriodCommand } from "./period-commands";
-import { channelInput, paymentDate, readRemittanceOverview, readSavedBatch, readSavedRemittance, remittanceBatchSummary,
-  type RemittanceOverview } from "./remittance-records";
+import { channelInput, latestRemittances, paymentDate, readRemittanceOverview, readSavedBatch, readSavedRemittance,
+  remittanceBatchSummary } from "./remittance-records";
 import { downloadLoanDocument, privateRequestFolder } from "./request-documents";
 import { LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
 
@@ -56,17 +56,6 @@ async function readAgencies() {
     result.push(...data.agencies);
     if (!data.hasMore) return result;
   }
-}
-
-function latestRemittances(rows: RemittanceOverview[]) {
-  const map = new Map<string, RemittanceOverview>();
-  for (const row of rows) {
-    const key = remitKey(row.agency_id, row.payroll_month);
-    const existing = map.get(key);
-    // A live record takes precedence over a returned attempt.
-    if (!existing || (existing.state === "RETURNED" && row.state !== "RETURNED")) map.set(key, row);
-  }
-  return map;
 }
 
 export async function listRemittancePreparation(params: URLSearchParams) {

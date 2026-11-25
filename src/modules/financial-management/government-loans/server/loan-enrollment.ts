@@ -14,7 +14,7 @@ import { ENROLLMENT_PAGE_SIZE } from "../enrollment/verification-types";
 import { positiveMoney } from "../requests/request-rules";
 import { emptyRequest, type AgencyChoice } from "../requests/types";
 import type { AgencyActor } from "./agencies";
-import { GOVERNMENT_LOAN_REQUESTS, GOVERNMENT_LOAN_SETTINGS } from "./directus";
+import { GOVERNMENT_LOAN_REQUESTS } from "./directus";
 import {
   enrollmentBenefitCode as benefitCode, readEnrollmentRows as rows, readLinkedPayrollLoans, readPayrollReferences, readReservedReferences,
 } from "./enrollment-sources";
@@ -23,6 +23,7 @@ import {
   referenceFor, requestDetailRow, requestDetails, requestRow, type StoredLoanDocument,
 } from "./loan-requests";
 import { enrollmentPayrollLinks } from "./payroll-handoff-store";
+import { readOpenMonth } from "./period-commands";
 import { activeAgency, activeEmployee, employeeName } from "./request-assessment";
 import { LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
 
@@ -70,10 +71,7 @@ const detailRow = requestDetailRow.extend({
 });
 export type EnrollmentRecord = z.output<typeof detailRow>;
 
-export async function readOpenMonth() {
-  const [row] = await rows(GOVERNMENT_LOAN_SETTINGS, z.object({ open_month: z.string().nullable() }), "open_month", { id: { _eq: 1 } }, 1);
-  return row && deductionMonths(row.open_month).length ? row.open_month : null;
-}
+export { readOpenMonth };
 
 export function enrollmentListItem(row: z.output<typeof listRow>): EnrollmentListItem {
   return {

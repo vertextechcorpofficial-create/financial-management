@@ -19,7 +19,7 @@ export type RemittancePolicy = Pick<AgencySettings, "deadlineRule" | "deadlineDa
 export const remitKey = (agencyId: number, month: string) => agencyId + ":" + month;
 export const dayDifference = (from: string, to: string) => (Date.parse(to) - Date.parse(from)) / 86_400_000;
 
-export function remittanceDeadline(month: string, policy: RemittancePolicy) {
+export function remittanceDeadline(month: string, policy: Pick<RemittancePolicy, "deadlineRule" | "deadlineDay">) {
   const followingMonth = monthAfter(month);
   if (policy.deadlineRule === "FIXED_DAY") return followingMonth + "-" + String(policy.deadlineDay).padStart(2, "0");
   const [year, next] = followingMonth.split("-").map(Number);

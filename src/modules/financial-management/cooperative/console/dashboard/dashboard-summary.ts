@@ -141,6 +141,8 @@ export function buildDashboardSummary(
       approvals: allowed.has("approvals") ? sources.links?.approvals : undefined,
       aging: allowed.has("reports") ? sources.links?.aging : undefined,
       journal: allowed.has("transactions") ? sources.links?.journal : undefined,
+      members: allowed.has("members") ? sources.links?.members : undefined,
+      loans: allowed.has("loans") ? sources.links?.loans : undefined,
     },
   };
 }
