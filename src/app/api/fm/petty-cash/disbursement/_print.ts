@@ -24,7 +24,14 @@ export function table(doc: jsPDF, y: number, options: UserOptions) {
 export function finish(doc: jsPDF, y: number, signatures: string[], reference: string) {
   if (y > 258) { doc.addPage(); y = 25; }
   const cell = 184 / signatures.length;
-  signatures.forEach((label, index) => { const x = 13 + cell * index; doc.setDrawColor(90).line(x, y + 12, x + cell - 7, y + 12); doc.setFontSize(8).setFont("helvetica", "normal").text(doc.splitTextToSize(label, cell - 8), x, y + 17); });
+  signatures.forEach((label, index) => {
+    const x = 13 + cell * index, lines = label.split("\n");
+    const name = lines.length > 1 && lines[0].trim() ? lines[0] : "", details = (name ? lines.slice(1) : lines).filter(line => line.trim());
+    doc.setDrawColor(90).line(x, y + 12, x + cell - 7, y + 12);
+    doc.setFontSize(8).setFont("helvetica", "normal");
+    if (name) { const nameLines = doc.splitTextToSize(name, cell - 8); doc.text(nameLines, x, y + 10 - (nameLines.length - 1) * 4); }
+    if (details.length) doc.text(doc.splitTextToSize(details.join("\n"), cell - 8), x, y + 17);
+  });
   const total = doc.getNumberOfPages();
   for (let page = 1; page <= total; page++) { doc.setPage(page); doc.setFontSize(7).setTextColor(90); doc.text(reference, 13, 288); doc.text(`Page ${page} of ${total}`, 197, 288, { align: "right" }); }
   return new Uint8Array(doc.output("arraybuffer"));
@@ -38,7 +45,7 @@ export function voucherPdf(data: VoucherOperations) {
   if (data.proposed) y = table(doc, y, { body: [["Pending changes", "This document shows the effective voucher. Proposed changes have not changed its paid cash."]] });
   if (data.effective.attachments.length) y = table(doc, y, { head: [["Supporting documents"]], body: data.effective.attachments.map(file => [file.filename]) });
   if (data.revisions.length > 1) y = table(doc, y, { head: [["Revision", "When / by", "State / amounts / reason"]], body: data.revisions.map(r => [String(r.number), `${r.preparedAt.replace("T", " ")}\n${r.preparedBy}`, `${r.state} | Gross ${printMoney(r.saved.totals.gross)} | Net ${printMoney(r.saved.totals.netCash)}${r.reason ? `\n${r.reason}` : ""}`]) });
-  return finish(doc, y, [`Prepared by\n${data.effective.preparedBy}`, `Approved by\n${data.effective.decidedBy || ""}`, "Received by (Payee)"], data.voucher.docNo);
+  return finish(doc, y, [`${data.effective.preparedBy}\nPrepared by`, `${data.effective.decidedBy || ""}\nApproved by`, "Received by (Payee)"], data.voucher.docNo);
 }
 export function voucherListPdf(data: VoucherPrintList) {
   const doc = new jsPDF({ format: "a4", compress: true });

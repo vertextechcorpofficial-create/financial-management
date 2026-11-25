@@ -4,8 +4,8 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { canCancelRequest } from "../requests/request-rules";
 import {
-  documentKinds, requestDecisionLabels, requestStatusLabels, requestViews,
-  type DocumentKind, type LoanRequest, type RequestAssessment, type RequestDecision, type RequestForm, type RequestListItem,
+  documentKinds, enrollmentEvidenceKinds, requestDecisionLabels, requestStatusLabels, requestViews,
+  type DocumentKind, type EnrollmentEvidenceKind, type LoanDocumentKind, type LoanRequest, type RequestAssessment, type RequestDecision, type RequestForm, type RequestListItem,
   type RequestStatus, type RequestView,
 } from "../requests/types";
 import type { AgencyActor } from "./agencies";
@@ -23,10 +23,14 @@ const statuses = z.enum(Object.keys(requestStatusLabels) as RequestStatus[]);
 const views = z.enum(Object.keys(requestViews) as RequestView[]);
 const decisionActions = z.enum(Object.keys(requestDecisionLabels) as RequestDecision["action"][]);
 export const documentKind = z.enum(Object.keys(documentKinds) as DocumentKind[]);
+export const enrollmentEvidenceKind = z.enum(Object.keys(enrollmentEvidenceKinds) as EnrollmentEvidenceKind[]);
+const allDocumentKinds = { ...documentKinds, ...enrollmentEvidenceKinds };
 const documentRow = z.object({
-  id: positiveId, request_id: positiveId, kind: documentKind, file_id: z.uuid(), file_name: z.string(),
+  id: positiveId, request_id: positiveId, kind: z.enum(Object.keys(allDocumentKinds) as LoanDocumentKind[]),
+  file_id: z.uuid(), file_name: z.string(), sha256: z.string().regex(/^[0-9a-f]{64}$/i),
   mime_type: z.enum(["application/pdf", "image/png", "image/jpeg"]), size_bytes: z.number().int().positive(),
 });
+export type StoredLoanDocument = z.output<typeof documentRow>;
 export const requestRow = z.object({
   id: positiveId, status: statuses, revision: positiveId, form: requestForm,
   employee_name: z.string().nullable(), agency_name: z.string().nullable(),
@@ -78,19 +82,28 @@ export function assertFiledRequest(row: Stored) {
   return row;
 }
 
-export async function readRequestDocuments(id: number) {
-  const query = new URLSearchParams({ fields: documentFields, filter: JSON.stringify({ request_id: { _eq: id } }),
-    sort: "id", limit: String(Object.keys(documentKinds).length + 1) });
-  const { data } = z.object({ data: z.array(documentRow).max(Object.keys(documentKinds).length) })
-    .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUEST_DOCUMENTS, query));
-  return data;
+export async function readLoanDocuments(ids: number[]): Promise<StoredLoanDocument[]> {
+  if (!ids.length) return [];
+  const filter = { request_id: { _in: ids } };
+  const limit = Math.min(ids.length * Object.keys(allDocumentKinds).length + 1, 50);
+  const documents: StoredLoanDocument[] = [];
+  for (let offset = 0; ; offset += limit) {
+    const query = new URLSearchParams({ fields: documentFields, filter: JSON.stringify(filter),
+      sort: "id", limit: String(limit), offset: String(offset) });
+    const { data } = z.object({ data: z.array(documentRow).max(limit) })
+      .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUEST_DOCUMENTS, query));
+    documents.push(...data);
+    if (data.length < limit) return documents;
+  }
 }
 
+export const readRequestDocuments = (id: number) => readLoanDocuments([id]);
+
 async function readRequestDecisions(id: number, revision: number): Promise<RequestDecision[]> {
-  const query = new URLSearchParams({ fields: Object.keys(decisionRow.shape).join(","), sort: "revision,id", limit: "25",
+  const query = new URLSearchParams({ fields: Object.keys(decisionRow.shape).join(","), sort: "-revision,-id", limit: "25",
     filter: JSON.stringify({ request_id: { _eq: id }, revision: { _lte: revision }, action: { _in: decisionActions.options } }) });
   const { data } = z.object({ data: z.array(decisionRow) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUEST_HISTORY, query));
-  return data.map(event => ({
+  return data.reverse().map(event => ({
     id: event.id, action: event.action, actorName: event.actor_name, occurredAt: isoDateTime(event.occurred_at),
     fromStatus: event.before_values?.status ?? null, toStatus: event.after_values.status,
     reason: event.after_values.reason ?? null,
@@ -98,14 +111,15 @@ async function readRequestDecisions(id: number, revision: number): Promise<Reque
   }));
 }
 
-export async function requestDetails(row: Stored): Promise<LoanRequest> {
-  const [documents, decisionHistory] = await Promise.all([
-    readRequestDocuments(row.id),
+export async function requestDetails(row: Stored, documents?: StoredLoanDocument[]): Promise<LoanRequest> {
+  const [storedDocuments, decisionHistory] = await Promise.all([
+    documents ?? readRequestDocuments(row.id),
     row.status === "DRAFT" ? [] : readRequestDecisions(row.id, row.revision),
   ]);
-  return { ...listItem(row), form: row.form, documents: documents.map(document => ({
-    id: document.id, kind: document.kind, name: document.file_name, size: document.size_bytes,
-  })), filedAssessment: row.filed_assessment, decisionHistory };
+  return { ...listItem(row), form: row.form, documents: storedDocuments.flatMap(document => {
+    const kind = documentKind.safeParse(document.kind);
+    return kind.success ? [{ id: document.id, kind: kind.data, name: document.file_name, size: document.size_bytes }] : [];
+  }), filedAssessment: row.filed_assessment, decisionHistory };
 }
 
 export async function getLoanRequest(id: number): Promise<LoanRequest> {
@@ -147,6 +161,11 @@ export function loanCommand(key: string | null, payload: object, actor: AgencyAc
     key: parsed.data.toLowerCase(), actor, id,
     hash: createHash("sha256").update(JSON.stringify([id ?? null, payload])).digest("hex"),
   };
+}
+
+export function loanCommandPartKey(key: string, part: number | string) {
+  const hash = createHash("sha256").update(key + ":" + part).digest("hex");
+  return hash.slice(0, 8) + "-" + hash.slice(8, 12) + "-8" + hash.slice(13, 16) + "-a" + hash.slice(17, 20) + "-" + hash.slice(20, 32);
 }
 
 const storedCommand = z.object({
@@ -196,19 +215,24 @@ async function receiptAfterWriteError(command: Command) {
   });
 }
 
-export async function commitRequestRevision(command: Command, action: Operation, current: Stored | null,
-  data: object, before: object | null, after: object, now = new Date().toISOString()): Promise<CommandReceipt> {
+export function requestRevisionValues(command: Command, action: Operation, current: Stored | null,
+  data: object, before: object | null, after: object, now: string) {
   const revision = (current?.revision ?? 0) + 1;
-  const patch = {
+  return {
     ...data, revision, updated_at: now,
     history_entries: { create: [commandEvent(command, action, revision,
       current ? current.id + ":" + revision : "create:" + command.key, before, after, now)] },
   };
+}
+
+export async function commitRequestRevision(command: Command, action: Operation, current: Stored | null,
+  data: object, before: object | null, after: object, now = new Date().toISOString()): Promise<CommandReceipt> {
+  const patch = requestRevisionValues(command, action, current, data, before, after, now);
   try {
     const { data: saved } = z.object({ data: z.object({ id: positiveId }) }).parse(
       await writeGovernmentLoansItem(GOVERNMENT_LOAN_REQUESTS, patch, "id", current?.id),
     );
-    return { request_id: saved.id, revision, action, after_values: after };
+    return { request_id: saved.id, revision: patch.revision, action, after_values: after };
   } catch (error) {
     const replay = await receiptAfterWriteError(command);
     if (replay) return replay;
@@ -225,7 +249,9 @@ export async function writeRequestRevision(command: Command, action: Operation, 
   return getLoanRequest(receipt.request_id);
 }
 
-export async function recordBulkApprovalEvent(command: Command, action: "BULK_APPROVAL_STARTED" | "BULK_APPROVAL_SKIPPED" | "BULK_APPROVAL_COMPLETED",
+type LoanBatchAction = "BULK_APPROVAL_STARTED" | "BULK_APPROVAL_SKIPPED" | "BULK_APPROVAL_COMPLETED" |
+  "BULK_VERIFICATION_STARTED" | "BULK_VERIFICATION_SKIPPED" | "BULK_VERIFICATION_COMPLETED";
+export async function recordLoanBatchEvent(command: Command, action: LoanBatchAction,
   request: Pick<Stored, "id" | "revision">, result: object): Promise<CommandReceipt> {
   const entry = commandEvent(command, action, request.revision, "bulk:" + command.key, null, result, new Date().toISOString());
   try {

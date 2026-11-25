@@ -8,9 +8,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { RequestEmployeePicker } from "../requests/RequestEmployeePicker";
 import type { AgencyChoice, EmployeeChoice } from "../requests/types";
-import { declineAgency, enrollExisting, EnrollmentApiError, enrollRequest, priorLoans } from "./api";
+import { declineAgency, enrollExisting, EnrollmentApiError, enrollRequest, previewExisting, priorLoans, resubmitEnrollment } from "./api";
 import { deductionMonthLabel, deductionMonths, unusualReference } from "./rules";
-import type { EnrollmentDetail, EnrollmentOutcome, EnrollmentTerms, PriorLoan } from "./types";
+import type { EnrollmentDetail, EnrollmentOutcome, EnrollmentTerms, ExistingLoanReview, PriorLoan } from "./types";
 
 function Field({ label, error, hint, children }: { label: string; error?: string; hint?: string; children: ReactNode }) {
   return <label className="block min-w-0 space-y-1 text-sm">
@@ -31,21 +31,26 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
   onSaved: (result: EnrollmentOutcome) => void;
 }) {
   const filed = record?.request.form;
+  const saved = record?.enrollment;
+  const correcting = record?.status === "RETURNED";
   const [employee, setEmployee] = useState<EmployeeChoice | null>(null);
   const [selectedAgency, setSelectedAgency] = useState("");
   const [program, setProgram] = useState("");
   const [transfer, setTransfer] = useState(false);
   const [fields, setFields] = useState({
-    agencyReference: filed?.agencyReference ?? "", originalPrincipal: "", monthlyAmortization: "",
-    installmentCount: "", installmentsPaid: "", firstDeductionMonth: "",
-    priorLoanId: filed?.renewalLoanId?.toString() ?? "", referenceConfirmed: false,
+    agencyReference: saved?.agencyReference ?? filed?.agencyReference ?? "",
+    originalPrincipal: saved?.originalPrincipal ?? "", monthlyAmortization: saved?.monthlyAmortization ?? "",
+    installmentCount: saved?.installmentCount.toString() ?? "", installmentsPaid: saved?.installmentsPaid.toString() ?? "",
+    firstDeductionMonth: saved?.firstDeductionMonth ?? "",
+    priorLoanId: (saved ? saved.priorLoanId : filed?.renewalLoanId)?.toString() ?? "", referenceConfirmed: saved?.referenceConfirmed ?? false,
   });
   const [showDecline, setShowDecline] = useState(false);
   const [reason, setReason] = useState("");
-  const [pending, setPending] = useState<"enroll" | "decline" | null>(null);
+  const [pending, setPending] = useState<"enroll" | "decline" | "review" | null>(null);
   const [error, setError] = useState<{ message: string; status?: number; fields?: Record<string, string> } | null>(null);
   const [prior, setPrior] = useState<{ key: string; items?: PriorLoan[]; supported?: boolean; error?: string }>();
   const [priorAttempt, retryPrior] = useState(0);
+  const [review, setReview] = useState<{ payload: string; result: ExistingLoanReview } | null>(null);
   const attempt = useRef<{ payload: string; key: string } | null>(null);
   const agencyId = filed?.agencyId ?? Number(selectedAgency);
   const employeeId = filed?.employeeId ?? employee?.id;
@@ -55,6 +60,13 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
   const months = deductionMonths(openMonth);
   const unusual = agency && unusualReference(agency.shortCode, fields.agencyReference);
   const errors = error?.fields;
+  const terms: EnrollmentTerms = {
+    ...fields, installmentCount: Number(fields.installmentCount), installmentsPaid: Number(fields.installmentsPaid),
+    priorLoanId: fields.priorLoanId ? Number(fields.priorLoanId) : null,
+  };
+  const existing = { ...terms, employeeId: employeeId ?? 0, agencyId, program, transfer };
+  const identity = JSON.stringify(existing);
+  const reviewed = review?.payload === identity ? review.result : null;
 
   useEffect(() => {
     if (!employeeId || !agencyId) return;
@@ -72,21 +84,39 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
     setError(null);
   }
 
+  function showError(cause: unknown) {
+    if (cause instanceof EnrollmentApiError) {
+      setError({ message: cause.message, fields: cause.fieldErrors, status: cause.status });
+      if (cause.fieldErrors?.firstDeductionMonth) refreshMonth();
+      if (cause.status === 409 && !record) setReview(null);
+    } else {
+      setError({ message: "The enrollment service could not complete the request. Try again." });
+    }
+  }
+
   async function save(action: "enroll" | "decline", payload: object, send: (key: string) => Promise<EnrollmentOutcome>) {
     if (pending) return;
-    const identity = JSON.stringify({ action, payload });
-    if (attempt.current?.payload !== identity) attempt.current = { payload: identity, key: consignmentRequestId() };
+    const key = JSON.stringify({ action, payload });
+    if (attempt.current?.payload !== key) attempt.current = { payload: key, key: consignmentRequestId() };
     setPending(action);
     setError(null);
     try {
       onSaved(await send(attempt.current.key));
     } catch (cause) {
-      if (cause instanceof EnrollmentApiError) {
-        setError({ message: cause.message, fields: cause.fieldErrors, status: cause.status });
-        if (cause.fieldErrors?.firstDeductionMonth) refreshMonth();
-      } else {
-        setError({ message: "The agency outcome could not be saved. Try again." });
-      }
+      showError(cause);
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function checkExisting() {
+    if (pending) return;
+    setPending("review");
+    setError(null);
+    try {
+      setReview({ payload: identity, result: await previewExisting(existing) });
+    } catch (cause) {
+      showError(cause);
     } finally {
       setPending(null);
     }
@@ -94,26 +124,28 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form: EnrollmentTerms = {
-      ...fields,
-      installmentCount: Number(fields.installmentCount), installmentsPaid: Number(fields.installmentsPaid),
-      priorLoanId: fields.priorLoanId ? Number(fields.priorLoanId) : null,
-    };
-    if (record) {
-      void save("enroll", form, key => enrollRequest(record, form, key));
+    if (record && correcting) {
+      void save("enroll", terms, key => resubmitEnrollment(record, terms, key));
+    } else if (record) {
+      void save("enroll", terms, key => enrollRequest(record, terms, key));
+    } else if (reviewed) {
+      void save("enroll", { ...existing, token: reviewed.token }, key => enrollExisting(existing, key, reviewed.token));
     } else {
-      const existing = { ...form, employeeId: employeeId ?? 0, agencyId, program, transfer };
-      void save("enroll", existing, key => enrollExisting(existing, key));
+      void checkExisting();
     }
   }
 
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <Button type="button" variant="ghost" disabled={Boolean(pending)} onClick={onBack}>Back to enrollment</Button>
-      {record && <Button type="button" variant="outline" disabled={Boolean(pending)} aria-expanded={showDecline}
+      <Button type="button" variant="ghost" disabled={Boolean(pending)} onClick={onBack}>{correcting ? "Back to saved enrollment" : "Back to enrollment"}</Button>
+      {record?.status === "APPROVED" && <Button type="button" variant="outline" disabled={Boolean(pending)} aria-expanded={showDecline}
         onClick={() => { setShowDecline(value => !value); setError(null); }}>Agency did not approve</Button>}
     </div>
-    <h2 className="text-base font-semibold">{record ? "Enter the approved loan details · " + record.reference : "Enroll an existing loan"}</h2>
+    <h2 className="text-base font-semibold">{record ? (correcting ? "Correct enrollment · " : "Enter the approved loan details · ") + record.reference : "Enroll an existing loan"}</h2>
+    {correcting && saved?.returnReason && <div className="space-y-1 rounded-lg border p-3 text-sm">
+      <p className="font-medium">Return reason</p>
+      <p className="whitespace-pre-wrap break-words">{saved.returnReason}</p>
+    </div>}
     {error && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
       {error.message}
       {record && error.status === 409 && !errors?.agencyReference &&
@@ -193,12 +225,14 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
             onChange={event => change("installmentsPaid", event.target.value)} />
         </Field>
         <Field label="First deduction month" error={errors?.firstDeductionMonth}>
-          <NativeSelect className="w-full" required disabled={!months.length}
+          {correcting && saved?.origin === "IMPORT" ? <Input type="month" required min={openMonth ?? undefined} disabled={!openMonth}
+            value={fields.firstDeductionMonth} onChange={event => change("firstDeductionMonth", event.target.value)} /> :
+            <NativeSelect className="w-full" required disabled={!months.length}
             value={months.includes(fields.firstDeductionMonth) ? fields.firstDeductionMonth : ""}
             onChange={event => change("firstDeductionMonth", event.target.value)}>
             <option value="">Choose month</option>
             {months.map(month => <option key={month} value={month}>{deductionMonthLabel(month)}</option>)}
-          </NativeSelect>
+          </NativeSelect>}
         </Field>
         <div className="space-y-1">
           <Field label="Prior loan for renewal" error={errors?.priorLoanId}>
@@ -223,10 +257,18 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
         Set the Government Loans open month before saving an enrollment.
         <Button type="button" variant="outline" size="sm" onClick={refreshMonth}>Reload months</Button>
       </div>}
+      {!record && reviewed && <section aria-label="Payroll match review" className="space-y-1 rounded-lg border p-3 text-sm">
+        <p className="font-medium">{reviewed.payrollLoanId ? "Verified Payroll loan " + reviewed.payrollLoanId :
+          reviewed.warnings.length ? "Payroll reference check" : "Ready for verification"}</p>
+        {reviewed.warnings.length > 0 && <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+          {reviewed.warnings.map(warning => <li key={warning}>{warning}</li>)}
+        </ul>}
+      </section>}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">A second person verifies the enrollment before deductions start.</p>
         <Button type="submit" disabled={Boolean(pending) || !months.length || Boolean(unusual && !fields.referenceConfirmed)}>
-          {pending === "enroll" ? "Saving…" : "Save & send for verification"}
+          {pending === "enroll" ? "Saving…" : pending === "review" ? "Checking…" :
+            correcting ? "Resubmit for verification" : record || reviewed ? "Save & send for verification" : "Review existing loan"}
         </Button>
       </div>
     </form>}

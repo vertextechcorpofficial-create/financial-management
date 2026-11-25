@@ -1,6 +1,5 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { allApprovalChecksPass, overdueRequestCutoff, requestWaitingDays } from "../approval/rules";
 import {
@@ -11,8 +10,8 @@ import type { Page, RequestForm } from "../requests/types";
 import { listAgencies, type AgencyActor } from "./agencies";
 import { GOVERNMENT_LOAN_REQUEST_HISTORY, GOVERNMENT_LOAN_REQUESTS, readGovernmentLoansItems } from "./directus";
 import {
-  assertFiledRequest, commitRequestRevision, isoDateTime, loanCommand, readCommandReceipt, readRequest,
-  recordBulkApprovalEvent, referenceFor, requestDetails, requestRow,
+  assertFiledRequest, commitRequestRevision, isoDateTime, loanCommand, loanCommandPartKey, readCommandReceipt, readRequest,
+  recordLoanBatchEvent, referenceFor, requestDetails, requestRow,
 } from "./loan-requests";
 import { assessRequest } from "./request-assessment";
 import { LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
@@ -147,17 +146,12 @@ const bulkInput = z.strictObject({
 const outcomeRow = z.object({ id: positiveId, reference: z.string(), outcome: z.enum(["approved", "skipped"]), reason: z.string().nullable() });
 const batchResult = z.object({ approved: z.number().int().nonnegative(), skipped: z.number().int().nonnegative(), items: z.array(outcomeRow) });
 
-function bulkReceiptKey(batchKey: string, part: number | "result") {
-  const hash = createHash("sha256").update(`${batchKey}:${part}`).digest("hex");
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-8${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
-}
-
 function skipOutcome(id: number, reason: string): ApprovalOutcome {
   return { id, reference: referenceFor(id), outcome: "skipped", reason };
 }
 
 async function evaluateBulkItem(batch: Command, item: ApprovalSelection, remarks: string): Promise<Receipt | null> {
-  const command = loanCommand(bulkReceiptKey(batch.key, item.id), { operation: "bulk-approve-item", batch: batch.hash, ...item }, batch.actor, item.id);
+  const command = loanCommand(loanCommandPartKey(batch.key, item.id), { operation: "bulk-approve-item", batch: batch.hash, ...item }, batch.actor, item.id);
   const existing = await readCommandReceipt(command);
   if (existing) return existing;
   const row = await readRequest(item.id).catch(error => {
@@ -165,7 +159,7 @@ async function evaluateBulkItem(batch: Command, item: ApprovalSelection, remarks
     throw error;
   });
   if (!row || row.status === "DRAFT" || !row.requested_at) return null;
-  const skip = (reason: string) => recordBulkApprovalEvent(command, "BULK_APPROVAL_SKIPPED", row, skipOutcome(item.id, reason));
+  const skip = (reason: string) => recordLoanBatchEvent(command, "BULK_APPROVAL_SKIPPED", row, skipOutcome(item.id, reason));
   if (row.status !== "REQUESTED") return skip("The request is no longer awaiting approval.");
   if (row.revision !== item.expectedRevision) return skip("The request changed. Reload it before approving.");
   const { checks } = await currentAssessment(row.form);
@@ -192,7 +186,7 @@ async function startApprovalBatch(command: Command, items: ApprovalSelection[]) 
   }) });
   const { data: [request] } = z.object({ data: z.array(requestRow.pick({ id: true, revision: true })).max(1) })
     .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
-  return request ? recordBulkApprovalEvent(command, "BULK_APPROVAL_STARTED", request, { requestIds: ids }) : null;
+  return request ? recordLoanBatchEvent(command, "BULK_APPROVAL_STARTED", request, { requestIds: ids }) : null;
 }
 
 export async function bulkApproveLoanRequests(body: unknown, key: string | null, actor: AgencyActor): Promise<BulkApprovalResult> {
@@ -203,7 +197,7 @@ export async function bulkApproveLoanRequests(body: unknown, key: string | null,
   // The earlier writer saved completed results under the original batch key.
   if (started.action === "BULK_APPROVAL_COMPLETED") return batchResult.parse(started.after_values);
 
-  const completion = loanCommand(bulkReceiptKey(batch.key, "result"), { operation: "bulk-approve-result", batch: batch.hash }, actor);
+  const completion = loanCommand(loanCommandPartKey(batch.key, "result"), { operation: "bulk-approve-result", batch: batch.hash }, actor);
   const existing = await readCommandReceipt(completion);
   if (existing) return batchResult.parse(existing.after_values);
 
@@ -220,7 +214,7 @@ export async function bulkApproveLoanRequests(body: unknown, key: string | null,
   }
   const approved = outcomes.filter(item => item.outcome === "approved").length;
   const result = { approved, skipped: outcomes.length - approved, items: outcomes };
-  const summary = await recordBulkApprovalEvent(completion, "BULK_APPROVAL_COMPLETED",
+  const summary = await recordLoanBatchEvent(completion, "BULK_APPROVAL_COMPLETED",
     { id: started.request_id, revision: started.revision }, result);
   return batchResult.parse(summary.after_values);
 }

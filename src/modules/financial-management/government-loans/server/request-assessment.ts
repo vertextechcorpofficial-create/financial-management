@@ -31,7 +31,7 @@ const employeeRow = employeeChoiceRow.extend({
 });
 const department = z.object({ department_id: positiveId, department_name: z.string().nullable() });
 const employmentStatus = z.object({ id: positiveId, name: z.string() });
-export const employeeName = (employee: z.infer<typeof employeeChoiceRow>) =>
+export const employeeName = (employee: Pick<z.infer<typeof employeeChoiceRow>, "user_id" | "user_fname" | "user_mname" | "user_lname">) =>
   [employee.user_fname, employee.user_mname, employee.user_lname].filter(part => part?.trim()).join(" ") || "Employee " + employee.user_id;
 
 async function getDepartments(choices: z.infer<typeof employeeChoiceRow>[]) {

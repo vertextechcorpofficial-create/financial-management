@@ -25,7 +25,7 @@ export function RequestSection({ title, children }: { title: string; children: R
 }
 
 export function RequestDetails({ record, documentHref }: { record: LoanRequest; documentHref: (kind: DocumentKind) => string }) {
-  const { form, filedAssessment, decisionHistory } = record;
+  const { form, filedAssessment } = record;
   return <>
     <RequestSection title={record.reference + " · " + requestStatusLabels[record.status]}>
       <div className="grid gap-3 text-sm sm:grid-cols-3">
@@ -49,9 +49,14 @@ export function RequestDetails({ record, documentHref }: { record: LoanRequest; 
         <a className="break-words text-primary underline" href={documentHref(document.kind)}>{document.name}</a>
       </li>)}</ul>
     </RequestSection>}
-    <RequestSection title="Decision history">
-      {decisionHistory.length > 0 ? <ol className="divide-y text-sm">
-        {decisionHistory.map(event => <li key={event.id} className="space-y-1 py-2 first:pt-0 last:pb-0">
+    <RequestDecisionHistory items={record.decisionHistory} />
+  </>;
+}
+
+export function RequestDecisionHistory({ items }: { items: LoanRequest["decisionHistory"] }) {
+  return <RequestSection title="Decision history">
+      {items.length > 0 ? <ol className="divide-y text-sm">
+        {items.map(event => <li key={event.id} className="space-y-1 py-2 first:pt-0 last:pb-0">
           <div className="flex flex-wrap items-center justify-between gap-x-3">
             <p className="font-medium">{requestDecisionLabels[event.action]}</p>
             <time className="text-xs text-muted-foreground" dateTime={event.occurredAt}>{dateTime(event.occurredAt)} PHT</time>
@@ -62,8 +67,7 @@ export function RequestDetails({ record, documentHref }: { record: LoanRequest; 
           {(event.reason || event.remarks) && <p className="whitespace-pre-wrap break-words">{event.reason || event.remarks}</p>}
         </li>)}
       </ol> : <p className="text-sm text-muted-foreground">No decisions recorded.</p>}
-    </RequestSection>
-  </>;
+    </RequestSection>;
 }
 
 export function RequestReview({ record, onBack, onCancelled, onReload }: {

@@ -11,6 +11,14 @@ export const documentKinds = {
 } as const;
 export type DocumentKind = keyof typeof documentKinds;
 
+export const enrollmentEvidenceKinds = {
+  AUTHORITY: documentKinds.AUTHORITY,
+  AGENCY_APPROVAL: "Agency approval notice",
+  STATEMENT_OF_ACCOUNT: "Statement of account",
+} as const;
+export type EnrollmentEvidenceKind = keyof typeof enrollmentEvidenceKinds;
+export type LoanDocumentKind = DocumentKind | EnrollmentEvidenceKind;
+
 export const purposes = [
   "Education / tuition", "Medical / hospitalization", "Home repair or improvement",
   "Calamity / emergency", "Livelihood / small business", "Debt consolidation", "Other",
@@ -51,6 +59,10 @@ export const requestStatusLabels = {
   REJECTED: "Rejected",
   CANCELLED: "Cancelled",
   ENROLLED: "For verification",
+  RETURNED: "Returned for correction",
+  VERIFIED: "Verified · awaiting activation",
+  ACTIVATING: "Activation pending",
+  ACTIVE: "Active",
   AGENCY_DECLINED: "Not approved by agency",
 } as const;
 export type RequestStatus = keyof typeof requestStatusLabels;
@@ -58,7 +70,7 @@ export type RequestStatus = keyof typeof requestStatusLabels;
 export const requestViews = {
   "in-progress": { label: "In progress", statuses: ["REQUESTED", "APPROVED"] },
   drafts: { label: "Drafts", statuses: ["DRAFT"] },
-  decided: { label: "Decided", statuses: ["APPROVED", "REJECTED", "CANCELLED", "ENROLLED", "AGENCY_DECLINED"] },
+  decided: { label: "Decided", statuses: ["APPROVED", "REJECTED", "CANCELLED", "ENROLLED", "RETURNED", "VERIFIED", "ACTIVATING", "ACTIVE", "AGENCY_DECLINED"] },
 } as const satisfies Record<string, { label: string; statuses: readonly RequestStatus[] }>;
 export type RequestView = keyof typeof requestViews;
 
@@ -68,6 +80,17 @@ export const requestDecisionLabels = {
   REQUEST_REJECTED: "Request rejected",
   REQUEST_CANCELLED: "Request cancelled",
   REQUEST_ENROLLED: "Loan enrolled",
+  ENROLLMENT_RETURNED: "Enrollment returned",
+  ENROLLMENT_RESUBMITTED: "Enrollment resubmitted",
+  ENROLLMENT_VERIFIED: "Enrollment verified",
+  ENROLLMENT_EVIDENCE_UPDATED: "Enrollment evidence updated",
+  ENROLLMENT_TRANSFER_RECORDED: "Import transfer status recorded",
+  PAYROLL_HANDOFF_QUEUED: "Payroll handoff queued",
+  PAYROLL_HANDOFF_CHECKED: "Payroll handoff checked",
+  PAYROLL_HANDOFF_EXPORTED: "Payroll instructions downloaded",
+  PAYROLL_ACKNOWLEDGEMENT_IMPORTED: "Payroll acknowledgement imported",
+  PAYROLL_HANDOFF_UPDATED: "Payroll handoff updated",
+  PAYROLL_HANDOFF_ACCEPTED: "Payroll handoff accepted",
   REQUEST_AGENCY_DECLINED: "Agency did not approve",
 } as const;
 export type RequestDecision = {

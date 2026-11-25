@@ -7,14 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { peso } from "@/modules/financial-management/cooperative/members/format";
 import { agencyOptions, requestDocumentUrl } from "../requests/request-api";
-import { RequestDetails } from "../requests/RequestReview";
 import { requestStatusLabels, type AgencyChoice } from "../requests/types";
 import { getEnrollment, listEnrollments } from "./api";
+import { EnrollmentDetails } from "./EnrollmentDetails";
 import { EnrollmentEditor } from "./EnrollmentEditor";
+import { EnrollmentEvidenceEditor } from "./EnrollmentEvidenceEditor";
+import { LoanImportDialog, LoanImportHistoryDialog } from "./LoanImportsDialog";
 import { deductionMonthLabel } from "./rules";
-import type { EnrollmentDetail, EnrollmentPage, EnrollmentSnapshot } from "./types";
+import type { EnrollmentDetail, EnrollmentPage } from "./types";
 
 function LoadError({ message, retry }: { message: string; retry: () => void }) {
   return <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border p-3 text-sm">
@@ -22,35 +24,11 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-function SavedTerms({ enrollment }: { enrollment: EnrollmentSnapshot }) {
-  const values = [
-    ["Agency reference", enrollment.agencyReference],
-    ["Original principal", peso(enrollment.originalPrincipal)],
-    ["Exact monthly amortization", peso(enrollment.monthlyAmortization)],
-    ["Number of installments", enrollment.installmentCount],
-    ["Installments already paid", enrollment.installmentsPaid],
-    ["First deduction month", deductionMonthLabel(enrollment.firstDeductionMonth)],
-    ["Prior Payroll loan", enrollment.priorLoanId ?? "—"],
-    ["Enrollment source", { REQUEST: "Approved request", EXISTING: "Existing loan", TRANSFER: "Transfer" }[enrollment.origin]],
-    ["Encoded by", enrollment.encodedBy.name],
-    ["Encoded at", dateTime(enrollment.encodedAt) + " PHT"],
-  ];
-  return <section aria-label="Saved loan terms" className="space-y-3 rounded-lg border p-4">
-    <div className="flex flex-wrap gap-2">
-      {enrollment.referenceConfirmed && <Badge variant="outline">Reference confirmed as printed</Badge>}
-      {enrollment.externalReferenceCheck === "NEEDS_SOURCE" && <Badge variant="outline">External reference check pending</Badge>}
-    </div>
-    <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-      {values.map(([label, value]) => <div key={label}>
-        <dt className="text-muted-foreground">{label}</dt><dd className="break-words font-medium">{value}</dd>
-      </div>)}
-    </dl>
-    <p className="text-sm text-muted-foreground">For verification. A second person checks the agency notice and authority to deduct.</p>
-  </section>;
-}
-
 export function LoanEnrollmentModule() {
+  const [importView, setImportView] = useState<"upload" | "history" | null>(null);
+  const [importedBatch, setImportedBatch] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | "new" | null>(null);
+  const [correcting, setCorrecting] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [agency, setAgency] = useState("");
@@ -111,16 +89,19 @@ export function LoanEnrollmentModule() {
     return () => controller.abort();
   }, [selected, detailKey]);
 
-  const back = () => { setSelected(null); setNotice(""); };
+  const back = () => { setSelected(null); setCorrecting(false); setNotice(""); };
   const refreshMonth = () => reloadList(value => value + 1);
   const agencyError = agencies.error && <LoadError message={agencies.error} retry={() => reloadAgencies(value => value + 1)} />;
   if (selected !== null) {
     const value = record?.data;
-    if (selected === "new" || value?.status === "APPROVED") return <div className="space-y-3">
+    if (selected === "new" || value?.status === "APPROVED" || value?.status === "RETURNED" && correcting) return <div className="space-y-3">
       {agencyError}
       <EnrollmentEditor key={detailKey} record={value} agencies={agencies.items} openMonth={list?.data?.openMonth ?? null}
-        onBack={back} onReload={() => reloadDetail(count => count + 1)} refreshMonth={refreshMonth} onSaved={result => {
-          setNotice(result.status === "ENROLLED" ? "Enrollment saved for verification." : "Agency decline recorded.");
+        onBack={correcting ? () => setCorrecting(false) : back} onReload={() => reloadDetail(count => count + 1)}
+        refreshMonth={refreshMonth} onSaved={result => {
+          setNotice(correcting ? "Enrollment resubmitted for verification." :
+            result.status === "ENROLLED" ? "Enrollment saved for verification." : "Agency decline recorded.");
+          setCorrecting(false);
           setSelected(result.id);
           reloadDetail(count => count + 1);
           refreshMonth();
@@ -131,28 +112,39 @@ export function LoanEnrollmentModule() {
       {notice && <p role="status" className="text-sm">{notice}</p>}
       {record?.error && <LoadError message={record.error} retry={() => reloadDetail(value => value + 1)} />}
       {!record && <p role="status" className="text-sm text-muted-foreground">Loading enrollment…</p>}
-      {value && <>
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold">{value.reference}</h2>
-            <Badge variant="secondary">{requestStatusLabels[value.status]}</Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">{[value.employeeName, value.agencyName, value.program].filter(Boolean).join(" · ")}</p>
-        </div>
-        {value.enrollment && <SavedTerms enrollment={value.enrollment} />}
-        {(value.request.requestedAt || value.request.status === "AGENCY_DECLINED") &&
-          <RequestDetails record={value.request} documentHref={kind => requestDocumentUrl(value.id, kind)} />}
-      </>}
+      {value && <EnrollmentDetails record={value} documentHref={kind => requestDocumentUrl(value.id, kind)}>
+        {Boolean(value.enrollment?.payrollWarnings?.length) && <ul className="list-disc pl-5 text-sm text-muted-foreground">
+          {value.enrollment?.payrollWarnings?.map(warning => <li key={warning}>{warning}</li>)}
+        </ul>}
+        {value.enrollment && <EnrollmentEvidenceEditor key={detailKey} record={value} onChanged={() => {
+          reloadDetail(count => count + 1);
+          refreshMonth();
+        }} />}
+        {value.status === "RETURNED" && <Button type="button" onClick={() => setCorrecting(true)}>Correct and resubmit</Button>}
+      </EnrollmentDetails>}
     </div>;
   }
 
   return <div className="space-y-4">
+    {importView === "upload" && <LoanImportDialog close={() => setImportView(null)} onSaved={id => {
+      setImportedBatch(id);
+      setImportView("history");
+      refreshMonth();
+    }} />}
+    {importView === "history" && <LoanImportHistoryDialog initialBatch={importedBatch} close={() => setImportView(null)} onSelect={id => {
+      setImportView(null);
+      setSelected(id);
+    }} />}
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="text-base font-semibold">Loan enrollment</h2>
         <p className="mt-1 text-sm text-muted-foreground">Record the approved agency terms and send the loan for verification.</p>
       </div>
-      <Button type="button" onClick={() => setSelected("new")}><Plus /> Enroll existing loan</Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" onClick={() => { setImportedBatch(null); setImportView("history"); }}>Import history</Button>
+        <Button type="button" variant="outline" onClick={() => setImportView("upload")}>Import existing loans</Button>
+        <Button type="button" onClick={() => setSelected("new")}><Plus /> Enroll existing loan</Button>
+      </div>
     </div>
     {agencyError}
     <div className="flex flex-wrap gap-2">
@@ -163,7 +155,10 @@ export function LoanEnrollmentModule() {
         {agencies.items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </NativeSelect>
       <NativeSelect aria-label="Filter enrollments by status" value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}>
-        <option value="">All statuses</option><option value="APPROVED">Approved · awaiting agency</option><option value="ENROLLED">For verification</option>
+        <option value="">All statuses</option><option value="APPROVED">Approved · awaiting agency</option>
+        <option value="ENROLLED">For verification</option><option value="RETURNED">Returned for correction</option>
+        <option value="VERIFIED">Verified · awaiting activation</option>
+        <option value="ACTIVATING">Activation pending</option><option value="ACTIVE">Active</option>
       </NativeSelect>
     </div>
     {current?.error && <LoadError message={current.error} retry={refreshMonth} />}

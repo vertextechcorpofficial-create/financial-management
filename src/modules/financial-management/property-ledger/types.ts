@@ -33,10 +33,13 @@ export const policySchema = z.object({
     .refine(rows => Math.abs(rows.reduce((sum, row) => sum + row.share, 0) - 100) < 0.01, "Component shares must total 100%")
     .default([{ name: "Structure", share: 70, life: 40, salvage: 10 }, { name: "Roof", share: 6, life: 20, salvage: 0 }, { name: "Electrical & plumbing", share: 12, life: 25, salvage: 0 }, { name: "Elevators & HVAC", share: 12, life: 15, salvage: 0 }]),
 });
-export const portfolioSchema = z.object({
+const portfolioDataSchema = z.object({
   entities: z.array(z.object({ id, name })).min(1).max(1000), policies: policySchema,
   assets: z.array(assetSchema).max(1000),
-}).superRefine((p, ctx) => {
+});
+/** Read validation intentionally excludes registration requirements so legacy rows remain viewable. */
+export const readablePortfolioSchema = portfolioDataSchema;
+export const portfolioSchema = portfolioDataSchema.superRefine((p, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: "custom", message });
   const entities = new Set(p.entities.map(e => e.id));
   if (new Set(p.entities.map(e => e.name.toLowerCase())).size !== p.entities.length) issue("That entity already exists");

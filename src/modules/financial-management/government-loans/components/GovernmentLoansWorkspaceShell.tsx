@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LoanApprovalModule } from "../approval/LoanApprovalModule";
 import { LoanEnrollmentModule } from "../enrollment/LoanEnrollmentModule";
+import { LoanVerificationModule } from "../enrollment/LoanVerificationModule";
+import { PayrollInstructionsModule } from "../payroll-handoff/PayrollInstructionsModule";
 import { AgenciesModule } from "../remittances/agencies/AgenciesModule";
 import { LoanRequestsModule } from "../requests/LoanRequestsModule";
 import type { GovernmentLoansTab, GovernmentLoansWorkspace, GovernmentLoansWorkspaceKey } from "../workspaces";
@@ -32,7 +34,8 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs }: {
   const hasAgencies = workspace.key === "remittances";
   const hasRequests = workspace.key === "loan-applications";
   const hasApprovals = workspace.key === "loan-approval";
-  const isScaffold = !hasAgencies && !hasRequests && !hasApprovals;
+  const hasLoans = workspace.key === "loans";
+  const isScaffold = !hasAgencies && !hasRequests && !hasApprovals && !hasLoans;
 
   return <main className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
     <section className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-xs sm:p-5">
@@ -75,7 +78,9 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs }: {
           {hasAgencies && tab.key === "agencies" ? <AgenciesModule /> :
             hasRequests && tab.key === "requests" ? <LoanRequestsModule /> :
             hasRequests && tab.key === "enrollment" ? <LoanEnrollmentModule /> :
-            hasApprovals && tab.key === "loan-requests" ? <LoanApprovalModule /> : <div className="rounded-xl border border-dashed bg-muted/20 p-6">
+            hasApprovals && tab.key === "loan-requests" ? <LoanApprovalModule /> :
+            hasApprovals && tab.key === "enrollment-verification" ? <LoanVerificationModule /> :
+            hasLoans && tab.key === "payroll-instructions" ? <PayrollInstructionsModule /> : <div className="rounded-xl border border-dashed bg-muted/20 p-6">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold">{tab.title}</h3>
               <Badge variant="outline">Pending delivery</Badge>
