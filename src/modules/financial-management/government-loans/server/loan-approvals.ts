@@ -1,38 +1,66 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { allApprovalChecksPass, overdueRequestCutoff, requestWaitingDays } from "../approval/rules";
 import {
   APPROVAL_PAGE_SIZE, companyDecisions, type ApprovalAssessment, type ApprovalDecisionRow, type ApprovalOutcome,
-  type ApprovalQueueItem, type ApprovalReview, type ApprovalSelection, type BulkApprovalResult, type CompanyDecision,
+  type ApprovalQueuePage, type ApprovalQueueSummary, type ApprovalReview, type ApprovalSelection,
+  type BulkApprovalResult, type CompanyDecision,
 } from "../approval/types";
 import type { Page, RequestForm } from "../requests/types";
 import { listAgencies, type AgencyActor } from "./agencies";
 import { GOVERNMENT_LOAN_REQUEST_HISTORY, GOVERNMENT_LOAN_REQUESTS, readGovernmentLoansItems } from "./directus";
 import {
-  assertFiledRequest, commitRequestRevision, isoDateTime, loanCommand, readCommandReceipt, readRequest,
-  recordBulkApprovalEvent, referenceFor, requestDetails, requestRow,
+  assertFiledRequest, commitRequestRevision, isoDateTime, loanCommand, loanCommandPartKey, readCommandReceipt, readRequest,
+  recordLoanBatchEvent, referenceFor, requestDetails, requestRow,
 } from "./loan-requests";
 import { assessRequest } from "./request-assessment";
 import { LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
 
-const filedChecks = z.object({ checks: z.array(z.object({ result: z.enum(["pass", "review"]) })) }).nullish();
+const filedChecks = z.object({ checks: z.array(z.object({
+  label: z.string(), result: z.enum(["pass", "review"]), detail: z.string(),
+})) }).nullish();
 const queueRow = requestRow.pick({ id: true, revision: true, employee_name: true, agency_name: true }).extend({
   form: z.object({ program: z.string(), amount: z.string() }), requested_at: z.string(), filed_assessment: filedChecks,
 });
 const queueInput = z.object({
   q: z.string().trim().max(120).default(""), agency: positiveId.optional(), overdue: z.enum(["1", "0"]).optional(), page: pageNumber,
 });
+const countResult = z.object({ data: z.array(z.object({ count: z.object({ id: z.coerce.number().int().nonnegative() }) })).max(1) });
+const oldestResult = z.object({ data: z.array(z.object({ requested_at: z.string() })).max(1) });
 
-export async function listApprovalQueue(params: URLSearchParams, now = new Date()): Promise<Page<ApprovalQueueItem>> {
+async function countQueue(filter: object) {
+  const query = new URLSearchParams({ "aggregate[count]": "id", limit: "1", filter: JSON.stringify(filter) });
+  const { data } = countResult.parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+  return data[0]?.count.id ?? 0;
+}
+
+async function queueSummary(base: object, cutoff: string, now: Date): Promise<ApprovalQueueSummary> {
+  try {
+    const [waiting, overdue, oldest] = await Promise.all([
+      countQueue({ ...base, status: { _eq: "REQUESTED" }, requested_at: { _nnull: true } }),
+      countQueue({ ...base, status: { _eq: "REQUESTED" }, requested_at: { _nnull: true, _lt: cutoff } }),
+      readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, new URLSearchParams({
+        fields: "requested_at", limit: "1", sort: "requested_at,id",
+        filter: JSON.stringify({ ...base, status: { _eq: "REQUESTED" }, requested_at: { _nnull: true } }),
+      })).then(body => oldestResult.parse(body).data[0] ?? null),
+    ]);
+    return { waiting, overdue,
+      oldestWaitingDays: oldest ? requestWaitingDays(isoDateTime(oldest.requested_at), now) : 0 };
+  } catch {
+    return { waiting: 0, overdue: 0, oldestWaitingDays: 0 };
+  }
+}
+
+export async function listApprovalQueue(params: URLSearchParams, now = new Date()): Promise<ApprovalQueuePage> {
   const { q, agency, overdue, page } = parseInput(queueInput, Object.fromEntries(params));
   const referenceId = /^(?:GLR-)?0*([1-9]\d{0,9})$/i.exec(q)?.[1];
+  const search = q ? { _or: [{ employee_name: { _icontains: q } }, ...(referenceId ? [{ id: { _eq: Number(referenceId) } }] : [])] } : {};
+  const base = { ...(agency ? { agency_id: { _eq: agency } } : {}), ...search };
+  const cutoff = overdueRequestCutoff(now);
   const filter = {
-    status: { _eq: "REQUESTED" },
-    requested_at: { _nnull: true, ...(overdue === "1" ? { _lt: overdueRequestCutoff(now) } : {}) },
-    ...(agency ? { agency_id: { _eq: agency } } : {}),
-    ...(q ? { _or: [{ employee_name: { _icontains: q } }, ...(referenceId ? [{ id: { _eq: Number(referenceId) } }] : [])] } : {}),
+    ...base, status: { _eq: "REQUESTED" },
+    requested_at: { _nnull: true, ...(overdue === "1" ? { _lt: cutoff } : {}) },
   };
   const query = new URLSearchParams({
     fields: Object.keys(queueRow.shape).join(","), filter: JSON.stringify(filter), sort: "requested_at,id",
@@ -46,9 +74,10 @@ export async function listApprovalQueue(params: URLSearchParams, now = new Date(
       id: row.id, reference: referenceFor(row.id), revision: row.revision, employeeName: row.employee_name,
       agencyName: row.agency_name, program: row.form.program, amount: row.form.amount, requestedAt,
       waitingDays: requestWaitingDays(requestedAt, now), filedChecksPass: allApprovalChecksPass(row.filed_assessment?.checks),
+      checks: row.filed_assessment?.checks ?? [],
     };
   });
-  return { items, hasMore: data.length > APPROVAL_PAGE_SIZE };
+  return { items, hasMore: data.length > APPROVAL_PAGE_SIZE, summary: await queueSummary(base, cutoff, now) };
 }
 
 export async function listApprovalAgencies(params: URLSearchParams) {
@@ -147,17 +176,12 @@ const bulkInput = z.strictObject({
 const outcomeRow = z.object({ id: positiveId, reference: z.string(), outcome: z.enum(["approved", "skipped"]), reason: z.string().nullable() });
 const batchResult = z.object({ approved: z.number().int().nonnegative(), skipped: z.number().int().nonnegative(), items: z.array(outcomeRow) });
 
-function bulkReceiptKey(batchKey: string, part: number | "result") {
-  const hash = createHash("sha256").update(`${batchKey}:${part}`).digest("hex");
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-8${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
-}
-
 function skipOutcome(id: number, reason: string): ApprovalOutcome {
   return { id, reference: referenceFor(id), outcome: "skipped", reason };
 }
 
 async function evaluateBulkItem(batch: Command, item: ApprovalSelection, remarks: string): Promise<Receipt | null> {
-  const command = loanCommand(bulkReceiptKey(batch.key, item.id), { operation: "bulk-approve-item", batch: batch.hash, ...item }, batch.actor, item.id);
+  const command = loanCommand(loanCommandPartKey(batch.key, item.id), { operation: "bulk-approve-item", batch: batch.hash, ...item }, batch.actor, item.id);
   const existing = await readCommandReceipt(command);
   if (existing) return existing;
   const row = await readRequest(item.id).catch(error => {
@@ -165,7 +189,7 @@ async function evaluateBulkItem(batch: Command, item: ApprovalSelection, remarks
     throw error;
   });
   if (!row || row.status === "DRAFT" || !row.requested_at) return null;
-  const skip = (reason: string) => recordBulkApprovalEvent(command, "BULK_APPROVAL_SKIPPED", row, skipOutcome(item.id, reason));
+  const skip = (reason: string) => recordLoanBatchEvent(command, "BULK_APPROVAL_SKIPPED", row, skipOutcome(item.id, reason));
   if (row.status !== "REQUESTED") return skip("The request is no longer awaiting approval.");
   if (row.revision !== item.expectedRevision) return skip("The request changed. Reload it before approving.");
   const { checks } = await currentAssessment(row.form);
@@ -192,7 +216,7 @@ async function startApprovalBatch(command: Command, items: ApprovalSelection[]) 
   }) });
   const { data: [request] } = z.object({ data: z.array(requestRow.pick({ id: true, revision: true })).max(1) })
     .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
-  return request ? recordBulkApprovalEvent(command, "BULK_APPROVAL_STARTED", request, { requestIds: ids }) : null;
+  return request ? recordLoanBatchEvent(command, "BULK_APPROVAL_STARTED", request, { requestIds: ids }) : null;
 }
 
 export async function bulkApproveLoanRequests(body: unknown, key: string | null, actor: AgencyActor): Promise<BulkApprovalResult> {
@@ -203,7 +227,7 @@ export async function bulkApproveLoanRequests(body: unknown, key: string | null,
   // The earlier writer saved completed results under the original batch key.
   if (started.action === "BULK_APPROVAL_COMPLETED") return batchResult.parse(started.after_values);
 
-  const completion = loanCommand(bulkReceiptKey(batch.key, "result"), { operation: "bulk-approve-result", batch: batch.hash }, actor);
+  const completion = loanCommand(loanCommandPartKey(batch.key, "result"), { operation: "bulk-approve-result", batch: batch.hash }, actor);
   const existing = await readCommandReceipt(completion);
   if (existing) return batchResult.parse(existing.after_values);
 
@@ -220,7 +244,7 @@ export async function bulkApproveLoanRequests(body: unknown, key: string | null,
   }
   const approved = outcomes.filter(item => item.outcome === "approved").length;
   const result = { approved, skipped: outcomes.length - approved, items: outcomes };
-  const summary = await recordBulkApprovalEvent(completion, "BULK_APPROVAL_COMPLETED",
+  const summary = await recordLoanBatchEvent(completion, "BULK_APPROVAL_COMPLETED",
     { id: started.request_id, revision: started.revision }, result);
   return batchResult.parse(summary.after_values);
 }

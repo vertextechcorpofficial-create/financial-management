@@ -1,12 +1,14 @@
 "use client";
 
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, Download, FileText, RefreshCw } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { BasisComparison } from "./components/BasisComparison";
@@ -17,6 +19,7 @@ import { WorksheetTable } from "./components/WorksheetTable";
 import { CarryoverLotsPanel } from "./components/CarryoverLotsPanel";
 import { useWorksheet } from "./hooks/useWorksheet";
 import { REGIME_LABELS, TAX_YEARS } from "./constants";
+import { downloadWorksheet, downloadWorksheetPdf } from "./utils/exportWorkbook";
 import type { EntityProfile } from "./types";
 
 /** Reasons arrive as clauses ("refused the connection"), so they need a full stop before the next sentence. */
@@ -44,6 +47,8 @@ function statedFields(profile: EntityProfile): number {
 export function EntityWorksheetModule() {
   const worksheet = useWorksheet(new Date().getFullYear());
   const { snapshot, isLoading, isSaving, error, companies, companyOptions } = worksheet;
+  /** Deck item 10: a company with no ledger history still has to file, so its inputs can be typed. */
+  const [manualMode, setManualMode] = useState(false);
 
   const current = snapshot?.company ?? companies.find((company) => company.companyId === worksheet.companyId);
 
@@ -59,6 +64,17 @@ export function EntityWorksheetModule() {
   const refused = snapshot != null && !snapshot.figuresAvailable && !stale;
   const fallback = refused ? worksheet.lastGood : null;
   const view = fallback ? fallback.snapshot : snapshot;
+
+  // Surface primary data-source failures / fallback notices directly on the Worksheet tab.
+  const fallbackNotices = (view?.notices ?? []).filter((notice) =>
+    /could not be read|fall back|falls back|not used|understated/i.test(notice),
+  );
+  const missingProfileFields: string[] = [];
+  if (view) {
+    if (!view.company.tin?.trim()) missingProfileFields.push("TIN");
+    if (view.profile.assetsExcludingLand <= 0) missingProfileFields.push("Assets excluding land (20% vs 25% RCIT tier)");
+    if (statedFields(view.profile) < 3) missingProfileFields.push("Registration flags (VAT / Withholding / eFPS group)");
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-6">
@@ -100,6 +116,41 @@ export function EntityWorksheetModule() {
               ))}
             </SelectContent>
           </Select>
+
+          <label
+            htmlFor="worksheet-manual-mode"
+            className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-xs"
+          >
+            <Switch
+              id="worksheet-manual-mode"
+              checked={manualMode}
+              onCheckedChange={setManualMode}
+              disabled={!worksheet.companyId}
+            />
+            <span className="whitespace-nowrap">Manual input</span>
+          </label>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => view && downloadWorksheet(view.lines, view.profile.taxYear)}
+            disabled={isLoading || !view || view.lines.length === 0}
+            title="Export 1702Q worksheet to Excel"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export Excel
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => view && downloadWorksheetPdf(view.lines, view.profile.taxYear, view.company.name)}
+            disabled={isLoading || !view || view.lines.length === 0}
+            title="Download 1702Q worksheet as PDF"
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            Download PDF
+          </Button>
 
           <Button
             type="button"
@@ -185,7 +236,7 @@ export function EntityWorksheetModule() {
         </p>
       ) : null}
 
-      {view && !stale && !error && view.company.reachable && view.figuresAvailable ? (
+      {view && !stale && !error && view.company.reachable && (view.figuresAvailable || manualMode) ? (
         <>
           <Tabs defaultValue="worksheet" className="space-y-4">
             <div className="-mx-1 flex items-center gap-3 overflow-x-auto px-1">
@@ -208,10 +259,50 @@ export function EntityWorksheetModule() {
             </div>
 
             <TabsContent value="worksheet" className="space-y-4">
+              {fallbackNotices.length > 0 ? (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Primary ledger source fallback active</AlertTitle>
+                  <AlertDescription>
+                    <ul className="mt-1 list-disc space-y-1 pl-4">
+                      {fallbackNotices.map((notice) => (
+                        <li key={notice} className="break-words">
+                          {notice}
+                        </li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+              {missingProfileFields.length > 0 ? (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Incomplete BIR company tax profile</AlertTitle>
+                  <AlertDescription>
+                    Missing or default statutory attributes: {missingProfileFields.join(", ")}. Review the Company
+                    profile tab before relying on RCIT tiering or MCIT status.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+              {manualMode && !view.figuresAvailable ? (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>No ledger figures for {view.profile.taxYear}</AlertTitle>
+                  <AlertDescription>
+                    Manual input is on, so the five input lines start at zero and take typed figures. Everything above
+                    them — gross income, net taxable income, MCIT and RCIT, the cumulative credits — is computed from
+                    what you type.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <WorksheetTable
                 lines={view.lines}
                 total={view.lines.length}
+                taxYear={view.profile.taxYear}
                 basisLabel={view.computation.scenarios[0]?.label ?? "product standard cost"}
+                manualMode={manualMode}
+                isSaving={isSaving}
+                onManualChange={worksheet.saveManualEntry}
               />
               <CarryoverLotsPanel
                 panel={view.carryovers}

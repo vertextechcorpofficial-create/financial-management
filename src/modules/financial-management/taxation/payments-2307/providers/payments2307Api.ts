@@ -1,7 +1,7 @@
 "use client";
 
 import type { CertificateBody, PaymentBody, UnlockBody } from "../schemas";
-import type { DeskPayload, PrefillResult } from "../types";
+import type { DeskPayload, LockTrailEntry, PrefillResult } from "../types";
 
 const BASE = "/api/fm/taxation/payments-2307";
 
@@ -85,5 +85,18 @@ export function lockPeriod(body: {
 
 export function unlockPeriod(periodKey: string, body: UnlockBody): Promise<{ id: number }> {
   return request<{ id: number }>(`${BASE}/locks/${periodKey}/unlock`, jsonBody(body));
+}
+
+export function fetchLockTrail(
+  companyId: number,
+  year: number,
+  periodKey: string,
+): Promise<{ entries: LockTrailEntry[] }> {
+  const query = new URLSearchParams({
+    companyId: String(companyId),
+    year: String(year),
+    periodKey,
+  });
+  return request<{ entries: LockTrailEntry[] }>(`${BASE}/locks/trail?${query.toString()}`);
 }
 

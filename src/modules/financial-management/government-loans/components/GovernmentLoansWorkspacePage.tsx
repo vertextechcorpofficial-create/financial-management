@@ -6,6 +6,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { requireGovernmentLoansPage } from "../server/page-access";
+import { readDeclaredTransferEmployee } from "../server/onboarding-exits";
 import {
   GOVERNMENT_LOANS_TABS,
   GOVERNMENT_LOANS_WORKSPACES,
@@ -13,10 +14,14 @@ import {
 } from "../workspaces";
 import { GovernmentLoansWorkspaceShell } from "./GovernmentLoansWorkspaceShell";
 
-export async function GovernmentLoansWorkspacePage({ workspace }: { workspace: GovernmentLoansWorkspaceKey }) {
-  const { actorName, actorEmail } = await requireGovernmentLoansPage(workspace);
+export async function GovernmentLoansWorkspacePage({ workspace, transferEmployeeId, tab }: {
+  workspace: GovernmentLoansWorkspaceKey; transferEmployeeId?: number; tab?: string | string[];
+}) {
+  const { actorId, actorName, actorEmail } = await requireGovernmentLoansPage(workspace);
   const definition = GOVERNMENT_LOANS_WORKSPACES.find(entry => entry.key === workspace);
   if (!definition) return null;
+  const transferEmployee = workspace === "loan-applications" && transferEmployeeId
+    ? await readDeclaredTransferEmployee(transferEmployeeId) : undefined;
 
   return <>
     <header className="relative z-10 flex h-14 shrink-0 items-center justify-between border-b bg-background shadow-sm sm:h-16">
@@ -39,6 +44,9 @@ export async function GovernmentLoansWorkspacePage({ workspace }: { workspace: G
         <NavUser user={{ name: actorName, email: actorEmail }} />
       </div>
     </header>
-    <GovernmentLoansWorkspaceShell workspace={definition} tabs={GOVERNMENT_LOANS_TABS[workspace]} />
+    <GovernmentLoansWorkspaceShell workspace={definition} tabs={GOVERNMENT_LOANS_TABS[workspace]} transferEmployee={transferEmployee}
+      initialTab={GOVERNMENT_LOANS_TABS[workspace].find(item => item.key === tab)?.key}
+      requestApplicant={workspace === "my-loans" ? { id: actorId, name: actorName } : undefined}
+      reportActorId={workspace === "reports" ? actorId : undefined} />
   </>;
 }

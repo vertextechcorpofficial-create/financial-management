@@ -7,14 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { peso } from "@/modules/financial-management/cooperative/members/format";
 import { agencyOptions, requestDocumentUrl } from "../requests/request-api";
-import { RequestDetails } from "../requests/RequestReview";
-import { requestStatusLabels, type AgencyChoice } from "../requests/types";
+import { requestStatusLabels, requestStatusTone, type AgencyChoice, type EmployeeChoice } from "../requests/types";
 import { getEnrollment, listEnrollments } from "./api";
+import { EnrollmentDetails } from "./EnrollmentDetails";
 import { EnrollmentEditor } from "./EnrollmentEditor";
+import { EnrollmentEvidenceEditor } from "./EnrollmentEvidenceEditor";
+import { LoanImportDialog, LoanImportHistoryDialog } from "./LoanImportsDialog";
 import { deductionMonthLabel } from "./rules";
-import type { EnrollmentDetail, EnrollmentPage, EnrollmentSnapshot } from "./types";
+import type { EnrollmentDetail, EnrollmentPage } from "./types";
 
 function LoadError({ message, retry }: { message: string; retry: () => void }) {
   return <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border p-3 text-sm">
@@ -22,35 +24,29 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-function SavedTerms({ enrollment }: { enrollment: EnrollmentSnapshot }) {
-  const values = [
-    ["Agency reference", enrollment.agencyReference],
-    ["Original principal", peso(enrollment.originalPrincipal)],
-    ["Exact monthly amortization", peso(enrollment.monthlyAmortization)],
-    ["Number of installments", enrollment.installmentCount],
-    ["Installments already paid", enrollment.installmentsPaid],
-    ["First deduction month", deductionMonthLabel(enrollment.firstDeductionMonth)],
-    ["Prior Payroll loan", enrollment.priorLoanId ?? "—"],
-    ["Enrollment source", { REQUEST: "Approved request", EXISTING: "Existing loan", TRANSFER: "Transfer" }[enrollment.origin]],
-    ["Encoded by", enrollment.encodedBy.name],
-    ["Encoded at", dateTime(enrollment.encodedAt) + " PHT"],
-  ];
-  return <section aria-label="Saved loan terms" className="space-y-3 rounded-lg border p-4">
-    <div className="flex flex-wrap gap-2">
-      {enrollment.referenceConfirmed && <Badge variant="outline">Reference confirmed as printed</Badge>}
-      {enrollment.externalReferenceCheck === "NEEDS_SOURCE" && <Badge variant="outline">External reference check pending</Badge>}
-    </div>
-    <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-      {values.map(([label, value]) => <div key={label}>
-        <dt className="text-muted-foreground">{label}</dt><dd className="break-words font-medium">{value}</dd>
-      </div>)}
-    </dl>
-    <p className="text-sm text-muted-foreground">For verification. A second person checks the agency notice and authority to deduct.</p>
-  </section>;
+function enrollmentAction(status: string) {
+  if (status === "APPROVED") return "Enter terms";
+  if (status === "RETURNED") return "Correct and resubmit";
+  if (status === "ENROLLED") return "View enrollment";
+  if (status === "VERIFIED") return "Activate";
+  if (status === "ACTIVATING") return "View activation";
+  if (status === "ACTIVE") return "View loan";
+  return "View";
 }
 
-export function LoanEnrollmentModule() {
-  const [selected, setSelected] = useState<number | "new" | null>(null);
+function SummaryCard({ label, value }: { label: string; value: number }) {
+  return <div className="rounded-lg border bg-card p-3">
+    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    <p className="text-xl font-semibold tabular-nums">{value.toLocaleString("en-PH")}</p>
+  </div>;
+}
+
+export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: EmployeeChoice } = {}) {
+  const [importView, setImportView] = useState<"upload" | "history" | null>(null);
+  const [importedBatch, setImportedBatch] = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | "new" | null>(transferEmployee ? "new" : null);
+  const [initialTransfer, setInitialTransfer] = useState(transferEmployee);
+  const [correcting, setCorrecting] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [agency, setAgency] = useState("");
@@ -111,16 +107,21 @@ export function LoanEnrollmentModule() {
     return () => controller.abort();
   }, [selected, detailKey]);
 
-  const back = () => { setSelected(null); setNotice(""); };
+  const back = () => { setSelected(null); setCorrecting(false); setNotice(""); setInitialTransfer(undefined); };
   const refreshMonth = () => reloadList(value => value + 1);
   const agencyError = agencies.error && <LoadError message={agencies.error} retry={() => reloadAgencies(value => value + 1)} />;
   if (selected !== null) {
     const value = record?.data;
-    if (selected === "new" || value?.status === "APPROVED") return <div className="space-y-3">
+    if (selected === "new" || value?.status === "APPROVED" || value?.status === "RETURNED" && correcting) return <div className="space-y-3">
       {agencyError}
-      <EnrollmentEditor key={detailKey} record={value} agencies={agencies.items} openMonth={list?.data?.openMonth ?? null}
-        onBack={back} onReload={() => reloadDetail(count => count + 1)} refreshMonth={refreshMonth} onSaved={result => {
-          setNotice(result.status === "ENROLLED" ? "Enrollment saved for verification." : "Agency decline recorded.");
+      <EnrollmentEditor key={detailKey} record={value} transferEmployee={selected === "new" ? initialTransfer : undefined}
+        agencies={agencies.items} openMonth={list?.data?.openMonth ?? null}
+        onBack={correcting ? () => setCorrecting(false) : back} onReload={() => reloadDetail(count => count + 1)}
+        refreshMonth={refreshMonth} onSaved={result => {
+          setNotice(correcting ? "Enrollment resubmitted for verification." :
+            result.status === "ENROLLED" ? "Enrollment saved for verification." : "Agency decline recorded.");
+          setCorrecting(false);
+          setInitialTransfer(undefined);
           setSelected(result.id);
           reloadDetail(count => count + 1);
           refreshMonth();
@@ -131,30 +132,51 @@ export function LoanEnrollmentModule() {
       {notice && <p role="status" className="text-sm">{notice}</p>}
       {record?.error && <LoadError message={record.error} retry={() => reloadDetail(value => value + 1)} />}
       {!record && <p role="status" className="text-sm text-muted-foreground">Loading enrollment…</p>}
-      {value && <>
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold">{value.reference}</h2>
-            <Badge variant="secondary">{requestStatusLabels[value.status]}</Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">{[value.employeeName, value.agencyName, value.program].filter(Boolean).join(" · ")}</p>
-        </div>
-        {value.enrollment && <SavedTerms enrollment={value.enrollment} />}
-        {(value.request.requestedAt || value.request.status === "AGENCY_DECLINED") &&
-          <RequestDetails record={value.request} documentHref={kind => requestDocumentUrl(value.id, kind)} />}
-      </>}
+      {value && <EnrollmentDetails record={value} documentHref={kind => requestDocumentUrl(value.id, kind)}>
+        {Boolean(value.enrollment?.payrollWarnings?.length) && <ul className="list-disc pl-5 text-sm text-muted-foreground">
+          {value.enrollment?.payrollWarnings?.map(warning => <li key={warning}>{warning}</li>)}
+        </ul>}
+        {value.enrollment && <EnrollmentEvidenceEditor key={detailKey} record={value} onChanged={() => {
+          reloadDetail(count => count + 1);
+          refreshMonth();
+        }} />}
+        {value.status === "RETURNED" && <Button type="button" onClick={() => setCorrecting(true)}>Correct and resubmit</Button>}
+      </EnrollmentDetails>}
     </div>;
   }
 
   return <div className="space-y-4">
+    {importView === "upload" && <LoanImportDialog close={() => setImportView(null)} onSaved={id => {
+      setImportedBatch(id);
+      setImportView("history");
+      refreshMonth();
+    }} />}
+    {importView === "history" && <LoanImportHistoryDialog initialBatch={importedBatch} close={() => setImportView(null)} onSelect={id => {
+      setImportView(null);
+      setSelected(id);
+    }} />}
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="text-base font-semibold">Loan enrollment</h2>
         <p className="mt-1 text-sm text-muted-foreground">Record the approved agency terms and send the loan for verification.</p>
       </div>
-      <Button type="button" onClick={() => setSelected("new")}><Plus /> Enroll existing loan</Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" onClick={() => { setImportedBatch(null); setImportView("history"); }}>Import history</Button>
+        <Button type="button" variant="outline" onClick={() => setImportView("upload")}>Import existing loans</Button>
+        <Button type="button" onClick={() => setSelected("new")}><Plus /> Enroll existing loan</Button>
+      </div>
     </div>
     {agencyError}
+    {current?.data?.summary && <section aria-label="Enrollment queue summary" className="space-y-2">
+      <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <SummaryCard label="Approved · awaiting agency" value={current.data.summary.APPROVED} />
+        <SummaryCard label="For verification" value={current.data.summary.ENROLLED} />
+        <SummaryCard label="Returned for correction" value={current.data.summary.RETURNED} />
+        <SummaryCard label="Verified · awaiting activation" value={current.data.summary.VERIFIED} />
+        <SummaryCard label="Active" value={current.data.summary.ACTIVE} />
+      </div>
+    </section>}
     <div className="flex flex-wrap gap-2">
       <Input className="max-w-sm" aria-label="Search enrollments" placeholder="Employee, loan, or agency reference" maxLength={120}
         value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} />
@@ -163,8 +185,14 @@ export function LoanEnrollmentModule() {
         {agencies.items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </NativeSelect>
       <NativeSelect aria-label="Filter enrollments by status" value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}>
-        <option value="">All statuses</option><option value="APPROVED">Approved · awaiting agency</option><option value="ENROLLED">For verification</option>
+        <option value="">All statuses</option><option value="APPROVED">Approved · awaiting agency</option>
+        <option value="ENROLLED">For verification</option><option value="RETURNED">Returned for correction</option>
+        <option value="VERIFIED">Verified · awaiting activation</option>
+        <option value="ACTIVATING">Activation pending</option><option value="ACTIVE">Active</option>
+        <option value="AGENCY_DECLINED">Not approved by agency</option>
       </NativeSelect>
+      {(search || status || agency) && <Button type="button" variant="ghost" size="sm"
+        onClick={() => { setSearch(""); setStatus(""); setAgency(""); setPage(1); }}>Clear filters</Button>}
     </div>
     {current?.error && <LoadError message={current.error} retry={refreshMonth} />}
     {!current && <p role="status" className="text-sm text-muted-foreground">Loading enrollments…</p>}
@@ -176,10 +204,11 @@ export function LoanEnrollmentModule() {
           <TableHeader><TableRow>
             <TableHead>Loan</TableHead><TableHead>Employee</TableHead><TableHead>Agency / program</TableHead>
             <TableHead className="text-right">Amortization</TableHead><TableHead>First deduction</TableHead><TableHead>Status</TableHead>
+            <TableHead>Next action</TableHead>
           </TableRow></TableHeader>
           <TableBody>
             {!current.data.items.length && <TableRow>
-              <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No enrollments match.</TableCell>
+              <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">No enrollments match.</TableCell>
             </TableRow>}
             {current.data.items.map(item => <TableRow key={item.id}>
               <TableCell>
@@ -193,9 +222,12 @@ export function LoanEnrollmentModule() {
               <TableCell className="text-right tabular-nums">{item.enrollment ? peso(item.enrollment.monthlyAmortization) : "—"}</TableCell>
               <TableCell>{item.enrollment ? deductionMonthLabel(item.enrollment.firstDeductionMonth) : "—"}</TableCell>
               <TableCell>
-                <Badge variant="secondary">{item.status === "APPROVED" ? "Approved · awaiting agency" : requestStatusLabels[item.status]}</Badge>
+                <Badge variant="outline" className={requestStatusTone[item.status]}>{item.status === "APPROVED" ? "Approved · awaiting agency" : requestStatusLabels[item.status]}</Badge>
                 {item.enrollment?.externalReferenceCheck === "NEEDS_SOURCE" && <p className="mt-1 text-xs text-muted-foreground">External reference check pending</p>}
               </TableCell>
+              <TableCell><Button type="button" variant="outline" size="sm" onClick={() => {
+                setSelected(item.id); reloadDetail(value => value + 1);
+              }}>{enrollmentAction(item.status)}</Button></TableCell>
             </TableRow>)}
           </TableBody>
         </Table>

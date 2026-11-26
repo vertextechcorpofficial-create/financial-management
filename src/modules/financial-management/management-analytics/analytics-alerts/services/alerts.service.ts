@@ -2,6 +2,8 @@ import "server-only";
 
 import { asNumber, asNumberOrNull, asString, createItem, listItems, updateItem } from "./directus";
 import { DEFAULT_POLICY, forecast, statusOf } from "./engine";
+import { POLICY_FIELDS } from "../constants";
+import { phtStamp } from "../pht";
 import type {
   AlertPolicyRow,
   AlertRow,
@@ -85,7 +87,7 @@ function mapAlert(row: Json, companyCodes: Map<number, string>, kpiNames: Map<nu
   };
 }
 
-async function loadPolicy(): Promise<Policy> {
+export async function loadPolicy(): Promise<Policy> {
   const rows = await listItems<Json>("ma_setting", { fields: ["setting_key", "value"], limit: 200 });
   const map = new Map<string, string>();
   for (const row of rows.rows) map.set(asString(row.setting_key), asString(row.value));
@@ -158,6 +160,7 @@ export async function loadAlerts(params: { state?: string; type?: string; page?:
     pageCount,
     counts,
     policies,
+    policy: await loadPolicy(),
     types: [...new Set(all.map((row) => row.type))].sort(),
     generatedAt: new Date().toISOString(),
   };
@@ -380,4 +383,58 @@ export async function setAlertPolicy(id: number, body: { isEnabled?: boolean; ch
   if (body.channel) payload.channel = body.channel;
   await updateItem<Json>("ma_alert_policy", id, payload);
   return { id };
+}
+
+export interface PolicyChange {
+  setting: string;
+  label: string;
+  from: string;
+  to: string;
+}
+
+/**
+ * Writes the six variance settings the sweep reads, then records the edit on the governance change
+ * board. A policy change that leaves no row behind cannot be audited later, so the row is written
+ * in the same call and the response names it.
+ */
+export async function saveVariancePolicy(input: Policy, actorId: number | null) {
+  const rows = await listItems<Json>("ma_setting", { fields: ["id", "setting_key", "value"], limit: 200 });
+  const stored = new Map<string, { id: number; value: string }>();
+  for (const row of rows.rows) stored.set(asString(row.setting_key), { id: asNumber(row.id), value: asString(row.value) });
+
+  const now = phtStamp();
+  const changed: PolicyChange[] = [];
+  const missing: string[] = [];
+  for (const field of POLICY_FIELDS) {
+    const current = stored.get(field.setting);
+    if (!current) {
+      missing.push(field.setting);
+      continue;
+    }
+    const next = field.kind === "switch" ? (input[field.key] ? "on" : "off") : String(input[field.key]);
+    if (current.value === next) continue;
+    await updateItem<Json>("ma_setting", current.id, { value: next, updated_at: now, updated_by: actorId });
+    changed.push({ setting: field.setting, label: field.label, from: current.value, to: next });
+  }
+
+  let changeRequestId: number | null = null;
+  if (changed.length > 0) {
+    const created = await createItem<Json>("ma_change_request", {
+      entity: "ma_setting",
+      entity_id: null,
+      summary: `Variance policy: ${changed.map((item) => `${item.label} ${item.from || "unset"} to ${item.to}`).join("; ")}.`,
+      status: "APPROVED",
+      requested_by: actorId,
+      decided_by: actorId,
+      decided_at: now,
+      note: "Applied from the Alerts variance policy card.",
+      created_at: now,
+      created_by: actorId,
+      updated_at: now,
+      updated_by: actorId,
+    });
+    changeRequestId = asNumber(created.id);
+  }
+
+  return { changed, missing, changeRequestId, policy: await loadPolicy() };
 }

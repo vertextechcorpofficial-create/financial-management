@@ -1,14 +1,17 @@
 "use client";
 
 import { useMemo, type KeyboardEvent } from "react";
+import { Download, FileText } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/utils";
 
 import { usePager } from "../hooks/usePager";
 import type { IntercompanyPair } from "../types";
+import { downloadPairs, downloadPairsPdf } from "../utils/exportWorkbook";
 import { PairStatusBadge } from "./PairStatusBadge";
 import { TablePager } from "./TablePager";
 
@@ -86,6 +89,30 @@ export function PairMatrix({
           <Badge variant="outline" className="tabular-nums text-[11px]">
             {matched} matched
           </Badge>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-0"
+            onClick={() => downloadPairs(pairs, year)}
+            disabled={pairs.length === 0}
+            title="Download these pairs as an Excel workbook"
+          >
+            <Download className="mr-2 size-4" />
+            Export Excel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-0"
+            onClick={() => downloadPairsPdf(pairs, year)}
+            disabled={pairs.length === 0}
+            title="Download these pairs as a PDF report"
+          >
+            <FileText className="mr-2 size-4" />
+            Download PDF
+          </Button>
         </div>
       </div>
 

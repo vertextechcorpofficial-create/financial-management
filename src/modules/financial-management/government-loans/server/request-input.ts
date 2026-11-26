@@ -47,6 +47,12 @@ export function invalidDraftFields(form: RequestForm): FieldErrors {
 }
 
 export const addRequestInput = z.strictObject({ form: requestForm });
+export function employeeRequestForm(form: RequestForm, employeeId: number): RequestForm {
+  if (form.employeeId !== null && form.employeeId !== employeeId) {
+    throw new LoanRequestError(422, "Use your signed-in employee identity.", { employeeId: "This request must be for you." });
+  }
+  return { ...form, employeeId };
+}
 export const updateRequestInput = addRequestInput.extend({ expectedRevision: z.number().int().positive() });
 export const submitRequestInput = z.strictObject({ expectedRevision: z.number().int().positive() });
 export const cancelRequestInput = submitRequestInput.extend({ reason: text(500).optional() });

@@ -257,14 +257,21 @@ export interface RhythmRow {
 export interface CadencePayload {
   period: string;
   periods: string[];
+  nearestPeriod: string | null;
   rows: CadenceRow[];
   rhythms: RhythmRow[];
+  /** Companies down, core measures across: one status per cell, NO_DATA where the month has no reading. */
+  heatmap: {
+    keys: Array<{ key: string; name: string }>;
+    rows: Array<{ code: string; name: string; cells: StatusCode[] }>;
+  };
   totals: {
     health: number | null;
     exceptionsOpen: number;
     memoOverdue: number;
     readings: number;
     expected: number;
+    forecastRisk: number;
     staleSources: number;
   };
   sources: Array<{ code: string; name: string; cadence: string; steward: string; state: string; lastSync: string | null; fresh: boolean }>;

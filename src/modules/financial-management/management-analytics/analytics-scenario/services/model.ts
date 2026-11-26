@@ -107,6 +107,8 @@ export function computeScenario(
     ebitda: round(ebitda),
     ebitdaScenario: round(ebitdaScenario),
     ebitdaDelta: round(ebitdaDelta),
+    // The fee moves with revenue, so it moves on its own as well. Sign it as an EBITDA effect.
+    holdingsDelta: round(holdingsCostRun - holdingsCost),
     ebitdaMargin: round(revenueScenarioRaw > 0 ? (ebitdaScenario / (revenueScenarioRaw - ELIMINATIONS)) * 100 : 0),
     workingCapitalDelta: round(workingCapitalDelta),
     cashEffect: round(ebitdaDelta * (1 - TAX_RATE) - workingCapitalDelta),

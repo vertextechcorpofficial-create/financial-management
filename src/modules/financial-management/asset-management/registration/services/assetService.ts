@@ -84,4 +84,18 @@ export const assetService = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, reason }),
     }),
+
+  recordEvent: (body: Record<string, unknown>) =>
+    apiRequest(`${API_ROUTE}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+
+  recordMaintenance: (body: Record<string, unknown>) =>
+    apiRequest(`${API_ROUTE}/maintenance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
 };

@@ -212,7 +212,7 @@ export async function loadRegister(params: {
   page?: number;
   size?: number;
 }): Promise<ExceptionBoard> {
-  const [{ companies, kpis }, exceptionRows] = await Promise.all([
+  const [{ companies, kpis, policy }, exceptionRows] = await Promise.all([
     loadBase(),
     listItems<Record<string, unknown>>("ma_exception", {
       fields: [
@@ -227,6 +227,15 @@ export async function loadRegister(params: {
 
   const companyById = new Map(companies.map((row) => [row.id, row]));
   const kpiById = new Map(kpis.map((row) => [row.id, row]));
+  // An unknown code used to filter to nothing and read as "no exceptions", which is the same
+  // answer a healthy company gives. Name the value and the codes that do exist instead.
+  if (params.company && params.company !== "ALL" && !companies.some((row) => row.code === params.company)) {
+    const error = new Error(
+      `Unknown company "${params.company}". Known codes: ${companies.map((row) => row.code).join(", ")}.`,
+    );
+    error.name = "BadRequestError";
+    throw error;
+  }
   const today = phtToday();
   let rows = exceptionRows.rows.map((row) =>
     mapException(row, companyById.get(asNumber(row.company_id)), kpiById.get(asNumber(row.kpi_id))),
@@ -274,6 +283,7 @@ export async function loadRegister(params: {
     page,
     size,
     rows: rows.slice((page - 1) * size, (page - 1) * size + size),
+    policy,
   };
 }
 

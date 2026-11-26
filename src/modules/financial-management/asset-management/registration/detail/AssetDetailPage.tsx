@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -44,8 +44,10 @@ import {
   JournalEntryRow,
   AuditLogRow,
   CostLineRow,
+  MaintenanceLogRow,
 } from "../types";
 import { assetService } from "../services/assetService";
+import AssetEditModal from "../components/modals/EditAssetModal";
 
 const formatPHP = (val?: number | null) => {
   const num = Number(val || 0);
@@ -78,6 +80,7 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
   const [journals, setJournals] = useState<JournalEntryRow[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([]);
   const [costLines, setCostLines] = useState<CostLineRow[]>([]);
+  const [maintenanceLogs, setMaintenanceLogs] = useState<MaintenanceLogRow[]>([]);
 
   // Dropdown lookups from database
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -85,7 +88,12 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
 
   // Action Modals State
   const [transferOpen, setTransferOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [deactivateOpen, setDeactivateOpen] = useState(false);
+  const [submittingTransfer, setSubmittingTransfer] = useState(false);
+  const [submittingEvent, setSubmittingEvent] = useState(false);
+  const [submittingMaint, setSubmittingMaint] = useState(false);
+  const [submittingDeactivate, setSubmittingDeactivate] = useState(false);
 
   // Transfer Form State
   const [transferDate, setTransferDate] = useState(new Date().toISOString().split("T")[0]);
@@ -120,6 +128,8 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
   const [eventDate, setEventDate] = useState(new Date().toISOString().split("T")[0]);
   const [fvlcd, setFvlcd] = useState("");
   const [viu, setViu] = useState("");
+  const [revisedLifeYears, setRevisedLifeYears] = useState("");
+  const [revisedResidual, setRevisedResidual] = useState("");
   const [eventNote, setEventNote] = useState("");
 
   // Synchronize state when query params change
@@ -146,44 +156,65 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
   const [maintCapitalize, setMaintCapitalize] = useState<"no" | "yes">("no");
   const [maintNextDue, setMaintNextDue] = useState("");
 
-  // Fetch real data on mount
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      setError(null);
-      try {
-        const [detailRes, deptsData, usersData] = await Promise.all([
-          fetch(`/api/fm/asset-management/registration/${assetId}`),
-          assetService.getDepartments(),
-          assetService.getUsers(),
-        ]);
+  // Fetch real data from database
+  const loadData = useCallback(async (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
+    setError(null);
+    try {
+      const [detailRes, deptsData, usersData] = await Promise.all([
+        fetch(`/api/fm/asset-management/registration/${assetId}`, { cache: "no-store" }),
+        assetService.getDepartments(),
+        assetService.getUsers(),
+      ]);
 
-        if (!detailRes.ok) {
-          throw new Error("Asset not found or failed to load from database");
-        }
-
-        const data = await detailRes.json();
-        setAsset(data.asset);
-        setPostings(Array.isArray(data.postings) ? data.postings : []);
-        setTransfers(Array.isArray(data.transfers) ? data.transfers : []);
-        setEvents(Array.isArray(data.events) ? data.events : []);
-        setJournals(Array.isArray(data.journals) ? data.journals : []);
-        setAuditLogs(Array.isArray(data.auditLogs) ? data.auditLogs : []);
-        setCostLines(Array.isArray(data.costLines) ? data.costLines : []);
-
-        setDepartments(Array.isArray(deptsData) ? deptsData : []);
-        setUsers(Array.isArray(usersData) ? usersData : []);
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Failed to load asset details.");
-      } finally {
-        setLoading(false);
+      if (!detailRes.ok) {
+        throw new Error("Asset not found or failed to load from database");
       }
+
+      const data = await detailRes.json();
+      setAsset(data.asset);
+      setPostings(Array.isArray(data.postings) ? data.postings : []);
+      setTransfers(Array.isArray(data.transfers) ? data.transfers : []);
+      setEvents(Array.isArray(data.events) ? data.events : []);
+      setJournals(Array.isArray(data.journals) ? data.journals : []);
+      setAuditLogs(Array.isArray(data.auditLogs) ? data.auditLogs : []);
+      setCostLines(Array.isArray(data.costLines) ? data.costLines : []);
+      setMaintenanceLogs(Array.isArray(data.maintenanceLogs) ? data.maintenanceLogs : []);
+
+      if (data.asset) {
+        setRevisedLifeYears(String(data.asset.life_span || 5));
+        setRevisedResidual(String(data.asset.residual_value || 0));
+      }
+
+      setDepartments(Array.isArray(deptsData) ? deptsData : []);
+      setUsers(Array.isArray(usersData) ? usersData : []);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load asset details.");
+    } finally {
+      if (showSpinner) setLoading(false);
     }
-    loadData();
   }, [assetId]);
 
-  // Handle Transfer
+  useEffect(() => {
+    loadData(true);
+  }, [loadData]);
+
+  // Open Transfer modal with current values pre-populated
+  const handleOpenTransfer = () => {
+    if (asset) {
+      setTransferDate(new Date().toISOString().split("T")[0]);
+      setTransferDept(asset.department ? String(asset.department) : "");
+      setTransferPerson(asset.employee ? String(asset.employee) : "unassigned");
+      setTransferLocation(asset.location || "");
+      setTransferCondition(asset.condition || "Good");
+      setTransferReason("");
+    }
+    setTransferOpen(true);
+  };
+
+  // Handle Transfer -> saves to asset_transfers & updates assets_and_equipment in Directus
   const handleRecordTransfer = async () => {
+    if (!asset) return;
     if (!transferDept) {
       toast.error("Please select a target department.");
       return;
@@ -193,35 +224,132 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
       return;
     }
 
+    setSubmittingTransfer(true);
     try {
-      toast.success("Custody transfer recorded.");
+      await assetService.recordTransfer({
+        asset_id: asset.id,
+        effective_date: transferDate,
+        to_department_id: Number(transferDept),
+        to_user_id: transferPerson && transferPerson !== "unassigned" ? Number(transferPerson) : null,
+        to_location: transferLocation.trim(),
+        condition_on_handover: transferCondition,
+        reason: transferReason.trim(),
+      });
+      toast.success("Custody transfer saved to database.");
       setTransferOpen(false);
-    } catch {
-      toast.error("Failed to record transfer.");
+      await loadData(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to record transfer.");
+    } finally {
+      setSubmittingTransfer(false);
     }
   };
 
-  // Handle Post Event
+  // Handle Post Event -> saves to asset_events in Directus
   const handlePostEvent = async () => {
+    if (!asset) return;
     if (!eventDate) {
       toast.error("Please select an event date.");
       return;
     }
-    toast.success(`${eventType} event submitted.`);
-    setFvlcd("");
-    setViu("");
-    setEventNote("");
+
+    setSubmittingEvent(true);
+    try {
+      const payload: Record<string, unknown> = {
+        asset_id: asset.id,
+        event_type: eventType,
+        event_date: eventDate,
+        remarks: eventNote.trim(),
+      };
+
+      if (eventType === "Impairment test / reversal") {
+        payload.fvlcd = fvlcd ? Number(fvlcd) : null;
+        payload.viu = viu ? Number(viu) : null;
+      } else if (eventType === "Revaluation to fair value") {
+        payload.fair_value = fvlcd ? Number(fvlcd) : null;
+      } else if (eventType === "Change in estimate (life / residual / method)") {
+        payload.new_remaining_months = revisedLifeYears ? Number(revisedLifeYears) * 12 : null;
+        payload.new_residual_value = revisedResidual !== "" ? Number(revisedResidual) : null;
+      } else if (eventType === "Subsequent expenditure") {
+        payload.amount = fvlcd ? Number(fvlcd) : 0;
+        payload.capitalize = true;
+      } else if (eventType === "Classify as held for sale") {
+        payload.fvlcts = fvlcd ? Number(fvlcd) : null;
+      } else if (eventType === "Disposal / derecognition") {
+        payload.proceeds = fvlcd ? Number(fvlcd) : 0;
+        payload.costs_of_disposal = viu ? Number(viu) : 0;
+      }
+
+      const res = await assetService.recordEvent(payload);
+      toast.success(
+        res.pendingApproval
+          ? `${eventType} submitted to Approvals (above threshold).`
+          : `${eventType} posted and saved to database.`
+      );
+      setFvlcd("");
+      setViu("");
+      setEventNote("");
+      await loadData(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to post accounting event.");
+    } finally {
+      setSubmittingEvent(false);
+    }
   };
 
-  // Handle Maintenance
+  // Handle Maintenance -> saves to maintenance_work_orders (+ asset_events if capitalised) in Directus
   const handleSaveMaintenance = async () => {
+    if (!asset) return;
     if (!maintDesc.trim()) {
       toast.error("Please enter a description for the maintenance work.");
       return;
     }
-    toast.success("Maintenance log recorded.");
-    setMaintDesc("");
-    setMaintCost("");
+
+    setSubmittingMaint(true);
+    try {
+      await assetService.recordMaintenance({
+        asset_id: asset.id,
+        performed_date: maintDate,
+        maintenance_type: maintType,
+        description: maintDesc.trim(),
+        vendor: maintVendor.trim() || "In-house",
+        cost: maintCost ? Number(maintCost) : 0,
+        downtime_days: maintDowntime ? Number(maintDowntime) : null,
+        condition_after: maintConditionAfter,
+        warranty_covered: maintWarranty,
+        replaces_major_part: maintCapitalize === "yes",
+        next_service_due: maintNextDue || null,
+      });
+      toast.success("Maintenance log saved to database.");
+      setMaintDesc("");
+      setMaintVendor("");
+      setMaintCost("");
+      setMaintDowntime("");
+      setMaintNextDue("");
+      setMaintWarranty(false);
+      setMaintCapitalize("no");
+      await loadData(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to save maintenance log.");
+    } finally {
+      setSubmittingMaint(false);
+    }
+  };
+
+  // Handle Deactivate from Detail Page
+  const handleConfirmDeactivate = async () => {
+    if (!asset) return;
+    setSubmittingDeactivate(true);
+    try {
+      await assetService.deactivateAsset(asset.id, "Deactivated from asset detail page");
+      toast.success(`${asset.asset_tag} deactivated in database.`);
+      setDeactivateOpen(false);
+      await loadData(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to deactivate asset.");
+    } finally {
+      setSubmittingDeactivate(false);
+    }
   };
 
   if (loading) {
@@ -293,7 +421,7 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setTransferOpen(true)}
+            onClick={handleOpenTransfer}
             className="text-xs h-9 px-3"
           >
             <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" /> Transfer
@@ -314,7 +442,7 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
             size="sm"
             onClick={() => {
               setActiveTab("events");
-              setEventType("Disposal");
+              setEventType("Disposal / derecognition");
             }}
             className="text-xs h-9 px-3"
           >
@@ -323,7 +451,7 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => toast.info(`Edit form for ${asset.asset_tag} opened.`)}
+            onClick={() => setEditOpen(true)}
             className="text-xs h-9 px-3"
           >
             <SquarePen className="mr-1.5 h-3.5 w-3.5" /> Edit
@@ -573,29 +701,52 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
 
       {/* 7 Tabs Section */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-4">
-        <TabsList className="flex flex-wrap h-auto bg-muted/60 p-1 border">
-          <TabsTrigger value="schedule" className="text-xs">
-            Depreciation schedule
-          </TabsTrigger>
-          <TabsTrigger value="events" className="text-xs">
-            Events ({events.length})
-          </TabsTrigger>
-          <TabsTrigger value="custody" className="text-xs">
-            Custody history ({transfers.length > 0 ? transfers.length : 1})
-          </TabsTrigger>
-          <TabsTrigger value="maintenance" className="text-xs">
-            Maintenance (0)
-          </TabsTrigger>
-          <TabsTrigger value="journals" className="text-xs">
-            Journal entries ({journals.length})
-          </TabsTrigger>
-          <TabsTrigger value="history" className="text-xs">
-            History ({auditLogs.length})
-          </TabsTrigger>
-          <TabsTrigger value="cost" className="text-xs">
-            Cost build-up ({costLines.length})
-          </TabsTrigger>
-        </TabsList>
+        <div className="bg-card border rounded-2xl p-2 shadow-2xs overflow-x-auto">
+          <TabsList className="bg-transparent h-auto p-0 flex flex-nowrap sm:flex-wrap items-center gap-2 justify-start w-max sm:w-full">
+            <TabsTrigger
+              value="schedule"
+              className="rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Depreciation schedule
+            </TabsTrigger>
+            <TabsTrigger
+              value="events"
+              className="rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Events ({events.length})
+            </TabsTrigger>
+            <TabsTrigger
+              value="custody"
+              className="rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Custody history ({transfers.length > 0 ? transfers.length : 1})
+            </TabsTrigger>
+            <TabsTrigger
+              value="maintenance"
+              className="rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Maintenance ({maintenanceLogs.length})
+            </TabsTrigger>
+            <TabsTrigger
+              value="journals"
+              className="rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Journal entries ({journals.length})
+            </TabsTrigger>
+            <TabsTrigger
+              value="history"
+              className="rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              History ({auditLogs.length})
+            </TabsTrigger>
+            <TabsTrigger
+              value="cost"
+              className="rounded-xl border border-border bg-background px-4 py-2 text-xs font-medium text-muted-foreground shadow-2xs transition-all hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:font-semibold data-[state=active]:shadow-sm whitespace-nowrap"
+            >
+              Cost build-up ({costLines.length})
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Tab 1: Depreciation Schedule from asset_depreciation_postings */}
         <TabsContent value="schedule" className="space-y-3">
@@ -784,7 +935,8 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
                       </label>
                       <Input
                         type="number"
-                        defaultValue={asset?.life_span || 5}
+                        value={revisedLifeYears}
+                        onChange={(e) => setRevisedLifeYears(e.target.value)}
                         className="h-9 text-xs font-mono"
                       />
                     </div>
@@ -794,11 +946,42 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
                       </label>
                       <Input
                         type="number"
-                        defaultValue={asset?.residual_value || 0}
+                        value={revisedResidual}
+                        onChange={(e) => setRevisedResidual(e.target.value)}
                         placeholder="₱0.00"
                         className="h-9 text-xs font-mono"
                       />
                     </div>
+                  </div>
+                )}
+
+                {eventType === "Subsequent expenditure" && (
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase block mb-1">
+                      Expenditure Amount (Capitalised)
+                    </label>
+                    <Input
+                      type="number"
+                      value={fvlcd}
+                      onChange={(e) => setFvlcd(e.target.value)}
+                      placeholder="₱0.00"
+                      className="h-9 text-xs font-mono"
+                    />
+                  </div>
+                )}
+
+                {eventType === "Classify as held for sale" && (
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase block mb-1">
+                      Fair Value Less Costs to Sell (IFRS 5)
+                    </label>
+                    <Input
+                      type="number"
+                      value={fvlcd}
+                      onChange={(e) => setFvlcd(e.target.value)}
+                      placeholder="₱0.00"
+                      className="h-9 text-xs font-mono"
+                    />
                   </div>
                 )}
 
@@ -851,8 +1034,10 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
 
                 <Button
                   onClick={handlePostEvent}
+                  disabled={submittingEvent}
                   className="w-full h-9 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-medium"
                 >
+                  {submittingEvent && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                   Post event
                 </Button>
               </div>
@@ -952,25 +1137,35 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
               <span className="text-[10px] font-bold text-muted-foreground uppercase">
                 Maintenance Records
               </span>
-              <span className="text-sm font-black font-mono block mt-1">0</span>
+              <span className="text-sm font-black font-mono block mt-1">{maintenanceLogs.length}</span>
             </div>
             <div className="p-3 border rounded-xl bg-card">
               <span className="text-[10px] font-bold text-muted-foreground uppercase">
                 Total Spend
               </span>
-              <span className="text-sm font-black font-mono block mt-1">₱0.00</span>
+              <span className="text-sm font-black font-mono block mt-1">
+                {formatPHP(maintenanceLogs.reduce((sum, m) => sum + Number(m.cost || 0), 0))}
+              </span>
             </div>
             <div className="p-3 border rounded-xl bg-card">
               <span className="text-[10px] font-bold text-muted-foreground uppercase">
                 Of Which Capitalised
               </span>
-              <span className="text-sm font-black font-mono block mt-1">₱0.00</span>
+              <span className="text-sm font-black font-mono block mt-1">
+                {formatPHP(
+                  maintenanceLogs
+                    .filter((m) => m.replaces_major_part)
+                    .reduce((sum, m) => sum + Number(m.cost || 0), 0)
+                )}
+              </span>
             </div>
             <div className="p-3 border rounded-xl bg-card">
               <span className="text-[10px] font-bold text-muted-foreground uppercase">
                 Next Service Due
               </span>
-              <span className="text-sm font-black font-mono block mt-1">—</span>
+              <span className="text-sm font-black font-mono block mt-1">
+                {maintenanceLogs.find((m) => m.next_service_due)?.next_service_due || "—"}
+              </span>
             </div>
           </div>
 
@@ -979,9 +1174,46 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
               <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
                 Maintenance History
               </h3>
-              <p className="text-xs text-muted-foreground italic py-8 text-center">
-                No maintenance recorded.
-              </p>
+              {maintenanceLogs.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="border-b font-semibold text-muted-foreground">
+                      <tr>
+                        <th className="py-2 px-2">DATE</th>
+                        <th className="py-2 px-2">TYPE &amp; WORK</th>
+                        <th className="py-2 px-2">TREATMENT</th>
+                        <th className="py-2 px-2 text-right">COST</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {maintenanceLogs.map((m, idx) => (
+                        <tr key={m.id ?? idx}>
+                          <td className="py-2 px-2 font-mono whitespace-nowrap">{m.performed_date}</td>
+                          <td className="py-2 px-2">
+                            <div className="font-semibold text-foreground">{m.maintenance_type}</div>
+                            <div className="text-[11px] text-muted-foreground">{m.description}</div>
+                            {m.vendor && (
+                              <div className="text-[10px] text-muted-foreground">Vendor: {m.vendor}</div>
+                            )}
+                          </td>
+                          <td className="py-2 px-2">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-muted">
+                              {m.treatment || "Expense"}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-semibold">
+                            {formatPHP(m.cost)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic py-8 text-center">
+                  No maintenance recorded in maintenance_work_orders.
+                </p>
+              )}
             </div>
 
             <div className="lg:col-span-5 border rounded-xl p-4 bg-card space-y-3">
@@ -1143,8 +1375,10 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
 
               <Button
                 onClick={handleSaveMaintenance}
+                disabled={submittingMaint}
                 className="w-full h-9 text-xs bg-emerald-800 hover:bg-emerald-900 text-white font-medium"
               >
+                {submittingMaint && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                 Save maintenance
               </Button>
             </div>
@@ -1396,8 +1630,10 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
             <Button
               type="button"
               onClick={handleRecordTransfer}
+              disabled={submittingTransfer}
               className="h-9 text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium"
             >
+              {submittingTransfer && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               Record Transfer
             </Button>
           </DialogFooter>
@@ -1437,19 +1673,44 @@ export default function AssetDetailPage({ assetId }: AssetDetailPageProps) {
             >
               Cancel
             </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                setDeactivateOpen(false);
-                toast.info("Navigating to Dispose event...");
-              }}
-              className="h-9 text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium"
-            >
-              Go to Dispose
-            </Button>
+            {postings.length === 0 ? (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={submittingDeactivate}
+                onClick={handleConfirmDeactivate}
+                className="h-9 text-xs font-medium"
+              >
+                {submittingDeactivate && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                Confirm Deactivate
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                onClick={() => {
+                  setDeactivateOpen(false);
+                  setActiveTab("events");
+                  setEventType("Disposal / derecognition");
+                }}
+                className="h-9 text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium"
+              >
+                Go to Dispose
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Asset Modal */}
+      <AssetEditModal
+        isOpen={editOpen}
+        onClose={() => setEditOpen(false)}
+        asset={asset}
+        onSuccess={() => loadData(false)}
+        onLocalUpdate={(updated) =>
+          setAsset((prev) => (prev ? { ...prev, ...updated } : prev))
+        }
+      />
     </div>
   );
 }

@@ -54,7 +54,14 @@ export function handleRouteError(error: unknown, context: string, fallback: stri
     return fail(message, named === "ConflictError" ? 409 : 404);
   }
   console.error(`${LOG_PREFIX} ${context}`, error);
-  return fail(fallback, 500);
+  // A dropped connection to the database is the common case here, and "could not be read" told the
+  // desk nothing. The reason the platform gave is shown, because there is nothing to leak: it is
+  // either a network sentence or a validation sentence about our own tables.
+  const reason = error instanceof Error && error.message ? error.message : "";
+  const message = /fetch failed|ECONN|ENOTFOUND|ETIMEDOUT|timeout/i.test(reason)
+    ? "The database did not answer. Try again in a moment."
+    : fallback;
+  return fail(message, 500, reason ? { reason } : undefined);
 }
 
 export function toId(value: string): number {

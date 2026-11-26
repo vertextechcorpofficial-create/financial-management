@@ -430,7 +430,7 @@ export function readMemberLoans(memberIds: number[], asOf: string, includeDocume
 
 export function readReportLoans(filter: object, asOf: string) {
   const fields = [
-    "id,loan_no,member_id,member_name,member_no,department_name,product_id,product_name,principal,total_payable",
+    "id,loan_no,member_id,member_name,member_no,department_name,product_id,product_code,product_name,principal,total_payable",
     "months,frequency,mode,status,applied_on,released_on,agreement_signed,method,rate,markup",
   ].join(",");
   return readPostedLoanViews(() => readDirectusPages("cooperative_loans", rowSchema, { fields, filter: JSON.stringify(filter) }), asOf);

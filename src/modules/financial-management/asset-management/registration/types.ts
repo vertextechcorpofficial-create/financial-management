@@ -300,3 +300,20 @@ export interface CostLineRow {
   treatment?: string;
 }
 
+export interface MaintenanceLogRow {
+  id?: number;
+  asset_id?: number;
+  performed_date: string;
+  maintenance_type: string;
+  description: string;
+  vendor?: string | null;
+  cost: number;
+  downtime_days?: number | null;
+  condition_after?: string | null;
+  warranty_covered?: boolean;
+  replaces_major_part?: boolean;
+  treatment?: string;
+  next_service_due?: string | null;
+  logged_by_name?: string;
+}
+

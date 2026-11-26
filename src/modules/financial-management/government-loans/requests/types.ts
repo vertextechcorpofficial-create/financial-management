@@ -11,6 +11,14 @@ export const documentKinds = {
 } as const;
 export type DocumentKind = keyof typeof documentKinds;
 
+export const enrollmentEvidenceKinds = {
+  AUTHORITY: documentKinds.AUTHORITY,
+  AGENCY_APPROVAL: "Agency approval notice",
+  STATEMENT_OF_ACCOUNT: "Statement of account",
+} as const;
+export type EnrollmentEvidenceKind = keyof typeof enrollmentEvidenceKinds;
+export type LoanDocumentKind = DocumentKind | EnrollmentEvidenceKind;
+
 export const purposes = [
   "Education / tuition", "Medical / hospitalization", "Home repair or improvement",
   "Calamity / emergency", "Livelihood / small business", "Debt consolidation", "Other",
@@ -51,6 +59,10 @@ export const requestStatusLabels = {
   REJECTED: "Rejected",
   CANCELLED: "Cancelled",
   ENROLLED: "For verification",
+  RETURNED: "Returned for correction",
+  VERIFIED: "Verified · awaiting activation",
+  ACTIVATING: "Activation pending",
+  ACTIVE: "Active",
   AGENCY_DECLINED: "Not approved by agency",
 } as const;
 export type RequestStatus = keyof typeof requestStatusLabels;
@@ -58,9 +70,23 @@ export type RequestStatus = keyof typeof requestStatusLabels;
 export const requestViews = {
   "in-progress": { label: "In progress", statuses: ["REQUESTED", "APPROVED"] },
   drafts: { label: "Drafts", statuses: ["DRAFT"] },
-  decided: { label: "Decided", statuses: ["APPROVED", "REJECTED", "CANCELLED", "ENROLLED", "AGENCY_DECLINED"] },
+  decided: { label: "History", statuses: ["REJECTED", "CANCELLED", "ENROLLED", "RETURNED", "VERIFIED", "ACTIVATING", "ACTIVE", "AGENCY_DECLINED"] },
 } as const satisfies Record<string, { label: string; statuses: readonly RequestStatus[] }>;
 export type RequestView = keyof typeof requestViews;
+
+export const requestStatusTone: Record<RequestStatus, string> = {
+  DRAFT: "text-muted-foreground",
+  REQUESTED: "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
+  APPROVED: "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
+  REJECTED: "border-destructive/30 bg-destructive/10 text-destructive",
+  CANCELLED: "text-muted-foreground",
+  ENROLLED: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+  RETURNED: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+  VERIFIED: "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
+  ACTIVATING: "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
+  ACTIVE: "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
+  AGENCY_DECLINED: "border-destructive/30 bg-destructive/10 text-destructive",
+};
 
 export const requestDecisionLabels = {
   REQUEST_SUBMITTED: "Request submitted",
@@ -68,6 +94,22 @@ export const requestDecisionLabels = {
   REQUEST_REJECTED: "Request rejected",
   REQUEST_CANCELLED: "Request cancelled",
   REQUEST_ENROLLED: "Loan enrolled",
+  ENROLLMENT_RETURNED: "Enrollment returned",
+  ENROLLMENT_RESUBMITTED: "Enrollment resubmitted",
+  ENROLLMENT_VERIFIED: "Enrollment verified",
+  ENROLLMENT_EVIDENCE_UPDATED: "Enrollment evidence updated",
+  ENROLLMENT_TRANSFER_RECORDED: "Import transfer status recorded",
+  PAYROLL_HANDOFF_QUEUED: "Payroll handoff queued",
+  PAYROLL_HANDOFF_CHECKED: "Payroll handoff checked",
+  PAYROLL_HANDOFF_EXPORTED: "Payroll instructions downloaded",
+  PAYROLL_ACKNOWLEDGEMENT_IMPORTED: "Payroll acknowledgement imported",
+  PAYROLL_HANDOFF_UPDATED: "Payroll handoff updated",
+  PAYROLL_HANDOFF_ACCEPTED: "Payroll handoff accepted",
+  AGENCY_BALANCE_RECORDED: "Agency balance recorded",
+  LOAN_TERMS_CHANGED: "Loan terms changed",
+  LOAN_REFUND_RECORDED: "Agency refund recorded",
+  LOAN_CHANGE_PAYROLL_UPDATED: "Payroll instruction updated",
+  LOAN_TERMS_CHANGE_REVERSED: "Loan change reversed",
   REQUEST_AGENCY_DECLINED: "Agency did not approve",
 } as const;
 export type RequestDecision = {
@@ -152,3 +194,5 @@ export type LoanRequest = RequestListItem & {
   decisionHistory: RequestDecision[];
 };
 export type Page<T> = { items: T[]; hasMore: boolean };
+export type RequestSummary = Record<RequestStatus, number>;
+export type RequestPage = Page<RequestListItem> & { summary: RequestSummary };

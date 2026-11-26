@@ -44,6 +44,11 @@ function mapReview(row: Record<string, unknown>): ReviewRow {
   };
 }
 
+/** Agenda rows written before the generator switched to the middle dot still carry the old dash. */
+function plain(text: string): string {
+  return text.replace(/ [—–] /g, " · ");
+}
+
 function mapItem(row: Record<string, unknown>): AgendaItem {
   return {
     id: asNumber(row.id),
@@ -52,10 +57,10 @@ function mapItem(row: Record<string, unknown>): AgendaItem {
     kind: asString(row.kind),
     ref_type: row.ref_type ? asString(row.ref_type) : null,
     ref_id: asNumberOrNull(row.ref_id),
-    title: asString(row.title),
+    title: plain(asString(row.title)),
     minutes_alloc: asNumber(row.minutes_alloc),
-    notes: row.notes ? asString(row.notes) : null,
-    decision: row.decision ? asString(row.decision) : null,
+    notes: row.notes ? plain(asString(row.notes)) : null,
+    decision: row.decision ? plain(asString(row.decision)) : null,
   };
 }
 
@@ -72,6 +77,42 @@ function mapAction(row: Record<string, unknown>): ActionRow {
     notes: row.notes ? asString(row.notes) : null,
     done_at: row.done_at ? asString(row.done_at) : null,
   };
+}
+
+/**
+ * Names behind the owner ids an action stores.
+ *
+ * The platform's user directory is the `user` table (`user_id`, `user_fname`, ...); the REST listing of
+ * `directus_users` answers 403 on this instance, so reading it here would fail the whole meeting load.
+ * An unreadable directory leaves the id alone: the row then says the name is unavailable rather than
+ * printing a number that pretends to be a person.
+ */
+async function ownerNames(ids: (number | null)[]): Promise<Map<number, string>> {
+  const unique = [...new Set(ids.filter((id): id is number => Number.isInteger(id) && (id ?? 0) > 0))];
+  if (unique.length === 0) return new Map();
+
+  try {
+    const { rows } = await listItems<Record<string, unknown>>("user", {
+      fields: ["user_id", "user_fname", "user_mname", "user_lname", "user_email"],
+      filter: { user_id: { _in: unique } },
+      limit: unique.length,
+    });
+    const names = new Map<number, string>();
+    for (const row of rows) {
+      const id = asNumber(row.user_id);
+      const full = [row.user_fname, row.user_mname, row.user_lname].map((part) => asString(part).trim()).filter(Boolean).join(" ");
+      const label = full || asString(row.user_email).trim();
+      if (id > 0 && label) names.set(id, label);
+    }
+    return names;
+  } catch {
+    return new Map();
+  }
+}
+
+async function withOwnerNames(rows: ActionRow[]): Promise<ActionRow[]> {
+  const names = await ownerNames(rows.map((row) => row.owner_user_id));
+  return rows.map((row) => ({ ...row, ownerName: row.owner_user_id ? (names.get(row.owner_user_id) ?? null) : null }));
 }
 
 function mapException(row: Record<string, unknown>, kpi?: KpiRow): ExceptionListRow {
@@ -178,20 +219,20 @@ export function planAgenda(
   };
 
   for (const row of exceptions.filter((item) => item.status === "ESCALATED")) {
-    push("ESCALATED", `${row.companyCode} · ${row.kpiName} — escalated, memo overdue`, 5, "exception", row.id);
+    push("ESCALATED", `${row.companyCode} · ${row.kpiName} · escalated, memo overdue`, 5, "exception", row.id);
   }
   for (const row of exceptions.filter((item) => item.status === "RECURRENCE")) {
-    push("RECURRENCE", `${row.companyCode} · ${row.kpiName} — back over the limit after a fix`, 4, "exception", row.id);
+    push("RECURRENCE", `${row.companyCode} · ${row.kpiName} · back over the limit after a fix`, 4, "exception", row.id);
   }
   for (const row of exceptions.filter((item) => item.status === "OPEN")) {
-    push("OPEN", `${row.companyCode} · ${row.kpiName} — open, no memo yet`, 4, "exception", row.id);
+    push("OPEN", `${row.companyCode} · ${row.kpiName} · open, no memo yet`, 4, "exception", row.id);
   }
 
   const early = exceptions.filter((item) => item.status === "MONITORING" && item.escalated_level === 0);
   if (early.length > 0) {
     push(
       "EARLY",
-      `Early warnings — ${early
+      `Early warnings: ${early
         .map((row) => `${row.companyCode} · ${row.kpiName}`)
         .slice(0, 3)
         .join(", ")}${early.length > 3 ? `, and ${early.length - 3} more` : ""}`,
@@ -205,7 +246,7 @@ export function planAgenda(
   if (stale.length > 0) {
     push(
       "DATA",
-      `Data quality — ${stale.length} feed${stale.length === 1 ? "" : "s"} past the freshness limit: ${stale
+      `Data quality: ${stale.length} feed${stale.length === 1 ? "" : "s"} past the freshness limit: ${stale
         .map((row) => row.code)
         .slice(0, 4)
         .join(", ")}${stale.length > 4 ? `, +${stale.length - 4}` : ""}`,
@@ -253,6 +294,8 @@ export async function loadReview(params: { period?: string; company?: string }):
       ).rows.map(mapAction)
     : [];
 
+  const namedActions = await withOwnerNames(actions);
+
   const scoped = exceptions.filter((row) => company === null || company.kind === "GROUP" || row.company_id === company.id);
   const staleness = sources.map((row) => {
     const last = row.last_sync_at ? new Date(row.last_sync_at).getTime() : null;
@@ -266,7 +309,7 @@ export async function loadReview(params: { period?: string; company?: string }):
     companies,
     review,
     items,
-    actions,
+    actions: namedActions,
     planned: review ? [] : planAgenda(scoped.filter((row) => OPEN_STATUSES.includes(row.status)), staleness),
     exceptions: scoped.filter((row) => OPEN_STATUSES.includes(row.status)),
   };
@@ -367,7 +410,9 @@ export async function createAction(
     updated_at: phtStamp(),
     updated_by: actorId,
   });
-  return mapAction(created);
+  const names = await ownerNames([actorId]);
+  const row = mapAction(created);
+  return { ...row, ownerName: actorId ? (names.get(actorId) ?? null) : null };
 }
 
 export async function completeAction(id: number, actorId: number | null): Promise<ActionRow> {

@@ -10,9 +10,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 import { PAYMENT_PERIOD_LABELS } from "../constants";
+import { phtDisplayDate, phtDisplayStamp } from "../pht";
 import type { PaymentRow } from "../types";
 
 function Detail({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
@@ -26,11 +27,6 @@ function Detail({ label, children, className }: { label: string; children: React
 
 function Missing() {
   return <span className="text-muted-foreground">not recorded</span>;
-}
-
-function recordedAt(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : formatDateTime(date);
 }
 
 interface Props {
@@ -65,7 +61,7 @@ export function PaymentDetailDialog({ payment, onOpenChange }: Props) {
                 <Detail label="Form">{payment.formCode}</Detail>
                 <Detail label="Period">{PAYMENT_PERIOD_LABELS[payment.periodKey]}</Detail>
                 <Detail label="Paid on" className="tabular-nums">
-                  {payment.paidOn}
+                  {phtDisplayDate(payment.paidOn)}
                 </Detail>
                 <Detail label="Amount" className="tabular-nums font-semibold">
                   {formatCurrency(payment.amount)}
@@ -77,7 +73,7 @@ export function PaymentDetailDialog({ payment, onOpenChange }: Props) {
                   {payment.createdByName ?? <Missing />}
                 </Detail>
                 <Detail label="Recorded at" className="col-span-2 tabular-nums">
-                  {recordedAt(payment.createdAt)}
+                  {phtDisplayStamp(payment.createdAt)}
                 </Detail>
                 {payment.remarks ? (
                   <Detail label="Remarks" className="col-span-2">

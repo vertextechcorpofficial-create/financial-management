@@ -6,10 +6,11 @@ import type {
 } from "./dashboard-types";
 
 type ReadSource<Row> = { state: "available"; rows: readonly Row[] } | DashboardUnavailable;
+export type { ReadSource };
 // Readers normalize posted amounts to centavos before aggregating them.
 type DatedAmount = { date: string; amount: string };
 
-type DashboardSources = {
+export type DashboardSources = {
   members?: ReadSource<{ status: "ACTIVE" | "APPLIED" | "NON_MEMBER" | "SEPARATED" | "REJECTED" }>;
   savings?: ReadSource<DatedAmount>;
   // Loans supplies the active portfolio and authorized balances as of the business date.
@@ -37,8 +38,7 @@ export function dashboardBusinessDate(now = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-function dashboardMonths(asOf: string): DashboardMonth[] {
-  const [year, month] = asOf.split("-").map(Number);
+export function dashboardMonths(asOf: string): DashboardMonth[] {  const [year, month] = asOf.split("-").map(Number);
   return Array.from({ length: 6 }, (_, index) => {
     const offset = month - 6 + index;
     const first = new Date(Date.UTC(year, offset, 1));
@@ -65,7 +65,7 @@ const newestFirst = (a: { date: string; id: string }, b: { date: string; id: str
   b.date.localeCompare(a.date) || b.id.localeCompare(a.id, "en", { numeric: true });
 
 export function buildDashboardSummary(
-  asOf: string, sources: DashboardSources, grants: readonly CooperativeWorkspaceKey[],
+  asOf: string, sources: DashboardSources, grants: readonly CooperativeWorkspaceKey[], nextCutoff: string,
 ): DashboardSummary {
   const months = dashboardMonths(asOf);
   const allowed = new Set(grants);
@@ -124,22 +124,25 @@ export function buildDashboardSummary(
   const work = summarize(sources.work, "Waiting for approval, loan release, and clearance records.", rows => {
     const approvals = rows.filter(row => row.kind !== "release" && row.kind !== "clearance").sort(newestFirst);
     const releases = rows.filter(row => row.kind === "release").sort(newestFirst);
-    const waiting = [...approvals.slice(0, 4), ...releases].map(row => ({
+    const clearances = rows.filter(row => row.kind === "clearance").sort(newestFirst);
+    const waiting = [...approvals.slice(0, 4), ...releases, ...clearances].sort(newestFirst).slice(0, 8).map(row => ({
       ...row,
-      href: allowed.has(row.kind === "release" ? "loans" : "approvals") ? row.href : undefined,
+      href: allowed.has(row.kind === "release" ? "loans" : row.kind === "clearance" ? "exit-clearance" : "approvals") ? row.href : undefined,
     }));
     return {
-      approvals: approvals.length, releases: releases.length, clearances: rows.filter(row => row.kind === "clearance").length, waiting,
+      approvals: approvals.length, releases: releases.length, clearances: clearances.length, waiting,
     };
   }, throughToday);
   const recentTransactions = summarize(sources.transactions, "Waiting for the member transaction journal.", rows =>
     [...rows].sort(newestFirst).slice(0, 6), throughToday);
   return {
-    asOf, months, members, savings, portfolio, moneyIn, work, recentTransactions,
+    asOf, nextCutoff, months, members, savings, portfolio, moneyIn, work, recentTransactions,
     links: {
       approvals: allowed.has("approvals") ? sources.links?.approvals : undefined,
       aging: allowed.has("reports") ? sources.links?.aging : undefined,
       journal: allowed.has("transactions") ? sources.links?.journal : undefined,
+      members: allowed.has("members") ? sources.links?.members : undefined,
+      loans: allowed.has("loans") ? sources.links?.loans : undefined,
     },
   };
 }

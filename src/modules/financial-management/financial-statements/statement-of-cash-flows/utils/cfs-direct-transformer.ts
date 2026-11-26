@@ -151,7 +151,7 @@ export function createEmptyCFSData(entity: CFSEntity, periodEndDate: string = ""
     unmappedAccounts: [],
     consolidationWorksheet: [],
     eliminationEntries: [],
-    policyNote: `${entity.name} presents its Statement of Cash Flows using the direct method under Philippine Accounting Standard (PAS) 7, Statement of Cash Flows. Major classes of gross cash receipts and gross cash payments are reported for operating, investing, and financing activities. Cash and cash equivalents comprise cash on hand, bank demand deposits, and highly liquid investments with maturities of three months or less.`,
+    policyNote: `${entity.name} presents its Statement of Cash Flows using the direct method under Philippine Accounting Standard (PAS) 7, Statement of Cash Flows. Major classes of gross cash receipts and gross cash payments are reported for operating, investing, and financing activities. Cash and cash equivalents comprise cash on hand, bank demand deposits, and highly liquid investments with maturities of three months or less. Under PAS 7 guidelines, cash flows from interest paid and interest/dividends received are classified within operating activities for financial reporting periods beginning prior to January 1, 2027; for periods commencing on or after January 1, 2027, interest paid is classified within financing activities, and interest/dividends received within investing activities.`,
   };
 }
 
@@ -467,6 +467,6 @@ export function transformSummaryToDirectCFSData(
     })),
     consolidationWorksheet: [],
     eliminationEntries: [],
-    policyNote: `${entity.name} presents its Statement of Cash Flows using the direct method under Philippine Accounting Standard (PAS) 7, Statement of Cash Flows. Major classes of gross cash receipts and gross cash payments are reported for operating, investing, and financing activities. Cash and cash equivalents comprise cash on hand, bank demand deposits, and highly liquid investments with maturities of three months or less.`,
+    policyNote: `${entity.name} presents its Statement of Cash Flows using the direct method under Philippine Accounting Standard (PAS) 7, Statement of Cash Flows. Major classes of gross cash receipts and gross cash payments are reported for operating, investing, and financing activities. Cash and cash equivalents comprise cash on hand, bank demand deposits, and highly liquid investments with maturities of three months or less. Under PAS 7 guidelines, cash flows from interest paid and interest/dividends received are classified within operating activities for financial reporting periods beginning prior to January 1, 2027; for periods commencing on or after January 1, 2027, interest paid is classified within financing activities, and interest/dividends received within investing activities.`,
   };
 }

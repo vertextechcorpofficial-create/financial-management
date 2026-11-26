@@ -31,6 +31,11 @@ export type CompanyOption = Pick<
 export interface QuarterFigures {
   sales: number;
   salesVat: number;
+  /**
+   * Sales invoiced with no VAT. The instance records no zero-rated/exempt classification, so
+   * this is the money the 2550Q needs sorted into those two lines and it is shown as one figure.
+   */
+  vatFreeSales: number;
   /** Header discounts; the itemized view nets them out of its product totals. */
   discounts: number;
   returns: number;
@@ -193,11 +198,12 @@ export interface VatComputation {
 export type WithholdingForm = "0619-E" | "1601-EQ";
 
 /**
- * One calendar month of purchase-order withholding, as the ERP records it.
+ * One calendar month of purchase withholding, from the posted purchase orders.
  *
- * `purchases` and `withheld` are sums of `purchase_order` for the month. `agentDue`
- * and `quarterlyDue` place that recorded amount on the form the month is filed under;
- * neither is a remittance, because this ERP has no remittance ledger.
+ * `purchases` and `withheld` are sums of `purchase_order` (with VAT read off its lines).
+ * `unknown` is true when every order that month carries no withheld amount, so the figure
+ * is not known rather than zero. `agentDue` and `quarterlyDue` place that amount on the form
+ * the month is filed under; neither is a remittance, because this ERP has no remittance ledger.
  */
 export interface MonthlyWithholdingRow {
   month: number;
@@ -206,6 +212,7 @@ export interface MonthlyWithholdingRow {
   quarterEnd: boolean;
   purchases: number;
   withheld: number;
+  unknown: boolean;
   agentForm: WithholdingForm | null;
   quarterlyForm: WithholdingForm | null;
   agentDue: number | null;
@@ -222,6 +229,12 @@ export interface CertificateRow {
   incomeType: string;
   incomeAmount: number;
   taxRate: number;
+  /** Withheld ÷ income: the rate the payor actually applied, whatever `taxRate` stores. */
+  impliedRate: number | null;
+  /** True when the implied rate is one the BIR publishes for EWT (1, 2, 5, 10, 15). */
+  statutory: boolean;
+  /** TIN, certificate number and date received all present: a certificate a payor issued. */
+  verified: boolean;
   taxWithheld: number;
   dateReceived: string | null;
   sourceRef: string | null;
@@ -238,6 +251,11 @@ export interface CertificateSummaryRow {
 export interface CertificateRegister {
   rows: CertificateRow[];
   summary: CertificateSummaryRow[];
+  /** Withheld on documented certificates. The only figure that is a credit. */
+  verifiedTotal: number;
+  /** EWT an invoice says was withheld, with no certificate behind it yet. */
+  pendingTotal: number;
+  pendingCount: number;
   notices: string[];
 }
 

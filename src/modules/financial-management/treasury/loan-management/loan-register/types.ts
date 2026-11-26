@@ -168,4 +168,6 @@ export interface RegisterSummary {
   };
   accounts: LoanPaymentAccountRow[];
   notices: string[];
+  /** Loans whose installments are past due while the stored status still reads `CURRENT`. */
+  staleOverdue: number;
 }

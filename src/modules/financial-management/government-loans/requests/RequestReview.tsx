@@ -6,15 +6,17 @@ import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { RequestCapacity } from "./RequestCapacity";
-import { cancelRequest, RequestApiError, requestDocumentUrl } from "./request-api";
+import { RequestApiError, staffRequestApi } from "./request-api";
 import { canCancelRequest } from "./request-rules";
 import {
-  applicationTypes, requestDecisionLabels, requestStatusLabels, type DocumentKind, type LoanRequest,
+  applicationTypes, requestDecisionLabels, requestStatusLabels, requestStatusTone,
+  type DocumentKind, type LoanRequest, type RequestStatus,
 } from "./types";
 
 export function RequestSection({ title, children }: { title: string; children: ReactNode }) {
@@ -24,8 +26,63 @@ export function RequestSection({ title, children }: { title: string; children: R
   </section>;
 }
 
+const requestStages: { status: RequestStatus; label: string }[] = [
+  { status: "DRAFT", label: "Draft" },
+  { status: "REQUESTED", label: "Requested" },
+  { status: "APPROVED", label: "Approved" },
+  { status: "ENROLLED", label: "For verification" },
+  { status: "VERIFIED", label: "Verified" },
+  { status: "ACTIVE", label: "Active" },
+];
+const requestStage: Partial<Record<RequestStatus, number>> = {
+  DRAFT: 0, REQUESTED: 1, APPROVED: 2, ENROLLED: 3, RETURNED: 3, VERIFIED: 4, ACTIVATING: 4, ACTIVE: 5,
+};
+const terminalStatuses: RequestStatus[] = ["REJECTED", "CANCELLED", "AGENCY_DECLINED"];
+const nextStep: Record<RequestStatus, string> = {
+  DRAFT: "Complete the required request fields and submit for approval.",
+  REQUESTED: "Waiting for company approval.",
+  APPROVED: "Approved. Record the agency terms and evidence in Enrollment.",
+  REJECTED: "The request was rejected. Review the decision history below.",
+  CANCELLED: "The request was cancelled.",
+  ENROLLED: "Waiting for a different verifier to review the enrollment.",
+  RETURNED: "Correct the returned enrollment and resubmit it for verification.",
+  VERIFIED: "Verified. A different staff member must activate the loan.",
+  ACTIVATING: "Activation is in progress.",
+  ACTIVE: "The loan is active and deductions are scheduled.",
+  AGENCY_DECLINED: "The agency did not approve the loan.",
+};
+
+export function RequestStatusSummary({ record, reason }: { record: LoanRequest; reason?: string | null }) {
+  const current = requestStage[record.status] ?? -1;
+  const terminal = terminalStatuses.includes(record.status);
+  const latestReason = reason ?? [...record.decisionHistory].reverse()
+    .find(event => event.reason || event.remarks)?.reason ??
+    [...record.decisionHistory].reverse().find(event => event.remarks)?.remarks;
+  return <section className="space-y-3 rounded-lg border bg-card p-4" aria-label="Request status">
+    <div className="flex flex-wrap items-start justify-between gap-2">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current status</p>
+        <p className="text-base font-semibold">{requestStatusLabels[record.status]}</p>
+      </div>
+      <Badge variant="outline" className={requestStatusTone[record.status]}>{requestStatusLabels[record.status]}</Badge>
+    </div>
+    {!terminal && current >= 0 && <ol className="flex flex-wrap gap-1.5 text-xs" aria-label="Request progress">
+      {requestStages.map((stage, index) => <li key={stage.status}
+        className={"rounded-full border px-2 py-0.5 " + (index < current ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+          : index === current ? "border-primary bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>
+        {stage.label}
+      </li>)}
+    </ol>}
+    <p className="text-sm text-muted-foreground">{nextStep[record.status]}</p>
+    {latestReason && (terminal || record.status === "RETURNED") && <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+      <p className="font-medium">{record.status === "RETURNED" ? "Return reason" : "Decision reason"}</p>
+      <p className="whitespace-pre-wrap break-words">{latestReason}</p>
+    </div>}
+  </section>;
+}
+
 export function RequestDetails({ record, documentHref }: { record: LoanRequest; documentHref: (kind: DocumentKind) => string }) {
-  const { form, filedAssessment, decisionHistory } = record;
+  const { form, filedAssessment } = record;
   return <>
     <RequestSection title={record.reference + " · " + requestStatusLabels[record.status]}>
       <div className="grid gap-3 text-sm sm:grid-cols-3">
@@ -49,9 +106,14 @@ export function RequestDetails({ record, documentHref }: { record: LoanRequest; 
         <a className="break-words text-primary underline" href={documentHref(document.kind)}>{document.name}</a>
       </li>)}</ul>
     </RequestSection>}
-    <RequestSection title="Decision history">
-      {decisionHistory.length > 0 ? <ol className="divide-y text-sm">
-        {decisionHistory.map(event => <li key={event.id} className="space-y-1 py-2 first:pt-0 last:pb-0">
+    <RequestDecisionHistory items={record.decisionHistory} />
+  </>;
+}
+
+export function RequestDecisionHistory({ items }: { items: LoanRequest["decisionHistory"] }) {
+  return <RequestSection title="Decision history">
+      {items.length > 0 ? <ol className="divide-y text-sm">
+        {items.map(event => <li key={event.id} className="space-y-1 py-2 first:pt-0 last:pb-0">
           <div className="flex flex-wrap items-center justify-between gap-x-3">
             <p className="font-medium">{requestDecisionLabels[event.action]}</p>
             <time className="text-xs text-muted-foreground" dateTime={event.occurredAt}>{dateTime(event.occurredAt)} PHT</time>
@@ -62,12 +124,12 @@ export function RequestDetails({ record, documentHref }: { record: LoanRequest; 
           {(event.reason || event.remarks) && <p className="whitespace-pre-wrap break-words">{event.reason || event.remarks}</p>}
         </li>)}
       </ol> : <p className="text-sm text-muted-foreground">No decisions recorded.</p>}
-    </RequestSection>
-  </>;
+    </RequestSection>;
 }
 
-export function RequestReview({ record, onBack, onCancelled, onReload }: {
+export function RequestReview({ record, onBack, onCancelled, onReload, api = staffRequestApi }: {
   record: LoanRequest; onBack: () => void; onCancelled: () => void; onReload: () => void;
+  api?: typeof staffRequestApi;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -82,7 +144,7 @@ export function RequestReview({ record, onBack, onCancelled, onReload }: {
     try {
       const text = reason.trim();
       if (attempt.current?.reason !== text) attempt.current = { reason: text, key: consignmentRequestId() };
-      await cancelRequest(record, text, attempt.current.key);
+      await api.cancelRequest(record, text, attempt.current.key);
       setOpen(false);
       onCancelled();
     } catch (cause) {
@@ -126,6 +188,7 @@ export function RequestReview({ record, onBack, onCancelled, onReload }: {
         </AlertDialogContent>
       </AlertDialog>}
     </div>
-    <RequestDetails record={record} documentHref={kind => requestDocumentUrl(record.id, kind)} />
+    <RequestStatusSummary record={record} />
+    <RequestDetails record={record} documentHref={kind => api.requestDocumentUrl(record.id, kind)} />
   </div>;
 }

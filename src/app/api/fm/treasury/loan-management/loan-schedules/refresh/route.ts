@@ -10,11 +10,14 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Marks installments DUE and OVERDUE as their dates pass.
+ * Marks installments DUE and OVERDUE as their dates pass, and moves the loan's own status with
+ * them: a loan whose installments are late reads OVERDUE, one whose late installments were settled
+ * reads CURRENT. A loan in another stage (pending, rejected, paid off, prepaid) keeps the status its
+ * workflow set, and `approval_status` is never touched.
  *
- * No journal entry and no `loan_event` row is written: the event table has no kind for "a due
- * date went by", and this is a status view rather than a transaction. The change log captures
- * who ran it through `updated_by` on each row.
+ * No journal entry and no `loan_event` row is written: the event table has no kind for "a due date
+ * went by" (`STATUS_CHANGED` would be the value to add), and this is a status view rather than a
+ * transaction. The change log captures who ran it through `updated_by` on each row.
  */
 export async function POST(request: NextRequest) {
   try {

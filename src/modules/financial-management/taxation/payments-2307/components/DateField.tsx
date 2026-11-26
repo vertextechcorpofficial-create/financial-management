@@ -83,7 +83,7 @@ export function DateField({
           )}
         >
           <CalendarIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="truncate">{selected ? format(selected, "LLL dd, y") : placeholder}</span>
+          <span className="truncate">{selected ? format(selected, "MM/dd/yyyy") : placeholder}</span>
         </Button>
       </PopoverTrigger>
       <Content className="w-auto p-0" align="start">

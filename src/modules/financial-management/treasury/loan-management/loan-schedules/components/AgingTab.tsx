@@ -20,6 +20,7 @@ import {
 import { DateField } from "./DateField";
 import { StatusBadge } from "./StatusBadge";
 import { ACCENT, AGING_BUCKETS, LOAN_STATUS_LABEL, LOAN_STATUS_TONE, toneClass } from "../constants";
+import { formatDateMDY } from "../pht";
 import type { useSchedules } from "../hooks/useSchedules";
 import { runStatusRefresh } from "../providers/schedulesApi";
 
@@ -42,7 +43,7 @@ export function AgingTab({ schedules }: { schedules: ReturnType<typeof useSchedu
       const result = await runStatusRefresh({ asOf: filters.asOf, loanId: filters.loanId, dryRun: false });
       const changes = result.markedDue + result.markedOverdue;
       if (changes === 0) {
-        toast.success(`No installment changed. ${result.scanned} read as of ${result.asOf}.`);
+        toast.success(`No installment changed. ${result.scanned} read as of ${formatDateMDY(result.asOf)}.`);
       } else {
         toast.success(
           `Updated ${result.updated} installment${result.updated === 1 ? "" : "s"}: ${result.markedDue} now due, ${result.markedOverdue} now overdue.`,
@@ -149,7 +150,7 @@ export function AgingTab({ schedules }: { schedules: ReturnType<typeof useSchedu
               <span>
                 Outstanding <span className="font-semibold tabular-nums text-foreground">{money(aging.outstandingPrincipal)}</span>
               </span>
-              <span>As of {data.asOf}</span>
+              <span>As of {formatDateMDY(data.asOf)}</span>
             </div>
 
             <div className="hidden overflow-x-auto min-[1300px]:block">
@@ -182,11 +183,11 @@ export function AgingTab({ schedules }: { schedules: ReturnType<typeof useSchedu
                       </TableCell>
                       {AGING_BUCKETS.map((bucket) => (
                         <TableCell key={bucket.key} className="text-right tabular-nums">
-                          {row.buckets[bucket.key] > 0 ? money(row.buckets[bucket.key]) : "—"}
+                          {row.buckets[bucket.key] > 0 ? money(row.buckets[bucket.key]) : "none"}
                         </TableCell>
                       ))}
                       <TableCell className="text-right tabular-nums">
-                        {row.buckets.overduePrincipal > 0 ? money(row.buckets.overduePrincipal) : "—"}
+                        {row.buckets.overduePrincipal > 0 ? money(row.buckets.overduePrincipal) : "none"}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -240,7 +241,7 @@ export function AgingTab({ schedules }: { schedules: ReturnType<typeof useSchedu
           <div className="min-w-0">
             <h2 className="text-sm font-semibold">Current and non-current principal</h2>
             <p className="text-xs text-muted-foreground">
-              The PAS 1 split for {scopeLabel}: what is payable inside twelve months of {data.asOf}, and the rest.
+              The PAS 1 split for {scopeLabel}: what is payable inside twelve months of {formatDateMDY(data.asOf)}, and the rest.
             </p>
           </div>
         </div>
@@ -249,7 +250,7 @@ export function AgingTab({ schedules }: { schedules: ReturnType<typeof useSchedu
           <div className="px-4 py-8 text-center">
             <p className="text-sm font-medium">There is no principal to split yet.</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Nothing is outstanding on {scopeLabel} as of {data.asOf}.
+              Nothing is outstanding on {scopeLabel} as of {formatDateMDY(data.asOf)}.
             </p>
           </div>
         ) : (
@@ -258,13 +259,13 @@ export function AgingTab({ schedules }: { schedules: ReturnType<typeof useSchedu
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Current</p>
               <p className="mt-1 truncate text-lg font-semibold tabular-nums">{money(split.current)}</p>
               <p className="text-xs text-muted-foreground">
-                Due inside 12 months of {split.asOf}, plus everything already past its payment date.
+                Due inside 12 months of {formatDateMDY(split.asOf)}, plus everything already past its payment date.
               </p>
             </div>
             <div className="rounded-xl border border-border/50 p-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Non-current</p>
               <p className="mt-1 truncate text-lg font-semibold tabular-nums">{money(split.nonCurrent)}</p>
-              <p className="text-xs text-muted-foreground">Due after {split.asOf} plus twelve months.</p>
+              <p className="text-xs text-muted-foreground">Due after {formatDateMDY(split.asOf)} plus twelve months.</p>
             </div>
             <div className="rounded-xl border border-border/50 p-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

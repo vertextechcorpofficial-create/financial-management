@@ -35,6 +35,11 @@ export interface SettingsMapping {
   coaId: number | null;
   glCode: string | null;
   accountTitle: string | null;
+  /** The card this line sits under, from `mapping_group`; null until the column carries a value. */
+  mappingGroup: string | null;
+  mappingLabel: string | null;
+  /** The deck's "Usage Description", from `usage_description`. */
+  description: string | null;
   updatedAt: string | null;
 }
 

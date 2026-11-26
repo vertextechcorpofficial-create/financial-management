@@ -5,6 +5,14 @@ import type {
   RecordChangeRequest,
 } from "../types";
 
+const REQUEST_TIMEOUT_MS = 20000;
+
+// A dropped connection must not leave the screen on skeletons forever.
+function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+}
+
+
 const BASE = "/api/fm/treasury/loan-management/loan-changes";
 
 interface Envelope<T> {
@@ -53,17 +61,17 @@ function toQuery(params: ChangesRequest): string {
 }
 
 export async function fetchChanges(params: ChangesRequest): Promise<ChangesPayload> {
-  const response = await fetch(`${BASE}?${toQuery(params)}`, { cache: "no-store" });
+  const response = await fetchWithTimeout(`${BASE}?${toQuery(params)}`, { cache: "no-store" });
   return readJson<ChangesPayload>(response, "The changes could not be read.");
 }
 
 export async function fetchChangeContext(loanId: number): Promise<ChangeContext> {
-  const response = await fetch(`${BASE}?loanId=${loanId}`, { cache: "no-store" });
+  const response = await fetchWithTimeout(`${BASE}?loanId=${loanId}`, { cache: "no-store" });
   return readJson<ChangeContext>(response, "That loan could not be read.");
 }
 
 export async function recordChangeRequest(payload: RecordChangeRequest): Promise<ChangeListRow> {
-  const response = await fetch(`${BASE}/record`, {
+  const response = await fetchWithTimeout(`${BASE}/record`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -72,7 +80,7 @@ export async function recordChangeRequest(payload: RecordChangeRequest): Promise
 }
 
 export async function reverseChangeRequest(id: number, reason: string | null): Promise<ChangeListRow> {
-  const response = await fetch(`${BASE}/${id}/reverse`, {
+  const response = await fetchWithTimeout(`${BASE}/${id}/reverse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason }),

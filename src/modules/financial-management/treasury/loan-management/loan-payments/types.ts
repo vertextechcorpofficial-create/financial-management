@@ -79,15 +79,44 @@ export interface InstallmentRow {
   status: string;
 }
 
-/** The pickable loans for the dialog and the filter. */
-export interface LoanOption {
+/** One row of the payments landing list: a loan plus what it still owes today. */
+export interface PaymentLoanRow {
   id: number;
   loanNo: string;
+  accountNo: string | null;
   lenderName: string;
+  lenderType: string;
   principal: number;
+  releaseDate: string | null;
+  maturityDate: string | null;
+  status: string;
+  repaymentMethod: string;
   installmentAmount: number;
   advanceBalance: number;
-  status: string;
+  /** Outstanding interest, principal and penalty on installments whose payable date has passed. */
+  amountDueNow: number;
+  overdueAmount: number;
+  overdueCount: number;
+  nextDueDate: string | null;
+}
+
+/** One row of a loan's payment history. */
+export interface LoanHistoryRow {
+  id: number;
+  payment_no: string;
+  payment_date: string;
+  amount: number;
+  method: PaymentMethod;
+  accountLabel: string | null;
+  lenderReceipt: string | null;
+  status: PaymentStatus;
+  reversedById: number | null;
+  recordedBy: string | null;
+  bankCharge: number;
+  penaltyAmount: number;
+  interestAmount: number;
+  principalAmount: number;
+  advanceAmount: number;
 }
 
 /** Everything the record-payment dialog needs for one loan. */
@@ -95,6 +124,7 @@ export interface PaymentContext {
   loan: {
     id: number;
     loan_no: string;
+    account_no: string | null;
     lender_name: string;
     principal: number;
     installment_amount: number;
@@ -105,11 +135,20 @@ export interface PaymentContext {
     maturity_date: string | null;
     schedule_version: number;
   };
+  /**
+   * Every installment of the current schedule, settled ones included: the workspace shows a paid
+   * row rather than hiding it, and the pills count all four readings.
+   */
   installments: Array<{
     id: number;
     periodNo: number;
     dueDate: string;
     paymentDueDate: string;
+    /** What the schedule says this period costs, before any payment. */
+    payment: number;
+    interest: number;
+    principal: number;
+    paidAmount: number;
     interestOutstanding: number;
     principalOutstanding: number;
     penalty: number;
@@ -121,11 +160,4 @@ export interface PaymentContext {
   suggested: number;
   payoff: number;
   notices: string[];
-}
-
-export interface PaymentsSummary {
-  posted: number;
-  amountThisMonth: number;
-  penaltyCharged: number;
-  advanceHeld: number;
 }
