@@ -141,7 +141,7 @@ export function LoanPaymentsWorkspace({ loanId, onBack }: Props) {
         </Notice>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 min-[1100px]:grid-cols-4">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
         <KpiTile
           tone="due"
           label="Amount due now"
@@ -248,7 +248,11 @@ export function LoanPaymentsWorkspace({ loanId, onBack }: Props) {
                 loan reconciliation desk. This screen only shows what the books say.
               </p>
               <Button asChild variant="outline" size="sm" className="mt-3 h-8 text-xs">
-                <Link href="/fm/treasury/loan-management/loan-register/reconciliation">Open the reconciliation desk</Link>
+                <Link
+                  href={`/fm/treasury/loan-management/loan-register/reconciliation?from=payments&loanId=${loanId}&loanNo=${encodeURIComponent(loan?.loan_no ?? "")}`}
+                >
+                  Open the reconciliation desk
+                </Link>
               </Button>
             </AccordionContent>
           </AccordionItem>

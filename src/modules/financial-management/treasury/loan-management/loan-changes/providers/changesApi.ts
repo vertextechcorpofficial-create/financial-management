@@ -5,7 +5,7 @@ import type {
   RecordChangeRequest,
 } from "../types";
 
-const REQUEST_TIMEOUT_MS = 20000;
+const REQUEST_TIMEOUT_MS = 60000;
 
 // A dropped connection must not leave the screen on skeletons forever.
 function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {

@@ -76,9 +76,14 @@ export function paymentShiftReason(
   holidays: Record<string, string>,
 ): string | null {
   if (!dueDate || !paymentDate || dueDate === paymentDate) return null;
-  const holiday = holidays[dueDate];
-  if (holiday) return holiday;
+  const dueHoliday = holidays[dueDate];
+  const payHoliday = holidays[paymentDate];
+  if (dueHoliday) {
+    return payHoliday && payHoliday !== dueHoliday
+      ? `Due date fell on ${dueHoliday} · ${payHoliday}`
+      : `Due date fell on ${dueHoliday}`;
+  }
   const weekday = weekdayOf(dueDate);
-  if (weekday === "Saturday" || weekday === "Sunday") return weekday;
+  if (weekday === "Saturday" || weekday === "Sunday") return `Due date fell on ${weekday}`;
   return "Moved to the next business day";
 }

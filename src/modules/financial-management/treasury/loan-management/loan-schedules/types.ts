@@ -191,6 +191,8 @@ export interface ScheduleLoanEntry {
   paymentFrequency: PaymentFrequency;
   releaseDate: string;
   maturityDate: string | null;
+  /** Net proceeds after fees and deducted DST: Row 0 carrying amount in the EIR schedule. */
+  proceedsNet: number;
   /** Effective interest rate after fees and DST, the rate the carrying amount accrues at. */
   eirRate: number;
   scheduleVersion: number;
@@ -206,6 +208,8 @@ export interface ScheduleTotals {
   interest: number;
   principal: number;
   payment: number;
+  eirInterest: number;
+  costAmortization: number;
   paidPrincipal: number;
   paidInterest: number;
   paidPenalty: number;

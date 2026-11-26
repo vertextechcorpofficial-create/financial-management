@@ -18,6 +18,8 @@ const EMPTY: SchedulePayload = {
     interest: 0,
     principal: 0,
     payment: 0,
+    eirInterest: 0,
+    costAmortization: 0,
     paidPrincipal: 0,
     paidInterest: 0,
     paidPenalty: 0,

@@ -10,12 +10,23 @@ export const metadata: Metadata = {
   title: "Loan Reconciliation",
 };
 
-export default function LoanReconciliationPage() {
+export default async function LoanReconciliationPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; loanId?: string; loanNo?: string }>;
+}) {
+  const resolved = await searchParams;
+  const loanId = Number(resolved.loanId);
+  const fromPayments = resolved.from === "payments" && Number.isInteger(loanId) && loanId > 0;
+  const parent = fromPayments
+    ? {
+        label: resolved.loanNo?.trim() || "Loan Payments",
+        href: `/fm/treasury/loan-management/loan-payments?loan=${loanId}`,
+      }
+    : { label: "Loan Register", href: "/fm/treasury/loan-management/loan-register" };
+
   return (
-    <PageShell
-      title="Loan Reconciliation"
-      parent={{ label: "Loan Register", href: "/fm/treasury/loan-management/loan-register" }}
-    >
+    <PageShell title="Loan Reconciliation" parent={parent}>
       <ReconciliationModule />
     </PageShell>
   );
