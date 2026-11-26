@@ -70,7 +70,8 @@ export async function fetchCount(countId: number): Promise<CountDetail> {
   for (const line of lines) if (line.asset_id) byAsset.set(line.asset_id, line);
 
   const expected = assets
-    .filter((a) => a.status !== "Disposed" && a.status !== "For Receiving")
+    // section 4.10: an asset in For Return cannot be assigned, edited or counted
+    .filter((a) => a.status !== "Disposed" && a.status !== "For Receiving" && a.status !== "For Return")
     .map((asset) => ({ line: byAsset.get(asset.id) ?? { id: 0, count_id: countId, asset_id: asset.id, result: "found" as const, condition: null, remarks: null, marked_by: null, pending_asset_name: null }, asset }));
 
   const marked = lines.filter((l) => l.asset_id);

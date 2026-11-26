@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  cancelTransfer,
   createIncomingTransfer,
   decideTransfer,
   listTransfers,
@@ -33,12 +34,23 @@ export async function POST(req: Request) {
         { status: 201 }
       );
     }
+    if (body?.action === "cancel") {
+      return NextResponse.json(
+        await cancelTransfer({ transferId: Number(body.transferId), actor: body.actor ?? null, remark: body.remark ?? null })
+      );
+    }
     const decision = body?.decision;
     if (!["receive", "reject", "confirm_return", "decline_return"].includes(decision)) {
       return NextResponse.json({ message: "Unknown decision" }, { status: 400 });
     }
     return NextResponse.json(
-      await decideTransfer({ transferId: Number(body.transferId), decision, remark: body.remark ?? null, actor: body.actor ?? null })
+      await decideTransfer({
+        transferId: Number(body.transferId),
+        decision,
+        remark: body.remark ?? null,
+        actor: body.actor ?? null,
+        condition: body.condition ?? null,
+      })
     );
   } catch (err) {
     return NextResponse.json({ message: err instanceof Error ? err.message : String(err) }, { status: 400 });
