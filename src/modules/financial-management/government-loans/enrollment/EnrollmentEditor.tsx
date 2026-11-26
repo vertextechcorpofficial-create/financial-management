@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -23,11 +24,12 @@ function Field({ label, error, hint, children }: { label: string; error?: string
   </label>;
 }
 
-export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload, refreshMonth, onSaved, transferEmployee }: {
+export function EnrollmentEditor({ record, agencies, openMonth, canOpenSetup, onBack, onReload, refreshMonth, onSaved, transferEmployee }: {
   record?: EnrollmentDetail;
   transferEmployee?: EmployeeChoice;
   agencies: AgencyChoice[];
   openMonth: string | null;
+  canOpenSetup?: boolean;
   onBack: () => void;
   onReload: () => void;
   refreshMonth: () => void;
@@ -273,6 +275,7 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
       </ol>}
       {!months.length && <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
         Set the Government Loans open month before saving an enrollment.
+        {canOpenSetup && <Link className="underline" href="/fm/government-loans/month-end-close?tab=setup">Open Period setup</Link>}
         <Button type="button" variant="outline" size="sm" onClick={refreshMonth}>Reload months</Button>
       </div>}
       {!record && reviewed && <section aria-label="Payroll match review" className="space-y-1 rounded-lg border p-3 text-sm">

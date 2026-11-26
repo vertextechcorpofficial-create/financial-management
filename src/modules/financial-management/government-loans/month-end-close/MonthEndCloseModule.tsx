@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Copy, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,8 +50,8 @@ function SummaryCard({ label, value, detail, tone }: {
   </div>;
 }
 
-function ChecklistPanel({ checklist, closed = false }: {
-  checklist: Checklist; closed?: boolean;
+function ChecklistPanel({ checklist, closed = false, setupHref }: {
+  checklist: Checklist; closed?: boolean; setupHref?: string;
 }) {
   const blocked = !checklist.payroll;
   const status = closed ? "Closed" : blocked ? "Blocked" : checklist.openItemCount ? `${checklist.openItemCount} open item(s)` : "Ready to close";
@@ -74,7 +75,10 @@ function ChecklistPanel({ checklist, closed = false }: {
             : "Confirm complete Payroll results before closing."}
         </p>
       </div>
-      <Badge variant={checklist.payroll ? "outline" : "destructive"}>{checklist.payroll ? "Passed" : "Blocked"}</Badge>
+      <div className="flex flex-wrap items-center gap-2">
+        {!checklist.payroll && setupHref && <Link className="text-sm underline" href={setupHref}>Set up Payroll coverage</Link>}
+        <Badge variant={checklist.payroll ? "outline" : "destructive"}>{checklist.payroll ? "Passed" : "Blocked"}</Badge>
+      </div>
     </div>
     {checklist.groups.map(group => {
       const awaitingPayroll = group.key === "billing" && !checklist.payroll;
@@ -205,7 +209,7 @@ function CloseHistory({ history, selectedMonth, page, size, total, loading, onPa
   </section>;
 }
 
-export function MonthEndCloseModule() {
+export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) {
   const [revision, reload] = useState(0);
   const [review, setReview] = useState<View["current"]>(null);
   const [completed, setCompleted] = useState<Snapshot>();
@@ -339,7 +343,10 @@ export function MonthEndCloseModule() {
       <Skeleton className="h-72 w-full rounded-lg" />
       <Skeleton className="h-56 w-full rounded-lg" />
     </div>}
-    {coverage && !displayed && <p className="rounded-lg border p-4 text-sm text-muted-foreground">Set the Government Loans open month to begin.</p>}
+    {coverage && !displayed && <div className="flex flex-wrap items-center gap-2 rounded-lg border p-4 text-sm text-muted-foreground">
+      <span>Set the Government Loans open month to begin.</span>
+      {setupHref && <Link className="underline" href={setupHref}>Open Period setup</Link>}
+    </div>}
     {displayed && checklist && <>
       <div className={cn("grid grid-cols-2 gap-2 xl:grid-cols-4", loaded.pending && "opacity-60")}>
         <SummaryCard label="Payroll" value={payrollOk ? "Received" : "Missing"}
@@ -366,7 +373,7 @@ export function MonthEndCloseModule() {
         {saved.reason && <p className="whitespace-pre-wrap break-words text-sm">{saved.reason}</p>}
       </section>}
       {current && <>
-      <ChecklistPanel checklist={current.checklist} />
+      <ChecklistPanel checklist={current.checklist} setupHref={setupHref} />
         {!current.checklist.payroll && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
           Payroll&apos;s deduction report for {monthLabel(current.checklist.month)} is required before closing.
         </div>}
