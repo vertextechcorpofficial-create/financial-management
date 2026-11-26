@@ -29,7 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn, formatCurrency } from "@/lib/utils";
 
 import { CHECK_CANCEL_REASONS, CHECK_RETURN_REASONS, PAYABLE_LABELS, statusLabel } from "../constants";
-import { phtDate, toPhtDateString } from "../pht";
+import { phtDate, phtDisplayDate, phtDisplayStamp, toPhtDateString } from "../pht";
 import { DateField } from "./DateField";
 import { OptionCombobox } from "./OptionCombobox";
 import { StatusBadge } from "./StatusBadge";
@@ -93,7 +93,7 @@ function EventList({ rows }: { rows: CheckEvent[] }) {
       {rows.map((entry) => (
         <li key={entry.id} className="flex gap-3 text-sm">
           <span className="w-[136px] shrink-0 font-mono text-xs text-muted-foreground">
-            {toPhtDateString(entry.occurredAt)}
+            {phtDisplayStamp(entry.occurredAt)}
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -147,7 +147,7 @@ export function CheckActionDialog({
   const [replacementDate, setReplacementDate] = useState(phtDate());
   const [replacementAmount, setReplacementAmount] = useState("");
   const [replacementNo, setReplacementNo] = useState("");
-  const [replacementDrawee, setReplacementDrawee] = useState("");
+  const [replacementDrawee, setReplacementDrawee] = useState<string | null>(null);
   const [replacementType, setReplacementType] = useState<"PDC" | "DATED" | "MANAGERS_CHECK" | "">("");
   const [banks, setBanks] = useState<DraweeBank[] | null>(null);
   const [banksError, setBanksError] = useState(false);
@@ -166,7 +166,7 @@ export function CheckActionDialog({
       setCancelReason("");
       setNote("");
       setReplacementNo("");
-      setReplacementDrawee("");
+      setReplacementDrawee(null);
       setReplacementType("");
       setReleaseDate(phtDate());
       setDepositDate(phtDate());
@@ -180,10 +180,6 @@ export function CheckActionDialog({
       setEvents(null);
       // Spec 2: a stale check offers cancel with the stale reason already chosen.
       setCancelReason(action === "CANCEL" && check?.isStale ? "Stale (over 180 days)" : "");
-      // A replacement is usually drawn on the same bank, so start from it and let the desk change it.
-      if (action === "REPLACE" && check?.direction === "RECEIVED" && check.draweeBank) {
-        setReplacementDrawee(check.draweeBank);
-      }
     }
     onOpenChange(next);
   }
@@ -267,6 +263,7 @@ export function CheckActionDialog({
   const replacementCheck = replacement?.checkId === check.replacedById ? replacement.check : null;
   const prompt = action && action !== "VIEW" ? PROMPT[action] : null;
   const amountValue = replacementAmount || String(check.amount);
+  const draweeValue = replacementDrawee ?? (check.draweeBank ?? "");
   // Spec 2: a stale check offers cancel with the stale reason already chosen.
   const cancelValue = cancelReason || (action === "CANCEL" && check.isStale ? "Stale (over 180 days)" : "");
   const reasonError =
@@ -280,7 +277,7 @@ export function CheckActionDialog({
     action === "REPLACE" && replacementNo.trim().length < 4 ? "Enter the new check number." : "";
   const typeError = action === "REPLACE" && !replacementType ? "Choose post-dated, dated or manager's check." : "";
   const draweeError =
-    action === "REPLACE" && check.direction === "RECEIVED" && !replacementDrawee.trim()
+    action === "REPLACE" && check.direction === "RECEIVED" && !draweeValue.trim()
       ? "Choose the drawee bank on the replacement."
       : "";
   const hasErrors = Boolean(reasonError || amountError || checkNoError || typeError || draweeError);
@@ -294,6 +291,8 @@ export function CheckActionDialog({
   const availableActions = allowedActions(check).filter((entry) => entry.action !== "VIEW");
   const primaryAction = availableActions.find((entry) => PRIMARY_ACTIONS.includes(entry.action)) ?? availableActions[0];
   const menuActions = availableActions.filter((entry) => entry.action !== primaryAction?.action);
+  // One leftover action is a menu with a single item behind a click: show it as its own button (C3).
+  const singleAction = menuActions.length === 1 ? menuActions[0] : null;
   const safeActions = menuActions.filter((entry) => !entry.destructive);
   const destructiveActions = menuActions.filter((entry) => entry.destructive);
 
@@ -314,7 +313,7 @@ export function CheckActionDialog({
         checkDate: replacementDate,
         amount: Number(amountValue),
         checkNo: replacementNo.trim(),
-        draweeBank: check.direction === "RECEIVED" ? replacementDrawee.trim() : undefined,
+        draweeBank: check.direction === "RECEIVED" ? draweeValue.trim() : undefined,
         checkType: replacementType,
       };
     }
@@ -324,16 +323,23 @@ export function CheckActionDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent showCloseButton={false} className={cn("w-[95vw] rounded-2xl p-0", isView ? "sm:max-w-[800px]" : "sm:max-w-[550px]")}>
+      <DialogContent
+        className={cn("w-[95vw] rounded-2xl p-0", isView ? "sm:max-w-[800px]" : "sm:max-w-[550px]")}
+        // The view keeps one close control, the footer Close. Action dialogs carry the X
+        // because the deck asks for it on the replace form.
+        showCloseButton={!isView}
+      >
         <div className="flex max-h-[85vh] flex-col overflow-hidden">
-          <DialogHeader className="border-b px-6 py-4">
+          <DialogHeader className="border-b px-6 py-4 pr-12">
             <DialogTitle className="line-clamp-1">
               {isView ? `Check ${check.checkNo}` : `${prompt?.title} for ${check.checkNo}`}
             </DialogTitle>
             <DialogDescription className="line-clamp-2 max-w-md">
               {isView
                 ? `${statusLabel(check.status)} · ${check.direction === "ISSUED" ? "issued by us" : "received from customer"}`
-                : `${formatCurrency(check.amount)} · ${check.direction === "ISSUED" ? check.payee ?? "—" : check.payor ?? "—"}`}
+                : action === "REPLACE"
+                  ? "The new check is linked to the original. Both keep their full history."
+                  : `${formatCurrency(check.amount)} · ${check.direction === "ISSUED" ? check.payee ?? "—" : check.payor ?? "—"}`}
             </DialogDescription>
           </DialogHeader>
 
@@ -358,7 +364,7 @@ export function CheckActionDialog({
               <Detail label={check.direction === "ISSUED" ? "Payee" : "Customer"}>
                 {check.payee ?? check.payor ?? "—"}
               </Detail>
-              <Detail label="Check date">{toPhtDateString(check.checkDate)}</Detail>
+              <Detail label="Check date">{phtDisplayDate(check.checkDate)}</Detail>
               {check.direction === "ISSUED" ? (
                 <Detail label="Payable account">
                   {check.controlKey === "NTP_CONTROL" ? PAYABLE_LABELS.NTP_CONTROL : PAYABLE_LABELS.AP_CONTROL}
@@ -372,7 +378,7 @@ export function CheckActionDialog({
                   <Detail label="Drawee bank">{check.draweeBank ?? "—"}</Detail>
                   <Detail label="Value date">
                     {check.clearedAt ? (
-                      <span className="tabular-nums">{toPhtDateString(check.clearedAt)}</span>
+                      <span className="tabular-nums">{phtDisplayStamp(check.clearedAt)}</span>
                     ) : (
                       <span className="text-muted-foreground">Not cleared yet</span>
                     )}
@@ -471,6 +477,30 @@ export function CheckActionDialog({
               </div>
             )}
 
+            {/* A replacement is decided against the paper it replaces, so the original's status,
+                number, party, amount and disposition sit above the form (C4). */}
+            {!isView && action === "REPLACE" ? (
+              <div className="rounded-lg border bg-muted/40 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Replacing
+                </p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <span className="font-mono font-medium">{check.checkNo}</span>
+                  <StatusBadge status={check.status} />
+                  <span className="min-w-0 break-words">
+                    {check.direction === "ISSUED" ? check.payee ?? "—" : check.payor ?? "—"}
+                  </span>
+                  <span className="tabular-nums">{formatCurrency(check.amount)}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    dated {phtDisplayDate(check.checkDate)}
+                  </span>
+                  {check.returnReason ? (
+                    <span className="min-w-0 break-words text-muted-foreground">{check.returnReason}</span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
             {!isView && action === "REPLACE" && (
               <div className="grid items-start gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -481,7 +511,7 @@ export function CheckActionDialog({
                     id="replacement-check-no"
                     value={replacementNo}
                     maxLength={40}
-                    placeholder="The number printed on the new check"
+                    placeholder="Printed on the new check"
                     onChange={(event) => setReplacementNo(event.target.value)}
                   />
                   {touched && checkNoError && <p className="text-xs text-destructive">{checkNoError}</p>}
@@ -520,7 +550,7 @@ export function CheckActionDialog({
                     onValueChange={(value) => setReplacementType(value as "PDC" | "DATED" | "MANAGERS_CHECK")}
                   >
                     <SelectTrigger id="replacement-type" className="h-9 w-full">
-                      <SelectValue placeholder="Post-dated, dated or manager's" />
+                      <SelectValue className="truncate" placeholder="Dated, PDC or manager's" />
                     </SelectTrigger>
                     <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
                       {REPLACEMENT_TYPES.map((option) => (
@@ -538,7 +568,7 @@ export function CheckActionDialog({
                       Drawee bank <span className="text-destructive">*</span>
                     </Label>
                     <OptionCombobox
-                      value={replacementDrawee}
+                      value={draweeValue}
                       onChange={setReplacementDrawee}
                       placeholder={check.draweeBank ?? "Choose the bank that issued it"}
                       searchPlaceholder="Search banks"
@@ -579,7 +609,7 @@ export function CheckActionDialog({
                   <Detail label="Return date">
                     {originalCheck?.returnedAt || check.returnedAt ? (
                       <span className="tabular-nums">
-                        {toPhtDateString(originalCheck?.returnedAt ?? check.returnedAt ?? "")}
+                        {phtDisplayStamp(originalCheck?.returnedAt ?? check.returnedAt ?? "")}
                       </span>
                     ) : (
                       "—"
@@ -669,7 +699,18 @@ export function CheckActionDialog({
           <DialogFooter className="border-t bg-muted/20 px-6 py-4">
             {isView ? (
               <>
-                {menuActions.length > 0 ? (
+                {singleAction ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={singleAction.destructive ? "text-destructive hover:text-destructive" : undefined}
+                    disabled={isSaving}
+                    onClick={() => onSelectAction(singleAction.action)}
+                  >
+                    {singleAction.label}
+                  </Button>
+                ) : null}
+                {menuActions.length > 1 ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button type="button" variant="outline" disabled={isSaving}>
@@ -720,7 +761,7 @@ export function CheckActionDialog({
               <>
                 <DialogClose asChild>
                   <Button type="button" variant="outline" disabled={isSaving}>
-                    Cancel
+                    {action === "REPLACE" ? "Later" : "Cancel"}
                   </Button>
                 </DialogClose>
                 <Button
@@ -737,7 +778,7 @@ export function CheckActionDialog({
                   onClick={handleSubmit}
                 >
                   {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {isSaving ? "Saving…" : "Confirm"}
+                  {isSaving ? "Saving…" : action === "REPLACE" ? "Record replacement" : "Confirm"}
                 </Button>
               </>
             )}

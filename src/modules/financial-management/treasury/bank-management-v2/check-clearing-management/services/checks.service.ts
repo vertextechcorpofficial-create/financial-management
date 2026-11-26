@@ -239,6 +239,8 @@ export type CheckRegisterFilter = {
   status?: CheckStatus;
   accountId?: number;
   bankName?: string;
+  /** One payee or customer name, matched against the payee and payor columns. */
+  payee?: string;
   flag?: CheckRegisterFlag;
   dateFrom?: string;
   dateTo?: string;
@@ -571,6 +573,13 @@ async function listFilteredChecks(
     ];
   }
 
+  // Payee / customer filter: its own group, so choosing a payee ANDs with a free-text search
+  // instead of replacing the search's `_or` group.
+  const payee = asString(input.payee);
+  if (payee) {
+    filter._and = [{ _or: [{ payee: { _icontains: payee } }, { payor: { _icontains: payee } }] }];
+  }
+
   // Every cheque comes back: the register pages and filters in memory, so a cap here silently hides
   // rows instead of paging them. Batches keep one request from carrying the whole table.
   // Every flag is expressible in the platform filter, so paging happens in the database rather than
@@ -605,7 +614,7 @@ export async function listCheckRegister(input: CheckRegisterFilter = {}): Promis
   const labels = new Map(accounts.map((account) => [account.bankId, account.label]));
 
   const page = Math.max(1, Math.trunc(input.page ?? 1));
-  const pageSize = Math.min(50, Math.max(1, Math.trunc(input.pageSize ?? 10)));
+  const pageSize = Math.min(500, Math.max(1, Math.trunc(input.pageSize ?? 10)));
 
   let rows: CheckRow[] = [];
   let total = 0;

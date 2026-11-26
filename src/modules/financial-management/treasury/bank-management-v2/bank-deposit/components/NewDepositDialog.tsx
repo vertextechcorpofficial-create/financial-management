@@ -244,13 +244,13 @@ export function NewDepositDialog({ open, onOpenChange, accounts, accountTotals, 
                 <DepositPreview
                   bankAccountId={bankAccountId ? Number(bankAccountId) : null}
                   cashTotal={totals.cash}
-                  checkCount={checkCount}
+                  checkTotal={totals.checks}
                 />
                 {checkCount > 0 ? (
                   <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
                     {checkCount} check{checkCount === 1 ? "" : "s"} totalling {formatCurrency(totals.checks)}{" "}
-                    {checkCount === 1 ? "moves" : "move"} to In Clearing and debit{checkCount === 1 ? "s" : ""} the bank
-                    GL only when cleared.
+                    {checkCount === 1 ? "posts" : "post"} E12 to check clearing, and the bank GL is debited when the bank
+                    clears {checkCount === 1 ? "it" : "them"}.
                   </p>
                 ) : null}
               </div>

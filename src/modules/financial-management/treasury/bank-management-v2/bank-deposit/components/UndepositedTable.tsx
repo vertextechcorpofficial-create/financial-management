@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 
-import { phtDate, toPhtDateString } from "../pht";
+import { phtDate, phtDisplayDate } from "../pht";
 import { toneClass } from "../constants";
 import { assetBlockReason, isPostDated } from "../eligibility";
 import { pageCountFor, pageSlice, TablePager } from "./TablePager";
@@ -197,7 +197,7 @@ export function UndepositedTable({
                         />
                       </TableCell>
                       <TableCell className="whitespace-nowrap font-mono text-sm">
-                        {asset.collectionDate ? toPhtDateString(asset.collectionDate) : "—"}
+                        {asset.collectionDate ? phtDisplayDate(asset.collectionDate) : "—"}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -216,7 +216,7 @@ export function UndepositedTable({
                         ) : null}
                         {pdc ? (
                           <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-400">
-                            Post-dated, deposit from {asset.chequeDate ? toPhtDateString(asset.chequeDate) : "—"}
+                            Post-dated, deposit from {asset.chequeDate ? phtDisplayDate(asset.chequeDate) : "—"}
                           </p>
                         ) : blocked ? (
                           <p className="mt-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">{blocked}</p>
@@ -305,7 +305,7 @@ export function UndepositedTable({
                       <p className="truncate font-mono text-[11px] text-muted-foreground">{asset.customerCode}</p>
                     ) : null}
                     <p className="mt-1 truncate text-xs text-muted-foreground">
-                      Collected {asset.collectionDate ? toPhtDateString(asset.collectionDate) : "—"}
+                      Collected {asset.collectionDate ? phtDisplayDate(asset.collectionDate) : "—"}
                       {asset.collectionReference && asset.collectionReference !== asset.documentNumber
                         ? ` · ${asset.collectionReference}`
                         : ""}
@@ -317,7 +317,7 @@ export function UndepositedTable({
                         </Badge>
                       ) : pdc ? (
                         <span className="text-muted-foreground">
-                          PDC · deposit from {asset.chequeDate ? toPhtDateString(asset.chequeDate) : "—"}
+                          PDC · deposit from {asset.chequeDate ? phtDisplayDate(asset.chequeDate) : "—"}
                         </span>
                       ) : asset.assetType === "CASH" && asset.ageDays >= 1 ? (
                         <Badge variant="outline" className={cn("text-[11px] font-semibold", toneClass("warning"))}>

@@ -53,6 +53,8 @@ export type RegisterFilters = {
   status?: string;
   accountId?: number;
   bank?: string;
+  /** One payee or customer name; matches the payee and payor columns. */
+  payee?: string;
   flag?: string;
   from?: string;
   to?: string;
