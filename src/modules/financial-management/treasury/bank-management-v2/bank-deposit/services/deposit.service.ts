@@ -624,7 +624,7 @@ async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlip
  * record, so the slip's own deposit status is the only evidence there is, and it is the one that counts.
  */
 function itemResolved(item: DepositSlipItem): boolean {
-  if (item.legacy) return item.lineStatus !== "IN_TRANSIT";
+  if (item.legacy && !item.checkStatus) return item.lineStatus !== "IN_TRANSIT";
   if (item.assetType === "CASH") return item.lineStatus !== "IN_TRANSIT";
   return item.checkStatus === "CLEARED" || item.checkStatus === "RETURNED" || item.checkStatus === "CANCELLED";
 }

@@ -102,13 +102,6 @@ export function CheckModule() {
     [accounts],
   );
 
-  const payeeOptions = useMemo(() => {
-    const names = [...new Set(allChecks.map((check) => (check.payee ?? check.payor ?? "").trim()).filter(Boolean))].sort(
-      (a, b) => a.localeCompare(b),
-    );
-    return [{ value: "ALL", label: "All payees" }, ...names.map((name) => ({ value: name, label: name }))];
-  }, [allChecks]);
-
   // Only the selected rows the chosen batch action can actually run on reach the dialog.
   const batchChecks = allChecks.filter((check) => {
     if (!selected.has(check.id)) return false;
@@ -221,7 +214,6 @@ export function CheckModule() {
           <CheckFilters
             accountOptions={accountOptions}
             bankOptions={bankOptions}
-            payeeOptions={payeeOptions}
             filters={filters}
             onChange={setFilters}
           />

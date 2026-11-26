@@ -37,13 +37,12 @@ const EMPTY: RegisterFilters = {
 type Props = {
   accountOptions: ComboboxOption[];
   bankOptions: ComboboxOption[];
-  payeeOptions: ComboboxOption[];
   filters: RegisterFilters;
   onChange: (next: RegisterFilters) => void;
 };
 
 /** Filter band for the check register, in the same shape as the other v2 modules. */
-export function CheckFilters({ accountOptions, bankOptions, payeeOptions, filters, onChange }: Props) {
+export function CheckFilters({ accountOptions, bankOptions, filters, onChange }: Props) {
   const [query, setQuery] = useState(filters.q ?? "");
 
   useEffect(() => {
@@ -67,7 +66,7 @@ export function CheckFilters({ accountOptions, bankOptions, payeeOptions, filter
 
   return (
     <div aria-label="Check register filters" className="border-b border-border/50 px-4 py-3">
-      <div className="grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-4 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-4 xl:grid-cols-7">
         <Band label="Bank">
           <OptionCombobox
             options={bankOptions}
@@ -91,18 +90,6 @@ export function CheckFilters({ accountOptions, bankOptions, payeeOptions, filter
             searchPlaceholder="Search accounts"
             emptyLabel="No account matches that search."
             aria-label="Account filter"
-          />
-        </Band>
-
-        <Band label="Payee / customer">
-          <OptionCombobox
-            options={payeeOptions}
-            value={filters.payee ?? "ALL"}
-            onChange={(value) => onChange({ ...filters, payee: value === "ALL" ? undefined : value })}
-            placeholder="All payees"
-            searchPlaceholder="Search payees / customers"
-            emptyLabel="No payee or customer matches."
-            aria-label="Payee or customer filter"
           />
         </Band>
 
