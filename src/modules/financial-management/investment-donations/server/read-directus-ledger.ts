@@ -33,7 +33,7 @@ export async function readDirectusLedger() {
     // established read-only ledger; malformed existing snapshots still throw.
     if (!/HTTP (403|404)/.test(error instanceof Error ? error.message : "")) throw error;
   }
-  if (authoritative) return { registers: authoritative.registers, journal: authoritative.journal, posting: authoritative.posting };
+  if (authoritative) return { ...authoritative };
   const version = await ledgerRows(request, "cgl_storage_state", "id");
   if (Number(version[0]?.schema_version) !== 1) throw new Error("Normalized ledger migration is required.");
   const [headers, lines, stored, periods, events] = await Promise.all([
