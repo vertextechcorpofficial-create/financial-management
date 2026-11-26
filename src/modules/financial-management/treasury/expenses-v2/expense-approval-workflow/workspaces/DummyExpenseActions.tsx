@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { OperationsExpense } from "../operationsTypes";
 import type { DummyAction, DummyCommand } from "../domain/dummyWorkflow";
+import { createRequestKey } from "../utils/requestKey";
 
 export function DummyExpenseActions({ expense, onSaved }: { expense: OperationsExpense; onSaved: () => void }) {
   const [reason, setReason] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false);
@@ -17,7 +18,7 @@ export function DummyExpenseActions({ expense, onSaved }: { expense: OperationsE
     if (!action) return;
     setBusy(true); setError("");
     const value = { requestId: expense.id, expectedRevision: expense.revision, action, reason, ...(action === "APPROVE" ? { review } : {}) }, signature = JSON.stringify(value);
-    if (pending.current?.signature !== signature) pending.current = { signature, key: crypto.randomUUID() };
+    if (pending.current?.signature !== signature) pending.current = { signature, key: createRequestKey() };
     try {
       const response = await fetch("/api/fm/treasury/expenses-v2/expense-approval-workflow/requests/actions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...value, requestKey: pending.current.key }) });
       const result = await response.json();

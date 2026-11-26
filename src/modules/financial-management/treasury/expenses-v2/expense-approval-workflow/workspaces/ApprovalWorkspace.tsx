@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import type { AuthorityPolicy, Delegation } from "../types";
+import { createRequestKey } from "../utils/requestKey";
 
 type Check = { label: string; state: string; detail: string };
 type Event = { id: string; revision: number; action: string; reason: string; actor_name: string; created_at: string };
@@ -31,7 +32,7 @@ export function ApprovalWorkspace({ section }: { section: string }) {
     setBusy(true); setError(""); setNotice("");
     const value = { action, caseId: selected.case_id, revision: selected.revision, reason };
     const signature = JSON.stringify(value);
-    if (pending.current?.signature !== signature) pending.current = { signature, body: { ...value, requestKey: crypto.randomUUID() } };
+    if (pending.current?.signature !== signature) pending.current = { signature, body: { ...value, requestKey: createRequestKey() } };
     try {
       const response = await fetch("/api/fm/treasury/expenses-v2/isolated-workflow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pending.current.body) }); const payload = await response.json();
       if (!response.ok) { if (response.status < 500) pending.current = null; if ([409, 412].includes(response.status)) await load(); throw Error(payload.error); }
