@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import { Search, Wallet, Percent } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,11 +9,77 @@ import { UnpaidInvoice, SettlementAllocation } from "../../types";
 import { WalletItem } from "../hooks/useSettlement";
 import {
     capSettlementAllocation,
+    formatSettlementAmount,
+    parseSettlementAmount,
     getInvoiceAllocationCapacity,
     getInvoiceRequiredBalance,
     getSourceAllocationCapacity,
 } from "../utils/settlement-balance";
 import { cn } from "@/lib/utils";
+
+function AllocationInput({ label, amount, max, disabled, credit, onApply }: {
+    label: string;
+    amount: number;
+    max: number;
+    disabled?: boolean;
+    credit?: boolean;
+    onApply: (amount: number) => void;
+}) {
+    const errorId = useId();
+    const [draft, setDraft] = useState<string | null>(null);
+    const [error, setError] = useState("");
+
+    function change(value: string) {
+        setDraft(value);
+        const parsed = value === "" ? 0 : parseSettlementAmount(value);
+        if (parsed === null) {
+            setError("Enter a non-negative amount with up to three decimal places.");
+        } else if (parsed > max) {
+            setError(`Maximum available: ₱${formatSettlementAmount(max)}.`);
+        } else {
+            setError("");
+            onApply(parsed);
+        }
+    }
+
+    return (
+        <div className="mt-1">
+            <div className="relative">
+                <span className="absolute left-2.5 top-2 text-[10px] font-black text-muted-foreground">₱</span>
+                <Input
+                    type="text"
+                    inputMode="decimal"
+                    aria-label={`${label} allocation amount`}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? errorId : undefined}
+                    disabled={disabled}
+                    className="h-8 pl-6 pr-12 text-xs font-black text-right shadow-inner bg-background"
+                    placeholder="0.000"
+                    value={draft ?? (amount ? amount.toFixed(3) : "")}
+                    onChange={event => change(event.target.value)}
+                    onBlur={() => {
+                        setDraft(null);
+                        setError("");
+                    }}
+                />
+                <Button
+                    size="sm"
+                    disabled={disabled}
+                    onClick={() => {
+                        setDraft(null);
+                        setError("");
+                        onApply(max);
+                    }}
+                    className={cn("absolute right-1 top-1 h-6 px-2 text-[9px] font-black",
+                        credit ? "bg-purple-50 text-purple-600 hover:bg-purple-200" : "bg-muted text-foreground hover:bg-emerald-100")}
+                >
+                    MAX
+                </Button>
+            </div>
+            {error && <p id={errorId} role="alert" className="mt-1 text-[10px] text-destructive">{error}</p>}
+        </div>
+    );
+}
 
 interface AllocationSidePanelProps {
     activeInvoiceId: number | null;
@@ -66,7 +132,7 @@ export default function AllocationSidePanel({
                 </div>
                 <div className="mt-3 flex justify-between items-center bg-background border border-border rounded p-2">
                     <span className="text-[10px] font-black uppercase text-muted-foreground">Target Balance</span>
-                    <span className="font-mono font-black text-emerald-600 text-sm">₱{Math.max(0, requiredBalance - appliedSession).toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                    <span className="font-mono font-black text-emerald-600 text-sm">₱{formatSettlementAmount(Math.max(0, requiredBalance - appliedSession))}</span>
                 </div>
             </div>
 
@@ -104,21 +170,16 @@ export default function AllocationSidePanel({
                                         </div>
                                     </div>
                                     <div className="flex flex-col items-end shrink-0 text-right">
-                                        <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Rem: ₱{remaining.toLocaleString()}</span>
+                                        <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Rem: ₱{formatSettlementAmount(remaining)}</span>
                                     </div>
                                 </div>
-                                <div className="relative mt-1">
-                                    <span className="absolute left-2.5 top-2 text-[10px] font-black text-muted-foreground">₱</span>
-                                    <Input
-                                        type="number"
-                                        disabled={isEWTDisabled}
-                                        className="h-8 pl-6 pr-12 text-xs font-black text-right shadow-inner bg-background"
-                                        placeholder="0.00"
-                                        value={existingAlloc?.amountApplied || ""}
-                                        onChange={(e) => handleAllocate(inv.id, w.id, e.target.value === "" ? 0 : parseFloat(e.target.value))}
-                                    />
-                                    <Button size="sm" disabled={isEWTDisabled} onClick={() => handleAllocate(inv.id, w.id, targetMax)} className="absolute right-1 top-1 h-6 px-2 bg-muted text-[9px] font-black text-foreground hover:bg-emerald-100 transition-colors">MAX</Button>
-                                </div>
+                                <AllocationInput
+                                    label={w.label}
+                                    amount={existingAlloc?.amountApplied ?? 0}
+                                    max={targetMax}
+                                    disabled={isEWTDisabled}
+                                    onApply={amount => handleAllocate(inv.id, w.id, amount)}
+                                />
                             </div>
                         );
                     })}
@@ -153,18 +214,20 @@ export default function AllocationSidePanel({
                                         <span className="text-[10px] font-black uppercase text-foreground leading-tight">{c.label}</span>
                                         {c.isCrossEntity && <Badge variant="outline" className="h-3.5 px-1 text-[8px] uppercase leading-none text-purple-700 border-purple-200 bg-purple-50">Cross-Entity</Badge>}
                                     </div>
-                                    <span className="text-[9px] font-bold text-muted-foreground uppercase">Rem: ₱{remaining.toLocaleString()}</span>
+                                    <span className="text-[9px] font-bold text-muted-foreground uppercase">Rem: ₱{formatSettlementAmount(remaining)}</span>
                                 </div>
                                 {(c.customerName || c.customerCode) && (
                                     <div className="truncate text-[8px] font-bold text-muted-foreground" title={`Source customer: ${c.customerName || c.customerCode}`}>
                                         Source: {c.customerName || c.customerCode}
                                     </div>
                                 )}
-                                <div className="relative mt-1">
-                                    <span className="absolute left-2.5 top-2 text-[10px] font-black text-muted-foreground">₱</span>
-                                    <Input type="number" min={0} max={targetMax} step="0.01" aria-label={`${c.label} allocation amount`} className="h-8 pl-6 pr-12 text-xs font-black text-right shadow-inner bg-background" placeholder="0.00" value={existingAlloc?.amountApplied || ""} onChange={(e) => handleAllocate(inv.id, c.id, capSettlementAllocation(Math.max(0, Number(e.target.value) || 0), remaining, invoiceAvailable))} />
-                                    <Button size="sm" onClick={() => handleAllocate(inv.id, c.id, targetMax)} className="absolute right-1 top-1 h-6 px-2 bg-purple-50 text-[9px] font-black text-purple-600 hover:bg-purple-200">MAX</Button>
-                                </div>
+                                <AllocationInput
+                                    label={c.label}
+                                    amount={existingAlloc?.amountApplied ?? 0}
+                                    max={targetMax}
+                                    credit
+                                    onApply={amount => handleAllocate(inv.id, c.id, amount)}
+                                />
                             </div>
                         );
                     })}
