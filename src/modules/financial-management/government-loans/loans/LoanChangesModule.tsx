@@ -2,22 +2,22 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
+import { History, SearchX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, DetailSkeleton, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import type { getLoanChanges } from "../server/loan-changes";
 import { changeLabels, type ChangeKind } from "./lifecycle";
 import { loansApi, useLifecycleCommand, useLifecycleRead } from "./lifecycle-client";
 import { monthAfter } from "./monthly-payroll";
-import { registerPageSizes, registerStatusLabels, type LoanRegisterPage, type RegisterLoan, type RegisterSort } from "./types";
+import { registerPageSizes, registerStatusLabels, type LoanRegisterPage, type RegisterSort } from "./types";
 
 type ChangeDetail = Awaited<ReturnType<typeof getLoanChanges>>;
 const acknowledgementTemplate = "instruction_id,transmission_id,payroll_loan_id,effective_month,result,reference,date\r\n";
@@ -26,12 +26,6 @@ const defaultFilters = { q: "", agency: "", department: "", short: "" };
 
 const amount = (value: string | null) => value === null ? "—" : peso(value);
 const maskedReference = (value: string) => value.length > 4 ? "••••" + value.slice(-4) : value;
-const statusTone = (status: RegisterLoan["status"]) => status === "ACTIVE"
-  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-  : status === "SUSPENDED" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-  : status === "FINAL_PAY_REQUESTED" ? "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300"
-  : status === "COMPLETED" ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300"
-  : "text-muted-foreground";
 
 function ChangeReview({ id, onSaved }: { id: number; onSaved: () => void }) {
   const [refresh, setRefresh] = useState(0);
@@ -48,7 +42,7 @@ function ChangeReview({ id, onSaved }: { id: number; onSaved: () => void }) {
       {loaded?.error ?? "Loading loan changes…"}
     </p>
     {loaded?.error && <Button variant="outline" size="sm" onClick={reload}>Retry</Button>}
-    {!loaded?.error && <><Skeleton className="h-20 w-full" /><Skeleton className="h-40 w-full" /></>}
+    {!loaded?.error && <DetailSkeleton />}
   </div>;
   const { loan, history, statements, openMonth, businessDate } = data;
   const canChangeTerms = loan.active && loan.status !== "FINAL_PAY_REQUESTED";
@@ -77,7 +71,7 @@ function ChangeReview({ id, onSaved }: { id: number; onSaved: () => void }) {
 
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center gap-2 text-sm">
-      <Badge variant="outline" className={statusTone(loan.status)}>{registerStatusLabels[loan.status]}</Badge>
+      <StatusChip status={loan.status} label={registerStatusLabels[loan.status]} />
       <span>{loan.agency} · {loan.program}</span>
       <span className="text-muted-foreground">Monthly amortization {peso(loan.amortization)}</span>
     </div>
@@ -119,13 +113,8 @@ function ChangeReview({ id, onSaved }: { id: number; onSaved: () => void }) {
     </form>
     <section className="space-y-2">
       <h4 className="font-medium">Change history and Payroll instructions</h4>
-      {!history.length && <Empty className="border-0 py-6">
-        <EmptyHeader>
-          <EmptyMedia variant="icon"><span className="text-lg">#</span></EmptyMedia>
-          <EmptyTitle>No changes recorded</EmptyTitle>
-          <EmptyDescription>Amortization, suspension, separation, direct payment, and refund changes appear here.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>}
+      {!history.length && <EmptyState icon={History} title="No changes recorded"
+        description="Amortization, suspension, separation, direct payment, and refund changes appear here." />}
       {loan.renewal && <p className="text-sm">Renewal effective {loan.renewal.month} · Replacement loan #{loan.renewal.replacementId}</p>}
       {history.map(event => {
         const row = data.instructions.find(instruction => instruction.id === event.after_values.instructionId);
@@ -267,16 +256,22 @@ export function LoanChangesModule() {
             <SortHeader label="Status" sortKey="status" sort={sort} direction={direction} onSort={toggleSort} />
           </TableRow></TableHeader>
           <TableBody>
-            {!data && Array.from({ length: 8 }, (_, row) => <TableRow key={row}>
-              {Array.from({ length: 9 }, (_, cell) => <TableCell key={cell}><Skeleton className={cn("h-4", cell === 0 ? "w-24" : "w-full max-w-28")} /></TableCell>)}
-            </TableRow>)}
+            {!data && <TableRowsSkeleton rows={8} columns={9} />}
             {data?.items.map(loan => <TableRow key={loan.id} className="cursor-pointer hover:bg-muted/50"
               onClick={() => setSelected({ id: loan.id, reference: loan.reference, employee: loan.employee })}>
               <TableCell>
                 <span className="whitespace-nowrap text-xs font-medium">{loan.reference}</span>
                 <p className="mt-1 max-w-36 truncate text-xs text-muted-foreground" title="Masked agency reference">{maskedReference(loan.agencyReference)}</p>
               </TableCell>
-              <TableCell>{loan.employee}{loan.department && <p className="text-xs text-muted-foreground">{loan.department}</p>}</TableCell>
+              <TableCell>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <PersonAvatar name={loan.employee} size="sm" />
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{loan.employee}</p>
+                    {loan.department && <p className="truncate text-xs text-muted-foreground">{loan.department}</p>}
+                  </div>
+                </div>
+              </TableCell>
               <TableCell>{loan.agency}</TableCell>
               <TableCell>{loan.program}</TableCell>
               <TableCell className="text-right tabular-nums">{peso(loan.principal)}</TableCell>
@@ -288,19 +283,14 @@ export function LoanChangesModule() {
               </TableCell>
               <TableCell>
                 <div className="flex flex-wrap gap-1">
-                  <Badge variant="outline" className={statusTone(loan.status)}>{registerStatusLabels[loan.status]}</Badge>
+                  <StatusChip status={loan.status} label={registerStatusLabels[loan.status]} />
                   {loan.active && loan.lastDeductionShort && <Badge variant="destructive" title="Last deduction was short">Short</Badge>}
                 </div>
               </TableCell>
             </TableRow>)}
             {data && !data.items.length && <TableRow><TableCell colSpan={9} className="p-0">
-              <Empty className="border-0">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon"><span className="text-lg">±</span></EmptyMedia>
-                  <EmptyTitle>No loans to change</EmptyTitle>
-                  <EmptyDescription>{view === "active" ? "No active loans match these filters." : "No closed loans match these filters."}</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
+              <EmptyState icon={SearchX} title="No loans to change"
+                description={view === "active" ? "No active loans match these filters." : "No closed loans match these filters."} />
             </TableCell></TableRow>}
           </TableBody>
         </Table>

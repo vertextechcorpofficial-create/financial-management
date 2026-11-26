@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronsUpDown, Clock3, SearchX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, PersonAvatar } from "../components/ui";
 import { ApprovalReviewPanel } from "./ApprovalReviewPanel";
 import { BulkApprovalDialog } from "./BulkApprovalDialog";
 import { approvalAgencies, approvalDecisions, approvalQueue, approvalReview } from "./api";
@@ -58,19 +59,13 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-function SummaryCard({ label, value, detail, active, tone, onClick }: {
+function SummaryCard({ label, value, detail, active, icon, tone, ringClass, onClick }: {
   label: string; value: number; detail?: string; active: boolean;
-  tone?: "warning" | "critical"; onClick: () => void;
+  icon: ComponentType<{ className?: string }>; tone: "emerald" | "sky" | "amber" | "rose"; ringClass: string; onClick: () => void;
 }) {
-  return <button type="button" aria-pressed={active} onClick={onClick}
-    className={cn("rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50",
-      active && "border-primary/60 bg-primary/5",
-      !active && tone === "warning" && "border-amber-300/70 dark:border-amber-900",
-      !active && tone === "critical" && "border-destructive/40")}>
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-    <p className="mt-1 text-xl font-semibold tabular-nums">{value.toLocaleString("en-PH")}</p>
-    {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
-  </button>;
+  return <MetricButton active={active} onClick={onClick} label={label} ringClass={ringClass}>
+    <MetricCard icon={icon} label={label} value={value} detail={detail} tone={tone} alert={tone === "rose" && value > 0} />
+  </MetricButton>;
 }
 
 function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
@@ -359,14 +354,14 @@ export function LoanApprovalModule() {
       {summary ? <div className={cn("grid grid-cols-2 gap-2 xl:grid-cols-4", queue?.pending && "opacity-60")}>
         <SummaryCard label="Waiting" value={summary.waiting}
           detail={summary.waiting ? `Oldest ${oldest} ${oldest === 1 ? "day" : "days"}` : "No requests waiting"}
-          active={!checks && !overdue} onClick={showAllQueue} />
-        <SummaryCard label="Ready to approve" value={summary.ready} active={checks === "ready"} onClick={() => toggleChecks("ready")} />
-        <SummaryCard label="Needs review" value={summary.review} tone="warning" active={checks === "review"} onClick={() => toggleChecks("review")} />
-        <SummaryCard label="Overdue" value={summary.overdue} tone="critical" active={overdue}
+          icon={Clock3} tone="sky" ringClass="ring-sky-500/40" active={!checks && !overdue} onClick={showAllQueue} />
+        <SummaryCard label="Ready to approve" value={summary.ready} icon={CheckCircle2} tone="emerald" ringClass="ring-emerald-500/40"
+          active={checks === "ready"} onClick={() => toggleChecks("ready")} />
+        <SummaryCard label="Needs review" value={summary.review} icon={AlertTriangle} tone="amber" ringClass="ring-amber-500/40"
+          active={checks === "review"} onClick={() => toggleChecks("review")} />
+        <SummaryCard label="Overdue" value={summary.overdue} icon={AlertTriangle} tone="rose" ringClass="ring-rose-500/40" active={overdue}
           onClick={() => changeFilter(() => setOverdue(value => !value))} />
-      </div> : queue?.error ? null : <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-        {[0, 1, 2, 3].map(value => <Skeleton key={value} className="h-[86px] rounded-lg" />)}
-      </div>}
+      </div> : queue?.error ? null : <MetricCardsSkeleton />}
       <div className="flex flex-wrap items-center gap-3">
         <Input aria-label="Search requests" placeholder="Employee or request no." className="max-w-xs" value={search} maxLength={120}
           onChange={event => changeFilter(() => setSearch(event.target.value))} />
@@ -411,18 +406,23 @@ export function LoanApprovalModule() {
               <TableHead>Action</TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {!items.length && <TableRow><TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  <span>{hasFilters ? "No requests match these filters." : "No requests waiting for approval."}</span>
-                  {hasFilters && <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>}
-                </div>
+              {!items.length && <TableRow><TableCell colSpan={10} className="p-0">
+                <EmptyState icon={SearchX}
+                  title={hasFilters ? "No requests match these filters" : "No requests waiting for approval"}
+                  description={hasFilters ? "Try a different search or clear the filters." : "New requests appear here after they are filed."}
+                  action={hasFilters ? <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button> : undefined} />
               </TableCell></TableRow>}
               {items.map(row => <TableRow key={row.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setReviewId(row.id)}>
                 <TableCell onClick={event => event.stopPropagation()} title={!row.filedChecksPass ? "Checks must be reviewed before selection." : undefined}>
                   <Checkbox aria-label={`Select ${row.reference}`} disabled={!row.filedChecksPass} checked={selected.includes(row.id)}
                     onCheckedChange={value => setSelected(ids => value === true ? [...ids, row.id] : ids.filter(id => id !== row.id))} /></TableCell>
                 <TableCell><Button type="button" size="sm" variant="link" className="px-0" onClick={event => { event.stopPropagation(); setReviewId(row.id); }}>{row.reference}</Button></TableCell>
-                <TableCell>{row.employeeName ?? "—"}</TableCell><TableCell><AgencyBadge name={row.agencyName} /></TableCell><TableCell>{row.program}</TableCell>
+                <TableCell>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <PersonAvatar name={row.employeeName ?? "Employee"} size="sm" />
+                    <span className="truncate font-medium">{row.employeeName ?? "—"}</span>
+                  </div>
+                </TableCell><TableCell><AgencyBadge name={row.agencyName} /></TableCell><TableCell>{row.program}</TableCell>
                 <TableCell className="text-right tabular-nums">{peso(row.amount)}</TableCell>
                 <TableCell><time dateTime={row.requestedAt}>{dateTime(row.requestedAt)} PHT</time>
                   {row.filedBy && <span className="block text-xs text-muted-foreground">{row.filedBy}</span>}</TableCell>

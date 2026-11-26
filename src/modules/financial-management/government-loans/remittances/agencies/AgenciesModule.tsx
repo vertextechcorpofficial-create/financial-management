@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SearchX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { EmptyState, Notice } from "../../components/ui";
 import { AgencyForm } from "./AgencyForm";
 import { AgencyHistoryDialog } from "./AgencyHistoryDialog";
 import { AgencyRequestError, fetchAgencies, saveAgency } from "./agencies-api";
@@ -187,7 +189,7 @@ export function AgenciesModule() {
       </div>
       <Button type="button" onClick={() => openEditor("new")} disabled={editor !== null}>Add agency</Button>
     </div>
-    {notice && <p role={noticeError ? "alert" : "status"} className={"text-sm " + (noticeError ? "text-destructive" : "text-muted-foreground")}>{notice}</p>}
+    {notice && <Notice tone={noticeError ? "error" : "success"} title={notice} onDismiss={() => setNotice("")} />}
     {editor && <AgencyForm key={editor === "new" ? "new" : editor.id} agency={editor === "new" ? undefined : editor} onReload={reloadAgencies}
       onCancel={() => setEditor(null)} onSaved={saved => {
         setNoticeError(false);
@@ -230,7 +232,11 @@ export function AgenciesModule() {
       <Button type="button" variant="outline" size="sm" onClick={() => setRefresh(value => value + 1)}>Retry</Button>
     </div>}
     {current && "data" in current && <>
-      {current.data.agencies.length === 0 && <p className="rounded-lg border p-4 text-sm text-muted-foreground">No agencies match the filters.</p>}
+      {current.data.agencies.length === 0 && <div className="rounded-lg border p-4">
+        <EmptyState icon={SearchX} title="No agencies match" description="Try a different search, type, or status."
+          action={(search || type || status) ? <Button type="button" variant="outline" size="sm"
+            onClick={() => { setSearch(""); setType(""); setStatus(""); setPage(1); }}>Clear filters</Button> : undefined} />
+      </div>}
       {current.data.agencies.map(agency => <AgencyCard key={agency.id} agency={agency} editing={editor !== null}
         busy={toggling === agency.id} onEdit={() => openEditor(agency)} onHistory={() => setHistory(agency)}
         onToggle={() => void toggleAgency(agency)} />)}

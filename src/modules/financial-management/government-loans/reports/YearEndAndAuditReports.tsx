@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SearchX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -8,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { date, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState } from "../components/ui";
 import { useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import type { reportYearEnd } from "../server/year-end-report";
 import type { reportAuditTrail } from "../server/audit-report";
@@ -99,7 +101,9 @@ export function YearEndSummaryReport({ actorId }: { actorId?: number }) {
               <TableCell className="text-right tabular-nums">{row.late}</TableCell>
               <TableCell className="text-right tabular-nums">{peso(row.penalties)}</TableCell>
             </TableRow>)}
-              {!data.agencies.length && <TableRow><TableCell colSpan={6}>No confirmed deduction or approved remittance activity.</TableCell></TableRow>}
+              {!data.agencies.length && <TableRow><TableCell colSpan={6} className="p-0">
+                <EmptyState icon={SearchX} title="No confirmed deduction or remittance activity" description="Activity appears after Payroll and remittances are confirmed." />
+              </TableCell></TableRow>}
             </TableBody>
             <TableFooter><TableRow><TableCell>Total</TableCell><TableCell className="text-right tabular-nums">{peso(data.totals.withheld)}</TableCell>
               <TableCell className="text-right tabular-nums">{peso(data.totals.remitted)}</TableCell>
@@ -140,7 +144,9 @@ export function YearEndSummaryReport({ actorId }: { actorId?: number }) {
                 <TableCell>{row.department ?? "—"}</TableCell><TableCell><ul>{row.agencies.map(item => <li key={item.agencyId}>
                   {data.agencies.find(agency => agency.id === item.agencyId)?.code ?? item.agencyId} · {peso(item.amount)}</li>)}</ul></TableCell>
                 <TableCell className="text-right tabular-nums">{peso(row.total)}</TableCell></TableRow>)}
-              {!data.employees.length && <TableRow><TableCell colSpan={4}>No employee deductions match.</TableCell></TableRow>}
+              {!data.employees.length && <TableRow><TableCell colSpan={4} className="p-0">
+                <EmptyState icon={SearchX} title="No employee deductions match" description="Try a different year, name, or department." />
+              </TableCell></TableRow>}
             </TableBody>
           </Table>
         </div>
@@ -200,7 +206,9 @@ export function AuditTrailReport({ actorId }: { actorId?: number }) {
                 {event.details.length > 0 && <ul className="space-y-1">{event.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul>}
               </TableCell>
             </TableRow>)}
-            {!data.items.length && <TableRow><TableCell colSpan={5}>No audit entries match.</TableCell></TableRow>}
+            {!data.items.length && <TableRow><TableCell colSpan={5} className="p-0">
+              <EmptyState icon={SearchX} title="No audit entries match" description="Try a different user, action, reference, or date range." />
+            </TableCell></TableRow>}
           </TableBody>
         </Table>
       </div>
