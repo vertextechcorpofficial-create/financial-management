@@ -43,6 +43,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           to: body.to as BrgyStatus,
           reason: body.reason ?? null,
           repairNote: body.repairNote ?? null,
+          condition: (body.condition ?? null) as BrgyCondition | null,
           actor: body.actor ?? null,
         });
         return NextResponse.json(detail);

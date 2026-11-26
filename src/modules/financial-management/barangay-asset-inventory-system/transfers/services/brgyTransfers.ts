@@ -54,6 +54,8 @@ export async function decideTransfer(input: {
   decision: "receive" | "reject" | "confirm_return" | "decline_return";
   remark?: string | null;
   actor?: string | null;
+  /** section 4.9: the condition on arrival can be noted when receiving */
+  condition?: string | null;
 }): Promise<BrgyTransfer> {
   const rows = await get<Row[]>("/items/brgy_transfer?filter=" + enc({ id: { _eq: input.transferId } }) + "&limit=1");
   if (!rows?.length) throw new Error("Transfer " + input.transferId + " not found");
@@ -62,7 +64,11 @@ export async function decideTransfer(input: {
   if (input.decision === "receive") {
     if (transfer.status !== "for_receiving") throw new Error("This transfer is " + transfer.status + " and cannot be received");
     await patch("/items/brgy_transfer/" + transfer.id, { status: "received", decided_by: input.actor ?? null, decision_remark: input.remark ?? null });
-    await patch("/items/brgy_asset/" + transfer.asset_id, { status: "Unassigned", owner_type: "barangay" });
+    await patch("/items/brgy_asset/" + transfer.asset_id, {
+      status: "Unassigned",
+      owner_type: "barangay",
+      ...(input.condition ? { condition: input.condition } : {}),
+    });
     await recordHistory(transfer.asset_id, "transfer", "For Receiving", "Unassigned", input.actor ?? null, "Received by barangay");
     return mapTransfer((await get<Row[]>("/items/brgy_transfer?filter=" + enc({ id: { _eq: transfer.id } }) + "&limit=1"))[0]);
   }
@@ -85,9 +91,31 @@ export async function decideTransfer(input: {
 
   if (!input.remark || !input.remark.trim()) throw new Error("Please give a reason for declining this return");
   await patch("/items/brgy_transfer/" + transfer.id, { status: "declined", decided_by: input.actor ?? null, decision_remark: input.remark.trim() });
-  await patch("/items/brgy_asset/" + transfer.asset_id, { status: "Active" });
-  await recordHistory(transfer.asset_id, "transfer", "For Return", "Active", input.actor ?? null, "Return declined: " + input.remark.trim());
+  // section 4.10: the asset goes back to the status it held before the return was requested
+  const detail = await fetchAsset(transfer.asset_id);
+  const previous = detail.history.find((h) => h.to_value === "For Return")?.from_value;
+  const restored = previous && previous !== "For Return" ? previous : "Active";
+  await patch("/items/brgy_asset/" + transfer.asset_id, { status: restored });
+  await recordHistory(transfer.asset_id, "transfer", "For Return", restored, input.actor ?? null, "Return declined: " + input.remark.trim());
   return mapTransfer((await get<Row[]>("/items/brgy_transfer?filter=" + enc({ id: { _eq: transfer.id } }) + "&limit=1"))[0]);
+}
+
+/** Section 4.9: the LGU can still cancel the transfer while it waits to be received. */
+export async function cancelTransfer(input: { transferId: number; actor?: string | null; remark?: string | null }): Promise<BrgyTransfer> {
+  const rows = await get<Row[]>("/items/brgy_transfer?filter=" + enc({ id: { _eq: input.transferId } }) + "&limit=1");
+  if (!rows?.length) throw new Error("Transfer " + input.transferId + " not found");
+  const transfer = mapTransfer(rows[0]);
+  if (transfer.status !== "for_receiving") {
+    throw new Error("Only a transfer waiting to be received can be cancelled. This one is " + transfer.status + ".");
+  }
+  await patch("/items/brgy_transfer/" + transfer.id, { status: "cancelled", decided_by: input.actor ?? null, decision_remark: input.remark ?? null });
+  await patch("/items/brgy_asset/" + transfer.asset_id, {
+    cancelled: true,
+    cancel_reason: "Transfer cancelled by the LGU" + (input.remark ? ": " + input.remark : ""),
+  });
+  await recordHistory(transfer.asset_id, "transfer", "For Receiving", "Cancelled", input.actor ?? null, input.remark ?? null);
+  const refreshed = await get<Row[]>("/items/brgy_transfer?filter=" + enc({ id: { _eq: transfer.id } }) + "&limit=1");
+  return mapTransfer(refreshed[0]);
 }
 
 /** Section 4.10 and rule 15: only an LGU-sourced asset with a reported defect can go back. */
