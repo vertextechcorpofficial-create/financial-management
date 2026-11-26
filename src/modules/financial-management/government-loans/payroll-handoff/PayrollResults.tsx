@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -22,7 +23,7 @@ async function responseData<T>(url: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
-function PayrollReceipt({ view, refresh }: { view: PayrollMonthView; refresh: () => void }) {
+function PayrollReceipt({ view, refresh, canOpenSetup }: { view: PayrollMonthView; refresh: () => void; canOpenSetup?: boolean }) {
   const [preview, setPreview] = useState<PayrollReceiptPreview>();
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -84,7 +85,10 @@ function PayrollReceipt({ view, refresh }: { view: PayrollMonthView; refresh: ()
     </details>}
     {view.month === view.openMonth && (view.contractReady
       ? <Button variant="outline" size="sm" disabled={busy} onClick={() => void inspect()}>{busy ? "Working…" : "Preview Payroll receipt"}</Button>
-      : <p className="text-muted-foreground">Receipt confirmation requires approved Payroll coverage for this month.</p>)}
+      : <p className="flex flex-wrap items-center gap-2 text-muted-foreground">
+        <span>Receipt confirmation requires approved Payroll coverage for this month.</span>
+        {canOpenSetup && <Link className="underline" href="/fm/government-loans/month-end-close?tab=setup">Open Period setup</Link>}
+      </p>)}
     {error && <p role="alert" className="text-destructive">{error}</p>}
     {preview && <div className="space-y-2 rounded-md border p-2">
       <p>Payroll runs {preview.runIds.map(id => "#" + id).join(", ")} · {preview.count} loan result(s)</p>
@@ -106,7 +110,7 @@ function PayrollReceipt({ view, refresh }: { view: PayrollMonthView; refresh: ()
   </div>;
 }
 
-export function PayrollResults() {
+export function PayrollResults({ canOpenSetup }: { canOpenSetup?: boolean } = {}) {
   const [month, setMonth] = useState("");
   const [agency, setAgency] = useState("");
   const [search, setSearch] = useState("");
@@ -151,7 +155,7 @@ export function PayrollResults() {
       <Button size="sm" variant="outline" onClick={reload}>Retry</Button></div>
       : !data && <p role="status" className="text-sm text-muted-foreground">Loading Payroll deductions…</p>}
     {data && <>
-      <PayrollReceipt key={key} view={data} refresh={reload} />
+      <PayrollReceipt key={key} view={data} refresh={reload} canOpenSetup={canOpenSetup} />
       <div className="rounded-md border"><Table>
         <TableHeader><TableRow>
           {["Loan / Employee", "Agency", "Expected", "Withheld", "Result", "Payroll evidence"].map(label => <TableHead key={label}>{label}</TableHead>)}

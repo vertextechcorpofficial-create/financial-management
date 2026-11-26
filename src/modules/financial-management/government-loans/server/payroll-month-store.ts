@@ -172,7 +172,7 @@ const outcome = z.discriminatedUnion("status", [
     balance: payrollMoney, instructionId: z.uuid().optional(), zeroConfirmed: z.boolean().default(false) }),
 ]);
 const coverageControl = z.object({ runId: positiveId, employeeId: positiveId, actual: payrollMoney });
-const payrollContract = z.object({
+export const payrollContract = z.object({
   month: payrollMonth,
   approvalReference: z.string().trim().min(1).max(200),
   cutoffs: z.array(payrollCoverage).min(1).max(8),

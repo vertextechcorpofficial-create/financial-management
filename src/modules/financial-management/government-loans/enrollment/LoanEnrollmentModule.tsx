@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -152,7 +153,7 @@ function EvidenceCell({ item }: { item: EnrollmentListItem }) {
   </Badge>;
 }
 
-export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: EmployeeChoice } = {}) {
+export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { transferEmployee?: EmployeeChoice; canOpenSetup?: boolean } = {}) {
   const searchParams = useSearchParams();
   const [seed] = useState(() => seedFrom(searchParams));
   const [importView, setImportView] = useState<"upload" | "history" | null>(null);
@@ -310,7 +311,7 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
     if (selected === "new" || value?.status === "APPROVED" || value?.status === "RETURNED" && correcting) return <div className="space-y-3">
       {agencyError}
       <EnrollmentEditor key={detailKey} record={value} transferEmployee={selected === "new" ? initialTransfer : undefined}
-        agencies={agencies.items} openMonth={data?.openMonth ?? null}
+        agencies={agencies.items} openMonth={data?.openMonth ?? null} canOpenSetup={canOpenSetup}
         onBack={correcting ? () => setCorrecting(false) : back} onReload={() => reloadDetail(count => count + 1)}
         refreshMonth={refreshMonth} onSaved={result => {
           setNotice(correcting ? "Enrollment resubmitted for verification." :
@@ -429,7 +430,10 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
     {current?.error && <LoadError message={current.error} retry={() => reloadList(value => value + 1)} />}
     {!current && !firstLoad && <p role="status" className="text-sm text-muted-foreground">Loading enrollments…</p>}
     {data?.openMonth && <p className="text-sm text-muted-foreground">Open month {deductionMonthLabel(data.openMonth)}</p>}
-    {!data?.openMonth && data && <p className="text-sm text-muted-foreground">Set the Government Loans open month to enroll loans.</p>}
+    {!data?.openMonth && data && <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+      <span>Set the Government Loans open month to enroll loans.</span>
+      {canOpenSetup && <Link className="underline" href="/fm/government-loans/month-end-close?tab=setup">Open Period setup</Link>}
+    </p>}
 
     <div className={cn("space-y-2 transition-opacity", pending && "opacity-60")} aria-busy={pending}>
       <div className="rounded-md border"><Table>

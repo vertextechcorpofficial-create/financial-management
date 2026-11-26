@@ -14,10 +14,6 @@ export function requiredEnrollmentEvidence(enrollment: Pick<EnrollmentSnapshot, 
   return kinds;
 }
 
-export function isEnrollmentPreparer(enrollment: Pick<EnrollmentSnapshot, "encodedBy" | "resubmittedBy">, userId: number) {
-  return enrollment.encodedBy.id === userId || enrollment.resubmittedBy?.id === userId;
-}
-
 export function canStartInOpenPeriod(start: string, openMonth: string | null) {
   return openMonth !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(start) && start >= openMonth;
 }

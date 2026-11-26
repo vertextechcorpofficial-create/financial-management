@@ -26,7 +26,7 @@ const statusTone = (state: HandoffStatus) => state === "ACCEPTED"
     ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
     : state === "CANCELLED" ? "text-muted-foreground" : "";
 
-export function PayrollInstructionsModule() {
+export function PayrollInstructionsModule({ canOpenSetup }: { canOpenSetup?: boolean } = {}) {
   const [tab, setTab] = useState("outbound");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -70,7 +70,7 @@ export function PayrollInstructionsModule() {
       </TabsList>
 
       <TabsContent value="inbound" className="mt-0">
-        <PayrollResults />
+        <PayrollResults canOpenSetup={canOpenSetup} />
       </TabsContent>
 
       <TabsContent value="outbound" className="mt-0 space-y-3">

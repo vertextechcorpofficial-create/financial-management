@@ -174,9 +174,6 @@ function VerificationReviewPanel({ review, back, reload, saved }: {
           {payrollWarnings.map(warning => <li key={warning}>{warning}</li>)}
         </ul>}
       </RequestSection>}
-      {record.status === "ENROLLED" && !canDecide && <p role="status" className="rounded-lg border p-3 text-sm">
-        A different verifier must review this enrollment. The encoder and latest resubmitter cannot decide it.
-      </p>}
       {(canDecide || review.canReturnRenewal) && <RequestSection title="Decision">
         {canDecide && <p className="text-sm text-muted-foreground">Verification activates the loan and creates its Payroll instructions.</p>}
         <label className="block space-y-1.5 text-sm">
@@ -450,7 +447,6 @@ export function LoanVerificationModule() {
             </TableCell></TableRow>}
             {items.map(item => <TableRow key={item.id} className="cursor-pointer hover:bg-muted/50" onClick={() => selectRecord(item.id)}>
               {status === "ENROLLED" && <TableCell onClick={event => event.stopPropagation()}><Checkbox aria-label={`Select ${item.reference}`} checked={selected.includes(item.id)} disabled={!item.canDecide}
-                title={!item.canDecide ? "A different verifier must review this enrollment." : undefined}
                 onCheckedChange={checked => setSelected(ids => checked === true ? [...ids, item.id] : ids.filter(id => id !== item.id))} /></TableCell>}
               <TableCell>
                 <Button type="button" variant="link" size="sm" className="px-0" onClick={event => { event.stopPropagation(); selectRecord(item.id); }}>{item.reference}</Button>
@@ -465,7 +461,6 @@ export function LoanVerificationModule() {
               <TableCell>
                 {item.enrollment.resubmittedBy?.name ?? item.enrollment.encodedBy.name}
                 <span className="block text-xs text-muted-foreground">{dateTime(item.enrollment.resubmittedAt ?? item.enrollment.encodedAt)} PHT</span>
-                {status === "ENROLLED" && !item.canDecide && <span className="block text-xs text-muted-foreground">Different verifier required</span>}
               </TableCell>
               <TableCell>
                 <Badge variant="outline">{item.documentsPresent} / {item.documentsRequired} documents</Badge>

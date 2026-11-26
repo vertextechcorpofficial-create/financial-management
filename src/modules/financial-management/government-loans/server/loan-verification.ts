@@ -4,7 +4,7 @@ import { z } from "zod";
 import { todayManila } from "@/modules/financial-management/cooperative/members/format";
 import { requestWaitingDays } from "../approval/rules";
 import { enrollmentReviewStatuses } from "../enrollment/types";
-import { canStartInOpenPeriod, isEnrollmentPreparer, needsImportTransferChoice, requiredEnrollmentEvidence } from "../enrollment/verification-rules";
+import { canStartInOpenPeriod, needsImportTransferChoice, requiredEnrollmentEvidence } from "../enrollment/verification-rules";
 import {
   ENROLLMENT_PAGE_SIZE, enrollmentDecisions, verificationStatuses, type BulkVerificationResult, type VerificationOutcome,
   type VerificationQueue, type VerificationReview, type VerificationSelection,
@@ -30,7 +30,7 @@ import { activeEmployee } from "./request-assessment";
 type Enrollment = Awaited<ReturnType<typeof readStagedEnrollment>>;
 type Command = ReturnType<typeof loanCommand>;
 
-export async function listEnrollmentVerification(params: URLSearchParams, actor: AgencyActor): Promise<VerificationQueue> {
+export async function listEnrollmentVerification(params: URLSearchParams): Promise<VerificationQueue> {
   const filters = new URLSearchParams(params);
   const status = parseInput(z.enum(verificationStatuses), filters.get("status") ?? "ENROLLED");
   filters.set("status", status);
@@ -46,7 +46,7 @@ export async function listEnrollmentVerification(params: URLSearchParams, actor:
       const required = requiredEnrollmentEvidence(enrollment, row.form.applicationType === "RENEWAL");
       return [{
         ...enrollmentListItem(row), enrollment, revision: row.revision,
-        canDecide: status === "ENROLLED" && !isEnrollmentPreparer(enrollment, actor.actorId),
+        canDecide: row.status === "ENROLLED",
         documentsPresent: required.filter(kind => documents.some(file => file.request_id === row.id && file.kind === kind)).length,
         documentsRequired: required.length,
         waitingDays: requestWaitingDays(isoDateTime(enrollment.resubmittedAt ?? enrollment.encodedAt), now),
@@ -88,29 +88,26 @@ async function verificationChecks(row: Enrollment, documents: StoredLoanDocument
   return { checks, evidence, openMonth, warnings: payroll.warnings, code: payroll.code };
 }
 
-export async function getEnrollmentVerification(id: number, actor: AgencyActor): Promise<VerificationReview> {
+export async function getEnrollmentVerification(id: number): Promise<VerificationReview> {
   const row = await readStagedEnrollment(id);
   const documents = await readRequestDocuments(id);
   const [record, validation] = await Promise.all([
     enrollmentDetail(row, documents), ["ENROLLED", "VERIFIED"].includes(row.status) ? verificationChecks(row, documents) : null,
   ]);
-  const canReview = !isEnrollmentPreparer(row.enrollment, actor.actorId);
   return {
     record: { ...record, enrollment: row.enrollment },
-    canDecide: row.status === "ENROLLED" && canReview,
-    canActivate: row.status === "VERIFIED" && canReview,
-    canManageHandoff: Boolean(record.payrollHandoff && !["ACCEPTED", "CANCELLED"].includes(record.payrollHandoff.state) && canReview),
-    canReturnRenewal: canReview && row.status === "ACTIVE" && Boolean(record.payrollHandoff?.payload.stop) &&
+    canDecide: row.status === "ENROLLED",
+    canActivate: row.status === "VERIFIED",
+    canManageHandoff: Boolean(record.payrollHandoff && !["ACCEPTED", "CANCELLED"].includes(record.payrollHandoff.state)),
+    canReturnRenewal: row.status === "ACTIVE" && Boolean(record.payrollHandoff?.payload.stop) &&
       record.payrollHandoff?.state === "QUEUED" && record.payrollHandoff.fileExchange,
     checks: validation?.checks ?? [], payrollWarnings: validation?.warnings ?? row.enrollment.payrollWarnings ?? [],
   };
 }
 
 const stale = () => new LoanRequestError(409, "The enrollment changed. Reload it before deciding.");
-const preparer = () => new LoanRequestError(403, "A different verifier must review this enrollment. The encoder and latest resubmitter cannot decide it.");
-function assertCanDecide(row: Enrollment, revision: number, actor: AgencyActor) {
+function assertCanDecide(row: Enrollment, revision: number) {
   if (row.status !== "ENROLLED" || row.revision !== revision) throw stale();
-  if (isEnrollmentPreparer(row.enrollment, actor.actorId)) throw preparer();
 }
 
 async function verifyEnrollment(row: Enrollment, command: Command, batchKey?: string) {
@@ -147,7 +144,6 @@ export async function activateLoanEnrollment(id: number, body: unknown, key: str
     if (row.revision !== expectedRevision || row.status !== "VERIFIED" || !row.enrollment.verifiedAt || !row.enrollment.verifiedBy) {
       throw new LoanRequestError(409, "Choose a verified enrollment awaiting activation.");
     }
-    if (isEnrollmentPreparer(row.enrollment, actor.actorId)) throw preparer();
     return verifyEnrollment(row, command);
   }
   const receipt = await readCommandReceipt(command) ?? await activate().catch(async error => {
@@ -166,7 +162,6 @@ export async function decideEnrollmentVerification(id: number, body: unknown, ke
     const row = await readStagedEnrollment(id);
     if (input.decision === "RETURN" && row.status === "ACTIVE" && row.enrollment.priorLoanId) {
       if (row.revision !== input.expectedRevision) throw stale();
-      if (isEnrollmentPreparer(row.enrollment, actor.actorId)) throw preparer();
       const month = await readOpenMonth();
       if (!month) throw new LoanRequestError(503, "Set the Government Loans open month before returning a renewal.");
       const period = await nextPeriodCommand(month);
@@ -182,7 +177,7 @@ export async function decideEnrollmentVerification(id: number, body: unknown, ke
         payroll_handoffs: { update: [{ id: handoff.id, prior_payroll_loan_id: null, state: "CANCELLED", updated_at: new Date().toISOString() }] },
       }, { status: row.status }, { status: "RETURNED", reason: input.reason, handoffId: handoff.id }, undefined, period);
     }
-    assertCanDecide(row, input.expectedRevision, actor);
+    assertCanDecide(row, input.expectedRevision);
     if (input.decision === "VERIFY") return verifyEnrollment(row, command);
     const enrollment = { ...row.enrollment, returnReason: input.reason };
     return commitRequestRevision(command, "ENROLLMENT_RETURNED", row, { status: "RETURNED", enrollment },
@@ -211,7 +206,7 @@ async function verifyBatchItem(batch: Command, item: VerificationSelection): Pro
     });
     if (!row) return null;
     try {
-      assertCanDecide(row, item.expectedRevision, batch.actor);
+      assertCanDecide(row, item.expectedRevision);
       return await verifyEnrollment(row, command, batch.key);
     } catch (error) {
       const replay = await readCommandReceipt(command);

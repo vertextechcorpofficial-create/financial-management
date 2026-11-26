@@ -48,28 +48,27 @@ export function EnrollmentActivationPanel({ review, onSaved, reload }: {
     {error.conflict && <Button type="button" variant="outline" size="sm" onClick={reload}>Reload review</Button>}
   </div>;
 
-  if (record.status === "VERIFIED") return <RequestSection title="Finish activation">
-    {!canActivate ? <p className="text-sm">A staff member distinct from the encoder and resubmitter must finish activation.</p> :
-      <AlertDialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}>
-        <AlertDialogTrigger asChild>
-          <Button type="button" disabled={review.checks.some(check => check.reason)}>Finish activation</Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Activate {record.reference}?</AlertDialogTitle>
-            <AlertDialogDescription>Financial Management will activate the loan and record its Payroll instructions.</AlertDialogDescription>
-          </AlertDialogHeader>
-          {errorMessage}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <Button type="button" disabled={busy || error?.conflict} onClick={() => void run(async () => {
-              activationKey.current ??= consignmentRequestId();
-              await activateEnrollment(id, revision, activationKey.current);
-              return "Enrollment activated. Payroll instructions are ready to download.";
-            })}>{busy ? "Activating…" : "Confirm activation"}</Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>}
+  if (canActivate) return <RequestSection title="Finish activation">
+    <AlertDialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}>
+      <AlertDialogTrigger asChild>
+        <Button type="button" disabled={review.checks.some(check => check.reason)}>Finish activation</Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Activate {record.reference}?</AlertDialogTitle>
+          <AlertDialogDescription>Financial Management will activate the loan and record its Payroll instructions.</AlertDialogDescription>
+        </AlertDialogHeader>
+        {errorMessage}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <Button type="button" disabled={busy || error?.conflict} onClick={() => void run(async () => {
+            activationKey.current ??= consignmentRequestId();
+            await activateEnrollment(id, revision, activationKey.current);
+            return "Enrollment activated. Payroll instructions are ready to download.";
+          })}>{busy ? "Activating…" : "Confirm activation"}</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </RequestSection>;
 
   if (!payrollHandoff || !canManageHandoff) return null;
