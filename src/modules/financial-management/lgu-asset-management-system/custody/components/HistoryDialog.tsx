@@ -11,8 +11,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Paperclip } from "lucide-react";
+import { Paperclip, Printer } from "lucide-react";
 import { FilePreviewDialog } from "../../shared/FilePreviewDialog";
+import { printDocument } from "../services/documentPrint";
 import type { AssetHistory, LguOffice } from "../../types";
 import { DOC_TYPE_LABELS, MOVEMENT_LABELS } from "../../types";
 
@@ -95,6 +96,30 @@ export function HistoryDialog({ history, offices, onClose, onUploaded }: History
                     </p>
                     {doc.remarks ? <p className="mt-1 text-xs">{doc.remarks}</p> : null}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {history ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          title="Sample layout, not the official municipal blank"
+                          onClick={() =>
+                            printDocument({
+                              asset: history.asset,
+                              document: doc,
+                              className: history.className ?? null,
+                              conditionName: history.conditionName ?? null,
+                              officeName:
+                                (doc.issued_to_office_id
+                                  ? officeName.get(doc.issued_to_office_id) ?? ""
+                                  : history.asset.office_id
+                                    ? officeName.get(history.asset.office_id) ?? ""
+                                    : "") || "Office of the Municipal Accountant",
+                            })
+                          }
+                        >
+                          <Printer className="mr-1 h-3.5 w-3.5" />
+                          Print form
+                        </Button>
+                      ) : null}
                       {doc.attachment ? (
                         <>
                           <Button
