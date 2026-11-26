@@ -119,9 +119,9 @@ function DisputeReview({ endpoint, reference, self, onSaved }: { endpoint: strin
   </div>;
 }
 
-export function PostingDisputesModule({ self = false }: { self?: boolean }) {
+export function PostingDisputesModule({ self = false, initialFiling = false }: { self?: boolean; initialFiling?: boolean }) {
   const endpoint = self ? ownEndpoint : loansApi + "/disputes";
-  const [filing, setFiling] = useState(false);
+  const [filing, setFiling] = useState(initialFiling);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [selected, setSelected] = useState<string>();

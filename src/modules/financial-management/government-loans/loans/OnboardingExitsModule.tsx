@@ -65,7 +65,7 @@ function EmployeeReview({ mode, id, onSaved }: { mode: Mode; id: number; onSaved
       : "Loan clearance issued"} · {record.actor_name} · {dateTime(record.recorded_at)}</p>}
     {mode === "hires" ? record ? <>
       {record.detail.note && <p className="text-sm">{record.detail.note}</p>}
-      {record.detail.hasLoans && <Button asChild><a href={"/fm/government-loans/loan-applications?transferEmployee=" + id}>Enroll transferred loan</a></Button>}
+      {record.detail.hasLoans && <p className="text-sm text-muted-foreground">Enroll declared loans in Loan Applications → Enrollment.</p>}
     </> : <form onSubmit={event => void declare(event)} className="space-y-3">
       <label className="block text-sm">Existing payroll-deductible loans
         <NativeSelect name="hasLoans" required defaultValue=""><option value="">Choose a declaration</option>
