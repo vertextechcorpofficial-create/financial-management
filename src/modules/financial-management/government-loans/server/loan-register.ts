@@ -7,8 +7,8 @@ import { projectLoanPosition } from "../loans/position";
 import type { LoanSchedule } from "../loans/monthly-payroll";
 import { registerCsvHeader, registerCsvRow } from "../loans/register-csv";
 import {
-  registerStatusLabels, registerViews, statementSources, type AgencyStatement, type LoanRegisterPage,
-  type RegisterLoan, type RegisterLoanDetail, type RegisterStatus, type RegisterView,
+  registerPageSizes, registerSorts, registerStatusLabels, registerViews, statementSources, type AgencyStatement,
+  type LoanRegisterPage, type RegisterLoan, type RegisterLoanDetail, type RegisterSort, type RegisterStatus, type RegisterView,
 } from "../loans/types";
 import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_AGENCY_STATEMENTS, GOVERNMENT_LOAN_REQUESTS, readGovernmentLoansItems } from "./directus";
 import { enrollmentTerms, readOpenMonth } from "./loan-enrollment";
@@ -165,8 +165,41 @@ const queryInput = z.object({
   agency: positiveId.optional(), department: positiveId.optional(), program: z.string().trim().min(1).max(160).optional(),
   status: z.enum(Object.keys(registerStatusLabels) as RegisterStatus[]).optional(),
   short: z.literal("1").optional(), flagged: z.literal("1").optional(), needsUpdate: z.literal("1").optional(),
+  sort: z.enum(Object.keys(registerSorts) as [RegisterSort, ...RegisterSort[]]).default("reference"),
+  direction: z.enum(["asc", "desc"]).default("desc"),
+  size: z.coerce.number().int().refine(value => (registerPageSizes as readonly number[]).includes(value)).default(25),
   page: pageNumber, format: z.enum(["csv"]).optional(),
 });
+
+const cents = (value: string | null) => value === null ? null : Math.round(Number(value) * 100);
+
+function sortValue(loan: RegisterLoan, key: RegisterSort): string | number | null {
+  switch (key) {
+    case "reference": return loan.reference;
+    case "employee": return loan.employee;
+    case "agency": return loan.agency;
+    case "principal": return cents(loan.principal);
+    case "amortization": return cents(loan.amortization);
+    case "counted": return loan.counted;
+    case "estimate": return cents(loan.estimate);
+    case "statement": return loan.agencyBalance.latest?.date ?? null;
+    case "difference": return loan.agencyBalance.difference === null ? null : Math.abs(cents(loan.agencyBalance.difference) ?? 0);
+    case "status": return registerStatusLabels[loan.status];
+  }
+}
+
+// Sorting happens after every match is collected because the register already scans all enrolled
+// loans to build its totals and filter options. Then only the requested slice is returned.
+function sortRegister(rows: RegisterLoan[], key: RegisterSort, direction: "asc" | "desc") {
+  rows.sort((left, right) => {
+    const a = sortValue(left, key);
+    const b = sortValue(right, key);
+    if (a === null || b === null) return a === b ? right.id - left.id : a === null ? 1 : -1;
+    const order = typeof a === "number" && typeof b === "number" ? a - b
+      : String(a).localeCompare(String(b), undefined, { numeric: true });
+    return (direction === "asc" ? order : -order) || right.id - left.id;
+  });
+}
 
 export async function listLoanRegister(params: URLSearchParams, agencyBalances = false): Promise<LoanRegisterPage | Response> {
   const input = parseInput(queryInput, Object.fromEntries(params));
@@ -178,8 +211,7 @@ export async function listLoanRegister(params: URLSearchParams, agencyBalances =
   ] } : {};
   const filter = { ...search, ...(input.agency ? { agency_id: { _eq: input.agency } } : {}) };
   const view = agencyBalances ? "active" : input.view;
-  const matchesPage = (count: number) => count > (input.page - 1) * pageSize && count <= input.page * pageSize;
-  const items: RegisterLoan[] = [];
+  const matches: RegisterLoan[] = [];
   const csv = input.format === "csv" ? [registerCsvHeader] : null;
   const agencies = new Map<number, string>();
   const departments = new Map<number, string>();
@@ -208,20 +240,27 @@ export async function listLoanRegister(params: URLSearchParams, agencyBalances =
         (input.flagged && !flagged) || (input.needsUpdate && !needsUpdate)) continue;
 
       total++;
-      if (csv) csv.push(registerCsvRow(loan));
-      else if (matchesPage(total)) items.push(loan);
+      matches.push(loan);
     }
     if (batch.length < batchSize) break;
     beforeId = batch[batch.length - 1].id;
   }
 
-  if (csv) return new Response(csv.join("\r\n") + "\r\n", {
-    headers: { "Content-Type": "text/csv; charset=utf-8", "X-Content-Type-Options": "nosniff" },
-  });
+  if (params.has("sort")) sortRegister(matches, input.sort, input.direction);
+  if (csv) {
+    for (const loan of matches) csv.push(registerCsvRow(loan));
+    return new Response(csv.join("\r\n") + "\r\n", {
+      headers: { "Content-Type": "text/csv; charset=utf-8", "X-Content-Type-Options": "nosniff" },
+    });
+  }
   const options = (values: Map<number, string>) => [...values].map(([id, name]) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
-  return { items, total, hasMore: total > input.page * pageSize, summary,
-    filters: { agencies: options(agencies), departments: options(departments), programs: [...programs].sort((a, b) => a.localeCompare(b)) } };
+  const start = (input.page - 1) * input.size;
+  return {
+    items: matches.slice(start, start + input.size), total, pageSize: input.size,
+    hasMore: total > start + input.size, summary,
+    filters: { agencies: options(agencies), departments: options(departments), programs: [...programs].sort((a, b) => a.localeCompare(b)) },
+  };
 }
 
 export async function readRegisterLoan(id: number) {

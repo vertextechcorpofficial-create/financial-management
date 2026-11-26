@@ -3,24 +3,24 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { todayManila } from "@/modules/financial-management/cooperative/members/format";
+import { REQUEST_SLA_DAYS, requestWaitingDays } from "../approval/rules";
 import { deductionMonths, exactMoney, normalizedReference, unusualReference } from "../enrollment/rules";
 import { matchPayrollEnrollment } from "../enrollment/payroll-match";
 import {
-  enrollmentWorkflowStatuses, enrollmentStatuses, type EnrollmentDetail, type EnrollmentListItem, type EnrollmentOutcome, type EnrollmentPage,
-  type EnrollmentSnapshot, type EnrollmentSummary, type EnrollmentTerms, type ExistingLoanReview, type PriorLoan,
+  enrollmentWorkflowStatuses, enrollmentStatuses, enrollmentSorts, type EnrollmentDetail, type EnrollmentListItem, type EnrollmentOutcome,
+  type EnrollmentPage, type EnrollmentSnapshot, type EnrollmentSort, type EnrollmentSummary, type EnrollmentTerms, type ExistingLoanReview, type PriorLoan,
 } from "../enrollment/types";
-import { canStartInOpenPeriod } from "../enrollment/verification-rules";
-import { ENROLLMENT_PAGE_SIZE } from "../enrollment/verification-types";
+import { canStartInOpenPeriod, requiredEnrollmentEvidence } from "../enrollment/verification-rules";
 import { positiveMoney } from "../requests/request-rules";
-import { emptyRequest, type AgencyChoice } from "../requests/types";
+import { emptyRequest, enrollmentEvidenceKinds, requestStatusLabels, type AgencyChoice } from "../requests/types";
 import type { AgencyActor } from "./agencies";
 import { GOVERNMENT_LOAN_REQUESTS, readGovernmentLoansItems } from "./directus";
 import {
   enrollmentBenefitCode as benefitCode, readEnrollmentRows as rows, readLinkedPayrollLoans, readPayrollReferences, readReservedReferences,
 } from "./enrollment-sources";
 import {
-  commitRequestRevision, enrollmentEvidenceKind, loanCommand, readCommandReceipt, readRequest, readRequestDocuments,
-  referenceFor, requestDetailRow, requestDetails, requestRow, type StoredLoanDocument,
+  commitRequestRevision, enrollmentEvidenceKind, isoDateTime, loanCommand, readCommandReceipt, readLoanDocuments, readRequest,
+  readRequestDocuments, referenceFor, requestDetailRow, requestDetails, requestRow, type StoredLoanDocument,
 } from "./loan-requests";
 import { enrollmentPayrollLinks } from "./payroll-handoff-store";
 import { readOpenMonth } from "./period-commands";
@@ -61,7 +61,7 @@ const snapshot = z.object({ ...enrollmentTerms.shape,
 }).nullable();
 const enrollmentStatus = z.enum(enrollmentStatuses);
 const workflowStatus = z.enum(enrollmentWorkflowStatuses);
-const listRow = requestRow.pick({ id: true, revision: true, employee_name: true, agency_name: true, requested_at: true }).extend({
+const listRow = requestRow.pick({ id: true, revision: true, employee_name: true, agency_name: true, requested_at: true, updated_at: true }).extend({
   status: enrollmentStatus, form: z.object({ program: z.string(), applicationType: z.string() }),
   enrollment: snapshot, import_batch_id: positiveId.nullable(),
 });
@@ -73,7 +73,7 @@ export type EnrollmentRecord = z.output<typeof detailRow>;
 
 export { readOpenMonth };
 
-export function enrollmentListItem(row: z.output<typeof listRow>): EnrollmentListItem {
+export function enrollmentListItem(row: z.output<typeof listRow>): Omit<EnrollmentListItem, "evidenceSummary"> {
   return {
     id: row.id, reference: row.requested_at ? referenceFor(row.id) : "GL-" + String(row.id).padStart(6, "0"),
     status: row.status, employeeName: row.employee_name, agencyName: row.agency_name,
@@ -83,7 +83,11 @@ export function enrollmentListItem(row: z.output<typeof listRow>): EnrollmentLis
 
 const listInput = z.object({
   q: z.string().trim().max(120).default(""), agency: positiveId.optional(),
-  status: z.enum(["APPROVED", ...enrollmentWorkflowStatuses]).optional(), batch: positiveId.optional(), page: pageNumber,
+  status: z.enum(["APPROVED", ...enrollmentWorkflowStatuses]).optional(), batch: positiveId.optional(),
+  overdue: z.literal("1").optional(), page: pageNumber,
+  sort: z.enum(Object.keys(enrollmentSorts) as [EnrollmentSort, ...EnrollmentSort[]]).default("employee"),
+  direction: z.enum(["asc", "desc"]).default("asc"),
+  size: z.coerce.number().int().refine(value => [10, 25, 50].includes(value)).default(25),
 });
 const summaryRow = z.object({ status: enrollmentStatus, count: z.object({ id: z.coerce.number().int().nonnegative() }) });
 async function enrollmentSummary(agency: number | undefined, batch: number | undefined): Promise<EnrollmentSummary> {
@@ -109,9 +113,49 @@ async function enrollmentSummary(agency: number | undefined, batch: number | und
   return summary;
 }
 
+type EnrollmentListRow = z.output<typeof listRow>;
+
+const enrollmentSortValue = (row: EnrollmentListRow, key: EnrollmentSort): string | number | null => {
+  switch (key) {
+    case "reference": return row.id;
+    case "employee": return row.employee_name;
+    case "agency": return row.agency_name;
+    case "program": return row.form.program;
+    case "amortization": return row.enrollment ? Math.round(Number(row.enrollment.monthlyAmortization) * 100) : null;
+    case "starts": return row.enrollment?.firstDeductionMonth ?? null;
+    case "status": return requestStatusLabels[row.status];
+    case "updated": return row.updated_at;
+  }
+};
+
+function sortEnrollments(rows: EnrollmentListRow[], key: EnrollmentSort, direction: "asc" | "desc") {
+  rows.sort((left, right) => {
+    const a = enrollmentSortValue(left, key);
+    const b = enrollmentSortValue(right, key);
+    if (a === null || b === null) return a === b ? right.id - left.id : a === null ? 1 : -1;
+    const order = typeof a === "number" && typeof b === "number" ? a - b
+      : String(a).localeCompare(String(b), undefined, { numeric: true });
+    return (direction === "asc" ? order : -order) || right.id - left.id;
+  });
+}
+
+async function readAllEnrollmentRows(filter: object) {
+  const rows: EnrollmentListRow[] = [];
+  for (let offset = 0; ; offset += 50) {
+    const query = new URLSearchParams({ fields: Object.keys(listRow.shape).join(","), filter: JSON.stringify(filter),
+      sort: "-id", limit: "50", offset: String(offset) });
+    const { data } = z.object({ data: z.array(listRow).max(50) })
+      .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+    rows.push(...data);
+    if (data.length < 50) return rows;
+  }
+}
+
 export async function listEnrollmentRecords(params: URLSearchParams) {
-  const { q, agency, status, batch, page } = parseInput(listInput, Object.fromEntries(params));
+  const { q, agency, status, batch, overdue, page, sort, direction, size } = parseInput(listInput, Object.fromEntries(params));
   const systemRef = /^(?:GLR?-)?0*([1-9]\d{0,9})$/i.exec(q)?.[1];
+  const search = q.toLowerCase();
+  const now = new Date();
   const filter = {
     ...(status ? { status: { _eq: status } } : {}), ...(agency ? { agency_id: { _eq: agency } } : {}),
     ...(batch ? { import_batch_id: { _eq: batch } } : {}),
@@ -121,21 +165,52 @@ export async function listEnrollmentRecords(params: URLSearchParams) {
         { status: { _eq: "AGENCY_DECLINED" }, requested_at: { _nnull: true } },
         { status: { _in: enrollmentWorkflowStatuses }, enrollment: { _nnull: true } },
       ] },
-      ...(q ? [{ _or: [
-        { employee_name: { _icontains: q } }, { live_reference_key: { _icontains: q } },
-        ...(systemRef ? [{ id: { _eq: Number(systemRef) } }] : []),
-      ] }] : []),
     ],
   };
-  const limit = ENROLLMENT_PAGE_SIZE;
-  const matches = await rows(GOVERNMENT_LOAN_REQUESTS, listRow, Object.keys(listRow.shape).join(","), filter,
-    limit + 1, "-updated_at,-id", (page - 1) * limit);
-  return { items: matches.slice(0, limit), hasMore: matches.length > limit, summary: await enrollmentSummary(agency, batch) };
+  const matches = (await readAllEnrollmentRows(filter)).filter(row => {
+    if (search && !(
+      (systemRef && row.id === Number(systemRef)) ||
+      [row.employee_name, row.agency_name, row.enrollment?.agencyReference,
+        row.enrollment?.encodedBy.name, row.enrollment?.resubmittedBy?.name]
+        .some(value => String(value ?? "").toLowerCase().includes(search)) ||
+      referenceFor(row.id).toLowerCase().includes(search)
+    )) return false;
+    if (overdue === "1") {
+      if (!row.enrollment) return false;
+      const waitingSince = isoDateTime(row.enrollment.resubmittedAt ?? row.enrollment.encodedAt);
+      if (requestWaitingDays(waitingSince, now) <= REQUEST_SLA_DAYS) return false;
+    }
+    return true;
+  });
+  sortEnrollments(matches, params.has("sort") ? sort : "updated", params.has("direction") ? direction : "desc");
+  const start = (page - 1) * size;
+  return {
+    items: matches.slice(start, start + size), total: matches.length, pageSize: size, hasMore: matches.length > start + size,
+    summary: await enrollmentSummary(agency, batch),
+  };
 }
 
 export async function listLoanEnrollments(params: URLSearchParams): Promise<EnrollmentPage> {
   const [result, openMonth] = await Promise.all([listEnrollmentRecords(params), readOpenMonth()]);
-  return { ...result, items: result.items.map(enrollmentListItem), openMonth };
+  const documents = await readLoanDocuments(result.items.map(row => row.id));
+  const evidenceKinds = new Set(Object.keys(enrollmentEvidenceKinds));
+  const byRequest = new Map<number, Set<string>>();
+  for (const document of documents) {
+    if (!evidenceKinds.has(document.kind)) continue;
+    const kinds = byRequest.get(document.request_id) ?? new Set<string>();
+    kinds.add(document.kind);
+    byRequest.set(document.request_id, kinds);
+  }
+  return { ...result, openMonth, items: result.items.map(row => {
+    const item = enrollmentListItem(row);
+    if (!row.enrollment) return { ...item, evidenceSummary: null };
+    const required = requiredEnrollmentEvidence({
+      origin: row.enrollment.origin, installmentsPaid: row.enrollment.installmentsPaid,
+      priorLoanId: row.enrollment.priorLoanId, importTransfer: row.enrollment.importTransfer,
+    }, row.form.applicationType === "RENEWAL");
+    const onFile = required.filter(kind => byRequest.get(row.id)?.has(kind)).length;
+    return { ...item, evidenceSummary: { required: required.length, onFile } };
+  }) };
 }
 
 async function readEnrollmentRecord(id: number): Promise<EnrollmentRecord> {

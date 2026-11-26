@@ -38,14 +38,29 @@ export async function readDeclaredTransferEmployee(id: number) {
 async function clearanceLoans(id: number, month: string) {
   const loans = await readMonthlyLoanSchedules(month, id);
   const pending = await pendingRefundLoanIds(loans.map(loan => loan.row.id));
-  return loans.map(loan => {
-    const { status, active } = projectLoanPosition({ ...loan.schedule, openMonth: month, businessDate: todayManila(),
-      deductions: loan.history, statement: null, coveredThrough: loan.coveredThrough });
-    const refundPending = pending.has(loan.row.id);
-    const finalPay = loan.history.filter(result => result.status === "X").at(-1);
-    return { loanId: loan.row.id, reference: loan.reference, agency: loan.agency, status, refundPending,
-      blocked: active || refundPending, finalPay: finalPay ? { expected: finalPay.expected, withheld: finalPay.amount } : null };
-  });
+  return loans.map(loan => clearanceLoan(loan, pending, month));
+}
+
+type ScheduleRow = Awaited<ReturnType<typeof readMonthlyLoanSchedules>>[number];
+function clearanceLoan(loan: ScheduleRow, pending: Set<number>, month: string) {
+  const { status, active } = projectLoanPosition({ ...loan.schedule, openMonth: month, businessDate: todayManila(),
+    deductions: loan.history, statement: null, coveredThrough: loan.coveredThrough });
+  const refundPending = pending.has(loan.row.id);
+  const finalPay = loan.history.filter(result => result.status === "X").at(-1);
+  return { loanId: loan.row.id, reference: loan.reference, agency: loan.agency, status, refundPending,
+    blocked: active || refundPending, finalPay: finalPay ? { expected: finalPay.expected, withheld: finalPay.amount } : null };
+}
+
+async function exitLoanIndex(month: string) {
+  const schedules = await readMonthlyLoanSchedules(month);
+  const pending = await pendingRefundLoanIds(schedules.map(loan => loan.row.id));
+  const byEmployee = new Map<number, ReturnType<typeof clearanceLoan>[]>();
+  for (const loan of schedules) {
+    const rows = byEmployee.get(loan.row.employee_user_id) ?? [];
+    rows.push(clearanceLoan(loan, pending, month));
+    byEmployee.set(loan.row.employee_user_id, rows);
+  }
+  return byEmployee;
 }
 
 const eventKey = (mode: "hires" | "exits", id: number, date: string) => (mode === "hires" ? "declaration:" : "clearance:") + id + ":" + date;
@@ -76,8 +91,48 @@ export async function listOnboardingExits(params: URLSearchParams) {
     return date ? [eventKey(mode, person.id, date)] : [];
   });
   const events = keys.length ? await readStaffEvents({ event_key: { _in: keys } }, keys.length) : [];
-  return { items: people.map(person => ({ ...person, status: events.find(event => event.employee_id === person.id)?.status ?? null })),
-    hasMore: rows.length > pageSize };
+  const loanIndex = mode === "exits" ? await exitLoanIndex(await readOpenLoanMonth()) : new Map<number, ReturnType<typeof clearanceLoan>[]>();
+  return { items: people.map(person => {
+    const event = events.find(row => row.employee_id === person.id);
+    return { ...person, status: event?.status ?? null, hasLoans: event?.detail.hasLoans === true,
+      loans: loanIndex.get(person.id) ?? [] };
+  }), hasMore: rows.length > pageSize };
+}
+
+export type OnboardingAttention = {
+  hires: { count: number; hasMore: boolean; rows: { id: number; name: string; date: string | null }[] };
+  clearances: { count: number; hasMore: boolean; rows: { id: number; name: string; date: string | null }[] };
+};
+
+export async function readOnboardingAttention(blockedEmployees: ReadonlySet<number>): Promise<OnboardingAttention> {
+  const today = todayManila();
+  const first = new Date(Date.parse(today) - 150 * 86_400_000).toISOString().slice(0, 10);
+  const limit = 50;
+  const [hireRows, exitRows] = await Promise.all([
+    readEnrollmentRows("user", staffEmployee, personFields,
+      { ...employeeFilter, user_dateOfHire: { _gte: first, _lte: today } }, limit, "user_lname,user_fname,user_id"),
+    readEnrollmentRows("user", staffEmployee, personFields,
+      { ...employeeFilter, separation_date: { _nnull: true } }, limit, "user_lname,user_fname,user_id"),
+  ]);
+  const hires = hireRows.slice(0, limit).map(personView);
+  const exits = exitRows.slice(0, limit).map(personView);
+  const hireKeys = hires.flatMap(person => person.hiredOn ? [eventKey("hires", person.id, person.hiredOn)] : []);
+  const exitKeys = exits.flatMap(person => person.separationOn ? [eventKey("exits", person.id, person.separationOn)] : []);
+  const keys = [...hireKeys, ...exitKeys];
+  const events = [];
+  for (let start = 0; start < keys.length; start += 50) {
+    events.push(...await readStaffEvents({ event_key: { _in: keys.slice(start, start + 50) } }, 50));
+  }
+  const eventKeys = new Set(events.map(event => event.event_key));
+  const pendingHires = hires.filter(person => !person.hiredOn || !eventKeys.has(eventKey("hires", person.id, person.hiredOn)));
+  const pendingClearances = exits.filter(person => !person.separationOn ||
+    (!eventKeys.has(eventKey("exits", person.id, person.separationOn)) && !blockedEmployees.has(person.id)));
+  return {
+    hires: { count: pendingHires.length, hasMore: hireRows.length >= limit,
+      rows: pendingHires.slice(0, 3).map(person => ({ id: person.id, name: person.name, date: person.hiredOn })) },
+    clearances: { count: pendingClearances.length, hasMore: exitRows.length >= limit,
+      rows: pendingClearances.slice(0, 3).map(person => ({ id: person.id, name: person.name, date: person.separationOn })) },
+  };
 }
 
 const input = z.discriminatedUnion("kind", [

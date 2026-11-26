@@ -1,14 +1,15 @@
 import "server-only";
 
 import { z } from "zod";
-import { allApprovalChecksPass, overdueRequestCutoff, requestWaitingDays } from "../approval/rules";
+import { REQUEST_SLA_DAYS, allApprovalChecksPass, requestWaitingDays } from "../approval/rules";
 import {
-  APPROVAL_PAGE_SIZE, companyDecisions, type ApprovalAssessment, type ApprovalDecisionRow, type ApprovalOutcome,
-  type ApprovalQueueItem, type ApprovalReview, type ApprovalSelection, type BulkApprovalResult, type CompanyDecision,
+  APPROVAL_PAGE_SIZE, approvalSorts, companyDecisions, type ApprovalAssessment, type ApprovalDecisionPage,
+  type ApprovalOutcome, type ApprovalQueuePage, type ApprovalQueueSummary, type ApprovalReview,
+  type ApprovalSelection, type ApprovalSort, type BulkApprovalResult, type CompanyDecision,
 } from "../approval/types";
-import type { Page, RequestForm } from "../requests/types";
+import type { RequestForm } from "../requests/types";
 import { listAgencies, type AgencyActor } from "./agencies";
-import { GOVERNMENT_LOAN_REQUEST_HISTORY, GOVERNMENT_LOAN_REQUESTS, readGovernmentLoansItems } from "./directus";
+import { GOVERNMENT_LOAN_REQUEST_HISTORY, GOVERNMENT_LOAN_REQUESTS, readGovernmentLoansItems, type GovernmentLoansCollection } from "./directus";
 import {
   assertFiledRequest, commitRequestRevision, isoDateTime, loanCommand, loanCommandPartKey, readCommandReceipt, readRequest,
   recordLoanBatchEvent, referenceFor, requestDetails, requestRow,
@@ -16,38 +17,123 @@ import {
 import { assessRequest } from "./request-assessment";
 import { LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
 
-const filedChecks = z.object({ checks: z.array(z.object({ result: z.enum(["pass", "review"]) })) }).nullish();
+const filedChecks = z.object({ checks: z.array(z.object({
+  label: z.string(), result: z.enum(["pass", "review"]), detail: z.string(),
+})) }).nullish();
 const queueRow = requestRow.pick({ id: true, revision: true, employee_name: true, agency_name: true }).extend({
   form: z.object({ program: z.string(), amount: z.string() }), requested_at: z.string(), filed_assessment: filedChecks,
 });
 const queueInput = z.object({
-  q: z.string().trim().max(120).default(""), agency: positiveId.optional(), overdue: z.enum(["1", "0"]).optional(), page: pageNumber,
+  q: z.string().trim().max(120).default(""), agency: positiveId.optional(), overdue: z.enum(["1", "0"]).optional(),
+  checks: z.enum(["ready", "review"]).optional(), page: pageNumber,
+  sort: z.enum(Object.keys(approvalSorts) as [ApprovalSort, ...ApprovalSort[]]).default("filed"),
+  direction: z.enum(["asc", "desc"]).default("asc"),
+  size: z.coerce.number().int().refine(value => [10, 25, 50].includes(value)).default(APPROVAL_PAGE_SIZE),
+});
+const countResult = z.object({ data: z.array(z.object({ count: z.object({ id: z.coerce.number().int().nonnegative() }) })).max(1) });
+
+async function countRows(collection: GovernmentLoansCollection, filter: object) {
+  const query = new URLSearchParams({ "aggregate[count]": "id", limit: "1", filter: JSON.stringify(filter) });
+  const { data } = countResult.parse(await readGovernmentLoansItems(collection, query));
+  return data[0]?.count.id ?? 0;
+}
+
+type ApprovalQueueRow = z.output<typeof queueRow>;
+
+async function readAllApprovalRows(filter: object) {
+  const rows: ApprovalQueueRow[] = [];
+  for (let offset = 0; ; offset += 50) {
+    const query = new URLSearchParams({ fields: Object.keys(queueRow.shape).join(","), filter: JSON.stringify(filter),
+      sort: "id", limit: "50", offset: String(offset) });
+    const { data } = z.object({ data: z.array(queueRow).max(50) })
+      .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+    rows.push(...data);
+    if (data.length < 50) return rows;
+  }
+}
+
+function queueItem(row: ApprovalQueueRow, now: Date) {
+  const requestedAt = isoDateTime(row.requested_at);
+  return {
+    id: row.id, reference: referenceFor(row.id), revision: row.revision, employeeName: row.employee_name,
+    agencyName: row.agency_name, program: row.form.program, amount: row.form.amount, requestedAt, filedBy: null,
+    waitingDays: requestWaitingDays(requestedAt, now), filedChecksPass: allApprovalChecksPass(row.filed_assessment?.checks),
+    checks: row.filed_assessment?.checks ?? [],
+  };
+}
+
+const filedByRow = z.object({
+  request_id: z.union([positiveId, z.object({ id: positiveId })]).transform(value => typeof value === "number" ? value : value.id),
+  actor_name: z.string(), occurred_at: z.string(),
 });
 
-export async function listApprovalQueue(params: URLSearchParams, now = new Date()): Promise<Page<ApprovalQueueItem>> {
-  const { q, agency, overdue, page } = parseInput(queueInput, Object.fromEntries(params));
+async function readFiledBy(ids: number[]) {
+  if (!ids.length) return new Map<number, string>();
+  const query = new URLSearchParams({ fields: "request_id,actor_name,occurred_at",
+    filter: JSON.stringify({ action: { _eq: "REQUEST_SUBMITTED" }, request_id: { _in: ids } }),
+    sort: "-occurred_at,-id", limit: String(Math.min(ids.length * 5, 250)) });
+  const { data } = z.object({ data: z.array(filedByRow) })
+    .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUEST_HISTORY, query));
+  const filedBy = new Map<number, string>();
+  for (const row of data) if (!filedBy.has(row.request_id)) filedBy.set(row.request_id, row.actor_name);
+  return filedBy;
+}
+
+function summarizeQueue(items: ReturnType<typeof queueItem>[]): ApprovalQueueSummary {
+  let overdue = 0;
+  let oldestWaitingDays = 0;
+  let ready = 0;
+  for (const item of items) {
+    if (item.waitingDays > REQUEST_SLA_DAYS) overdue++;
+    if (item.waitingDays > oldestWaitingDays) oldestWaitingDays = item.waitingDays;
+    if (item.filedChecksPass) ready++;
+  }
+  return { waiting: items.length, overdue, oldestWaitingDays, ready, review: items.length - ready };
+}
+
+function queueSortValue(item: ReturnType<typeof queueItem>, key: ApprovalSort): string | number | null {
+  switch (key) {
+    case "reference": return item.id;
+    case "employee": return item.employeeName;
+    case "agency": return item.agencyName;
+    case "program": return item.program;
+    case "amount": return Math.round(Number(item.amount) * 100);
+    case "filed": return item.requestedAt;
+    case "waiting": return item.waitingDays;
+    case "checks": return item.filedChecksPass ? 0 : item.checks.filter(check => check.result === "review").length;
+  }
+}
+
+function sortQueue(items: ReturnType<typeof queueItem>[], key: ApprovalSort, direction: "asc" | "desc") {
+  items.sort((left, right) => {
+    const a = queueSortValue(left, key);
+    const b = queueSortValue(right, key);
+    if (a === null || b === null) return a === b ? right.id - left.id : a === null ? 1 : -1;
+    const order = typeof a === "number" && typeof b === "number" ? a - b
+      : String(a).localeCompare(String(b), undefined, { numeric: true });
+    return (direction === "asc" ? order : -order) || right.id - left.id;
+  });
+}
+
+export async function listApprovalQueue(params: URLSearchParams, now = new Date()): Promise<ApprovalQueuePage> {
+  const { q, agency, overdue, checks, page, sort, direction, size } = parseInput(queueInput, Object.fromEntries(params));
   const referenceId = /^(?:GLR-)?0*([1-9]\d{0,9})$/i.exec(q)?.[1];
-  const filter = {
-    status: { _eq: "REQUESTED" },
-    requested_at: { _nnull: true, ...(overdue === "1" ? { _lt: overdueRequestCutoff(now) } : {}) },
-    ...(agency ? { agency_id: { _eq: agency } } : {}),
-    ...(q ? { _or: [{ employee_name: { _icontains: q } }, ...(referenceId ? [{ id: { _eq: Number(referenceId) } }] : [])] } : {}),
+  const search = q ? { _or: [{ employee_name: { _icontains: q } }, ...(referenceId ? [{ id: { _eq: Number(referenceId) } }] : [])] } : {};
+  const base = { ...(agency ? { agency_id: { _eq: agency } } : {}), ...search };
+  const allItems = (await readAllApprovalRows({ ...base, status: { _eq: "REQUESTED" }, requested_at: { _nnull: true } }))
+    .map(row => queueItem(row, now));
+  const summary = summarizeQueue(allItems);
+  const filtered = allItems.filter(item =>
+    (overdue !== "1" || item.waitingDays > REQUEST_SLA_DAYS) &&
+    (!checks || (checks === "ready" ? item.filedChecksPass : !item.filedChecksPass)));
+  sortQueue(filtered, sort, direction);
+  const start = (page - 1) * size;
+  const items = filtered.slice(start, start + size);
+  const filedBy = await readFiledBy(items.map(item => item.id)).catch(() => new Map<number, string>());
+  return {
+    items: items.map(item => ({ ...item, filedBy: filedBy.get(item.id) ?? null })),
+    total: filtered.length, pageSize: size, hasMore: filtered.length > start + size, summary,
   };
-  const query = new URLSearchParams({
-    fields: Object.keys(queueRow.shape).join(","), filter: JSON.stringify(filter), sort: "requested_at,id",
-    limit: String(APPROVAL_PAGE_SIZE + 1), offset: String((page - 1) * APPROVAL_PAGE_SIZE),
-  });
-  const { data } = z.object({ data: z.array(queueRow).max(APPROVAL_PAGE_SIZE + 1) })
-    .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
-  const items = data.slice(0, APPROVAL_PAGE_SIZE).map(row => {
-    const requestedAt = isoDateTime(row.requested_at);
-    return {
-      id: row.id, reference: referenceFor(row.id), revision: row.revision, employeeName: row.employee_name,
-      agencyName: row.agency_name, program: row.form.program, amount: row.form.amount, requestedAt,
-      waitingDays: requestWaitingDays(requestedAt, now), filedChecksPass: allApprovalChecksPass(row.filed_assessment?.checks),
-    };
-  });
-  return { items, hasMore: data.length > APPROVAL_PAGE_SIZE };
 }
 
 export async function listApprovalAgencies(params: URLSearchParams) {
@@ -58,28 +144,48 @@ export async function listApprovalAgencies(params: URLSearchParams) {
 const decisionValues = z.object({
   status: z.enum(["APPROVED", "REJECTED"]), remarks: z.string().nullish(), reason: z.string().nullish(),
 });
+const decisionRequestRow = z.object({ id: positiveId, employee_name: z.string().nullable(), agency_name: z.string().nullable() });
 const recentDecision = z.object({
   id: positiveId, actor_name: z.string(), occurred_at: z.string(), after_values: decisionValues,
-  request_id: z.object({ id: positiveId, employee_name: z.string().nullable(), agency_name: z.string().nullable() }),
+  request_id: z.union([positiveId, z.object({ id: positiveId })]).transform(value => typeof value === "number" ? value : value.id),
+});
+const decisionListInput = z.object({
+  page: pageNumber,
+  size: z.coerce.number().int().refine(value => [10, 25, 50].includes(value)).default(APPROVAL_PAGE_SIZE),
 });
 
-export async function listApprovalDecisions(params: URLSearchParams): Promise<Page<ApprovalDecisionRow>> {
-  const page = parseInput(pageNumber, params.get("page") ?? undefined);
+export async function listApprovalDecisions(params: URLSearchParams): Promise<ApprovalDecisionPage> {
+  const { page, size } = parseInput(decisionListInput, Object.fromEntries(params));
+  const filter = { action: { _in: ["REQUEST_APPROVED", "REQUEST_REJECTED"] } };
   const query = new URLSearchParams({
-    fields: "id,actor_name,occurred_at,after_values,request_id.id,request_id.employee_name,request_id.agency_name",
-    filter: JSON.stringify({ action: { _in: ["REQUEST_APPROVED", "REQUEST_REJECTED"] }, request_id: { requested_at: { _nnull: true } } }),
-    sort: "-occurred_at,-id", limit: String(APPROVAL_PAGE_SIZE + 1), offset: String((page - 1) * APPROVAL_PAGE_SIZE),
+    fields: "id,actor_name,occurred_at,after_values,request_id",
+    filter: JSON.stringify(filter),
+    sort: "-occurred_at,-id", limit: String(size + 1), offset: String((page - 1) * size),
   });
-  const { data } = z.object({ data: z.array(recentDecision).max(APPROVAL_PAGE_SIZE + 1) })
-    .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUEST_HISTORY, query));
+  const [{ data }, total] = await Promise.all([
+    readGovernmentLoansItems(GOVERNMENT_LOAN_REQUEST_HISTORY, query)
+      .then(body => z.object({ data: z.array(recentDecision).max(size + 1) }).parse(body)),
+    countRows(GOVERNMENT_LOAN_REQUEST_HISTORY, filter),
+  ]);
+  const rows = data.slice(0, size);
+  const ids = [...new Set(rows.map(event => event.request_id))];
+  const requests = new Map<number, z.output<typeof decisionRequestRow>>();
+  if (ids.length) {
+    const requestQuery = new URLSearchParams({ fields: "id,employee_name,agency_name",
+      filter: JSON.stringify({ id: { _in: ids } }), limit: String(Math.min(ids.length, 50)) });
+    const parsed = z.object({ data: z.array(decisionRequestRow) })
+      .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, requestQuery));
+    for (const request of parsed.data) requests.set(request.id, request);
+  }
   return {
-    items: data.slice(0, APPROVAL_PAGE_SIZE).map(event => ({
-      id: event.id, requestId: event.request_id.id, reference: referenceFor(event.request_id.id),
-      employeeName: event.request_id.employee_name, agencyName: event.request_id.agency_name,
+    items: rows.map(event => ({
+      id: event.id, requestId: event.request_id, reference: referenceFor(event.request_id),
+      employeeName: requests.get(event.request_id)?.employee_name ?? null,
+      agencyName: requests.get(event.request_id)?.agency_name ?? null,
       decision: event.after_values.status, actorName: event.actor_name, occurredAt: isoDateTime(event.occurred_at),
       remarks: event.after_values.reason ?? event.after_values.remarks ?? null,
     })),
-    hasMore: data.length > APPROVAL_PAGE_SIZE,
+    total, pageSize: size, hasMore: data.length > size,
   };
 }
 

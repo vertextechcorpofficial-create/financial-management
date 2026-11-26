@@ -305,6 +305,9 @@ export interface AssetHistory {
   asset: LguAsset;
   documents: LguAssetDocument[];
   movements: LguAssetMovement[];
+  /** Ready to print labels, so a form never shows a numeric id. */
+  className?: string | null;
+  conditionName?: string | null;
 }
 
 export interface CustodyTransferInput {

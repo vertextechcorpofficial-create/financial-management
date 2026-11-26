@@ -358,10 +358,20 @@ export async function fetchHistory(assetId: number): Promise<AssetHistory> {
     get("/items/lgu_asset_movements?filter=" + encodeURIComponent(JSON.stringify({ asset_id: { _eq: assetId } })) + "&sort=-movement_date,-id&limit=-1"),
   ]);
   if (!assetJson.data) throw new Error("Asset " + assetId + " not found");
+  const asset = mapAsset(assetJson.data as Record<string, unknown>);
+
+  // names for the printed form, so a paper never shows a numeric id
+  const [classJson, conditionJson] = await Promise.all([
+    asset.class_id ? get("/items/lgu_asset_class/" + asset.class_id + "?fields=name") : Promise.resolve({ data: null }),
+    asset.condition_id ? get("/items/lgu_condition/" + asset.condition_id + "?fields=name") : Promise.resolve({ data: null }),
+  ]);
+
   return {
-    asset: mapAsset(assetJson.data as Record<string, unknown>),
+    asset,
     documents: ((docJson.data ?? []) as Record<string, unknown>[]).map(mapDocument),
     movements: ((movJson.data ?? []) as Record<string, unknown>[]).map(mapMovement),
+    className: text((classJson.data as Record<string, unknown> | null)?.name) || null,
+    conditionName: text((conditionJson.data as Record<string, unknown> | null)?.name) || null,
   };
 }
 
