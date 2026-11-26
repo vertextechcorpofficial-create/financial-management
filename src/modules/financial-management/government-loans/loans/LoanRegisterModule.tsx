@@ -633,7 +633,7 @@ function RemainingCell({ loan }: { loan: RegisterLoan }) {
 function StatusCell({ loan }: { loan: RegisterLoan }) {
   return <div className="flex flex-wrap gap-1">
     <RegisterStatusBadge status={loan.status} />
-    {loan.active && loan.lastDeductionShort && <Badge variant="destructive">Short last month</Badge>}
+    {loan.active && loan.lastDeductionShort && <Badge variant="destructive" title="Last deduction was short">Short</Badge>}
   </div>;
 }
 

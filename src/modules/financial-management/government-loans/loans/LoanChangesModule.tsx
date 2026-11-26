@@ -289,7 +289,7 @@ export function LoanChangesModule() {
               <TableCell>
                 <div className="flex flex-wrap gap-1">
                   <Badge variant="outline" className={statusTone(loan.status)}>{registerStatusLabels[loan.status]}</Badge>
-                  {loan.active && loan.lastDeductionShort && <Badge variant="destructive">Short last month</Badge>}
+                  {loan.active && loan.lastDeductionShort && <Badge variant="destructive" title="Last deduction was short">Short</Badge>}
                 </div>
               </TableCell>
             </TableRow>)}
