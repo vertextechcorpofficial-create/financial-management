@@ -37,7 +37,7 @@ export async function listEnrollmentVerification(params: URLSearchParams, actor:
   const [result, openMonth] = await Promise.all([listEnrollmentRecords(filters), readOpenMonth()]);
   const documents = await readLoanDocuments(result.items.map(row => row.id));
   const now = new Date();
-  return { hasMore: result.hasMore, openMonth,
+  return { hasMore: result.hasMore, total: result.total, pageSize: result.pageSize, openMonth,
     summary: { ENROLLED: result.summary.ENROLLED, VERIFIED: result.summary.VERIFIED,
       ACTIVATING: result.summary.ACTIVATING, ACTIVE: result.summary.ACTIVE },
     items: result.items.flatMap(row => {

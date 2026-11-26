@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { IndependentExpenseEvent, IndependentExpenseForm, WorkflowAttachment } from "../independentTypes";
 import { SpecialExpenseFields, SpecialExpenseSummary } from "./SpecialExpenseFields";
 import { specialRuleProblems, PURCHASE_CATEGORIES } from "../domain/filingSpecialRules";
+import { createRequestKey } from "../utils/requestKey";
 
 const ROOT = "/fm/treasury/expenses-v2/expense-approval-workflow";
 const API = "/api/fm/treasury/expenses-v2/expense-approval-workflow/requests";
@@ -44,7 +45,7 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
     const submittedForm = action === "SUBMIT" ? { ...form, executionMode: "DUMMY" as const } : form;
     const value = { action, ...(editing ? { requestId: editing.case_id, expectedRevision: editing.revision } : {}), form: submittedForm };
     const signature = JSON.stringify(value);
-    if (pending.current?.signature !== signature) pending.current = { signature, requestKey: crypto.randomUUID() };
+    if (pending.current?.signature !== signature) pending.current = { signature, requestKey: createRequestKey() };
     try {
       const response = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...value, requestKey: pending.current.requestKey }) });
       const result = await response.json();

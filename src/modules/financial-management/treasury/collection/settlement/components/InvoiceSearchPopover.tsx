@@ -62,7 +62,7 @@ export default function InvoiceSearchPopover({
                                             </span>
                                         )}
                                     </div>
-                                    <span className="font-mono font-black text-emerald-600 text-sm">₱{getInvoiceRequiredBalance(inv).toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                                    <span className="font-mono font-black text-emerald-600 text-sm">₱{getInvoiceRequiredBalance(inv).toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</span>
                                 </CommandItem>
                             ))}
                         </CommandGroup>

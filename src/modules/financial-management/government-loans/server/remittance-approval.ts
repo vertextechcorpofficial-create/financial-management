@@ -185,9 +185,10 @@ async function replay(command: Command) {
 }
 
 async function commit(command: Command, action: Decision["action"], evidence: unknown, fields: object = {}) {
+  const decidedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   const row = { id: randomUUID(), command_key: command.key, request_hash: command.requestHash, action,
     actor_id: command.actor.actorId, actor_name: command.actor.actorName, actor_role: command.actor.actorRole,
-    decided_at: new Date().toISOString(), reason: null, evidence, ...fields };
+    decided_at: decidedAt, reason: null, evidence, ...fields };
   try {
     await writeGovernmentLoansItem(GOVERNMENT_LOAN_REMITTANCE_DECISIONS, row, "id", undefined, 30_000);
     return decisionRow.parse(row);

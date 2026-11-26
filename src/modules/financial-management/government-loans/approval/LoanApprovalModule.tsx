@@ -1,36 +1,55 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { ApprovalReviewPanel } from "./ApprovalReviewPanel";
 import { BulkApprovalDialog } from "./BulkApprovalDialog";
 import { approvalAgencies, approvalDecisions, approvalQueue, approvalReview } from "./api";
 import { REQUEST_SLA_DAYS } from "./rules";
-import type { ApprovalDecisionRow, ApprovalQueueItem, BulkApprovalResult } from "./types";
+import {
+  approvalPageSizes, approvalSorts, type ApprovalDecisionRow, type ApprovalQueueItem, type ApprovalSort, type BulkApprovalResult,
+} from "./types";
 
 type Loader<T> = (signal: AbortSignal) => Promise<T>;
+type Direction = "asc" | "desc";
+type ChecksFilter = "" | "ready" | "review";
 
-function useApprovalRead<T>(load: Loader<T> | null, refresh: number, delay = 0) {
+function useApprovalRead<T>(load: Loader<T> | null, refresh: number, delay = 0, retain = true) {
   const [state, setState] = useState<{ load: Loader<T>; refresh: number; data?: T; error?: string }>();
+  const [lastData, setLastData] = useState<T>();
   useEffect(() => {
     if (!load) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       void load(controller.signal).then(data => {
-        if (!controller.signal.aborted) setState({ load, refresh, data });
+        if (!controller.signal.aborted) {
+          setState({ load, refresh, data });
+          setLastData(data);
+        }
       }).catch(error => {
-        if (!controller.signal.aborted) setState({ load, refresh, error: error instanceof Error ? error.message : "Try loading the requests again." });
+        if (!controller.signal.aborted) {
+          setState({ load, refresh, error: error instanceof Error ? error.message : "Try loading the requests again." });
+        }
       });
     }, delay);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [load, refresh, delay]);
-  return state?.load === load && state.refresh === refresh ? state : undefined;
+  if (!load) return undefined;
+  const current = state?.load === load && state.refresh === refresh ? state : undefined;
+  return {
+    data: current?.data ?? (retain ? lastData : undefined),
+    error: current?.error,
+    pending: retain && Boolean(lastData) && !current?.data,
+  };
 }
 
 function LoadError({ message, retry }: { message: string; retry: () => void }) {
@@ -39,13 +58,55 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-function Pagination({ name, page, hasMore, onPage }: { name: string; page: number; hasMore: boolean; onPage: (page: number) => void }) {
-  if (page === 1 && !hasMore) return null;
-  return <nav aria-label={name} className="flex flex-wrap justify-end gap-2">
-    <Button type="button" size="sm" variant="outline" disabled={page === 1} onClick={() => onPage(page - 1)}>Previous</Button>
-    <span className="self-center text-xs">Page {page}</span>
-    <Button type="button" size="sm" variant="outline" disabled={!hasMore} onClick={() => onPage(page + 1)}>Next</Button>
-  </nav>;
+function SummaryCard({ label, value, detail, active, tone, onClick }: {
+  label: string; value: number; detail?: string; active: boolean;
+  tone?: "warning" | "critical"; onClick: () => void;
+}) {
+  return <button type="button" aria-pressed={active} onClick={onClick}
+    className={cn("rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50",
+      active && "border-primary/60 bg-primary/5",
+      !active && tone === "warning" && "border-amber-300/70 dark:border-amber-900",
+      !active && tone === "critical" && "border-destructive/40")}>
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+    <p className="mt-1 text-xl font-semibold tabular-nums">{value.toLocaleString("en-PH")}</p>
+    {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
+  </button>;
+}
+
+function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
+  label: string; sortKey: ApprovalSort; sort: ApprovalSort; direction: Direction; align?: "right";
+  onSort: (key: ApprovalSort) => void;
+}) {
+  const active = sortKey === sort;
+  const Icon = active ? (direction === "asc" ? ArrowUp : ArrowDown) : ChevronsUpDown;
+  return <TableHead aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : undefined}
+    className={align === "right" ? "text-right" : undefined}>
+    <button type="button" onClick={() => onSort(sortKey)}
+      className={cn("inline-flex items-center gap-1 whitespace-nowrap", align === "right" && "justify-end", active && "text-foreground")}>
+      {label}<Icon className="size-3.5 opacity-60" />
+    </button>
+  </TableHead>;
+}
+
+function Pager({ label, page, size, total, onPage, onSize }: {
+  label: string; page: number; size: number; total: number; onPage: (page: number) => void; onSize: (size: number) => void;
+}) {
+  if (!total) return null;
+  const start = (page - 1) * size + 1;
+  const end = Math.min(page * size, total);
+  return <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+    <p className="text-muted-foreground">Showing {start}–{end} of {total}</p>
+    <div className="flex flex-wrap items-center gap-2">
+      <label className="flex items-center gap-2">Rows
+        <NativeSelect aria-label={`${label} rows per page`} className="w-20" value={size}
+          onChange={event => onSize(Number(event.target.value))}>
+          {approvalPageSizes.map(value => <option key={value} value={value}>{value}</option>)}
+        </NativeSelect>
+      </label>
+      <Button type="button" variant="outline" size="sm" disabled={page === 1} onClick={() => onPage(page - 1)}>Previous</Button>
+      <Button type="button" variant="outline" size="sm" disabled={end >= total} onClick={() => onPage(page + 1)}>Next</Button>
+    </div>
+  </div>;
 }
 
 function WaitingBadge({ days }: { days: number }) {
@@ -55,47 +116,82 @@ function WaitingBadge({ days }: { days: number }) {
   return <Badge variant="outline">{label}</Badge>;
 }
 
-function SummaryCard({ label, value }: { label: string; value: string | number }) {
-  return <div className="rounded-lg border bg-card p-3">
-    <p className="text-xs font-medium text-muted-foreground">{label}</p>
-    <p className="text-xl font-semibold tabular-nums">{typeof value === "number" ? value.toLocaleString("en-PH") : value}</p>
-  </div>;
+function agencyTone(name: string | null) {
+  const value = (name ?? "").toLowerCase();
+  if (value.includes("pag-ibig") || value.includes("hdmf")) return "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300";
+  if (value.includes("sss") || value.includes("social security")) return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300";
+  if (value.includes("bank")) return "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300";
+  return "text-muted-foreground";
+}
+
+function AgencyBadge({ name }: { name: string | null }) {
+  return <Badge variant="outline" className={agencyTone(name)}>{name ?? "—"}</Badge>;
 }
 
 function failedChecks(row: ApprovalQueueItem) {
   return (row.checks ?? []).filter(check => check.result === "review");
 }
 
+function ChecksBadge({ row }: { row: ApprovalQueueItem }) {
+  const failed = failedChecks(row);
+  const failedText = failed.map(check => check.label + (check.detail ? ": " + check.detail : "")).join("\n");
+  return <>
+    <Badge variant="outline" title={failedText} className={row.filedChecksPass ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>
+      {row.filedChecksPass ? "OK" : failed.length ? failed.length + " review" : "Review"}
+    </Badge>
+    {failed.length > 0 && <p className="max-w-48 truncate text-xs text-muted-foreground" title={failedText}>{failed.map(check => check.label).join(", ")}</p>}
+  </>;
+}
+
 function DecisionsTable({ rows, onReview }: { rows: ApprovalDecisionRow[]; onReview: (id: number) => void }) {
   if (!rows.length) return <p className="rounded-lg border p-4 text-sm text-muted-foreground">No decisions recorded.</p>;
-  return <div className="overflow-hidden rounded-lg border">
-    <Table>
-      <caption className="sr-only">Recent approval decisions</caption>
-      <TableHeader><TableRow>
-        <TableHead>Request</TableHead><TableHead>Employee</TableHead><TableHead>Agency</TableHead>
-        <TableHead>Decision</TableHead><TableHead>Decided by</TableHead><TableHead>Decided at</TableHead><TableHead>Remarks</TableHead>
-      </TableRow></TableHeader>
-      <TableBody>{rows.map(item => <TableRow key={item.id}>
-        <TableCell><Button type="button" size="sm" variant="link" className="px-0" onClick={() => onReview(item.requestId)}>{item.reference}</Button></TableCell>
-        <TableCell>{item.employeeName ?? "—"}</TableCell><TableCell>{item.agencyName ?? "—"}</TableCell>
-        <TableCell><Badge variant="outline" className={item.decision === "APPROVED"
+  return <>
+    <div className="hidden overflow-hidden rounded-lg border md:block">
+      <Table>
+        <caption className="sr-only">Recent approval decisions</caption>
+        <TableHeader><TableRow>
+          <TableHead>Request</TableHead><TableHead>Employee</TableHead><TableHead>Agency</TableHead>
+          <TableHead>Decision</TableHead><TableHead>Decided by</TableHead><TableHead>Decided at</TableHead><TableHead>Remarks</TableHead>
+        </TableRow></TableHeader>
+        <TableBody>{rows.map(item => <TableRow key={item.id} className="cursor-pointer hover:bg-muted/50" onClick={() => onReview(item.requestId)}>
+          <TableCell><Button type="button" size="sm" variant="link" className="px-0" onClick={event => { event.stopPropagation(); onReview(item.requestId); }}>{item.reference}</Button></TableCell>
+          <TableCell>{item.employeeName ?? "—"}</TableCell><TableCell><AgencyBadge name={item.agencyName} /></TableCell>
+          <TableCell><Badge variant="outline" className={item.decision === "APPROVED"
+            ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+            : "border-destructive/30 bg-destructive/10 text-destructive"}>
+            {item.decision === "APPROVED" ? "Approved" : "Rejected"}</Badge></TableCell>
+          <TableCell>{item.actorName}</TableCell>
+          <TableCell><time dateTime={item.occurredAt}>{dateTime(item.occurredAt)} PHT</time></TableCell>
+          <TableCell className="min-w-36 max-w-72 whitespace-pre-wrap break-words">{item.remarks ?? "—"}</TableCell>
+        </TableRow>)}</TableBody>
+      </Table>
+    </div>
+    <div className="space-y-2 md:hidden">{rows.map(item => <article key={item.id} className="space-y-2 rounded-lg border p-3 text-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <Button type="button" size="sm" variant="link" className="h-auto px-0 font-medium" onClick={() => onReview(item.requestId)}>{item.reference}</Button>
+        <Badge variant="outline" className={item.decision === "APPROVED"
           ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
           : "border-destructive/30 bg-destructive/10 text-destructive"}>
-          {item.decision === "APPROVED" ? "Approved" : "Rejected"}</Badge></TableCell>
-        <TableCell>{item.actorName}</TableCell>
-        <TableCell><time dateTime={item.occurredAt}>{dateTime(item.occurredAt)} PHT</time></TableCell>
-        <TableCell className="min-w-36 max-w-72 whitespace-pre-wrap break-words">{item.remarks ?? "—"}</TableCell>
-      </TableRow>)}</TableBody>
-    </Table>
-  </div>;
+          {item.decision === "APPROVED" ? "Approved" : "Rejected"}</Badge>
+      </div>
+      <p>{item.employeeName ?? "—"} · <AgencyBadge name={item.agencyName} /></p>
+      <p className="text-xs text-muted-foreground">{item.actorName} · {dateTime(item.occurredAt)} PHT</p>
+      {item.remarks && <p className="whitespace-pre-wrap break-words text-xs">{item.remarks}</p>}
+    </article>)}</div>
+  </>;
 }
 
 export function LoanApprovalModule() {
   const [search, setSearch] = useState("");
   const [agency, setAgency] = useState("");
   const [overdue, setOverdue] = useState(false);
+  const [checks, setChecks] = useState<ChecksFilter>("");
+  const [sort, setSort] = useState<ApprovalSort>("filed");
+  const [direction, setDirection] = useState<Direction>("asc");
   const [page, setPage] = useState(1);
+  const [size, setSize] = useState(25);
   const [historyPage, setHistoryPage] = useState(1);
+  const [historySize, setHistorySize] = useState(10);
   const [refresh, setRefresh] = useState(0);
   const [reviewRefresh, setReviewRefresh] = useState(0);
   const [agencyRefresh, setAgencyRefresh] = useState(0);
@@ -104,30 +200,115 @@ export function LoanApprovalModule() {
   const [confirmRows, setConfirmRows] = useState<ApprovalQueueItem[] | null>(null);
   const [batchResult, setBatchResult] = useState<BulkApprovalResult | null>(null);
   const [notice, setNotice] = useState("");
-  const [showHistory, setShowHistory] = useState(false);
+  const skipUrlWrite = useRef(true);
 
-  const query = new URLSearchParams({ q: search.trim(), page: String(page) });
+  const query = new URLSearchParams({ page: String(page), sort, direction, size: String(size) });
+  if (search.trim()) query.set("q", search.trim());
   if (agency) query.set("agency", agency);
   if (overdue) query.set("overdue", "1");
+  if (checks) query.set("checks", checks);
   const queryString = query.toString();
+  const historyQuery = new URLSearchParams({ page: String(historyPage), size: String(historySize) }).toString();
   const loadQueue = useCallback((signal: AbortSignal) => approvalQueue(queryString, signal), [queryString]);
-  const loadHistory = useCallback((signal: AbortSignal) => approvalDecisions(historyPage, signal), [historyPage]);
+  const loadHistory = useCallback((signal: AbortSignal) => approvalDecisions(historyQuery, signal), [historyQuery]);
   const loadReview = useCallback((signal: AbortSignal) => approvalReview(reviewId!, signal), [reviewId]);
   const queue = useApprovalRead(loadQueue, refresh, 160);
-  const history = useApprovalRead(showHistory ? loadHistory : null, refresh);
+  const history = useApprovalRead(loadHistory, refresh);
   const agencies = useApprovalRead(approvalAgencies, agencyRefresh);
-  const detail = useApprovalRead(reviewId === null ? null : loadReview, reviewRefresh);
-  const eligible = queue?.data?.items.filter(row => row.filedChecksPass) ?? [];
+  const detail = useApprovalRead(reviewId === null ? null : loadReview, reviewRefresh, 0, false);
+  const items = queue?.data?.items ?? [];
+  const eligible = items.filter(row => row.filedChecksPass);
   const selectedRows = eligible.filter(row => selected.includes(row.id));
+  const hasFilters = Boolean(search.trim() || agency || overdue || checks);
+
+  useEffect(() => {
+    const syncFromLocation = () => {
+      const params = new URLSearchParams(window.location.search);
+      const readSort = params.get("lap_sort");
+      const readDirection = params.get("lap_direction");
+      const readSize = Number(params.get("lap_size"));
+      const readChecks = params.get("lap_checks");
+      setSearch(params.get("lap_q") ?? "");
+      setAgency(params.get("lap_agency") ?? "");
+      setOverdue(params.get("lap_overdue") === "1");
+      setChecks(readChecks === "ready" || readChecks === "review" ? readChecks : "");
+      setSort(readSort && readSort in approvalSorts ? readSort as ApprovalSort : "filed");
+      setDirection(readDirection === "desc" ? "desc" : "asc");
+      setSize([10, 25, 50].includes(readSize) ? readSize : 25);
+      setPage(Math.max(1, Number(params.get("lap_page")) || 1));
+    };
+    syncFromLocation();
+    skipUrlWrite.current = true;
+    window.addEventListener("popstate", syncFromLocation);
+    return () => window.removeEventListener("popstate", syncFromLocation);
+  }, []);
+
+  useEffect(() => {
+    if (skipUrlWrite.current) { skipUrlWrite.current = false; return; }
+    const params = new URLSearchParams(window.location.search);
+    const setOrDelete = (key: string, value: string) => value ? params.set(key, value) : params.delete(key);
+    setOrDelete("lap_q", search.trim());
+    setOrDelete("lap_agency", agency);
+    setOrDelete("lap_overdue", overdue ? "1" : "");
+    setOrDelete("lap_checks", checks);
+    setOrDelete("lap_sort", sort !== "filed" ? sort : "");
+    setOrDelete("lap_direction", direction !== "asc" ? direction : "");
+    setOrDelete("lap_size", size !== 25 ? String(size) : "");
+    setOrDelete("lap_page", page > 1 ? String(page) : "");
+    const next = params.toString();
+    const target = window.location.pathname + (next ? "?" + next : "") + window.location.hash;
+    const current = window.location.pathname + window.location.search + window.location.hash;
+    if (target !== current) window.history.replaceState(window.history.state, "", target);
+  }, [agency, checks, direction, overdue, page, search, size, sort]);
 
   function changePage(next: number) {
     setPage(next);
     setSelected([]);
   }
 
+  function changeSize(next: number) {
+    setSize(next);
+    setPage(1);
+    setSelected([]);
+  }
+
+  function changeSort(next: ApprovalSort) {
+    if (next === sort) setDirection(value => value === "asc" ? "desc" : "asc");
+    else { setSort(next); setDirection("asc"); }
+    setPage(1);
+    setSelected([]);
+  }
+
+  function changeFilter(update: () => void) {
+    update();
+    setPage(1);
+    setSelected([]);
+  }
+
+  function clearFilters() {
+    setSearch("");
+    setAgency("");
+    setOverdue(false);
+    setChecks("");
+    setPage(1);
+    setSelected([]);
+  }
+
+  function showAllQueue() {
+    setOverdue(false);
+    setChecks("");
+    setPage(1);
+    setSelected([]);
+  }
+
+  function toggleChecks(next: Exclude<ChecksFilter, "">) {
+    changeFilter(() => setChecks(value => value === next ? "" : next));
+  }
+
   function refreshLists() {
-    changePage(1);
+    setPage(1);
     setHistoryPage(1);
+    setSelected([]);
     setRefresh(value => value + 1);
   }
 
@@ -142,9 +323,12 @@ export function LoanApprovalModule() {
     return <div className="space-y-3">
       <Button type="button" variant="ghost" onClick={() => setReviewId(null)}>Back to approvals</Button>
       {detail?.error ? <LoadError message={detail.error} retry={() => setReviewRefresh(value => value + 1)} /> :
-        <p role="status" className="text-sm text-muted-foreground">Loading request…</p>}
+        <div className="space-y-2"><Skeleton className="h-8 w-48" /><Skeleton className="h-36 w-full" /><Skeleton className="h-24 w-full" /></div>}
     </div>;
   }
+
+  const summary = queue?.data?.summary;
+  const oldest = summary?.oldestWaitingDays ?? 0;
 
   return <div className="min-w-0 space-y-6">
     {confirmRows && <BulkApprovalDialog rows={confirmRows} onClose={() => setConfirmRows(null)} onComplete={result => {
@@ -163,28 +347,42 @@ export function LoanApprovalModule() {
         .map(item => <li key={item.id} className="break-words"><span className="font-medium">{item.reference}</span> · {item.reason}</li>)}</ul>}
     </section>}
     <section aria-label="Waiting for approval" className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold">Waiting for approval</h2>
-        <Button type="button" variant="outline" size="sm" onClick={refreshLists}>Refresh queue</Button>
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold">Waiting for approval</h2>
+          <Button type="button" variant="outline" size="sm" onClick={refreshLists} disabled={queue?.pending}>Refresh queue</Button>
+        </div>
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          Approve or reject each employee&apos;s loan request. Approving means the company supports the application and HR completes the employer certification; the agency still makes the final loan decision.
+        </p>
       </div>
-      {queue?.data?.summary && <div className="grid gap-2 sm:grid-cols-3">
-        <SummaryCard label="Waiting" value={queue.data.summary.waiting} />
-        <SummaryCard label="Overdue" value={queue.data.summary.overdue} />
-        <SummaryCard label="Oldest wait" value={queue.data.summary.oldestWaitingDays + (queue.data.summary.oldestWaitingDays === 1 ? " day" : " days")} />
+      {summary ? <div className={cn("grid grid-cols-2 gap-2 xl:grid-cols-4", queue?.pending && "opacity-60")}>
+        <SummaryCard label="Waiting" value={summary.waiting}
+          detail={summary.waiting ? `Oldest ${oldest} ${oldest === 1 ? "day" : "days"}` : "No requests waiting"}
+          active={!checks && !overdue} onClick={showAllQueue} />
+        <SummaryCard label="Ready to approve" value={summary.ready} active={checks === "ready"} onClick={() => toggleChecks("ready")} />
+        <SummaryCard label="Needs review" value={summary.review} tone="warning" active={checks === "review"} onClick={() => toggleChecks("review")} />
+        <SummaryCard label="Overdue" value={summary.overdue} tone="critical" active={overdue}
+          onClick={() => changeFilter(() => setOverdue(value => !value))} />
+      </div> : queue?.error ? null : <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+        {[0, 1, 2, 3].map(value => <Skeleton key={value} className="h-[86px] rounded-lg" />)}
       </div>}
       <div className="flex flex-wrap items-center gap-3">
         <Input aria-label="Search requests" placeholder="Employee or request no." className="max-w-xs" value={search} maxLength={120}
-          onChange={event => { setSearch(event.target.value); changePage(1); }} />
+          onChange={event => changeFilter(() => setSearch(event.target.value))} />
         <NativeSelect aria-label="Filter by agency" value={agency} disabled={!agencies?.data}
-          onChange={event => { setAgency(event.target.value); changePage(1); }}>
+          onChange={event => changeFilter(() => setAgency(event.target.value))}>
           <option value="">All agencies</option>
           {agencies?.data?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </NativeSelect>
+        <NativeSelect aria-label="Filter by filed checks" value={checks}
+          onChange={event => changeFilter(() => setChecks(event.target.value as ChecksFilter))}>
+          <option value="">All checks</option><option value="ready">Ready to approve</option><option value="review">Needs review</option>
+        </NativeSelect>
         <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={overdue} onCheckedChange={value => { setOverdue(value === true); changePage(1); }} /> Overdue only
+          <Checkbox checked={overdue} onCheckedChange={value => changeFilter(() => setOverdue(value === true))} /> Overdue only
         </label>
-        {(search || agency || overdue) && <Button type="button" variant="ghost" size="sm"
-          onClick={() => { setSearch(""); setAgency(""); setOverdue(false); changePage(1); }}>Clear filters</Button>}
+        {hasFilters && <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
       </div>
       {agencies?.error && <LoadError message={agencies.error} retry={() => setAgencyRefresh(value => value + 1)} />}
       {!!selectedRows.length && <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-lg border bg-background/95 p-2 text-sm shadow-sm backdrop-blur">
@@ -192,61 +390,84 @@ export function LoanApprovalModule() {
         <Button type="button" variant="outline" size="sm" onClick={() => setSelected([])}>Clear selection</Button>
         <Button type="button" size="sm" onClick={() => setConfirmRows(selectedRows)}>Approve selected</Button>
       </div>}
-      {!queue && <p role="status" className="text-sm text-muted-foreground">Loading approval queue…</p>}
       {queue?.error && <LoadError message={queue.error} retry={refreshLists} />}
+      {!queue && <div className="space-y-2 rounded-lg border p-3"><Skeleton className="h-9 w-full" />{[0, 1, 2, 3, 4].map(value => <Skeleton key={value} className="h-12 w-full" />)}</div>}
       {queue?.data && <>
-        <div className="overflow-hidden rounded-lg border">
+        <div className={cn("hidden overflow-x-auto rounded-lg border md:block", queue.pending && "opacity-60")}>
           <Table>
             <caption className="sr-only">Loan requests waiting for company approval</caption>
-            <TableHeader><TableRow>
-              <TableHead><Checkbox aria-label="Select eligible requests on this page" disabled={!eligible.length}
+            <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card"><TableRow>
+              <TableHead className="w-10"><Checkbox aria-label="Select eligible requests on this page" disabled={!eligible.length}
                 checked={selectedRows.length > 0 && (selectedRows.length === eligible.length ? true : "indeterminate")}
                 onCheckedChange={value => setSelected(value === true ? eligible.map(row => row.id) : [])} /></TableHead>
-              <TableHead>Request</TableHead><TableHead>Employee</TableHead><TableHead>Agency</TableHead><TableHead>Program</TableHead>
-              <TableHead className="text-right">Amount</TableHead><TableHead>Filed</TableHead><TableHead>Checks at submission</TableHead><TableHead>Waiting</TableHead><TableHead>Action</TableHead>
+              <SortHeader label="Request" sortKey="reference" sort={sort} direction={direction} onSort={changeSort} />
+              <SortHeader label="Employee" sortKey="employee" sort={sort} direction={direction} onSort={changeSort} />
+              <SortHeader label="Agency" sortKey="agency" sort={sort} direction={direction} onSort={changeSort} />
+              <SortHeader label="Program" sortKey="program" sort={sort} direction={direction} onSort={changeSort} />
+              <SortHeader label="Amount" sortKey="amount" sort={sort} direction={direction} align="right" onSort={changeSort} />
+              <SortHeader label="Filed" sortKey="filed" sort={sort} direction={direction} onSort={changeSort} />
+              <SortHeader label="Checks" sortKey="checks" sort={sort} direction={direction} onSort={changeSort} />
+              <SortHeader label="Waiting" sortKey="waiting" sort={sort} direction={direction} onSort={changeSort} />
+              <TableHead>Action</TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {!queue.data.items.length && <TableRow><TableCell colSpan={10} className="py-8 text-center text-muted-foreground">No requests waiting for approval.</TableCell></TableRow>}
-              {queue.data.items.map(row => {
-                const failed = failedChecks(row);
-                const failedText = failed.map(check => check.label + (check.detail ? ": " + check.detail : "")).join("\n");
-                return <TableRow key={row.id}>
-                <TableCell title={!row.filedChecksPass ? failedText || "Checks must be reviewed before selection." : undefined}>
+              {!items.length && <TableRow><TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <span>{hasFilters ? "No requests match these filters." : "No requests waiting for approval."}</span>
+                  {hasFilters && <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>}
+                </div>
+              </TableCell></TableRow>}
+              {items.map(row => <TableRow key={row.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setReviewId(row.id)}>
+                <TableCell onClick={event => event.stopPropagation()} title={!row.filedChecksPass ? "Checks must be reviewed before selection." : undefined}>
                   <Checkbox aria-label={`Select ${row.reference}`} disabled={!row.filedChecksPass} checked={selected.includes(row.id)}
                     onCheckedChange={value => setSelected(ids => value === true ? [...ids, row.id] : ids.filter(id => id !== row.id))} /></TableCell>
-                <TableCell><Button type="button" size="sm" variant="link" className="px-0" onClick={() => setReviewId(row.id)}>{row.reference}</Button></TableCell>
-                <TableCell>{row.employeeName ?? "—"}</TableCell><TableCell>{row.agencyName ?? "—"}</TableCell><TableCell>{row.program}</TableCell>
+                <TableCell><Button type="button" size="sm" variant="link" className="px-0" onClick={event => { event.stopPropagation(); setReviewId(row.id); }}>{row.reference}</Button></TableCell>
+                <TableCell>{row.employeeName ?? "—"}</TableCell><TableCell><AgencyBadge name={row.agencyName} /></TableCell><TableCell>{row.program}</TableCell>
                 <TableCell className="text-right tabular-nums">{peso(row.amount)}</TableCell>
-                <TableCell><time dateTime={row.requestedAt}>{dateTime(row.requestedAt)} PHT</time></TableCell>
-                <TableCell>
-                  <Badge variant="outline" title={failedText} className={row.filedChecksPass ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>
-                    {row.filedChecksPass ? "OK" : failed.length ? failed.length + " review" : "Review"}
-                  </Badge>
-                  {failed.length > 0 && <p className="max-w-48 truncate text-xs text-muted-foreground" title={failedText}>{failed.map(check => check.label).join(", ")}</p>}
-                </TableCell>
+                <TableCell><time dateTime={row.requestedAt}>{dateTime(row.requestedAt)} PHT</time>
+                  {row.filedBy && <span className="block text-xs text-muted-foreground">{row.filedBy}</span>}</TableCell>
+                <TableCell><ChecksBadge row={row} /></TableCell>
                 <TableCell><WaitingBadge days={row.waitingDays} /></TableCell>
-                <TableCell><Button type="button" variant="outline" size="sm" onClick={() => setReviewId(row.id)}>Review</Button></TableCell>
-                </TableRow>;
-              })}
+                <TableCell><Button type="button" variant="outline" size="sm" onClick={event => { event.stopPropagation(); setReviewId(row.id); }}>Review</Button></TableCell>
+              </TableRow>)}
             </TableBody>
           </Table>
         </div>
-        <Pagination name="Approval queue pages" page={page} hasMore={queue.data.hasMore} onPage={changePage} />
+        <div className={cn("space-y-2 md:hidden", queue.pending && "opacity-60")}>{items.map(row => <article key={row.id} className="space-y-2 rounded-lg border p-3 text-sm">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <Button type="button" size="sm" variant="link" className="h-auto px-0 font-medium" onClick={() => setReviewId(row.id)}>{row.reference}</Button>
+              <p className="break-words">{row.employeeName ?? "—"} · {row.program}</p>
+              <p className="mt-1"><AgencyBadge name={row.agencyName} /></p>
+            </div>
+            <Checkbox aria-label={`Select ${row.reference}`} disabled={!row.filedChecksPass} checked={selected.includes(row.id)}
+              onCheckedChange={value => setSelected(ids => value === true ? [...ids, row.id] : ids.filter(id => id !== row.id))} />
+          </div>
+          <dl className="grid grid-cols-2 gap-2">
+            <div><dt className="text-xs text-muted-foreground">Amount</dt><dd className="tabular-nums">{peso(row.amount)}</dd></div>
+            <div><dt className="text-xs text-muted-foreground">Waiting</dt><dd><WaitingBadge days={row.waitingDays} /></dd></div>
+            <div><dt className="text-xs text-muted-foreground">Filed</dt><dd>{dateTime(row.requestedAt)} PHT{row.filedBy && <span className="block text-xs text-muted-foreground">{row.filedBy}</span>}</dd></div>
+            <div><dt className="text-xs text-muted-foreground">Checks</dt><dd><ChecksBadge row={row} /></dd></div>
+          </dl>
+          <div className="flex justify-end"><Button type="button" variant="outline" size="sm" onClick={() => setReviewId(row.id)}>Review</Button></div>
+        </article>)}</div>
+        <Pager label="Approval queue" page={page} size={size} total={queue.data.total}
+          onPage={changePage} onSize={changeSize} />
       </>}
     </section>
     <section aria-label="Recent decisions" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold">Recent decisions</h2>
-        <Button type="button" variant="outline" size="sm" aria-expanded={showHistory}
-          onClick={() => setShowHistory(value => !value)}>{showHistory ? "Hide decisions" : "Show decisions"}</Button>
+        <div>
+          <h2 className="text-base font-semibold">Recent decisions</h2>
+          <p className="text-sm text-muted-foreground">Approved and rejected requests, newest first.</p>
+        </div>
       </div>
-      {showHistory && <>
-        {!history && <p role="status" className="text-sm text-muted-foreground">Loading decisions…</p>}
-        {history?.error && <LoadError message={history.error} retry={() => setRefresh(value => value + 1)} />}
-        {history?.data && <>
-          <DecisionsTable rows={history.data.items} onReview={setReviewId} />
-          <Pagination name="Decision history pages" page={historyPage} hasMore={history.data.hasMore} onPage={setHistoryPage} />
-        </>}
+      {history?.error && <LoadError message={history.error} retry={() => setRefresh(value => value + 1)} />}
+      {!history && <div className="space-y-2 rounded-lg border p-3">{[0, 1, 2].map(value => <Skeleton key={value} className="h-10 w-full" />)}</div>}
+      {history?.data && <>
+        <DecisionsTable rows={history.data.items} onReview={setReviewId} />
+        <Pager label="Decision history" page={historyPage} size={historySize} total={history.data.total}
+          onPage={value => { setHistoryPage(value); }} onSize={value => { setHistorySize(value); setHistoryPage(1); }} />
       </>}
     </section>
   </div>;
