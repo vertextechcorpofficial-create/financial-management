@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { NavUser } from "@/components/shared/app-sidebar/nav-user";
 import {
-  Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
+  Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -31,7 +30,7 @@ export async function GovernmentLoansWorkspacePage({ workspace, transferEmployee
         <Breadcrumb className="min-w-0">
           <BreadcrumbList className="flex-nowrap whitespace-nowrap">
             <BreadcrumbItem className="hidden shrink-0 md:block">
-              <BreadcrumbLink asChild><Link href="/fm">FM</Link></BreadcrumbLink>
+              <span>FM</span>
             </BreadcrumbItem>
             <BreadcrumbSeparator className="hidden shrink-0 md:block" />
             <BreadcrumbItem className="min-w-0"><span className="truncate">Government Loans</span></BreadcrumbItem>

@@ -74,7 +74,8 @@ function* monthlyDeductions({ schedule, history, receipts }: Loan, open: string)
 
 function ownLoanSummary(selected: Loan, open: string) {
   const { id, reference, program, agency, agencyId, status, active, amortization, counted, term, estimate } = ledgerLoan(selected, open);
-  return { id, reference, program, agency, agencyId, status, active, amortization, counted, term, estimate };
+  return { id, reference, program, agency, agencyId, status, active, amortization, counted, term, estimate,
+    next: expectedDeduction(selected.schedule, selected.history, open) };
 }
 
 export async function listOwnLoans(owner: number) {
@@ -90,19 +91,34 @@ export async function listOwnLoans(owner: number) {
       refunds.set(instruction.request_id, entries);
     }
   }
+  const latest = loans.map(selected => selected.history.reduce<typeof selected.history[number] | undefined>(
+    (previous, row) => !previous || row.month > previous.month ? row : previous, undefined));
+  const months = [...new Set(latest.flatMap(row => row ? [row.month] : []))];
+  const agencyIds = [...new Set(loans.map(loan => loan.row.agency_id))];
+  const payments = months.length && agencyIds.length ? await readReportRemittances({
+    agency_id: { _in: agencyIds }, payroll_month: { _in: months },
+  }) : [];
+  const byAgencyMonth = latestRemittances(payments);
   return {
-    loans: loans.map(selected => {
-      const { history, schedule } = selected;
-      const latest = history.reduce<typeof history[number] | undefined>(
-        (previous, row) => !previous || row.month > previous.month ? row : previous, undefined);
-      const shortfall = latest ? centavos(latest.expected) - centavos(latest.amount) : 0n;
-      const notice = latest && (latest.status === "P" || latest.status === "F") && shortfall > 0n ? {
-        month: latest.month, status: latest.status, expected: latest.expected, actual: latest.amount,
-        shortfall: amountFromCentavos(shortfall), catchUp: schedule.catchUp,
-        catchUpMonth: monthAfter(latest.month),
-        catchUpScheduled: schedule.catchUp && centavos(expectedDeduction(schedule, history, monthAfter(latest.month))) > 0n,
+    loans: loans.map((selected, index) => {
+      const { row } = selected;
+      const latestDeduction = latest[index];
+      const shortfall = latestDeduction ? centavos(latestDeduction.expected) - centavos(latestDeduction.amount) : 0n;
+      const notice = latestDeduction && (latestDeduction.status === "P" || latestDeduction.status === "F") && shortfall > 0n ? {
+        month: latestDeduction.month, status: latestDeduction.status, expected: latestDeduction.expected, actual: latestDeduction.amount,
+        shortfall: amountFromCentavos(shortfall), catchUp: selected.schedule.catchUp,
+        catchUpMonth: monthAfter(latestDeduction.month),
+        catchUpScheduled: selected.schedule.catchUp && centavos(expectedDeduction(selected.schedule, selected.history, monthAfter(latestDeduction.month))) > 0n,
       } : null;
-      return { ...ownLoanSummary(selected, open), notice, refunds: refunds.get(selected.row.id) ?? [] };
+      const payment = latestDeduction ? byAgencyMonth.get(remitKey(row.agency_id, latestDeduction.month)) : undefined;
+      return { ...ownLoanSummary(selected, open), notice, refunds: refunds.get(row.id) ?? [],
+        latestDeduction: latestDeduction ? {
+          month: latestDeduction.month, status: latestDeduction.status, expected: latestDeduction.expected,
+          actual: latestDeduction.amount,
+          unpaid: latestDeduction.status === "X" ? amountFromCentavos(centavos(latestDeduction.expected) - centavos(latestDeduction.amount)) : null,
+          remittance: payment ? { id: payment.id, state: payment.state, date: payment.payment_date,
+            reference: payment.payment_reference, amount: payment.withheld } : null,
+        } : null };
     }),
   };
 }
@@ -110,8 +126,8 @@ export async function listOwnLoans(owner: number) {
 export async function readOwnLoan(id: number, owner: number) {
   const open = await readOpenLoanMonth();
   const selected = await readLoanSchedule(id, open, owner);
-  return { loan: ownLoanSummary(selected, open),
-    deductions: [...monthlyDeductions(selected, open)].filter(row => row.relevant).map(({ deduction }) => deduction).reverse() };
+  const detail = await ledgerDetails(selected, open);
+  return { ...detail, loan: { ...detail.loan, next: expectedDeduction(selected.schedule, selected.history, open) } };
 }
 
 export async function reportEmployeeLedger(params: URLSearchParams, full = false) {
@@ -129,7 +145,7 @@ export async function reportEmployeeLedger(params: URLSearchParams, full = false
   }, ({ loan }) => String(loan.id), filters.direction);
   const loans = pageReport(matches, filters, full).map(entry => entry.loan);
   return { month, employee: entries[0]?.loan.employee ?? null, agencies, loans,
-    total: matches.length, hasMore: matches.length > filters.page * filters.size,
+    total: matches.length, active: matches.filter(entry => entry.loan.active).length, hasMore: matches.length > filters.page * filters.size,
     totalEstimated: matches.every(entry => entry.loan.estimate !== null) ? moneyTotal(matches, entry => entry.loan.estimate) : null };
 }
 
@@ -241,7 +257,9 @@ export async function reportAgencyRemittances(params: URLSearchParams, full = fa
     agencies: agencies.map(row => ({ id: row.id, name: row.display_name })),
     totals: { withheld: moneyTotal(items, row => row.withheld), remitted: moneyTotal(items, row => row.remitted),
       outstanding: moneyTotal(items, row => row.outstanding), penalties: moneyTotal(items, row => row.status === "approved" ? row.penalty : null),
-      awaiting: items.filter(row => row.withheld === null).length },
+      awaiting: items.filter(row => row.withheld === null).length,
+      late: items.filter(row => row.status === "approved" && (row.daysLate ?? 0) > 0).length,
+      payments: items.filter(row => row.status === "approved").length },
     items: visible.map(row => ({ ...row, approvalId: row.remittanceId ? approvals.get(row.remittanceId) ?? null : null })) };
 }
 

@@ -16,7 +16,7 @@ import { employeeRequestApi, staffRequestApi } from "./request-api";
 import { RequestEditor } from "./RequestEditor";
 import {
   applicationPageSizes, requestSorts, requestStatusLabels, requestStatusTone, requestViews,
-  type AgencyChoice, type EmployeeChoice, type LoanRequest, type RequestPage, type RequestSort,
+  type AgencyChoice, type EmployeeChoice, type LoanRequest, type RequestPage, type RequestSort, type RequestSummary,
   type RequestView,
 } from "./types";
 
@@ -134,7 +134,9 @@ function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
   </TableHead>;
 }
 
-export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeChoice, "id" | "name"> } = {}) {
+export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
+  applicant?: Pick<EmployeeChoice, "id" | "name">; initialNew?: boolean; onSummary?: (summary: RequestSummary) => void;
+} = {}) {
   const { agencyOptions, getRequest, getRequests } = applicant ? employeeRequestApi : staffRequestApi;
   const searchParams = useSearchParams();
   const [seed] = useState(() => seedFrom(searchParams));
@@ -144,7 +146,7 @@ export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeCho
   const [direction, setDirection] = useState<Direction>(seed.direction);
   const [size, setSize] = useState(seed.size);
   const [page, setPage] = useState(seed.page);
-  const [selected, setSelected] = useState<number | "new" | null>(null);
+  const [selected, setSelected] = useState<number | "new" | null>(initialNew ? "new" : null);
   const [attempt, setAttempt] = useState(0);
   const [agencyAttempt, setAgencyAttempt] = useState(0);
   const [agencies, setAgencies] = useState<{ items: AgencyChoice[]; error?: string }>({ items: [] });
@@ -180,6 +182,10 @@ export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeCho
   useEffect(() => {
     setSaved(readViews());
   }, []);
+
+  useEffect(() => {
+    if (data?.summary) onSummary?.(data.summary);
+  }, [data?.summary, onSummary]);
 
   useEffect(() => {
     const controller = new AbortController();

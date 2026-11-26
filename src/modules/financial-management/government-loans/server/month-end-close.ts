@@ -12,7 +12,7 @@ import { remitKey, remittanceDeadline } from "../remittances/preparation/rules";
 import { getAgencyBillingSummary } from "./agency-billing";
 import type { AgencyActor } from "./agencies";
 import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_CLOSES, GOVERNMENT_LOAN_PAYROLL_RESULTS,
-  GOVERNMENT_LOAN_REQUESTS, GovernmentLoansDirectusError, writeGovernmentLoansItem } from "./directus";
+  GOVERNMENT_LOAN_REQUESTS, GovernmentLoansDirectusError, readGovernmentLoansItems, writeGovernmentLoansItem } from "./directus";
 import { readEnrollmentRows, readGroups } from "./enrollment-sources";
 import { readChangeInstructions } from "./loan-changes";
 import { isoDateTime } from "./loan-requests";
@@ -190,13 +190,26 @@ function closeSummary(row: z.output<typeof closeRow>) {
     closedAt: isoDateTime(row.closed_at), reason: row.reason, checklist: row.checklist, rollforward: row.rollforward };
 }
 
-const historyRow = closeRow.pick({ id: true, month: true, closed_at: true, actor_name: true, reason: true });
+const historyRow = closeRow.pick({ id: true, month: true, next_month: true, closed_at: true, actor_name: true, reason: true, checklist: true });
 const historyPageSize = 20;
+const viewInput = z.object({
+  month: payrollMonth.optional(), page: pageNumber,
+  historySize: z.coerce.number().int().refine(value => [10, 25, 50].includes(value)).default(historyPageSize),
+});
+const countResult = z.object({ data: z.array(z.object({ count: z.object({ id: z.coerce.number().int().nonnegative() }) })).max(1) });
+
+async function countCloses() {
+  const query = new URLSearchParams({ "aggregate[count]": "id", limit: "1" });
+  const { data } = countResult.parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_CLOSES, query));
+  return data[0]?.count.id ?? 0;
+}
+
 export async function viewMonthEndClose(params = new URLSearchParams()) {
-  const { month: requested, page } = parseInput(z.object({ month: payrollMonth.optional(), page: pageNumber }), Object.fromEntries(params));
-  const [openMonth, history] = await Promise.all([readOpenMonth(),
-    readEnrollmentRows(GOVERNMENT_LOAN_CLOSES, historyRow, "id,month,closed_at,actor_name,reason", {}, historyPageSize + 1,
-      "-month", (page - 1) * historyPageSize)]);
+  const { month: requested, page, historySize } = parseInput(viewInput, Object.fromEntries(params));
+  const [openMonth, totalHistory, history] = await Promise.all([readOpenMonth(), countCloses(),
+    readEnrollmentRows(GOVERNMENT_LOAN_CLOSES, historyRow,
+      "id,month,next_month,closed_at,actor_name,reason,checklist", {}, historySize,
+      "-month", (page - 1) * historySize)]);
   const selected = requested ?? openMonth;
   const [current, saved] = await Promise.all([
     selected && selected === openMonth ? preview(selected) : null,
@@ -205,8 +218,9 @@ export async function viewMonthEndClose(params = new URLSearchParams()) {
   if (requested && requested !== openMonth && !saved) throw new LoanRequestError(404, "No close snapshot exists for this month.");
   return { openMonth, current: current ? { checklist: current.checklist, rollforward: current.rollforward, token: current.token } : null,
     saved: saved ? closeSummary(saved) : null,
-    history: history.slice(0, historyPageSize).map(row => ({ id: row.id, month: row.month, actor: row.actor_name,
-      closedAt: isoDateTime(row.closed_at), reason: row.reason })), historyPage: page, historyHasMore: history.length > historyPageSize };
+    history: history.map(row => ({ id: row.id, month: row.month, nextMonth: row.next_month, actor: row.actor_name,
+      closedAt: isoDateTime(row.closed_at), reason: row.reason, openItemCount: row.checklist.openItemCount })),
+    historyPage: page, pageSizeHistory: historySize, totalHistory, historyHasMore: totalHistory > page * historySize };
 }
 
 export async function readCloseExport(requested: string | null) {

@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
+import { cn } from "@/lib/utils";
 import { reportPageSizes, reportSorts, type ReportKey } from "./report-options";
 
 type View = { filters: Record<string, string>; sort: string; direction: string; size: string };
 type Saved = { name: string; view: View };
 const eventName = "government-loan-report-views";
+const reportPrefixes: Record<ReportKey, string> = { ledger: "rl", remittances: "rr", year: "ry", audit: "ra" };
 const subscribe = (listener: () => void) => {
   window.addEventListener(eventName, listener);
   window.addEventListener("storage", listener);
@@ -17,11 +19,13 @@ const subscribe = (listener: () => void) => {
 
 export function useReportView(report: ReportKey, actorId?: number) {
   const defaultSort = { ledger: "reference", remittances: "month", year: "name", audit: "at" }[report];
-  const direction = report === "audit" || report === "remittances" ? "desc" : "asc";
-  const defaults: View = { filters: {}, sort: defaultSort, direction, size: "25" };
+  const defaultDirection = report === "audit" || report === "remittances" ? "desc" : "asc";
+  const defaults: View = { filters: {}, sort: defaultSort, direction: defaultDirection, size: "25" };
+  const prefix = reportPrefixes[report];
   const [view, setView] = useState<View>(defaults);
   const [page, setPage] = useState(1);
   const [formRevision, setFormRevision] = useState(0);
+  const skipUrlWrite = useRef(true);
   const key = actorId ? "government-loan-report-views:" + actorId + ":" + report : "";
   const stored = useSyncExternalStore(subscribe, () => {
     try { return key ? localStorage.getItem(key) ?? "[]" : "[]"; } catch { return "[]"; }
@@ -44,6 +48,50 @@ export function useReportView(report: ReportKey, actorId?: number) {
   };
   const params = new URLSearchParams({ page: String(page), size: view.size, sort: view.sort, direction: view.direction });
   for (const [field, value] of Object.entries(view.filters)) if (value) params.set(field, value);
+
+  useEffect(() => {
+    const syncFromLocation = () => {
+      const url = new URLSearchParams(window.location.search);
+      const reserved = new Set(["sort", "direction", "size", "page"]);
+      const filters = Object.fromEntries([...url].flatMap(([key, value]) => {
+        if (!key.startsWith(prefix + "_")) return [];
+        const name = key.slice(prefix.length + 1);
+        return reserved.has(name) ? [] : [[name, value]];
+      }));
+      const sort = url.get(prefix + "_sort");
+      const direction = url.get(prefix + "_direction");
+      const size = url.get(prefix + "_size");
+      const nextPage = Number(url.get(prefix + "_page"));
+      setView({
+        filters,
+        sort: sort && Object.hasOwn(reportSorts[report], sort) ? sort : defaultSort,
+        direction: direction === "asc" || direction === "desc" ? direction : defaultDirection,
+        size: reportPageSizes.map(String).includes(size ?? "") ? size! : "25",
+      });
+      setPage(Number.isInteger(nextPage) && nextPage > 0 ? nextPage : 1);
+      setFormRevision(previous => previous + 1);
+      skipUrlWrite.current = true;
+    };
+    syncFromLocation();
+    window.addEventListener("popstate", syncFromLocation);
+    return () => window.removeEventListener("popstate", syncFromLocation);
+  }, [defaultDirection, defaultSort, prefix, report]);
+
+  useEffect(() => {
+    if (skipUrlWrite.current) { skipUrlWrite.current = false; return; }
+    const url = new URLSearchParams(window.location.search);
+    for (const name of [...url.keys()]) if (name.startsWith(prefix + "_")) url.delete(name);
+    if (view.sort !== defaultSort) url.set(prefix + "_sort", view.sort);
+    if (view.direction !== defaultDirection) url.set(prefix + "_direction", view.direction);
+    if (view.size !== "25") url.set(prefix + "_size", view.size);
+    if (page > 1) url.set(prefix + "_page", String(page));
+    for (const [name, value] of Object.entries(view.filters)) if (value) url.set(prefix + "_" + name, value);
+    const next = url.toString();
+    const target = window.location.pathname + (next ? "?" + next : "") + window.location.hash;
+    const current = window.location.pathname + window.location.search + window.location.hash;
+    if (target !== current) window.history.replaceState(window.history.state, "", target);
+  }, [defaultDirection, defaultSort, page, prefix, view]);
+
   return { report, view, defaults, apply, page, setPage, saved, store, params, formRevision, canSave: !!key };
 }
 
@@ -127,5 +175,26 @@ export function CopyReport({ url, filename, countLabel = "records" }: { url: str
     }}>{busy ? "Preparing CSV…" : "Copy as CSV"}</Button>
     {download && <a className="underline" href={download} download={filename}>Download CSV</a>}
     {message && <span role="status">{message}</span>}
+  </div>;
+}
+
+export function ReportHeader({ title, subtitle, children }: { title: string; subtitle: string; children?: ReactNode }) {
+  return <div className="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <p className="max-w-3xl text-sm text-muted-foreground">{subtitle}</p>
+    </div>
+    {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
+  </div>;
+}
+
+export function ReportMetric({ label, value, detail, tone }: {
+  label: string; value: string; detail?: string; tone?: "warning" | "critical" | "accent";
+}) {
+  return <div className={cn("rounded-lg border bg-card p-3", tone === "warning" && "border-amber-300/70 dark:border-amber-900",
+    tone === "critical" && "border-destructive/40 bg-destructive/5", tone === "accent" && "border-primary/40 bg-primary/5")}>
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+    {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
   </div>;
 }

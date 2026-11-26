@@ -93,6 +93,6 @@ export function remittanceBatchSummary(row: Batch) {
 }
 
 export const approvalQueueRow = payment.pick({
-  id: true, agency_id: true, agency_name: true, payroll_month: true, withheld: true, entered_penalty: true,
+  id: true, agency_id: true, agency_name: true, agency_code: true, payroll_month: true, withheld: true, entered_penalty: true,
   payment_reference: true, payment_date: true, submitted_at: true,
-}).extend({ batch_id: batch.pick({ uploaded_by: true }) });
+}).extend({ batch_id: batch.pick({ uploaded_by: true, proof_name: true }) });
