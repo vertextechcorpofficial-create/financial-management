@@ -2,10 +2,10 @@ import { bool, enc, get, list, num, patch, post, text } from "../../shared/api";
 import type {
   Brgy,
   BrgyAsset,
+  BrgyCondition,
   BrgyHistoryEntry,
   BrgyAssignment,
   BrgyClassification,
-  BrgyCondition,
   BrgyCustodian,
   BrgyOffice,
   BrgySettings,
@@ -257,6 +257,106 @@ export async function createAsset(input: AssetInput): Promise<BrgyAsset> {
     });
   }
   return asset;
+}
+
+/**
+ * Table 5 grants "Register or edit an asset", and section 4.1 says a half finished form can be
+ * saved as a draft and completed later. Editing is that path, and it keeps the same rules.
+ */
+export async function updateAsset(input: {
+  assetId: number;
+  name?: string;
+  classificationId?: number | null;
+  barcode?: string | null;
+  tagNo?: string | null;
+  securityTag?: string | null;
+  serialNo?: string | null;
+  officeId?: number | null;
+  dateAcquired?: string | null;
+  cost?: number;
+  quantity?: number;
+  lifeSpanYears?: number;
+  condition?: BrgyCondition;
+  remarks?: string | null;
+  photo?: string | null;
+  isDraft?: boolean;
+  actor?: string | null;
+}): Promise<AssetDetail> {
+  const detail = await fetchAsset(input.assetId);
+  const asset = detail.asset;
+  if (asset.cancelled) throw new Error("A cancelled record cannot be edited");
+  if (asset.status === "Disposed") throw new Error("A disposed asset cannot be edited");
+
+  const body: Row = {};
+
+  if (input.name !== undefined) {
+    if (!input.name.trim()) throw new Error("Item name is required");
+    const sameNamed = await get<Row[]>(
+      "/items/brgy_asset?filter=" + enc({ _and: [{ name: { _icontains: input.name.trim() } }, { id: { _neq: asset.id } }] }) + "&fields=name&limit=-1"
+    );
+    body.name = (sameNamed ?? []).map((r) => text(r.name)).find((n) => sameName(n, input.name as string)) ?? input.name.trim();
+  }
+
+  if (input.dateAcquired !== undefined) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (input.dateAcquired && input.dateAcquired > today) throw new Error("Date acquired cannot be later than today");
+    body.date_acquired = input.dateAcquired;
+  }
+
+  if (input.quantity !== undefined) {
+    if (!Number.isFinite(input.quantity) || input.quantity < 1) throw new Error("Quantity must be at least 1");
+    body.quantity = input.quantity;
+  }
+  if (input.cost !== undefined) {
+    if (!Number.isFinite(input.cost) || input.cost < 0) throw new Error("Cost cannot be negative");
+    body.cost = input.cost;
+  }
+  if (input.lifeSpanYears !== undefined) {
+    if (!Number.isFinite(input.lifeSpanYears) || input.lifeSpanYears < 1) throw new Error("Life span must be at least 1 year");
+    body.life_span_years = input.lifeSpanYears;
+  }
+
+  // the same uniqueness rule as creation, ignoring this asset
+  for (const [field, value, label] of [
+    ["barcode", input.barcode, "barcode"],
+    ["tag_no", input.tagNo, "tag number"],
+    ["security_tag", input.securityTag, "security tag"],
+  ] as const) {
+    if (value === undefined) continue;
+    if (value && value.trim()) {
+      const clash = await get<Row[]>(
+        "/items/brgy_asset?filter=" + enc({ _and: [{ [field]: { _eq: value.trim() } }, { cancelled: { _eq: false } }, { id: { _neq: asset.id } }] }) + "&fields=asset_code,name&limit=1"
+      );
+      if (clash && clash.length) {
+        throw new Error("This " + label + " is already used by asset " + text(clash[0].asset_code) + " (" + text(clash[0].name) + ").");
+      }
+    }
+    body[field] = value && value.trim() ? value.trim() : null;
+  }
+
+  if (input.classificationId !== undefined) body.classification_id = input.classificationId;
+  if (input.serialNo !== undefined) body.serial_no = input.serialNo?.trim() || null;
+  if (input.officeId !== undefined) body.office_id = input.officeId;
+  if (input.condition !== undefined) body.condition = input.condition;
+  if (input.remarks !== undefined) body.remarks = input.remarks;
+  if (input.photo !== undefined) body.photo = input.photo;
+  if (input.isDraft !== undefined) {
+    body.is_draft = input.isDraft;
+    // completing a draft needs a custodian decision later, so the status stays as it is
+  }
+
+  if (Object.keys(body).length === 0) return detail;
+
+  await patch("/items/brgy_asset/" + asset.id, body);
+  await recordHistory(
+    asset.id,
+    input.isDraft === false && asset.is_draft ? "draft completed" : "edited",
+    null,
+    null,
+    input.actor ?? null,
+    Object.keys(body).join(", ")
+  );
+  return fetchAsset(asset.id);
 }
 
 export async function recordHistory(

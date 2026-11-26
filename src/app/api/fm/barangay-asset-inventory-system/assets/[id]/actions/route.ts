@@ -4,6 +4,7 @@ import {
   cancelAsset,
   changeStatus,
   fetchAsset,
+  updateAsset,
   updateCondition,
 } from "@/modules/financial-management/barangay-asset-inventory-system/assets/services/brgyAssets";
 import { requestReturn } from "@/modules/financial-management/barangay-asset-inventory-system/transfers/services/brgyTransfers";
@@ -23,7 +24,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const detail = await fetchAsset(assetId);
     requireBarangayScope(access, detail.asset.barangay_id, "view");
 
-    if (body?.action === "cancel") requirePermission(access, "register", "cancel a record");
+    if (body?.action === "cancel" || body?.action === "update") requirePermission(access, "register", "edit a record");
     else requirePermission(access, "assign", "change an assignment, condition or status");
 
     switch (body?.action) {
@@ -54,6 +55,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           repairNote: body.repairNote ?? null,
           condition: (body.condition ?? null) as BrgyCondition | null,
           actor: body.actor ?? null,
+        });
+        return NextResponse.json(detail);
+      }
+      case "update": {
+        const detail = await updateAsset({
+          assetId,
+          name: body.name,
+          classificationId: body.classificationId === undefined ? undefined : body.classificationId ? Number(body.classificationId) : null,
+          barcode: body.barcode,
+          tagNo: body.tagNo,
+          securityTag: body.securityTag,
+          serialNo: body.serialNo,
+          officeId: body.officeId === undefined ? undefined : body.officeId ? Number(body.officeId) : null,
+          dateAcquired: body.dateAcquired,
+          cost: body.cost === undefined ? undefined : Number(body.cost),
+          quantity: body.quantity === undefined ? undefined : Number(body.quantity),
+          lifeSpanYears: body.lifeSpanYears === undefined ? undefined : Number(body.lifeSpanYears),
+          condition: body.condition,
+          remarks: body.remarks,
+          isDraft: body.isDraft,
+          actor: access.userId ?? body.actor ?? null,
         });
         return NextResponse.json(detail);
       }

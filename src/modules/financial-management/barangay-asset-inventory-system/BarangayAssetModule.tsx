@@ -199,6 +199,7 @@ function AssetsTab({
   const [condition, setCondition] = React.useState("all");
   const [loading, setLoading] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
+  const [editTarget, setEditTarget] = React.useState<BrgyAsset | null>(null);
   const [detail, setDetail] = React.useState<{ asset: BrgyAsset; history: BrgyHistoryEntry[]; projected: number; projectedTotalValue: number } | null>(null);
   const salvage = settings?.salvage_percent ?? 0;
 
@@ -317,9 +318,29 @@ function AssetsTab({
           lookups={lookups}
           setError={setError}
           onClose={() => setDetail(null)}
+          onEdit={(asset) => {
+            setDetail(null);
+            setEditTarget(asset);
+          }}
           onChanged={async () => {
             await load();
             if (detail) setDetail((await call("/assets/" + detail.asset.id)) as never);
+          }}
+        />
+      ) : null}
+
+      {editTarget ? (
+        <AddAssetDialog
+          open
+          asset={editTarget}
+          barangayId={barangayId}
+          lookups={lookups}
+          setError={setError}
+          onClose={() => setEditTarget(null)}
+          onSaved={async () => {
+            setEditTarget(null);
+            setNotice("Asset updated.");
+            await load();
           }}
         />
       ) : null}
@@ -334,6 +355,7 @@ function AddAssetDialog({
   lookups,
   onSaved,
   setError,
+  asset,
 }: {
   open: boolean;
   onClose: () => void;
@@ -341,23 +363,26 @@ function AddAssetDialog({
   lookups: Lookups;
   onSaved: () => Promise<void> | void;
   setError: (v: string | null) => void;
+  /** when present the dialog edits that asset, which is also how a draft is completed */
+  asset?: BrgyAsset | null;
 }) {
+  const editing = Boolean(asset);
   const [form, setForm] = React.useState({
-    name: "",
-    classificationId: "",
-    barcode: "",
-    tagNo: "",
-    securityTag: "",
-    serialNo: "",
-    officeId: "",
-    custodianId: "",
-    dateAcquired: today(),
-    cost: "",
-    quantity: "1",
-    lifeSpanYears: "5",
-    condition: "Good" as BrgyCondition,
-    remarks: "",
-    isDraft: false,
+    name: asset?.name ?? "",
+    classificationId: asset?.classification_id ? String(asset.classification_id) : "",
+    barcode: asset?.barcode ?? "",
+    tagNo: asset?.tag_no ?? "",
+    securityTag: asset?.security_tag ?? "",
+    serialNo: asset?.serial_no ?? "",
+    officeId: asset?.office_id ? String(asset.office_id) : "",
+    custodianId: asset?.custodian_id ? String(asset.custodian_id) : "",
+    dateAcquired: asset?.date_acquired ?? today(),
+    cost: asset ? String(asset.cost) : "",
+    quantity: asset ? String(asset.quantity) : "1",
+    lifeSpanYears: asset ? String(asset.life_span_years) : "5",
+    condition: (asset?.condition ?? "Good") as BrgyCondition,
+    remarks: asset?.remarks ?? "",
+    isDraft: asset?.is_draft ?? false,
   });
   const [busy, setBusy] = React.useState(false);
   const [formError, setFormError] = React.useState<string | null>(null);
@@ -371,12 +396,9 @@ function AddAssetDialog({
     setBusy(true);
     setFormError(null);
     try {
-      await call("/assets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          barangayId,
-          name: form.name,
+      const payload = {
+        barangayId,
+        name: form.name,
           classificationId: form.classificationId ? Number(form.classificationId) : null,
           barcode: form.barcode || null,
           tagNo: form.tagNo || null,
@@ -391,8 +413,20 @@ function AddAssetDialog({
           condition: form.condition,
           remarks: form.remarks || null,
           isDraft: form.isDraft,
-        }),
-      });
+      };
+      if (editing && asset) {
+        await call("/assets/" + asset.id + "/actions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "update", ...payload, custodianId: undefined }),
+        });
+      } else {
+        await call("/assets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
       await onSaved();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -407,8 +441,12 @@ function AddAssetDialog({
     <Dialog open={open} onOpenChange={(next) => (!next ? onClose() : undefined)}>
       <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
         <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
-          <DialogTitle>Add asset</DialogTitle>
-          <DialogDescription>The code is issued automatically as AST-(barangay code)-(number).</DialogDescription>
+          <DialogTitle>{editing ? "Edit asset" : "Add asset"}</DialogTitle>
+          <DialogDescription>
+            {editing
+              ? "Changes are recorded in the asset history. Completing a draft clears the draft mark so it counts in totals and reports."
+              : "The code is issued automatically as AST-(barangay code)-(number)."}
+          </DialogDescription>
         </DialogHeader>
         <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-6 py-2">
           <Field label="Item name">
@@ -493,7 +531,9 @@ function AddAssetDialog({
         </div>
         <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button onClick={() => void submit()} disabled={busy}>{busy ? "Saving..." : "Save asset"}</Button>
+          <Button onClick={() => void submit()} disabled={busy}>
+            {busy ? "Saving..." : editing ? (asset?.is_draft && !form.isDraft ? "Complete draft" : "Save changes") : "Save asset"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -506,12 +546,14 @@ function AssetDetailDialog({
   onClose,
   onChanged,
   setError,
+  onEdit,
 }: {
   detail: { asset: BrgyAsset; history: BrgyHistoryEntry[]; projected: number; projectedTotalValue: number };
   lookups: Lookups;
   onClose: () => void;
   onChanged: () => Promise<void> | void;
   setError: (v: string | null) => void;
+  onEdit: (asset: BrgyAsset) => void;
 }) {
   const asset = detail.asset;
   const [busy, setBusy] = React.useState(false);
@@ -558,6 +600,7 @@ function AssetDetailDialog({
 
         <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-6 py-2">
           <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => onEdit(asset)}>Edit</Button>
             <Button size="sm" variant="outline" onClick={() => setAction("assign")}>Assign</Button>
             <Button size="sm" variant="outline" onClick={() => setAction("condition")}>Update condition</Button>
             <Button size="sm" variant="outline" onClick={() => setAction("status")}>Change status</Button>
