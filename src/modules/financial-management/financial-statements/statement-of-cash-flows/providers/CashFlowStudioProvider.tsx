@@ -60,8 +60,19 @@ export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
   const [lastUpdated, setLastUpdated] = useState<string>("—");
 
   const currentEntity = useMemo(() => {
-    return CFS_ENTITIES.find((e) => e.code === filters.entity) || CFS_ENTITIES[0];
-  }, [filters.entity]);
+    if (liveSummaryData?.companyCode) {
+      return {
+        code: liveSummaryData.companyCode as CFSEntityCode,
+        name: liveSummaryData.companyName || liveSummaryData.companyCode,
+        isConsolidated: liveSummaryData.companyCode === "GRP",
+      };
+    }
+    return CFS_ENTITIES.find((e) => e.code === filters.entity) || {
+      code: filters.entity,
+      name: filters.entity === "GRP" ? "Group (Combined before eliminations)" : filters.entity,
+      isConsolidated: filters.entity === "GRP",
+    };
+  }, [filters.entity, liveSummaryData]);
 
   // Fetch live summary data from backend
   const fetchLiveData = useCallback(async () => {
@@ -71,6 +82,7 @@ export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
         startDate: filters.startDate,
         endDate: filters.endDate,
         groupBy: filters.viewBy === "Monthly" ? "month" : "month",
+        companyCode: filters.entity,
       });
 
       setLiveSummaryData(summary);
@@ -82,6 +94,7 @@ export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
             startDate: filters.compareStartDate,
             endDate: filters.compareEndDate,
             groupBy: "month",
+            companyCode: filters.entity,
           });
           setLiveComparisonData(compSummary);
         } catch {
@@ -97,7 +110,7 @@ export function CashFlowStudioProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [filters.startDate, filters.endDate, filters.viewBy, filters.compare, filters.compareStartDate, filters.compareEndDate]);
+  }, [filters.startDate, filters.endDate, filters.viewBy, filters.compare, filters.compareStartDate, filters.compareEndDate, filters.entity]);
 
   useEffect(() => {
     fetchLiveData();
