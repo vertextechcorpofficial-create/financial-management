@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { todayManila } from "@/modules/financial-management/cooperative/members/format";
+import { REQUEST_SLA_DAYS, requestWaitingDays } from "../approval/rules";
 import { deductionMonths, exactMoney, normalizedReference, unusualReference } from "../enrollment/rules";
 import { matchPayrollEnrollment } from "../enrollment/payroll-match";
 import {
@@ -18,8 +19,8 @@ import {
   enrollmentBenefitCode as benefitCode, readEnrollmentRows as rows, readLinkedPayrollLoans, readPayrollReferences, readReservedReferences,
 } from "./enrollment-sources";
 import {
-  commitRequestRevision, enrollmentEvidenceKind, loanCommand, readCommandReceipt, readLoanDocuments, readRequest, readRequestDocuments,
-  referenceFor, requestDetailRow, requestDetails, requestRow, type StoredLoanDocument,
+  commitRequestRevision, enrollmentEvidenceKind, isoDateTime, loanCommand, readCommandReceipt, readLoanDocuments, readRequest,
+  readRequestDocuments, referenceFor, requestDetailRow, requestDetails, requestRow, type StoredLoanDocument,
 } from "./loan-requests";
 import { enrollmentPayrollLinks } from "./payroll-handoff-store";
 import { readOpenMonth } from "./period-commands";
@@ -82,7 +83,8 @@ export function enrollmentListItem(row: z.output<typeof listRow>): Omit<Enrollme
 
 const listInput = z.object({
   q: z.string().trim().max(120).default(""), agency: positiveId.optional(),
-  status: z.enum(["APPROVED", ...enrollmentWorkflowStatuses]).optional(), batch: positiveId.optional(), page: pageNumber,
+  status: z.enum(["APPROVED", ...enrollmentWorkflowStatuses]).optional(), batch: positiveId.optional(),
+  overdue: z.literal("1").optional(), page: pageNumber,
   sort: z.enum(Object.keys(enrollmentSorts) as [EnrollmentSort, ...EnrollmentSort[]]).default("employee"),
   direction: z.enum(["asc", "desc"]).default("asc"),
   size: z.coerce.number().int().refine(value => [10, 25, 50].includes(value)).default(25),
@@ -150,8 +152,10 @@ async function readAllEnrollmentRows(filter: object) {
 }
 
 export async function listEnrollmentRecords(params: URLSearchParams) {
-  const { q, agency, status, batch, page, sort, direction, size } = parseInput(listInput, Object.fromEntries(params));
+  const { q, agency, status, batch, overdue, page, sort, direction, size } = parseInput(listInput, Object.fromEntries(params));
   const systemRef = /^(?:GLR?-)?0*([1-9]\d{0,9})$/i.exec(q)?.[1];
+  const search = q.toLowerCase();
+  const now = new Date();
   const filter = {
     ...(status ? { status: { _eq: status } } : {}), ...(agency ? { agency_id: { _eq: agency } } : {}),
     ...(batch ? { import_batch_id: { _eq: batch } } : {}),
@@ -161,13 +165,23 @@ export async function listEnrollmentRecords(params: URLSearchParams) {
         { status: { _eq: "AGENCY_DECLINED" }, requested_at: { _nnull: true } },
         { status: { _in: enrollmentWorkflowStatuses }, enrollment: { _nnull: true } },
       ] },
-      ...(q ? [{ _or: [
-        { employee_name: { _icontains: q } }, { live_reference_key: { _icontains: q } },
-        ...(systemRef ? [{ id: { _eq: Number(systemRef) } }] : []),
-      ] }] : []),
     ],
   };
-  const matches = await readAllEnrollmentRows(filter);
+  const matches = (await readAllEnrollmentRows(filter)).filter(row => {
+    if (search && !(
+      (systemRef && row.id === Number(systemRef)) ||
+      [row.employee_name, row.agency_name, row.enrollment?.agencyReference,
+        row.enrollment?.encodedBy.name, row.enrollment?.resubmittedBy?.name]
+        .some(value => String(value ?? "").toLowerCase().includes(search)) ||
+      referenceFor(row.id).toLowerCase().includes(search)
+    )) return false;
+    if (overdue === "1") {
+      if (!row.enrollment) return false;
+      const waitingSince = isoDateTime(row.enrollment.resubmittedAt ?? row.enrollment.encodedAt);
+      if (requestWaitingDays(waitingSince, now) <= REQUEST_SLA_DAYS) return false;
+    }
+    return true;
+  });
   sortEnrollments(matches, params.has("sort") ? sort : "updated", params.has("direction") ? direction : "desc");
   const start = (page - 1) * size;
   return {
