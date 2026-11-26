@@ -190,9 +190,15 @@ function cashEntry(state, input) {
       if (![checks.reg, checks.gov, checks.pay].every(day => dateOK(day) && day <= input.date)) fail("Complete all three vetting checks before the gift date.");
       if (value > balance(state.journal, account, undefined, input.date)) fail("Payment exceeds the cash account balance.");
       const policy = register(state, "policy", {}), exempt = charity.donee === "government" || (charity.donee === "accredited" && Number(charity.expenseRatio) <= 30);
-      const tax = exempt ? 0 : amount(Math.max(0, value - Number(policy.donorExempt ?? 0)) * Number(policy.donorRate ?? 0) / 100);
+       const year = input.date.slice(0, 4);
+       const priorGifts = state.journal.filter(row => row.type === "donation" && !row.reversedBy && row.date.slice(0, 4) === year && !row.data?.exempt);
+       const priorAmount = priorGifts.reduce((sum, row) => sum + Number(row.data?.amount ?? 0), 0);
+       const priorBooked = priorGifts.reduce((sum, row) => sum + Number(row.data?.donorTax ?? 0), 0);
+       const cumulative = priorAmount + (exempt ? 0 : value);
+       const totalDue = exempt ? 0 : amount(Math.max(0, cumulative - Number(policy.donorExempt ?? 0)) * Number(policy.donorRate ?? 0) / 100);
+       const tax = exempt ? 0 : Math.max(0, amount(totalDue - priorBooked));
       addLine(lines, "5000", value, 0, charity.id); addLine(lines, account, 0, value); if (tax) { addLine(lines, "5330", tax, 0, input.commandId); addLine(lines, "2200", 0, tax, input.commandId); }
-      Object.assign(data, { charityId: charity.id, amount: value, exempt, donorTax: tax, taxYear: input.date.slice(0, 4), vehicle: charity.isDAF ? "DAF" : "Cash", taxForm: exempt ? null : "1800" });
+       Object.assign(data, { charityId: charity.id, amount: value, deductBasis: value, exempt, donorTax: tax, taxYear: input.date.slice(0, 4), vehicle: charity.isDAF ? "DAF" : "Cash", taxForm: exempt ? null : "1800" });
       break;
     }
     default: fail("Unsupported cash operation.", "unsupported-operation");
@@ -222,7 +228,7 @@ function tradeEntry(state, input) {
       const charity = register(state, "charities", []).find(row => row.id === input.target);
       if (!charity || charity.active === false || charity.inactive) fail("Select an active registered organization.");
       addLine(lines, "5000", gross, 0, charity.id); addLine(lines, "4110", Math.max(0, cost - gross), Math.max(0, gross - cost), input.sym);
-      data.charityId = charity.id; data.amount = gross; data.vehicle = "Securities";
+      data.charityId = charity.id; data.amount = gross; data.deductBasis = cost; data.vehicle = "Securities";
     } else { addLine(lines, input.account, gross - fees, 0); addLine(lines, "4100", Math.max(0, cost - gross + fees), Math.max(0, gross - fees - cost), input.sym); }
   }
   const entry = nextEntry(state, input, input.type === "gift" ? "donation" : input.type, lines, data); assertFutureBalances(state.journal, entry); return { entry, lots };

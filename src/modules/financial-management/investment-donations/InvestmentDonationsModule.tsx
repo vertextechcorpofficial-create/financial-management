@@ -27,6 +27,12 @@ import { PendingCommands } from "./PendingCommands";
 import { TaxFilingForm } from "./TaxFilingForm";
 import { LedgerDialog } from "./LedgerDialog";
 import { mutationError, mutationToast } from "./mutation-toast";
+
+function donationDeductionBasis(data: Entry["data"]) {
+  if (Number.isFinite(Number(data.deductBasis))) return Number(data.deductBasis);
+  if (Array.isArray(data.consumed)) return data.consumed.reduce((sum: number, item: { cost?: number }) => sum + Number(item.cost ?? 0), 0);
+  return Number(data.amount ?? 0);
+}
 import { executeLedgerCommand } from "./ledger-api";
 import { stockReports, taxReports, filingReviewPack } from "./reporting";
 import { pooledBalance } from "./donations";
@@ -624,8 +630,9 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
             <p className="mb-3 text-sm">{peso(giving)} given · {peso(Math.max(0, givingTarget - giving))} remaining</p>
              <Grid headers={["Date", "Donee", "Vehicle", "Fair value", "Deduction basis", "Donor’s tax", "Documents"]}
               rows={gifts.map(row => [<span id={`donation-${row.id}`} key={row.id}>{row.date}</span>, organization(row.data.charityId), row.data.vehicle === "DAF" ? "Pooled fund" : String(row.data.vehicle),
-                 peso(Number(row.data.amount)), peso(Number(row.data.deductBasis)),
-                 row.data.exempt ? "Exempt" : peso(Number(row.data.donorTax ?? 0)),
+                  peso(Number(row.data.amount ?? row.data.fmv ?? 0)),
+                  peso(donationDeductionBasis(row.data)),
+                  row.data.exempt ? "Exempt" : peso(Number(row.data.donorTax ?? 0)),
                   <div className="space-y-1" key={row.id}>
                     {requiredDonationDocs(row, donationDocuments?.[row.id]).map(doc => <div key={doc.key}>{doc.label}: {doc.ok ? "Recorded" : "Missing"}</div>)}
                     {donationDocuments?.[row.id] && <div>Reference: {donationDocuments[row.id].reference}</div>}
