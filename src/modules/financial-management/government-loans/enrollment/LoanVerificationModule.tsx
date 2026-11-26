@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { approvalAgencies, approvalDocumentUrl } from "../approval/api";
+import { REQUEST_SLA_DAYS } from "../approval/rules";
 import { RequestApiError } from "../requests/request-api";
 import { RequestSection } from "../requests/RequestReview";
 import { requestStatusLabels } from "../requests/types";
@@ -48,6 +49,20 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
+function SummaryCard({ label, value }: { label: string; value: number }) {
+  return <div className="rounded-lg border bg-card p-3">
+    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    <p className="text-xl font-semibold tabular-nums">{value.toLocaleString("en-PH")}</p>
+  </div>;
+}
+
+function WaitingBadge({ days }: { days: number }) {
+  const label = `${days} ${days === 1 ? "day" : "days"}`;
+  if (days > REQUEST_SLA_DAYS) return <Badge variant="destructive">{label} · Overdue</Badge>;
+  if (days === REQUEST_SLA_DAYS) return <Badge variant="outline" className="text-amber-700 dark:text-amber-400">{label} · SLA due</Badge>;
+  return <Badge variant="outline">{label}</Badge>;
+}
+
 function VerificationReviewPanel({ review, back, reload, saved }: {
   review: VerificationReview; back: () => void; reload: () => void; saved: (notice: string) => void;
 }) {
@@ -55,7 +70,14 @@ function VerificationReviewPanel({ review, back, reload, saved }: {
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState<EnrollmentDecision | null>(null);
   const [error, setError] = useState<{ message: string; conflict: boolean }>();
+  const [confirmDecision, setConfirmDecision] = useState<EnrollmentDecision | null>(null);
   const attempt = useRef<{ payload: string; key: string } | null>(null);
+
+  function requestDecision(decision: EnrollmentDecision) {
+    if (decision === "RETURN" && !reason.trim()) return;
+    setError(undefined);
+    setConfirmDecision(decision);
+  }
 
   async function decide(decision: EnrollmentDecision) {
     if (pending) return;
@@ -106,15 +128,37 @@ function VerificationReviewPanel({ review, back, reload, saved }: {
           <Textarea maxLength={500} disabled={Boolean(pending)} value={reason} onChange={event => setReason(event.target.value)} />
         </label>
         {error && <p role="alert" className="text-sm text-destructive">{error.message}</p>}
-        <div className="flex flex-wrap gap-2">
+        <div className="sticky bottom-0 z-10 flex flex-wrap gap-2 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur">
           {canDecide && <Button type="button" disabled={Boolean(pending) || Boolean(error?.conflict) || checks.some(check => check.reason)}
-            onClick={() => void decide("VERIFY")}>{pending === "VERIFY" ? "Verifying…" : "Verify enrollment"}</Button>}
+            onClick={() => requestDecision("VERIFY")}>{pending === "VERIFY" ? "Verifying…" : "Verify enrollment"}</Button>}
           <Button type="button" variant="outline" disabled={Boolean(pending) || Boolean(error?.conflict) || !reason.trim()}
-            onClick={() => void decide("RETURN")}>{pending === "RETURN" ? "Returning…" : "Return for correction"}</Button>
+            onClick={() => requestDecision("RETURN")}>{pending === "RETURN" ? "Returning…" : "Return for correction"}</Button>
           <Button type="button" variant="ghost" disabled={Boolean(pending)} onClick={reload}>Reload review</Button>
         </div>
       </RequestSection>}
     </EnrollmentDetails>
+    <AlertDialog open={confirmDecision !== null} onOpenChange={open => { if (!open && !pending) setConfirmDecision(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{confirmDecision === "VERIFY" ? "Verify" : "Return"} {record.reference}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {confirmDecision === "VERIFY"
+              ? "Verification activates the loan and creates its Payroll instructions."
+              : "The enrollment will return to the encoder for correction."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {reason.trim() && <p className="text-sm"><span className="font-medium">Reason:</span> {reason.trim()}</p>}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={Boolean(pending)}>Back to review</AlertDialogCancel>
+          <Button type="button" disabled={Boolean(pending)} onClick={() => {
+            if (!confirmDecision) return;
+            const decision = confirmDecision;
+            setConfirmDecision(null);
+            void decide(decision);
+          }}>Confirm {confirmDecision === "VERIFY" ? "verification" : "return"}</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>;
 }
 
@@ -180,10 +224,13 @@ export function LoanVerificationModule() {
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 className="text-base font-semibold">{requestStatusLabels[status]}</h2>
-      {status === "ENROLLED" && <Button type="button" disabled={!selections.length} onClick={() => { setBulkError(""); setConfirming(true); }}>
-        Verify selected{selections.length ? ` (${selections.length})` : ""}
-      </Button>}
     </div>
+    {queue?.data?.summary && <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <SummaryCard label="For verification" value={queue.data.summary.ENROLLED} />
+      <SummaryCard label="Verified · awaiting activation" value={queue.data.summary.VERIFIED} />
+      <SummaryCard label="Activation pending" value={queue.data.summary.ACTIVATING} />
+      <SummaryCard label="Active" value={queue.data.summary.ACTIVE} />
+    </div>}
     <div className="flex flex-wrap gap-2">
       <Input className="max-w-sm" aria-label="Search verification queue" placeholder="Employee, loan, or agency reference" maxLength={120}
         value={search} onChange={event => { setSearch(event.target.value); filterChanged(); }} />
@@ -197,8 +244,15 @@ export function LoanVerificationModule() {
       </NativeSelect>
       <Input className="max-w-48" aria-label="Filter verification by import batch" placeholder="Import batch reference" maxLength={22}
         aria-invalid={invalidBatch} value={batch} onChange={event => { setBatch(event.target.value); filterChanged(); }} />
+      {(search || agency || batch) && <Button type="button" variant="ghost" size="sm"
+        onClick={() => { setSearch(""); setAgency(""); setBatch(""); filterChanged(); }}>Clear filters</Button>}
       <Button type="button" variant="outline" onClick={() => { setSelected([]); reload(); }}>Refresh queue</Button>
     </div>
+    {status === "ENROLLED" && selections.length > 0 && <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 p-2 text-sm shadow-sm backdrop-blur">
+      <span>{selections.length} selected</span>
+      <Button type="button" variant="outline" size="sm" onClick={() => setSelected([])}>Clear selection</Button>
+      <Button type="button" size="sm" onClick={() => { setBulkError(""); setConfirming(true); }}>Verify selected</Button>
+    </div>}
     {agencies?.error && <LoadError message={agencies.error} retry={() => refreshAgencies(value => value + 1)} />}
     {invalidBatch && <p role="status" className="text-sm text-muted-foreground">Enter a batch number or its reference, such as BT-0001.</p>}
     {queue?.error && <LoadError message={queue.error} retry={reload} />}
@@ -220,16 +274,18 @@ export function LoanVerificationModule() {
       <p className="text-sm text-muted-foreground">{queue.data.openMonth ? "Open month " + deductionMonthLabel(queue.data.openMonth) : "Open month unavailable"}</p>
       <div className="overflow-hidden rounded-lg border">
         <Table>
+          <caption className="sr-only">Enrollment verification queue</caption>
           <TableHeader><TableRow>
             {status === "ENROLLED" && <TableHead className="w-10">Select</TableHead>}<TableHead>Loan</TableHead><TableHead>Employee</TableHead>
             <TableHead>Agency / program</TableHead><TableHead className="text-right">Amortization</TableHead>
-            <TableHead>First deduction</TableHead><TableHead>Prepared by</TableHead><TableHead>Evidence</TableHead>
+            <TableHead>First deduction</TableHead><TableHead>Waiting</TableHead><TableHead>Prepared by</TableHead><TableHead>Evidence</TableHead><TableHead>Action</TableHead>
           </TableRow></TableHeader>
           <TableBody>
-            {!items.length && <TableRow><TableCell colSpan={status === "ENROLLED" ? 8 : 7}
+            {!items.length && <TableRow><TableCell colSpan={status === "ENROLLED" ? 10 : 9}
               className="py-8 text-center text-muted-foreground">No enrollments match these filters.</TableCell></TableRow>}
             {items.map(item => <TableRow key={item.id}>
               {status === "ENROLLED" && <TableCell><Checkbox aria-label={`Select ${item.reference}`} checked={selected.includes(item.id)} disabled={!item.canDecide}
+                title={!item.canDecide ? "A different verifier must review this enrollment." : undefined}
                 onCheckedChange={checked => setSelected(ids => checked === true ? [...ids, item.id] : ids.filter(id => id !== item.id))} /></TableCell>}
               <TableCell>
                 <Button type="button" variant="link" size="sm" className="px-0" onClick={() => selectRecord(item.id)}>{item.reference}</Button>
@@ -240,6 +296,7 @@ export function LoanVerificationModule() {
               <TableCell>{item.agencyName ?? "—"}<span className="block text-xs text-muted-foreground">{item.program}</span></TableCell>
               <TableCell className="text-right tabular-nums">{peso(item.enrollment.monthlyAmortization)}</TableCell>
               <TableCell>{deductionMonthLabel(item.enrollment.firstDeductionMonth)}</TableCell>
+              <TableCell><WaitingBadge days={item.waitingDays} /></TableCell>
               <TableCell>
                 {item.enrollment.resubmittedBy?.name ?? item.enrollment.encodedBy.name}
                 <span className="block text-xs text-muted-foreground">{dateTime(item.enrollment.resubmittedAt ?? item.enrollment.encodedAt)} PHT</span>
@@ -251,6 +308,7 @@ export function LoanVerificationModule() {
                 {item.enrollment.externalReferenceCheck === "NEEDS_SOURCE" && <span className="block text-xs text-muted-foreground">Payroll mapping pending</span>}
                 {Boolean(item.enrollment.payrollWarnings?.length) && <span className="block text-xs text-muted-foreground">Payroll warnings</span>}
               </TableCell>
+              <TableCell><Button type="button" variant="outline" size="sm" onClick={() => selectRecord(item.id)}>Review</Button></TableCell>
             </TableRow>)}
           </TableBody>
         </Table>

@@ -39,6 +39,7 @@ const digest = (value: string) => createHash("sha256").update(value).digest("hex
 const revisionFields = Object.keys(revisionSchema.shape).join(",");
 const agencySchema = z.object({ id: positiveId, short_code: z.string(), display_name: z.string(), sends_billing: flag, catch_up: flag });
 const agencyFields = Object.keys(agencySchema.shape).join(",");
+const billingMonth = z.object({ agency_id: positiveId, month: payrollMonth });
 
 const billingScope = (agencyId: number, month: string) => ({ agency_id: { _eq: agencyId }, month: { _eq: month } });
 const pageSize = 25;
@@ -55,9 +56,14 @@ async function getOpenMonth() {
 }
 
 export async function getBillingContext() {
-  const [openMonth, agencies] = await Promise.all([getOpenMonth(), readPayrollPages(GOVERNMENT_LOAN_AGENCIES, agencySchema, agencyFields,
-    { sends_billing: { _eq: true } }, "display_name,short_code,id")]);
-  return { openMonth, agencies: agencies.map(row => ({ id: row.id, name: row.display_name, code: row.short_code })) };
+  const [openMonth, agencies, billingMonths] = await Promise.all([
+    getOpenMonth(),
+    readPayrollPages(GOVERNMENT_LOAN_AGENCIES, agencySchema, agencyFields, { sends_billing: { _eq: true } }, "display_name,short_code,id"),
+    readPayrollPages(GOVERNMENT_LOAN_BILLING_REVISIONS, billingMonth, "agency_id,month", {}, "-month"),
+  ]);
+  const latestMonths: Record<string, string> = {};
+  for (const row of billingMonths) latestMonths[String(row.agency_id)] ??= row.month;
+  return { openMonth, latestMonths, agencies: agencies.map(row => ({ id: row.id, name: row.display_name, code: row.short_code })) };
 }
 
 async function getBillingAgency(id: number) {

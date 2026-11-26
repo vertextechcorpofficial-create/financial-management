@@ -38,14 +38,29 @@ export async function readDeclaredTransferEmployee(id: number) {
 async function clearanceLoans(id: number, month: string) {
   const loans = await readMonthlyLoanSchedules(month, id);
   const pending = await pendingRefundLoanIds(loans.map(loan => loan.row.id));
-  return loans.map(loan => {
-    const { status, active } = projectLoanPosition({ ...loan.schedule, openMonth: month, businessDate: todayManila(),
-      deductions: loan.history, statement: null, coveredThrough: loan.coveredThrough });
-    const refundPending = pending.has(loan.row.id);
-    const finalPay = loan.history.filter(result => result.status === "X").at(-1);
-    return { loanId: loan.row.id, reference: loan.reference, agency: loan.agency, status, refundPending,
-      blocked: active || refundPending, finalPay: finalPay ? { expected: finalPay.expected, withheld: finalPay.amount } : null };
-  });
+  return loans.map(loan => clearanceLoan(loan, pending, month));
+}
+
+type ScheduleRow = Awaited<ReturnType<typeof readMonthlyLoanSchedules>>[number];
+function clearanceLoan(loan: ScheduleRow, pending: Set<number>, month: string) {
+  const { status, active } = projectLoanPosition({ ...loan.schedule, openMonth: month, businessDate: todayManila(),
+    deductions: loan.history, statement: null, coveredThrough: loan.coveredThrough });
+  const refundPending = pending.has(loan.row.id);
+  const finalPay = loan.history.filter(result => result.status === "X").at(-1);
+  return { loanId: loan.row.id, reference: loan.reference, agency: loan.agency, status, refundPending,
+    blocked: active || refundPending, finalPay: finalPay ? { expected: finalPay.expected, withheld: finalPay.amount } : null };
+}
+
+async function exitLoanIndex(month: string) {
+  const schedules = await readMonthlyLoanSchedules(month);
+  const pending = await pendingRefundLoanIds(schedules.map(loan => loan.row.id));
+  const byEmployee = new Map<number, ReturnType<typeof clearanceLoan>[]>();
+  for (const loan of schedules) {
+    const rows = byEmployee.get(loan.row.employee_user_id) ?? [];
+    rows.push(clearanceLoan(loan, pending, month));
+    byEmployee.set(loan.row.employee_user_id, rows);
+  }
+  return byEmployee;
 }
 
 const eventKey = (mode: "hires" | "exits", id: number, date: string) => (mode === "hires" ? "declaration:" : "clearance:") + id + ":" + date;
@@ -76,8 +91,12 @@ export async function listOnboardingExits(params: URLSearchParams) {
     return date ? [eventKey(mode, person.id, date)] : [];
   });
   const events = keys.length ? await readStaffEvents({ event_key: { _in: keys } }, keys.length) : [];
-  return { items: people.map(person => ({ ...person, status: events.find(event => event.employee_id === person.id)?.status ?? null })),
-    hasMore: rows.length > pageSize };
+  const loanIndex = mode === "exits" ? await exitLoanIndex(await readOpenLoanMonth()) : new Map<number, ReturnType<typeof clearanceLoan>[]>();
+  return { items: people.map(person => {
+    const event = events.find(row => row.employee_id === person.id);
+    return { ...person, status: event?.status ?? null, hasLoans: event?.detail.hasLoans === true,
+      loans: loanIndex.get(person.id) ?? [] };
+  }), hasMore: rows.length > pageSize };
 }
 
 const input = z.discriminatedUnion("kind", [
