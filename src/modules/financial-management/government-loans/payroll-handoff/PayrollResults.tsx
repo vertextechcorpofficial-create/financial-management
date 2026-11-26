@@ -11,6 +11,7 @@ import { dateTime, peso } from "@/modules/financial-management/cooperative/membe
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { centavos } from "./contract";
 import { amountFromCentavos } from "../loans/position";
+import { StatusChip } from "../components/ui";
 import type { PayrollMonthView, PayrollReceiptPreview, ReceiptSummary } from "../loans/monthly-payroll";
 
 const endpoint = "/api/fm/government-loans/loans/payroll-results";
@@ -166,13 +167,14 @@ export function PayrollResults({ canOpenSetup }: { canOpenSetup?: boolean } = {}
             <TableCell>{row.agency}</TableCell>
             <TableCell>{peso(row.expected)}{row.provisional && <p className="text-xs text-muted-foreground">Provisional</p>}</TableCell>
             <TableCell>{row.results.length ? peso(amountFromCentavos(row.results.reduce((total, result) => total + centavos(result.amount), 0n))) : "—"}</TableCell>
-            <TableCell>{row.results.length ? row.results.map(result => <p key={result.status}>
-              {result.status} · {labels[result.status]}
+            <TableCell>{row.results.length ? row.results.map(result => <div key={result.status} className="space-y-0.5">
+              <StatusChip status={result.status} label={labels[result.status]} />
               {(result.status === "P" || result.status === "F" || result.status === "X") &&
                 <span className="block text-xs text-muted-foreground">
                   {result.status === "X" ? "Unpaid" : "Short"} {peso(amountFromCentavos(centavos(result.expected) - centavos(result.amount)))}
                 </span>}
-            </p>) : row.expected === "0.00" ? "No deduction scheduled" : "Awaiting Payroll"}</TableCell>
+            </div>) : <StatusChip status={row.expected === "0.00" ? "nothing" : "AWAITING"}
+              label={row.expected === "0.00" ? "No deduction scheduled" : "Awaiting Payroll"} />}</TableCell>
             <TableCell>{row.results.flatMap(result => result.evidence.map(source => <p key={result.status + ":" + source.runId} className="text-xs">
               {source.cutoff} · Run #{source.runId} · Employee result #{source.employeeResultId}
               <span className="block text-muted-foreground">{source.itemId ? "Item #" + source.itemId + " · " : ""}{source.reference}</span>

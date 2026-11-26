@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, Clock3, Inbox, SearchX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { date, dateTime, isCalendarDate, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
+import { EmptyState, MetricCard, StatusChip } from "../../components/ui";
 import { useLifecycleCommand, useLifecycleRead } from "../../loans/lifecycle-client";
 import type { listRemittanceDeductions, listRemittancePreparation, previewRemittancePreparation, readPreparedRemittance } from "../../server/remittance-preparation";
 import { maxRemittanceProofBytes, maxRemittanceSelection, remittanceChannels, remittancePenalty, remittanceStatuses, remittanceTotals,
@@ -57,9 +59,7 @@ function StatusBadge({ row }: { row: Item }) {
   const dueToday = row.status === "due" && row.deadlineLabel === "due today";
   const detail = dueToday ? null : statusDetail(row);
   return <div className="min-w-0 space-y-1">
-    <Badge variant={row.status === "overdue" || row.status === "returned" ? "destructive" : row.reminder ? "secondary" : "outline"}>
-      {dueToday ? row.label : remittanceStatuses[row.status]}
-    </Badge>
+    <StatusChip status={row.status} label={dueToday ? row.label : remittanceStatuses[row.status]} />
     {detail && <p className="max-w-56 text-xs text-muted-foreground">{detail}</p>}
   </div>;
 }
@@ -67,18 +67,13 @@ function StatusBadge({ row }: { row: Item }) {
 function SummaryPills({ data }: { data: View }) {
   const counts = data.counts;
   const actionable = data.actionable;
-  const pills = [
-    { key: "action", label: "Needs action", value: actionable.count, detail: actionable.withheld !== "0.00" ? peso(actionable.withheld) : null, tone: "border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100" },
-    { key: "pending", label: "Awaiting approval", value: counts.pending, detail: null, tone: "border-border bg-muted/40" },
-    { key: "payroll", label: "Awaiting Payroll", value: counts.awaiting_payroll, detail: null, tone: "border-border bg-muted/40" },
-    { key: "nothing", label: "Nothing to remit", value: counts.nothing, detail: null, tone: "border-border bg-muted/40" },
-  ];
-  return <div className="flex flex-wrap gap-2 text-xs">
-    {pills.map(pill => <span key={pill.key} className={"inline-flex items-center gap-2 rounded-full border px-3 py-1 " + pill.tone}>
-      <span className="text-muted-foreground">{pill.label}</span>
-      <strong className="tabular-nums">{pill.value}</strong>
-      {pill.detail && <span className="text-muted-foreground">· {pill.detail}</span>}
-    </span>)}
+  return <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+    <MetricCard icon={AlertTriangle} label="Needs action" value={actionable.count}
+      detail={actionable.withheld !== "0.00" ? peso(actionable.withheld) + " withheld" : "Nothing to remit"}
+      tone="amber" alert={actionable.count > 0} />
+    <MetricCard icon={Clock3} label="Awaiting approval" value={counts.pending} detail="Prepared, not yet approved" tone="sky" />
+    <MetricCard icon={Clock3} label="Awaiting Payroll" value={counts.awaiting_payroll} detail="No confirmed Payroll result" tone="slate" />
+    <MetricCard icon={CheckCircle2} label="Nothing to remit" value={counts.nothing} detail="No withholding for the month" tone="emerald" />
   </div>;
 }
 
@@ -485,10 +480,12 @@ export function RemittancePreparationModule() {
       <p role="alert" className="text-destructive">{result.error}</p>
       <Button variant="outline" size="sm" onClick={reload}>Retry</Button>
     </div>}
-    {data && items.length === 0 && <div className="space-y-2 rounded-md border p-4">
-      <p className="text-sm text-muted-foreground">{activeFilters ? "No agency-months match these filters." : "No agency-months need remittance right now."}</p>
-      {activeFilters ? <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>
-        : !grouped && <Button variant="outline" size="sm" onClick={() => setShowAll(true)}>Show all months</Button>}
+    {data && items.length === 0 && <div className="space-y-2 rounded-xl border p-4">
+      <EmptyState icon={activeFilters ? SearchX : Inbox}
+        title={activeFilters ? "No agency-months match these filters" : "No agency-months need remittance right now"}
+        description={activeFilters ? "Try a different filter or clear the filters." : "Remittances appear here when Payroll confirms withholding."}
+        action={activeFilters ? <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>
+          : !grouped ? <Button variant="outline" size="sm" onClick={() => setShowAll(true)}>Show all months</Button> : undefined} />
     </div>}
     {data && items.length > 0 && grouped && <div className="space-y-3">
       {agencyGroups.map(group => {

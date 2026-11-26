@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Copy, MessageSquarePlus, Plus } from "lucide-react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
+import { Copy, FileText, HandCoins, MessageSquarePlus, Plus, SearchX, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, Notice, StatusChip } from "../components/ui";
 import { PostingDisputesModule } from "../loans/PostingDisputesModule";
 import { useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import { registerStatusLabels } from "../loans/types";
@@ -49,18 +50,6 @@ function AgencyBadge({ name }: { name: string }) {
   </Badge>;
 }
 
-function statusTone(active: boolean) {
-  return active ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
-    : "text-muted-foreground";
-}
-
-function deductionTone(status: HistoryDeduction["status"]) {
-  if (status === "D") return "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
-  if (status === "P" || status === "X") return "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
-  if (status === "F") return "border-destructive/30 bg-destructive/10 text-destructive";
-  return "text-muted-foreground";
-}
-
 function remittanceLabel(remittance: { state: string; date: string; reference: string } | null | undefined) {
   if (!remittance) return "Remittance pending";
   if (remittance.state === "APPROVED") return "Remitted " + date(remittance.date) + " · " + remittance.reference;
@@ -68,17 +57,12 @@ function remittanceLabel(remittance: { state: string; date: string; reference: s
   return "Remittance awaiting approval";
 }
 
-function SummaryCard({ label, value, detail, active, onClick }: {
+function SummaryCard({ label, value, detail, active, onClick, icon, tone }: {
   label: string; value: string; detail?: string; active?: boolean; onClick?: () => void;
+  icon: ComponentType<{ className?: string }>; tone: "emerald" | "sky" | "amber";
 }) {
-  const content = <>
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-    {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
-  </>;
-  const className = cn("rounded-lg border bg-card p-3 text-left", active && "border-primary/60 bg-primary/5");
-  return onClick ? <button type="button" aria-pressed={active} onClick={onClick}
-    className={cn(className, "transition-colors hover:bg-muted/50")}>{content}</button> : <div className={className}>{content}</div>;
+  const card = <MetricCard icon={icon} label={label} value={value} detail={detail} tone={tone} />;
+  return onClick ? <MetricButton active={active} onClick={onClick} label={label} ringClass="ring-sky-500/40">{card}</MetricButton> : card;
 }
 
 function LoadError({ message, retry }: { message: string; retry: () => void }) {
@@ -137,7 +121,7 @@ function LoanHistory({ loan }: { loan: Loan }) {
         </TableRow></TableHeader>
         <TableBody>{data.deductions.map(row => <TableRow key={row.month}>
           <TableCell>{monthLabel(row.month)}</TableCell>
-          <TableCell><Badge variant="outline" className={deductionTone(row.status)}>{deductionLabels[row.status]}</Badge></TableCell>
+          <TableCell><StatusChip status={row.status} label={deductionLabels[row.status]} /></TableCell>
           <TableCell className="text-right">{peso(row.expected)}</TableCell>
           <TableCell className="text-right">{displayAmount(row.actual)}</TableCell>
           <TableCell>{row.remittance ? <>
@@ -150,7 +134,7 @@ function LoanHistory({ loan }: { loan: Loan }) {
         </TableBody>
       </Table></div>
       <div className="space-y-2 md:hidden">{data.deductions.map(row => <article key={row.month} className="space-y-2 rounded-lg border p-3 text-sm">
-        <div className="flex items-center justify-between gap-2"><p className="font-medium">{monthLabel(row.month)}</p><Badge variant="outline" className={deductionTone(row.status)}>{deductionLabels[row.status]}</Badge></div>
+        <div className="flex items-center justify-between gap-2"><p className="font-medium">{monthLabel(row.month)}</p><StatusChip status={row.status} label={deductionLabels[row.status]} /></div>
         <dl className="grid grid-cols-2 gap-2">
           <div><dt className="text-xs text-muted-foreground">Expected</dt><dd>{peso(row.expected)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">Withheld</dt><dd>{displayAmount(row.actual)}</dd></div>
@@ -271,16 +255,16 @@ export function MyLoansModule({ applicant }: { applicant: Pick<EmployeeChoice, "
         <Button type="button" onClick={openApply}><Plus className="size-4" />Apply for a loan</Button>
       </div>
     </div>
-    {notice && <p role="status" className="rounded-lg border p-3 text-sm">{notice}</p>}
+    {notice && <Notice title={notice} onDismiss={() => setNotice("")} />}
     {loaded.error && <LoadError message={loaded.error} retry={() => reload(value => value + 1)} />}
-    {!loaded.data && !loaded.error && <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">{[0, 1, 2].map(value => <Skeleton key={value} className="h-[86px] rounded-lg" />)}</div>}
+    {!loaded.data && !loaded.error && <MetricCardsSkeleton count={3} />}
     {loaded.data && <>
       <div className={cn("grid grid-cols-2 gap-2 xl:grid-cols-3", loaded.pending && "opacity-60")}>
-        <SummaryCard label="Monthly loan deductions" value={peso(monthly)} detail={peso((Number(monthly) / 2).toFixed(2)) + " per cut-off"} />
+        <SummaryCard label="Monthly loan deductions" value={peso(monthly)} detail={peso((Number(monthly) / 2).toFixed(2)) + " per cut-off"} icon={Wallet} tone="emerald" />
         <SummaryCard label="Active loans" value={String(activeLoans.length)} detail={activeLoans.length ? "Deducted through payroll" : "No active loans"}
-          active={status === "active"} onClick={() => setStatus(current => current === "active" ? "" : "active")} />
+          icon={HandCoins} tone="sky" active={status === "active"} onClick={() => setStatus(current => current === "active" ? "" : "active")} />
         <SummaryCard label="Requests in progress" value={requests === null ? "—" : String(requests)} detail="Open loan requests"
-          onClick={() => scrollTo("my-loan-requests")} />
+          icon={FileText} tone="amber" onClick={() => scrollTo("my-loan-requests")} />
       </div>
       {noticeCount > 0 && <section className="space-y-2">
         <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">Notices</h3><Badge variant="outline">{noticeCount}</Badge></div>
@@ -300,8 +284,9 @@ export function MyLoansModule({ applicant }: { applicant: Pick<EmployeeChoice, "
             <option value="">All loans</option><option value="active">Active loans</option><option value="closed">Closed loans</option>
           </NativeSelect></label>
         </div>}
-        {!loans.length && <p className="rounded-lg border p-4 text-sm text-muted-foreground">You have no loans on record.</p>}
-        {loans.length > 0 && !visible.length && <p className="rounded-lg border p-4 text-sm text-muted-foreground">No loans match these filters.</p>}
+        {!loans.length && <div className="rounded-lg border"><EmptyState icon={Wallet} title="You have no loans on record" description="Your government loans will appear here after enrollment." /></div>}
+        {loans.length > 0 && !visible.length && <div className="rounded-lg border"><EmptyState icon={SearchX} title="No loans match these filters" description="Try a different agency or status."
+          action={hasFilters ? <Button type="button" variant="outline" size="sm" onClick={() => { setAgency(""); setStatus(""); }}>Clear filters</Button> : undefined} /></div>}
         <div className={cn("grid gap-3 lg:grid-cols-2", loaded.pending && "opacity-60")}>{visible.map(loan => {
           const latest = loan.latestDeduction;
           return <article key={loan.id} className="cursor-pointer space-y-3 rounded-lg border bg-card p-4 transition-colors hover:bg-muted/40"
@@ -309,7 +294,7 @@ export function MyLoansModule({ applicant }: { applicant: Pick<EmployeeChoice, "
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0"><h4 className="break-all font-semibold">{loan.reference} · {loan.program}</h4>
                 <div className="mt-1 flex flex-wrap items-center gap-2"><AgencyBadge name={loan.agency} />
-                  <Badge variant="outline" className={statusTone(loan.active)}>{registerStatusLabels[loan.status]}</Badge></div></div>
+                  <StatusChip status={loan.status} label={registerStatusLabels[loan.status]} /></div></div>
               <p className="text-sm text-muted-foreground">{loan.counted} / {loan.term} paid</p>
             </div>
             <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">

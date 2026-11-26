@@ -1,21 +1,20 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Plus, Search, X } from "lucide-react";
+import { useEffect, useState, type ComponentType } from "react";
+import { CheckCircle2, Clock3, FileText, Plus, RotateCcw, Search, SearchX, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, MetricButton, MetricCard, Notice, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { employeeRequestApi, staffRequestApi } from "./request-api";
 import { RequestEditor } from "./RequestEditor";
 import {
-  applicationPageSizes, requestSorts, requestStatusLabels, requestStatusTone, requestViews,
+  applicationPageSizes, requestSorts, requestStatusLabels, requestViews,
   type AgencyChoice, type EmployeeChoice, type LoanRequest, type RequestPage, type RequestSort, type RequestSummary,
   type RequestView,
 } from "./types";
@@ -111,12 +110,14 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-function SummaryCard({ label, value, active, onClick }: { label: string; value: number; active: boolean; onClick: () => void }) {
-  return <button type="button" onClick={onClick} aria-pressed={active}
-    className={cn("rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50", active && "ring-2 ring-primary/40")}>
-    <p className="text-xs font-medium text-muted-foreground">{label}</p>
-    <p className="text-xl font-semibold tabular-nums">{value.toLocaleString("en-PH")}</p>
-  </button>;
+function SummaryCard({ label, value, active, onClick, icon, tone, ringClass, detail }: {
+  label: string; value: number; active: boolean; onClick: () => void;
+  icon: ComponentType<{ className?: string }>; tone: "emerald" | "sky" | "amber" | "rose" | "slate";
+  ringClass: string; detail: string;
+}) {
+  return <MetricButton active={active} onClick={onClick} label={label} ringClass={ringClass}>
+    <MetricCard icon={icon} label={label} value={value} detail={detail} tone={tone} />
+  </MetricButton>;
 }
 
 function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
@@ -314,9 +315,7 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
   const dateLabel = view === "in-progress" ? "Filed" : "Last updated";
 
   return <div className="space-y-4">
-    {notice && <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
-      <span>{notice}</span><Button type="button" variant="ghost" size="sm" onClick={() => setNotice("")}>Dismiss</Button>
-    </div>}
+    {notice && <Notice title={notice} onDismiss={() => setNotice("")} />}
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 className="text-lg font-semibold">{applicant ? isDrafts ? "Your unfinished requests" : "Your loan requests" : "Loan Requests"}</h2>
@@ -331,12 +330,16 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
     {summary && <section aria-label="Request queue summary" className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-        <SummaryCard label="Drafts" value={summary.DRAFT} active={summaryActive("drafts", "")} onClick={() => changeView("drafts")} />
+        <SummaryCard label="Drafts" value={summary.DRAFT} active={summaryActive("drafts", "")} onClick={() => changeView("drafts")}
+          icon={FileText} tone="amber" ringClass="ring-amber-500/40" detail="Unfinished requests" />
         <SummaryCard label="Awaiting approval" value={summary.REQUESTED} active={summaryActive("in-progress", "REQUESTED")}
+          icon={Clock3} tone="sky" ringClass="ring-sky-500/40" detail="Waiting for a decision"
           onClick={() => { setView("in-progress"); setFilters(previous => ({ ...previous, status: "REQUESTED" })); setPage(1); setSort("filed"); }} />
         <SummaryCard label="Approved · awaiting agency" value={summary.APPROVED} active={summaryActive("in-progress", "APPROVED")}
+          icon={CheckCircle2} tone="emerald" ringClass="ring-emerald-500/40" detail="Waiting for agency approval"
           onClick={() => { setView("in-progress"); setFilters(previous => ({ ...previous, status: "APPROVED" })); setPage(1); setSort("filed"); }} />
         <SummaryCard label="Returned for correction" value={summary.RETURNED} active={summaryActive("decided", "RETURNED")}
+          icon={RotateCcw} tone="rose" ringClass="ring-rose-500/40" detail="Needs correction"
           onClick={() => { setView("decided"); setFilters(previous => ({ ...previous, status: "RETURNED" })); setPage(1); setSort("updated"); }} />
       </div>
     </section>}
@@ -400,16 +403,17 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
           {isDrafts && <TableHead className="text-right">Action</TableHead>}
         </TableRow></TableHeader>
         <TableBody>
-          {firstLoad && Array.from({ length: 6 }, (_, row) => <TableRow key={row}>
-            {Array.from({ length: (applicant ? 6 : 7) + (isDrafts ? 1 : 0) }, (_, cell) => <TableCell key={cell}>
-              <Skeleton className="h-4 w-full max-w-28" />
-            </TableCell>)}
-          </TableRow>)}
+          {firstLoad && <TableRowsSkeleton rows={6} columns={(applicant ? 6 : 7) + (isDrafts ? 1 : 0)} />}
           {!firstLoad && data?.items.map(item => <TableRow key={item.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelected(item.id)}>
             <TableCell>
               <Button variant="link" type="button" className="h-auto p-0 font-medium" onClick={event => { event.stopPropagation(); setSelected(item.id); }}>{item.reference}</Button>
             </TableCell>
-            {!applicant && <TableCell>{item.employeeName ?? "—"}</TableCell>}
+            {!applicant && <TableCell>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <PersonAvatar name={item.employeeName ?? "Employee"} size="sm" />
+                <span className="truncate font-medium">{item.employeeName ?? "—"}</span>
+              </div>
+            </TableCell>}
             <TableCell><AgencyBadge name={item.agencyName} /></TableCell>
             <TableCell>{item.program}</TableCell>
             <TableCell className="text-right tabular-nums">{item.amount ? peso(item.amount) : "—"}</TableCell>
@@ -417,15 +421,15 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
               {Object.keys(item.missing).length ? <ul className="min-w-40 space-y-0.5 text-xs">{Object.values(item.missing).map(error => <li key={error}>{error}</li>)}</ul>
                 : <Badge variant="outline">Ready to submit</Badge>}
             </TableCell> : <TableCell className="whitespace-nowrap">{dateTime(view === "in-progress" ? item.requestedAt ?? item.updatedAt : item.updatedAt)}</TableCell>}
-            <TableCell><Badge variant="outline" className={requestStatusTone[item.status]}>{requestStatusLabels[item.status]}</Badge></TableCell>
+            <TableCell><StatusChip status={item.status} label={requestStatusLabels[item.status]} /></TableCell>
             {isDrafts && <TableCell className="text-right"><Button type="button" variant="outline" size="sm"
               onClick={event => { event.stopPropagation(); setSelected(item.id); }}>Continue</Button></TableCell>}
           </TableRow>)}
           {!firstLoad && data && !data.items.length && <TableRow><TableCell colSpan={applicant ? (isDrafts ? 7 : 6) : isDrafts ? 8 : 7} className="p-0">
-            <Empty className="border-0"><EmptyHeader><EmptyMedia variant="icon"><span>📄</span></EmptyMedia>
-              <EmptyTitle>{isDrafts ? "No drafts" : view === "decided" ? "No decided requests" : "No requests in progress"}</EmptyTitle>
-              <EmptyDescription>{hasFilters ? "Try a different search or clear the filters." : "New requests appear here once they are filed."}</EmptyDescription>
-            </EmptyHeader></Empty>
+            <EmptyState icon={SearchX}
+              title={isDrafts ? "No drafts" : view === "decided" ? "No decided requests" : "No requests in progress"}
+              description={hasFilters ? "Try a different search or clear the filters." : "New requests appear here once they are filed."}
+              action={hasFilters ? <Button type="button" variant="outline" size="sm" onClick={() => { setFilters(initialFilters); setPage(1); }}>Clear filters</Button> : undefined} />
           </TableCell></TableRow>}
         </TableBody>
       </Table></div>

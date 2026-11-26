@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import Link from "next/link";
-import { Copy, Download } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardList, Copy, Download, History, Landmark } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
+import { MetricCard, MetricCardsSkeleton, Notice, StatusChip } from "../components/ui";
 import { useLifecycleCommand, useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import { AgencyRollforward } from "./AgencyRollforward";
 import type { closeGovernmentLoanMonth, viewMonthEndClose } from "../server/month-end-close";
@@ -37,17 +38,11 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-function SummaryCard({ label, value, detail, tone }: {
-  label: string; value: string; detail?: string; tone?: "warning" | "critical" | "accent";
+function SummaryCard({ label, value, detail, icon, tone = "slate", alert = false }: {
+  label: string; value: string; detail?: string; icon: ComponentType<{ className?: string }>;
+  tone?: "emerald" | "sky" | "amber" | "rose" | "slate"; alert?: boolean;
 }) {
-  return <div className={cn("rounded-lg border bg-card p-3",
-    tone === "warning" && "border-amber-300/70 dark:border-amber-900",
-    tone === "critical" && "border-destructive/40 bg-destructive/5",
-    tone === "accent" && "border-primary/40 bg-primary/5")}>
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-    {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
-  </div>;
+  return <MetricCard icon={icon} label={label} value={value} detail={detail} tone={tone} alert={alert} />;
 }
 
 function ChecklistPanel({ checklist, closed = false, setupHref }: {
@@ -61,11 +56,7 @@ function ChecklistPanel({ checklist, closed = false, setupHref }: {
         <h3 id="close-checklist" className="font-semibold">{closed ? "Saved close checklist" : "Close checklist"} · {monthLabel(checklist.month)}</h3>
         <p className="text-sm text-muted-foreground">Locks through {date(checklist.endDate)} · opens {monthLabel(checklist.nextMonth)}</p>
       </div>
-      <Badge variant={blocked && !closed ? "destructive" : closed ? "secondary" : "outline"}
-        className={!blocked && !closed && checklist.openItemCount ? "text-amber-700 dark:text-amber-400"
-          : !blocked && !closed && !checklist.openItemCount ? "border-emerald-300 text-emerald-700 dark:border-emerald-900 dark:text-emerald-300" : undefined}>
-        {status}
-      </Badge>
+      <StatusChip status={closed ? "closed" : blocked ? "blocked" : checklist.openItemCount ? "warning" : "ready"} label={status} />
     </div>
     <div className="flex flex-wrap items-start justify-between gap-2 border-b p-4">
       <div className="min-w-0">
@@ -77,7 +68,7 @@ function ChecklistPanel({ checklist, closed = false, setupHref }: {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {!checklist.payroll && setupHref && <Link className="text-sm underline" href={setupHref}>Set up Payroll coverage</Link>}
-        <Badge variant={checklist.payroll ? "outline" : "destructive"}>{checklist.payroll ? "Passed" : "Blocked"}</Badge>
+        <StatusChip status={checklist.payroll ? "passed" : "blocked"} label={checklist.payroll ? "Passed" : "Blocked"} />
       </div>
     </div>
     {checklist.groups.map(group => {
@@ -335,11 +326,11 @@ export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) 
         </DropdownMenu>}
       </div>
     </div>
-    {notice && <p role="status" className="text-sm">{notice}</p>}
-    {completed && <p role="status" className="rounded-lg border p-3 text-sm">{monthLabel(completed.month)} closed. {monthLabel(completed.nextMonth)} is now open.</p>}
+    {notice && <Notice title={notice} />}
+    {completed && <Notice title={`${monthLabel(completed.month)} closed. ${monthLabel(completed.nextMonth)} is now open.`} />}
     {loaded.error && <LoadError message={loaded.error} retry={refresh} />}
     {!coverage && !loaded.error && <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">{[0, 1, 2, 3].map(value => <Skeleton key={value} className="h-[86px] rounded-lg" />)}</div>
+      <MetricCardsSkeleton />
       <Skeleton className="h-72 w-full rounded-lg" />
       <Skeleton className="h-56 w-full rounded-lg" />
     </div>}
@@ -351,19 +342,20 @@ export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) 
       <div className={cn("grid grid-cols-2 gap-2 xl:grid-cols-4", loaded.pending && "opacity-60")}>
         <SummaryCard label="Payroll" value={payrollOk ? "Received" : "Missing"}
           detail={checklist.payroll ? `${checklist.resultCount} result(s) · revision ${checklist.payroll.revision}` : "Required before closing"}
-          tone={payrollOk ? undefined : "critical"} />
+          icon={payrollOk ? CheckCircle2 : AlertTriangle} tone={payrollOk ? "emerald" : "rose"} alert={!payrollOk} />
         <SummaryCard label={saved ? "Open items at close" : "Open items"} value={String(openItems)}
           detail={saved ? "Carried into the next period" : openItems ? `Carried into ${monthLabel(checklist.nextMonth)}` : "Ready to close"}
-          tone={openItems ? "warning" : "accent"} />
-        <SummaryCard label="Closing balance" value={formatMoney(rollforward?.totals.closing)} detail="Withheld, not yet remitted" />
+          icon={ClipboardList} tone={openItems ? "amber" : "emerald"} alert={openItems > 0} />
+        <SummaryCard label="Closing balance" value={formatMoney(rollforward?.totals.closing)} detail="Withheld, not yet remitted"
+          icon={Landmark} tone="sky" />
         <SummaryCard label="Earlier months" value={formatMoney(earlier)}
           detail={earlierOpen ? saved ? "Closed with an older balance" : "Resolve before closing" : earlier === null ? "Rollforward unavailable" : "No older balance"}
-          tone={earlierOpen ? "critical" : undefined} />
+          icon={History} tone={earlierOpen ? "rose" : "slate"} alert={earlierOpen} />
       </div>
       {saved && <section className="space-y-2 rounded-lg border p-4">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="font-semibold">Period status</h2>
-          <Badge variant="secondary">Closed</Badge>
+          <StatusChip status="closed" label="Closed" />
         </div>
         <p className="text-sm text-muted-foreground">Closed by {saved.actor} on {dateTime(saved.closedAt)} PHT</p>
         {saved.nextMonth && <p className="text-sm text-muted-foreground">Opened {monthLabel(saved.nextMonth)}</p>}

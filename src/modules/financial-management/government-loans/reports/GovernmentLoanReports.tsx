@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SearchX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState } from "../components/ui";
 import { changeLabels } from "../loans/lifecycle";
 import { useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import { registerStatusLabels } from "../loans/types";
@@ -101,7 +103,9 @@ function PayrollRows({ employeeId, loanId }: { employeeId: number; loanId: numbe
             {idText(row.remittance.approvalId ?? row.remittance.id, row.remittance.approvalId ? "Approval" : "Remittance")}
           </> : "—"}</TableCell>
         </TableRow>)}
-        {!data.deductions.length && <TableRow><TableCell colSpan={5}>No deduction history.</TableCell></TableRow>}
+        {!data.deductions.length && <TableRow><TableCell colSpan={5} className="p-0">
+          <EmptyState icon={SearchX} title="No deduction history" description="Deductions appear here after Payroll confirms them." />
+        </TableCell></TableRow>}
       </TableBody></Table></div>
     <div className="space-y-2 md:hidden">{data.deductions.map(row => <article key={row.month} className="space-y-2 rounded-lg border p-3 text-sm">
       <div className="flex flex-wrap items-start justify-between gap-2"><p className="font-medium">{monthLabel(row.month)}</p>
@@ -299,7 +303,9 @@ export function RemittanceReport({ actorId }: { actorId?: number }) {
                 {row.filedReceipt && row.filedReceipt.id !== row.receipt?.id && idText(row.filedReceipt.id, "Filed Payroll revision " + row.filedReceipt.revision)}</TableCell>
               <TableCell><Badge variant="outline" className={remittanceTone(row.status, row.daysLate)}>{row.label}</Badge></TableCell>
             </TableRow>)}
-            {!data.items.length && <TableRow><TableCell colSpan={11}>No remittance records for this period.</TableCell></TableRow>}
+            {!data.items.length && <TableRow><TableCell colSpan={11} className="p-0">
+              <EmptyState icon={SearchX} title="No remittance records for this period" description="Try a different month, agency, or status." />
+            </TableCell></TableRow>}
           </TableBody>
           {data.items.length > 0 && <TableFooter><TableRow>
             <TableCell colSpan={2}>Total (filtered)</TableCell>

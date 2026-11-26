@@ -1,10 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { ChevronDown, ChevronRight, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,18 +11,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, StatusChip, tabTriggerClass } from "../components/ui";
+import { TabIcon } from "../components/tab-icons";
 import { deductionMonthLabel } from "../enrollment/rules";
 import type { Page } from "../requests/types";
 import { payrollAcknowledgementTemplate } from "./file-exchange";
 import { PayrollInstructionDetails } from "./PayrollInstructionDetails";
 import { PayrollResults } from "./PayrollResults";
-import { handoffStatusLabels, type HandoffStatus, type PayrollInstructionRow } from "./types";
-
-const statusTone = (state: HandoffStatus) => state === "ACCEPTED"
-  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-  : state === "RETRYABLE" || state === "NEEDS_REVIEW"
-    ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-    : state === "CANCELLED" ? "text-muted-foreground" : "";
+import { handoffStatusLabels, type PayrollInstructionRow } from "./types";
 
 export function PayrollInstructionsModule({ canOpenSetup }: { canOpenSetup?: boolean } = {}) {
   const [tab, setTab] = useState("outbound");
@@ -65,8 +59,8 @@ export function PayrollInstructionsModule({ canOpenSetup }: { canOpenSetup?: boo
 
     <Tabs value={tab} onValueChange={setTab} className="gap-3">
       <TabsList aria-label="Payroll instruction views" className="w-full justify-start">
-        <TabsTrigger value="outbound">Outbound — instructions</TabsTrigger>
-        <TabsTrigger value="inbound">Inbound — results</TabsTrigger>
+        <TabsTrigger value="outbound" className={tabTriggerClass}><TabIcon tabKey="outbound" />Outbound — instructions</TabsTrigger>
+        <TabsTrigger value="inbound" className={tabTriggerClass}><TabIcon tabKey="inbound" />Inbound — results</TabsTrigger>
       </TabsList>
 
       <TabsContent value="inbound" className="mt-0">
@@ -126,7 +120,7 @@ export function PayrollInstructionsModule({ canOpenSetup }: { canOpenSetup?: boo
                     <TableCell>{deductionMonthLabel(item.payload.start.effectiveMonth)}</TableCell>
                     <TableCell className="text-right tabular-nums">{peso(item.payload.start.monthlyAmount)}</TableCell>
                     <TableCell className="text-right tabular-nums">{item.payload.start.remainingInstallments}</TableCell>
-                    <TableCell><Badge variant="outline" className={statusTone(item.state)}>{handoffStatusLabels[item.state]}</Badge></TableCell>
+                    <TableCell><StatusChip status={item.state} label={handoffStatusLabels[item.state]} /></TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{dateTime(item.updatedAt)}</TableCell>
                   </TableRow>
                   {open && <TableRow key={item.payload.handoffId + ":detail"}>
@@ -150,9 +144,7 @@ export function PayrollInstructionsModule({ canOpenSetup }: { canOpenSetup?: boo
                 </Fragment>;
               })}
               {current?.data && !current.data.items.length && <TableRow><TableCell colSpan={9} className="p-0">
-                <Empty className="border-0"><EmptyHeader><EmptyMedia variant="icon"><span>↗</span></EmptyMedia>
-                  <EmptyTitle>No Payroll instructions match</EmptyTitle><EmptyDescription>Instructions appear here after an enrollment is verified.</EmptyDescription>
-                </EmptyHeader></Empty>
+                <EmptyState icon={FileSpreadsheet} title="No Payroll instructions match" description="Instructions appear here after an enrollment is verified." />
               </TableCell></TableRow>}
             </TableBody>
           </Table>

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, Banknote, ChevronsUpDown, Clock3, Scale, SearchX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, StatusChip } from "../../components/ui";
 import { useLifecycleCommand, useLifecycleRead, useRetainedLifecycleRead } from "../../loans/lifecycle-client";
 import type { bulkApproveRemittances, listApprovalAgencies, listRemittanceApproval, reviewRemittanceApproval } from "../../server/remittance-approval";
 import { REQUEST_SLA_DAYS } from "../../approval/rules";
@@ -58,20 +59,12 @@ function WaitingBadge({ days }: { days: number }) {
   return <Badge variant="outline">{label}</Badge>;
 }
 
-function SummaryCard({ label, value, detail, active, tone, onClick }: {
-  label: string; value: string; detail?: string; active?: boolean; tone?: "warning" | "accent"; onClick?: () => void;
+function SummaryCard({ label, value, detail, active, icon, tone, onClick }: {
+  label: string; value: string; detail?: string; active?: boolean; icon: ComponentType<{ className?: string }>;
+  tone: "emerald" | "sky" | "amber" | "rose" | "slate"; onClick?: () => void;
 }) {
-  const content = <>
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-    {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
-  </>;
-  const className = cn("rounded-lg border bg-card p-3 text-left",
-    active && "border-primary/60 bg-primary/5",
-    !active && tone === "warning" && "border-amber-300/70 dark:border-amber-900",
-    !active && tone === "accent" && "border-primary/30 bg-primary/5");
-  return onClick ? <button type="button" aria-pressed={active} onClick={onClick}
-    className={cn(className, "transition-colors hover:bg-muted/50")}>{content}</button> : <div className={className}>{content}</div>;
+  const card = <MetricCard icon={icon} label={label} value={value} detail={detail} tone={tone} alert={tone === "rose" && value !== "0"} />;
+  return onClick ? <MetricButton active={active} onClick={onClick} label={label} ringClass="ring-sky-500/40">{card}</MetricButton> : card;
 }
 
 function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
@@ -112,8 +105,8 @@ function Pager({ label, page, size, total, onPage, onSize }: {
 
 function DecisionBadge({ action }: { action: string }) {
   return action === "APPROVE"
-    ? <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">Approved &amp; posted</Badge>
-    : <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">Returned</Badge>;
+    ? <StatusChip status="approved" label="Approved & posted" />
+    : <StatusChip status="returned" label="Returned" />;
 }
 
 function ReviewDialog({ id, close, saved }: { id: string; close: () => void; saved: (message: string) => void }) {
@@ -360,16 +353,14 @@ export function RemittanceApprovalModule() {
         <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={loaded.pending}>Refresh queue</Button>
       </div>
       {summary ? <div className={cn("grid grid-cols-2 gap-2 xl:grid-cols-4", loaded.pending && "opacity-60")}>
-        <SummaryCard label="Pending" value={String(summary.pending)}
+        <SummaryCard label="Pending" value={String(summary.pending)} icon={Clock3} tone="sky"
           detail={summary.pending ? `Oldest ${summary.oldestWaitingDays} ${summary.oldestWaitingDays === 1 ? "day" : "days"}` : "Nothing waiting"}
           active={!overdue} onClick={() => filterChanged(() => setOverdue(false))} />
-        <SummaryCard label="Overdue" value={String(summary.overdue)} tone="warning" active={overdue}
+        <SummaryCard label="Overdue" value={String(summary.overdue)} icon={AlertTriangle} tone="rose" active={overdue}
           onClick={() => filterChanged(() => setOverdue(value => !value))} />
-        <SummaryCard label="Amount paid" value={peso(summary.amount)} detail="Pending remittances" tone="accent" />
-        <SummaryCard label="Penalties" value={peso(summary.penalty)} detail="Entered penalties" />
-      </div> : loaded.error ? null : <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-        {[0, 1, 2, 3].map(value => <Skeleton key={value} className="h-[86px] rounded-lg" />)}
-      </div>}
+        <SummaryCard label="Amount paid" value={peso(summary.amount)} detail="Pending remittances" icon={Banknote} tone="emerald" />
+        <SummaryCard label="Penalties" value={peso(summary.penalty)} detail="Entered penalties" icon={Scale} tone="amber" />
+      </div> : loaded.error ? null : <MetricCardsSkeleton />}
       <div className="flex flex-wrap items-end gap-3">
         <Input aria-label="Search remittance approvals" placeholder="Reference, preparer, or agency" className="max-w-sm"
           maxLength={120} value={q} onChange={event => filterChanged(() => setSearch(event.target.value))} />
@@ -412,11 +403,10 @@ export function RemittanceApprovalModule() {
               <SortHeader label="Waiting" sortKey="waiting" sort={sort} direction={direction} onSort={changeSort} />
             </TableRow></TableHeader>
             <TableBody>
-              {!pendingItems.length && <TableRow><TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  <span>{hasFilters ? "No remittances match these filters." : "Nothing waiting for approval."}</span>
-                  {hasFilters && <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>}
-                </div>
+              {!pendingItems.length && <TableRow><TableCell colSpan={9} className="p-0">
+                <EmptyState icon={SearchX} title={hasFilters ? "No remittances match these filters" : "Nothing waiting for approval"}
+                  description={hasFilters ? "Try a different search or clear the filters." : "Prepared remittances appear here for review."}
+                  action={hasFilters ? <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button> : undefined} />
               </TableCell></TableRow>}
               {pendingItems.map(row => <TableRow key={row.id} className="cursor-pointer hover:bg-muted/50" onClick={() => review(row.id)}>
                 <TableCell onClick={event => event.stopPropagation()}><input type="checkbox" className="size-4 accent-primary"
@@ -479,7 +469,9 @@ export function RemittanceApprovalModule() {
               <TableHead key={label} className={label === "Amount" ? "text-right" : undefined}>{label}</TableHead>)}
           </TableRow></TableHeader>
           <TableBody>
-            {!data.history.length && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No decisions yet.</TableCell></TableRow>}
+            {!data.history.length && <TableRow><TableCell colSpan={6} className="p-0">
+              <EmptyState icon={SearchX} title="No decisions yet" description="Approved and returned remittances appear here." />
+            </TableCell></TableRow>}
             {data.history.map(row => <TableRow key={row.decisionId} className="cursor-pointer hover:bg-muted/50" onClick={() => review(row.id)}>
               <TableCell><AgencyBadge name={row.agency} code="" /></TableCell>
               <TableCell className="whitespace-nowrap">{monthLabel(row.month)}</TableCell>

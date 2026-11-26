@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { MetricCard } from "../components/ui";
 import { useLifecycleCommand } from "../loans/lifecycle-client";
 import type { PayrollCoverageValidation, PeriodSetupView } from "./setup-types";
 
@@ -21,10 +22,7 @@ const monthLabel = (value: string) => new Intl.DateTimeFormat("en-PH", {
 }).format(new Date(value + "-01T00:00:00Z"));
 
 function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-md border bg-muted/20 p-2">
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-    <p className="mt-1 text-sm font-medium tabular-nums">{value}</p>
-  </div>;
+  return <MetricCard label={label} value={value} />;
 }
 
 export function PayrollCoveragePanel({ data, onChanged }: { data: PeriodSetupView; onChanged: () => void }) {

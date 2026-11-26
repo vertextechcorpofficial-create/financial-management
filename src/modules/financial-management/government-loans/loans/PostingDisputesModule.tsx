@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Badge } from "@/components/ui/badge";
+import { MessageSquareWarning } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, PersonAvatar, StatusChip } from "../components/ui";
 import { disputeLabels, nextDisputeStatus, type DisputeStatus } from "./lifecycle";
 import { loansApi, useLifecycleCommand, useLifecycleRead } from "./lifecycle-client";
 
@@ -25,10 +25,6 @@ type Dispute = { reference: string; employee: string; loanId: number; loanRefere
 const ownEndpoint = "/api/fm/government-loans/my-loans/disputes";
 const shortRef = (value: string) => "DS-" + value.slice(0, 8).toUpperCase();
 const deductionLabel: Record<DeductionStatus, string> = { D: "Deducted", P: "Partial", F: "Not deducted", X: "Final pay" };
-const statusTone = (status: DisputeStatus) => status === "RESOLVED"
-  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-  : status === "IN_PROGRESS" ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300"
-  : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300";
 
 function Filing({ saved }: { saved: (reference: string) => void }) {
   const command = useLifecycleCommand();
@@ -73,7 +69,7 @@ function DisputeReview({ endpoint, reference, self, onSaved }: { endpoint: strin
   return <div className="space-y-3 rounded-md border p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h3 className="font-semibold">{shortRef(reference)}</h3>
-      <Badge variant="outline" className={statusTone(dispute.status)}>{disputeLabels[dispute.status]}</Badge>
+      <StatusChip status={dispute.status} label={disputeLabels[dispute.status]} />
     </div>
     <p className="text-sm text-muted-foreground">{dispute.employee} · {dispute.loanReference} · {dispute.month}</p>
     <p className="whitespace-pre-wrap text-sm">{dispute.description}</p>
@@ -188,16 +184,19 @@ export function PostingDisputesModule({ self = false, initialFiling = false }: {
               {visible.map(dispute => <TableRow key={dispute.reference} className={cn("cursor-pointer", selected === dispute.reference && "bg-muted/60")}
                 onClick={() => setSelected(dispute.reference)}>
                 <TableCell className="font-mono text-xs">{shortRef(dispute.reference)}</TableCell>
-                <TableCell>{dispute.employee}</TableCell>
+                <TableCell>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <PersonAvatar name={dispute.employee} size="sm" />
+                    <span className="truncate font-medium">{dispute.employee}</span>
+                  </div>
+                </TableCell>
                 <TableCell className="font-mono text-xs">{dispute.loanReference}</TableCell>
                 <TableCell>{dispute.month}</TableCell>
                 <TableCell>{date(dispute.recordedAt)}</TableCell>
-                <TableCell><Badge variant="outline" className={statusTone(dispute.status)}>{disputeLabels[dispute.status]}</Badge></TableCell>
+                <TableCell><StatusChip status={dispute.status} label={disputeLabels[dispute.status]} /></TableCell>
               </TableRow>)}
               {result?.data && !visible.length && <TableRow><TableCell colSpan={6} className="p-0">
-                <Empty className="border-0"><EmptyHeader><EmptyMedia variant="icon"><span>💬</span></EmptyMedia>
-                  <EmptyTitle>No disputes match</EmptyTitle><EmptyDescription>Try a different search or status.</EmptyDescription>
-                </EmptyHeader></Empty>
+                <EmptyState icon={MessageSquareWarning} title="No disputes match" description="Try a different search or status." />
               </TableCell></TableRow>}
             </TableBody>
           </Table>

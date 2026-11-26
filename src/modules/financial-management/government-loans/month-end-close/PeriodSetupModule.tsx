@@ -7,13 +7,13 @@ import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { date } from "@/modules/financial-management/cooperative/members/format";
+import { StatusChip } from "../components/ui";
 import { useLifecycleCommand, useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import { PayrollCoveragePanel } from "./PayrollCoveragePanel";
 import type { PeriodSetupView } from "./setup-types";
@@ -74,11 +74,7 @@ function PeriodSection({ data, onChanged }: { data: PeriodSetupView; onChanged: 
           After operations start, use Checklist &amp; close to advance the period.
         </p>
       </div>
-      <Badge variant="outline" className={data.openMonth
-        ? "border-emerald-300 text-emerald-700 dark:border-emerald-900 dark:text-emerald-300"
-        : "border-amber-300 text-amber-700 dark:border-amber-900 dark:text-amber-300"}>
-        {data.openMonth ? monthLabel(data.openMonth) : "Not initialized"}
-      </Badge>
+      <StatusChip status={data.openMonth ? "active" : "draft"} label={data.openMonth ? monthLabel(data.openMonth) : "Not initialized"} />
     </div>
 
     <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
@@ -182,9 +178,7 @@ function ReadinessSection({ data }: { data: PeriodSetupView }) {
           : <CircleAlert className="size-4 shrink-0 text-amber-600" aria-hidden="true" />}
         <span className="min-w-0 flex-1 font-medium">{row.label}</span>
         <span className="text-muted-foreground">{row.detail}</span>
-        <Badge variant="outline" className={row.ready ? "border-emerald-300 text-emerald-700 dark:border-emerald-900 dark:text-emerald-300" : "border-amber-300 text-amber-700 dark:border-amber-900 dark:text-amber-300"}>
-          {row.ready ? "Ready" : "Open"}
-        </Badge>
+        <StatusChip status={row.ready ? "ready" : "open"} label={row.ready ? "Ready" : "Open"} />
       </li>)}
     </ul>
     <p className="text-xs text-muted-foreground">
