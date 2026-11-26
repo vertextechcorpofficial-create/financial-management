@@ -4,6 +4,7 @@ import { ledgerClient, ledgerRows } from "./directus-ledger.mjs";
 import { registerKeys, type LedgerRegisters } from "./registers";
 import { ledgerDatabase } from "./database";
 import { assertStorageReady, readStoredJournal, readStoredRegisters, withPeriodEvents } from "./storage.mjs";
+import { latestPostingSnapshot } from "./read-postings.mjs";
 
 const json = (value: unknown) => typeof value === "string" ? JSON.parse(value) : value;
 
@@ -24,6 +25,15 @@ export async function readDirectusLedger() {
   // normalized collections are exposed read-only, use them automatically;
   // this path must not require an additional environment variable.
   const request = ledgerClient();
+  let authoritative = null;
+  try { authoritative = await latestPostingSnapshot(request); }
+  catch (error) {
+    // The source-record table is introduced after the existing normalized
+    // deployment. Its absence is a migration state, not a reason to hide the
+    // established read-only ledger; malformed existing snapshots still throw.
+    if (!/HTTP (403|404)/.test(error instanceof Error ? error.message : "")) throw error;
+  }
+  if (authoritative) return { registers: authoritative.registers, journal: authoritative.journal, posting: authoritative.posting };
   const version = await ledgerRows(request, "cgl_storage_state", "id");
   if (Number(version[0]?.schema_version) !== 1) throw new Error("Normalized ledger migration is required.");
   const [headers, lines, stored, periods, events] = await Promise.all([

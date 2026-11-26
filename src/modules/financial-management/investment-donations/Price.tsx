@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { peso } from "./ledger";
 import { executeLedgerCommand } from "./ledger-api";
+import { LedgerDialog } from "./LedgerDialog";
+import { mutationError, mutationToast } from "./mutation-toast";
 import { parsePriceCsv, type PriceRow } from "./form-helpers";
 import type { LedgerRegisters } from "./server/registers";
 
@@ -46,16 +48,16 @@ export function Price({ registers, defaultDate, revision = 0, hideLauncher = fal
       setSaving(true);
       const revisions = (registers as LedgerRegisters & { masterRevisions?: Record<string, number> }).masterRevisions;
       const result = await executeLedgerCommand({ type: "prices", revision: revisions?.prices ?? revision, prices });
-      setFeedback({ ok: result.ok, text: result.ok ? `${prices.length} price(s) recorded in history.` : result.message });
+      mutationToast(result.ok, result.ok ? `${prices.length} price(s) recorded in history.` : result.message); setFeedback(undefined);
       if (result.ok) { close(); router.refresh(); }
-    } catch (error) { setFeedback({ ok: false, text: error instanceof Error ? error.message : "Save could not be confirmed. Refresh before retrying." }); }
+    } catch (error) { mutationError(error instanceof Error ? error.message : "Save could not be confirmed. Refresh before retrying."); setFeedback(undefined); }
     finally { setSaving(false); }
   }
   return <Card>
     <CardHeader><CardTitle>Prices and history</CardTitle></CardHeader>
     <CardContent className="space-y-3">
       {!open && !hideLauncher && <Button type="button" variant="outline" disabled={!editable.length || !canEdit} title={!canEdit ? "Preparation permission or posting service is unavailable." : undefined} onClick={() => { setOpen(true); setFeedback(undefined); }}>Update prices</Button>}
-      {open && <form onSubmit={submit} className="space-y-3">
+      {open && <LedgerDialog open onOpenChange={openState => { if (!openState) close(); }} title="Update security prices" wide><form onSubmit={submit} className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2"><label>Prices as of<Input type="date" required value={date} onChange={event => setDate(event.target.value)} /></label>
           <label className="grid gap-1">Entry method<select className="h-9 rounded-md border bg-background px-2" value={mode} onChange={event => { setMode(event.target.value as "manual" | "csv"); setSource(event.target.value === "manual" ? "manual" : "paste"); }}>
             <option value="manual">Manual prices</option><option value="csv">Paste / import CSV</option></select></label></div>
@@ -81,7 +83,7 @@ export function Price({ registers, defaultDate, revision = 0, hideLauncher = fal
         <p className="text-sm text-muted-foreground">Every update retains its price date and source. Historical prices do not replace a later current price. For a correction, use a distinct source reference; existing price-history observations are never replaced.</p>
         <div className="flex gap-2"><Button type="submit" disabled={saving || !canEdit || (mode === "csv" && !!parseError)}>{saving ? "Saving..." : "Save prices"}</Button>
           <Button type="button" variant="outline" disabled={saving} onClick={close}>Cancel</Button></div>
-      </form>}
+       </form></LedgerDialog>}
       {feedback && <p role={feedback.ok ? "status" : "alert"}>{feedback.text}</p>}
       <details><summary className="cursor-pointer font-medium">Price history</summary>
         <label className="mt-3 grid gap-1">Security<select className="h-9 rounded-md border bg-background px-2" value={history} onChange={event => setHistory(event.target.value)}>

@@ -28,7 +28,11 @@ export function workspaceRole(access: LedgerAccess | null, workspace: WorkspaceK
     if (member(process.env.CGL_RECON_APPROVER_IDS)) return "approve";
     return workspace === "monthly-reconciliation" && member(process.env.CGL_RECON_PREPARER_IDS) ? "prepare" : "view";
   }
-  return access.admin ? "approve" : "view";
+  // The existing subsystem ACL has membership only; it has no per-module
+  // permission-level column. Treat an active child-module grant as Prepare
+  // (the least write-capable level) and reserve Approve for administrators.
+  // Explicit role maps and legacy settings above still override this default.
+  return access.admin ? "approve" : "prepare";
 }
 
 export const masterWorkspaces: Record<string, WorkspaceKey> = {

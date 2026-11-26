@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { executeLedgerCommand } from "./ledger-api";
+import { mutationError, mutationToast } from "./mutation-toast";
 import type { LedgerRegisters } from "./server/registers";
 import { accounts, type Entry } from "./ledger";
 
@@ -83,9 +84,9 @@ export function Policy({ registers, revision = 0, entries = [], canEdit = true, 
     try {
       const result = await executeLedgerCommand({ type: "master", entity, operation: "upsert", revision: revisions?.[entity] ?? revision,
         value: entity === "classes" ? classes : value });
-      setFeedback({ ok: result.ok, text: result.ok ? "Policy changes saved and audited." : result.message });
+      mutationToast(result.ok, result.ok ? "Policy changes saved and audited." : result.message); setFeedback(undefined);
       if (result.ok) router.refresh();
-    } catch { setFeedback({ ok: false, text: "Save could not be confirmed. Refresh before retrying." }); }
+    } catch { mutationError("Save could not be confirmed. Refresh before retrying."); setFeedback(undefined); }
     finally { setSaving(false); }
   }
   async function saveMapping(event: FormEvent<HTMLFormElement>, code: string) {
@@ -97,9 +98,9 @@ export function Policy({ registers, revision = 0, entries = [], canEdit = true, 
       const result = await executeLedgerCommand({ type: "master", entity: "accountMappings", operation: "upsert", id: code,
         revision: revisions?.accountMappings ?? revision,
         value: { id: code, account: code, coaCode: String(form.get("coaCode") ?? "").trim() } });
-      setFeedback({ ok: result.ok, text: result.ok ? `Main COA mapping for ${code} saved.` : result.message });
+      mutationToast(result.ok, result.ok ? `Main COA mapping for ${code} saved.` : result.message); setFeedback(undefined);
       if (result.ok) router.refresh();
-    } catch { setFeedback({ ok: false, text: "Mapping save could not be confirmed. Refresh before retrying." }); }
+    } catch { mutationError("Mapping save could not be confirmed. Refresh before retrying."); setFeedback(undefined); }
     finally { setSaving(false); }
   }
   return <Card>
@@ -125,7 +126,7 @@ export function Policy({ registers, revision = 0, entries = [], canEdit = true, 
             </label>)}
             {tab === "Corporation" && <><label>Reporting currency<Input disabled value="PHP - Philippine peso" /></label><label>Accounting basis<Input disabled value="Accrual" /></label></>}
           </fieldset>
-          {canEdit && <Button type="submit" disabled={saving}>Save {tab === "Corporation" ? "document control" : tab.toLowerCase()} policy</Button>}
+           <Button type="submit" disabled={saving || !canEdit} title={!canEdit ? "Approval permission or the posting source is unavailable." : undefined}>Save {tab === "Corporation" ? "document control" : tab.toLowerCase()} policy</Button>
         </form>}
         {tab === "Corporation" && <form key={`corp:${revisions?.corp ?? revision}`} onSubmit={event => save(event, "corp")} className="space-y-3 border-t pt-4">
           <fieldset disabled={!canEdit || saving} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><legend className="mb-3 font-medium">Articles of incorporation</legend>

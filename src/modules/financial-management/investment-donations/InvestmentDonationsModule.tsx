@@ -25,6 +25,8 @@ import { Policy } from "./Policy";
 import { DataTools } from "./DataTools";
 import { PendingCommands } from "./PendingCommands";
 import { TaxFilingForm } from "./TaxFilingForm";
+import { LedgerDialog } from "./LedgerDialog";
+import { mutationError, mutationToast } from "./mutation-toast";
 import { executeLedgerCommand } from "./ledger-api";
 import { stockReports, taxReports, filingReviewPack } from "./reporting";
 import { pooledBalance } from "./donations";
@@ -32,7 +34,7 @@ import { AnnualReviewForm } from "./AnnualReviewForm";
 import type { ReviewEvent } from "./annual-review";
 import { planDeployment } from "./deployment";
 import { reconciliationLines } from "./reconciliation";
-import { buildOverviewAlerts, capitalSummary, charitableDeduction, donorYear, fiscalActivity, giftCandidates, givingTarget as calculateGivingTarget, periodChecklist, requiredDonationDocs } from "./analytics";
+import { capitalSummary, charitableDeduction, donorYear, fiscalActivity, giftCandidates, givingTarget as calculateGivingTarget, periodChecklist, requiredDonationDocs } from "./analytics";
 import { certificateActiveAt } from "./certificates";
 import { loanInterest } from "./loans";
 
@@ -93,23 +95,25 @@ function Grid({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
       <TableRow><TableCell colSpan={headers.length} className="text-muted-foreground">No records in this view.</TableCell></TableRow>}</TableBody></Table>;
 }
 
-function Journal({ rows, onReverse }: { rows: Entry[]; onReverse?: (entry: Entry) => void }) {
+function Journal({ rows, onReverse, reverseAllowed = true }: { rows: Entry[]; onReverse?: (entry: Entry) => void; reverseAllowed?: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
-  return <Table><TableHeader><TableRow>{["Journal", "Date", "Type", "Description", "Debit total"].map(label =>
+  return <Table><TableHeader><TableRow>{["Journal", "Date", "Type", "Description", "Debit total", "Actions"].map(label =>
     <TableHead key={label}>{label}</TableHead>)}</TableRow></TableHeader><TableBody>
-    {rows.map(entry => <Fragment key={entry.id}><TableRow>
+    {rows.map(entry => { const alreadyReversed = Boolean(entry.reversedBy) || rows.some(candidate => candidate.type === "reversal" && candidate.data?.reverses === entry.id); return <Fragment key={entry.id}><TableRow>
       <TableCell><Button variant="ghost" size="sm" disabled={!entry.lines.length} title={!entry.lines.length ? "Transaction detail is restricted to its authorized workspace." : undefined} aria-expanded={open === entry.id}
         onClick={() => setOpen(open === entry.id ? null : entry.id)}>JE-{String(entry.no).padStart(4, "0")}</Button></TableCell>
       <TableCell>{entry.date}</TableCell><TableCell>{lineLabels[entry.type] ?? entry.type}</TableCell>
       <TableCell className="whitespace-normal">{entry.memo}</TableCell>
       <TableCell>{journalDebitTotal(entry) === null ? "Restricted" : peso(journalDebitTotal(entry)!)}</TableCell>
-    </TableRow>{open === entry.id && <TableRow><TableCell colSpan={5}>
+      <TableCell>{!["reversal", "closing", "taxadj", "summary"].includes(entry.type) &&
+        <Button variant="outline" size="sm" disabled={alreadyReversed || !reverseAllowed || !onReverse}
+          title={alreadyReversed ? "This journal entry has already been reversed." : !reverseAllowed ? "Transactions approval and the posting source are required." : undefined}
+          onClick={() => onReverse?.(entry)}>{alreadyReversed ? "Already reversed" : "Reverse"}</Button>}</TableCell>
+    </TableRow>{open === entry.id && <TableRow><TableCell colSpan={6}>
       <Grid headers={["Account", "Debit", "Credit", "Register tag"]}
         rows={entry.lines.map(line => [`${line.acct} · ${accounts[line.acct]}`, peso(line.dr), peso(line.cr), line.tag || "—"])} />
-      {onReverse && !["reversal", "closing", "taxadj", "summary"].includes(entry.type) && !entry.reversedBy &&
-        <Button variant="outline" onClick={() => onReverse(entry)}>Reverse JE-{entry.no}</Button>}
       {entry.reversedBy && <p className="text-sm text-muted-foreground">Reversed</p>}
-    </TableCell></TableRow>}</Fragment>)}
+     </TableCell></TableRow>}</Fragment>; })}
     {!rows.length && <TableRow><TableCell colSpan={5}>No entries match the filters.</TableCell></TableRow>}
   </TableBody></Table>;
 }
@@ -127,13 +131,12 @@ function downloadCsv(filename: string, content: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export default function InvestmentDonationsModule({ workspace, canPost, canReverse, journal, registers, reconciliations, reconciliationRole, actor, donationDocuments, annualReviews, recentEntries, projectionNotice, overviewAlerts, annualEvidence }: {
+export default function InvestmentDonationsModule({ workspace, canPost, canReverse, journal, registers, reconciliations, reconciliationRole, actor, donationDocuments, annualReviews, recentEntries, projectionNotice, annualEvidence }: {
   workspace: WorkspaceKey; canPost: boolean; canReverse: boolean; journal: Entry[]; registers: LedgerRegisters;
   reconciliations: ReconciliationRecord[] | null; reconciliationRole: "none" | "view" | "prepare" | "approve"; actor: number;
   donationDocuments: Record<string, DonationDocument> | null;
   annualReviews: ReviewEvent[] | null;
   recentEntries?: Entry[]; projectionNotice?: string;
-  overviewAlerts?: { text: string; href: string }[];
   annualEvidence?: Record<string, string[]>;
 }) {
   const router = useRouter();
@@ -214,6 +217,11 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
   const [action, setAction] = useState<CashAction | "cashDonation" | "borrow" | "repay">(workspace === "portfolio-rebalancing" ? "fee" :
     workspace === "tax-compliance" ? "taxpay" : workspace === "charitable-giving" ? "cashDonation" : "transfer");
   const [documentGift, setDocumentGift] = useState<Entry | null>(null);
+  const [filingEntry, setFilingEntry] = useState<Entry | null>(null);
+  const [reconciliationOpen, setReconciliationOpen] = useState(false);
+  const [reconciliationSignoffOpen, setReconciliationSignoffOpen] = useState(false);
+  const [periodActionsOpen, setPeriodActionsOpen] = useState(false);
+  const [annualReviewOpen, setAnnualReviewOpen] = useState(false);
   const [feedback, setFeedback] = useState<{ error: boolean; text: string }>();
   const availableActions = workspace === "inflows-investing" ? [["transfer", "Cash transfer"], ["interest", "Receive bank interest"], ["dividend", "Receive domestic dividend"],
     ["accrueDividend", "Accrue investment dividend"], ["accrueInterest", "Accrue investment interest"],
@@ -287,15 +295,15 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
          sym: String(fields.get("sym") ?? "") || undefined,
       });
       if (!result.ok) {
-        setFeedback({ error: true, text: result.message });
+         mutationError(result.message); setFeedback(undefined);
         return;
       }
       setShowForm(false);
       setEntrySelection(null);
-      setFeedback({ error: false, text: `JE-${result.number} posted.` });
+       mutationToast(true, `JE-${result.number} posted.`); setFeedback(undefined);
       router.refresh();
     } catch {
-      setFeedback({ error: true, text: "The entry could not be saved." });
+       mutationError("The entry could not be saved."); setFeedback(undefined);
     } finally {
       setSaving(false);
     }
@@ -308,7 +316,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
     try {
       const result = await submitLedger("donation-document", { id: documentGift.id, reference: fields.get("reference"),
         documents: Object.fromEntries(requiredDonationDocs(documentGift).map(row => [row.key, fields.has(row.key)])) });
-      setFeedback({ error: !result.ok, text: result.ok ? "Document reference saved." : result.message });
+      mutationToast(result.ok, result.ok ? "Document reference saved." : result.message); setFeedback(undefined);
       if (result.ok) {
         setDocumentGift(null);
         router.refresh();
@@ -322,13 +330,13 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
     setSaving(true);
     try {
       const result = await submitLedger("reverse", { id: reversal.id, date: fields.get("date"), reason: fields.get("reason") });
-      setFeedback({ error: !result.ok, text: result.ok ? `Reversal JE-${result.number} posted.` : result.message });
+      mutationToast(result.ok, result.ok ? `Reversal JE-${result.number} posted.` : result.message); setFeedback(undefined);
       if (result.ok) {
         setReversal(null);
         router.refresh();
       }
     } catch {
-      setFeedback({ error: true, text: "The reversal could not be posted." });
+      mutationError("The reversal could not be posted."); setFeedback(undefined);
     } finally {
       setSaving(false);
     }
@@ -397,19 +405,16 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
     try {
       const result = await submitLedger("reconciliation", { month, revision: recon?.revision ?? 0,
         type: kind, ...(kind === "draft" ? { statement } : kind === "reopen" ? { reason: fields.get("reason") } : {}) });
-      setFeedback({ error: !result.ok, text: result.ok ?
-        ({ sign: "Reconciliation signed.", draft: "Draft saved.", reopen: "Reconciliation reopened as a draft." })[kind] : result.message });
+      mutationToast(result.ok, result.ok ? ({ sign: "Reconciliation signed.", draft: "Draft saved.", reopen: "Reconciliation reopened as a draft." })[kind] : result.message); setFeedback(undefined);
       if (result.ok) router.refresh();
     } finally {
       setSaving(false);
     }
   }
-  const [more, setMore] = useState(false);
   const filtered = entries.filter(entry => (!from || entry.date >= from) && (!to || entry.date <= to) &&
     (!type || entry.type === type) && (!ticker || entry.data.sym === ticker) &&
     (includeReversed || !entry.reversedBy) &&
     `${entry.memo} JE-${String(entry.no).padStart(4, "0")}`.toLowerCase().includes(query.trim().toLowerCase()));
-  const alerts = overviewAlerts ?? (workspace === "overview" ? buildOverviewAlerts(entries, registers, donationDocuments, reconciliations, annualReviews, asOf) : []);
 
   return <main className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 md:p-6">
     <header className="space-y-2">
@@ -426,7 +431,9 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
              onClick={() => setSelectedTab({ workspace, index })}>{label}</Button>)}
          </nav>}
          {entryOptions.length > 0 && !entrySelection && <EntryLauncher options={entryOptions} onSelect={chooseEntry} disabled={!canPost} disabledReason={!canPost ? restriction : undefined} />}
-          {canPost && entrySelection?.startsWith("trade:") && <TradeForm key={`${entrySelection}:${giftLot ?? ""}`}
+         {entrySelection?.startsWith("trade:") || entrySelection?.startsWith("capital:") || entrySelection?.startsWith("master:") || entrySelection === "prices" ? <LedgerDialog open onOpenChange={open => { if (!open) closeEntry(); }}
+           title={entrySelection === "prices" ? "Update security prices" : entrySelection?.startsWith("master:") ? "Manage master data" : entrySelection?.startsWith("capital:") ? "Capital stock action" : "Investment action"} wide>
+         {canPost && entrySelection?.startsWith("trade:") && <TradeForm key={`${entrySelection}:${giftLot ?? ""}`}
             securities={registers.securities} lots={registers.lots} defaultDate={asOf} charities={workspace === "charitable-giving" ? registers.charities : undefined}
             policy={policy} registers={approved ? registers : undefined} entries={entries} hideLauncher initialType={entrySelection.slice(6) as "buy" | "sell" | "gift"} initialLotId={giftLot} onClose={closeEntry} />}
           {entrySelection === "trade:gift" && !canPost && <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Gift shares is ready to open, but posting is locked until the transactional posting service is available and you have prepare permission.</p></CardContent></Card>}
@@ -435,6 +442,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
          {entrySelection?.startsWith("master:") && <MasterData key={entrySelection} registers={registers}
            kind={entrySelection.slice(7) as "security" | "organization" | "holder"} hideLauncher initialOpen formOnly canEdit={canPost && approved} onClose={closeEntry} />}
          {entrySelection === "prices" && <Price registers={registers} defaultDate={asOf} hideLauncher initialOpen canEdit={canPost} onClose={closeEntry} />}
+         </LedgerDialog> : null}
          {workspace === "tax-compliance" && !showForm && <div>
            <Button disabled={!canPost || !taxItems.length} onClick={() => {
             setFeedback(undefined);
@@ -443,7 +451,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
            {!canPost && <p className="mt-2 text-sm text-muted-foreground">{restriction}</p>}
            {!taxItems.length && <p className="mt-2 text-sm text-muted-foreground">No outstanding BIR items.</p>}
         </div>}
-        {canPost && showForm && <Card><CardHeader><CardTitle>Post entry</CardTitle></CardHeader><CardContent>
+         {canPost && showForm && <LedgerDialog open onOpenChange={open => { if (!open) closeEntry(); }} title="New ledger entry" description="Complete the validated transaction form; posting creates one immutable source record.">
            <form key={`${action}:${rowTarget ?? ""}`} onSubmit={postEntry} className="grid max-w-xl gap-3 text-sm sm:grid-cols-2">
             <label className="grid gap-1">Entry type
                <select className="h-9 rounded-md border bg-background px-2" value={action} onChange={event => setAction(event.target.value as typeof action)}>
@@ -516,18 +524,17 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
               <Button type="button" variant="outline" onClick={() => { closeEntry(); setFeedback(undefined); }}>Back</Button>
               <Button type="submit" disabled={saving}>{saving ? "Posting…" : "Post entry"}</Button>
             </div>
-          </form>
-         </CardContent></Card>}
+           </form>
+          </LedgerDialog>}
          {feedback && <p role={feedback.error ? "alert" : "status"} className={feedback.error ? "text-sm text-destructive" : "text-sm"}>{feedback.text}</p>}
-         {reversal && <Card><CardContent className="pt-6">
-           <form onSubmit={postReversal} className="flex flex-wrap items-end gap-3 text-sm">
-             <p className="w-full font-medium">Reverse JE-{reversal.no}</p>
-             <label>Date<Input type="date" name="date" required defaultValue={entries[0]?.date} /></label>
+          {reversal && <LedgerDialog open onOpenChange={open => { if (!open) setReversal(null); }} title={`Reverse JE-${reversal.no}`} description="This creates a new reversing journal entry; the original entry remains immutable.">
+             <form onSubmit={postReversal} className="flex flex-wrap items-end gap-3 text-sm">
+               <label>Date<Input type="date" name="date" required defaultValue={asOf} /></label>
              <label>Reason<Input name="reason" required maxLength={200} /></label>
              <Button type="button" variant="outline" disabled={saving} onClick={() => setReversal(null)}>Cancel</Button>
-             <Button type="submit" disabled={saving}>Post reversal</Button>
-           </form>
-         </CardContent></Card>}
+              <Button type="submit" disabled={saving || !canReverse} title={!canReverse ? "Transactions approval permission or the posting source is unavailable." : undefined}>Post reversal</Button>
+              {feedback && <p role={feedback.error ? "alert" : "status"} className="w-full text-sm">{feedback.text}</p>}
+             </form></LedgerDialog>}
          {section === "Overview" && <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[["Portfolio market value", peso(market), `Cost ${peso(cost)} · unrealized ${peso(market - cost)}`],
@@ -537,14 +544,6 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
               .map(([label, value, note]) => <Card key={label}><CardHeader><CardTitle className="text-sm">{label}</CardTitle></CardHeader>
                 <CardContent><p className="text-lg font-semibold">{value}</p><p className="text-xs text-muted-foreground">{note}</p></CardContent></Card>)}
           </div>
-          <Card><CardHeader><CardTitle>Needs attention</CardTitle></CardHeader><CardContent>
-             <ul className="space-y-2 text-sm">{alerts.slice(0, more ? undefined : 4).map(alert => <li key={alert.text}>
-              <Link className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 hover:bg-muted" href={alert.href}>
-                <span>{alert.text}</span><span className="shrink-0 underline">Open</span>
-              </Link>
-            </li>)}</ul>
-             {alerts.length > 4 && <Button variant="link" onClick={() => setMore(!more)}>{more ? "Show less" : "Show more"}</Button>}
-          </CardContent></Card>
           <Card><CardHeader><CardTitle>Allocation at market value</CardTitle></CardHeader><CardContent className="space-y-3">
             {allocation.map(group => <div key={group.id} className="grid gap-1 text-sm">
               <span>{group.name} · {group.actual.toFixed(1)}% / {group.target}% target</span>
@@ -552,7 +551,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
             </div>)}
           </CardContent></Card>
            <Card><CardHeader><CardTitle>Latest six entries</CardTitle></CardHeader><CardContent>
-              <Journal rows={(recentEntries ?? entries).slice(0, 6)} onReverse={canReverse ? entry => { setReversal(entry); setFeedback(undefined); } : undefined} />
+               <Journal rows={(recentEntries ?? entries).slice(0, 6)} reverseAllowed={canReverse} onReverse={entry => { setReversal(entry); setFeedback(undefined); }} />
            </CardContent></Card>
         </>}
         {section === "Transactions" && <Card><CardContent className="space-y-4">
@@ -570,7 +569,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
             <Button variant="outline" onClick={() => downloadJournal(filtered)} disabled={!filtered.length}><Download /> Export filtered CSV</Button>
           </div>
           <p className="text-sm text-muted-foreground">Showing {Math.min(250, filtered.length)} of {filtered.length} entries</p>
-           <Journal rows={filtered.slice(0, 250)} onReverse={canReverse ? entry => { setReversal(entry); setFeedback(undefined); } : undefined} />
+           <Journal rows={filtered.slice(0, 250)} reverseAllowed={canReverse} onReverse={entry => { setReversal(entry); setFeedback(undefined); }} />
         </CardContent></Card>}
          {section === "Portfolio & rebalancing" && <>
             <Panel active={activeTab === 1}>
@@ -609,7 +608,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
            </Panel>
          </>}
          {section === "Charitable giving" && <>
-           {documentGift && <Card><CardContent className="pt-6">
+            {documentGift && <LedgerDialog open onOpenChange={open => { if (!open) setDocumentGift(null); }} title={`Update documents for JE-${documentGift.no}`}>
              <form onSubmit={postDonationDocument} className="flex flex-wrap items-end gap-3">
                <label>Form {documentGift.data.exempt ? "2322" : "1800"} reference for JE-{documentGift.no}
                  <Input key={documentGift.id} name="reference" required maxLength={200} defaultValue={donationDocuments?.[documentGift.id]?.reference} />
@@ -620,7 +619,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                 <Button type="submit" disabled={saving}>Save reference</Button>
                <Button type="button" variant="outline" onClick={() => setDocumentGift(null)}>Cancel</Button>
              </form>
-           </CardContent></Card>}
+            </LedgerDialog>}
             <Panel active={activeTab === 0}><Card id="budget"><CardHeader><CardTitle>Budget &amp; donations</CardTitle></CardHeader><CardContent>
             <p className="mb-3 text-sm">{peso(giving)} given · {peso(Math.max(0, givingTarget - giving))} remaining</p>
              <Grid headers={["Date", "Donee", "Vehicle", "Fair value", "Deduction basis", "Donor’s tax", "Documents"]}
@@ -639,7 +638,8 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
             <Card><CardHeader><CardTitle>Organizations &amp; grants</CardTitle></CardHeader><CardContent>
              <Grid headers={["Pooled fund", "Available balance"]}
                rows={registers.charities.filter(row => row.isDAF).map(row => [row.name, peso(pooledBalance(entries, registers.grants, row.id, asOf))])} />
-              {canPost && entrySelection === "grant" && registers.charities.some(row => row.isDAF) && <form className="my-4 flex flex-wrap items-end gap-3" onSubmit={async event => {
+               {canPost && entrySelection === "grant" && registers.charities.some(row => row.isDAF) && <LedgerDialog open onOpenChange={open => { if (!open) closeEntry(); }} title="Record pooled-fund grant">
+                 <form className="flex flex-wrap items-end gap-3" onSubmit={async event => {
                event.preventDefault();
                if (saving) return;
                const form = event.currentTarget;
@@ -648,7 +648,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                try {
                  const result = await submitLedger("giving", { type: "grant", date: fields.get("date"),
                    fund: fields.get("fund"), recipient: fields.get("recipient"), amount: Number(fields.get("amount")) });
-                 setFeedback({ error: !result.ok, text: result.ok ? "Pooled-fund grant recorded." : result.message });
+                  mutationToast(result.ok, result.ok ? "Pooled-fund grant recorded." : result.message); setFeedback(undefined);
                   if (result.ok) { form.reset(); closeEntry(); router.refresh(); }
                } finally { setSaving(false); }
              }}>
@@ -662,7 +662,8 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                <label>Grant amount<Input name="amount" type="number" min="0.01" step="0.01" required /></label>
                 <Button type="submit" disabled={saving}>Record grant</Button>
                 <Button type="button" variant="outline" onClick={closeEntry}>Back</Button>
-             </form>}
+              </form>
+              </LedgerDialog>}
             <Grid headers={["Organization", "Focus area", "Donee status", "Accreditation until", "Vetting"]}
               rows={registers.charities.map(row => [<span id={`organization-${row.id}`} key={row.id}>{row.name}</span>, row.focus, row.donee, row.accredUntil || "—",
                 Object.values(row.checks).every(Boolean) ? "Complete" : "Incomplete"])} />
@@ -721,7 +722,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                      try {
                        const result = await executeLedgerCommand({ type: "master", entity: "debts", operation: "upsert", id: row.id,
                          revision: registers.masterRevisions?.debts ?? 0, value: { id: row.id, scheduled } });
-                       setFeedback({ error: !result.ok, text: result.ok ? "Payoff schedule updated." : result.message });
+                        mutationToast(result.ok, result.ok ? "Payoff schedule updated." : result.message); setFeedback(undefined);
                        if (result.ok) router.refresh();
                      } finally { setSaving(false); }
                    }} /> : row.scheduled ? "Yes" : "No"])} />
@@ -814,12 +815,11 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                [entry.date, String(entry.data.taxForm ?? "—"), `${String(entry.data.taxDue ?? "—")}${entry.data.taxDue && String(entry.data.taxDue) < asOf ? " (overdue)" : ""}`,
                  peso(line.cr), peso(-balance(entries, "2200", line.tag)), canPost ? <div key={line.tag} className="flex flex-wrap gap-2">
                    <Button size="sm" variant="outline" onClick={() => rowEntry("cash:taxpay", line.tag)}>Pay</Button>
-                   {approved && <Button size="sm" variant="outline" onClick={() => setSelectedTab({ workspace, index: 2 })}>Record filing</Button>}
+                   {approved && <Button size="sm" variant="outline" onClick={() => setFilingEntry(entry)}>Record filing</Button>}
                  </div> : "View only"]))} />
            <h3 className="font-medium">Returns and certificates outstanding</h3>
-           <Grid headers={["Journal", "Form", "Status", "Action"]} rows={entries.filter(entry => entry.data.taxForm && !entry.reversedBy &&
-             donationDocuments?.[entry.id]?.status !== "filed-manually").map(entry => [`JE-${entry.no}`, String(entry.data.taxForm), donationDocuments?.[entry.id]?.reference ? "Reference recorded; filing not confirmed" : "Not recorded",
-               canPost && approved ? <Button key={entry.id} size="sm" variant="outline" onClick={() => setSelectedTab({ workspace, index: 2 })}>Mark filed / record certificate</Button> : "View only"])} />
+           <Grid headers={["Journal", "Form", "Status", "Action"]} rows={entries.filter(entry => { const filing = donationDocuments?.[entry.id] ?? donationDocuments?.[`journal:${entry.no}`]; return entry.data.taxForm && !entry.reversedBy && filing?.status !== "filed-manually"; }).map(entry => { const filing = donationDocuments?.[entry.id] ?? donationDocuments?.[`journal:${entry.no}`]; return [`JE-${entry.no}`, String(entry.data.taxForm), filing?.reference ? "Reference recorded; filing not confirmed" : "Not recorded",
+                 canPost && approved ? <Button key={entry.id} size="sm" variant="outline" onClick={() => setFilingEntry(entry)}>Mark filed / record certificate</Button> : "View only"];})} />
            </CardContent></Card></Panel><Panel active={activeTab === 1}>
              <Card><CardHeader><CardTitle>Donor&apos;s tax: calendar year {asOf.slice(0, 4)}</CardTitle></CardHeader><CardContent>
                <Grid headers={["Date", "Journal", "Taxable gift", "Cumulative gifts", "Incremental donor's tax"]}
@@ -841,7 +841,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
             setSaving(true);
             try {
               const result = await submitLedger("cgt-reconcile", { date: fields.get("date"), fiscalStart: fields.get("fiscalStart") });
-              setFeedback({ error: !result.ok, text: result.ok ? `CGT adjustment posted as JE-${result.number}.` : result.message });
+              mutationToast(result.ok, result.ok ? `CGT adjustment posted as JE-${result.number}.` : result.message); setFeedback(undefined);
               if (result.ok) router.refresh();
             } finally { setSaving(false); }
           }}>
@@ -851,13 +851,16 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
           </form>}
            <Grid headers={["Journal", "Return", "Due date", "Filing reference"]} rows={entries
              .filter(entry => Boolean(entry.data.taxForm))
-            .map(entry => [`JE-${entry.no}`, String(entry.data.taxForm), String(entry.data.taxDue ?? "—"),
-               canPost && reconciliationRole === "approve" ? <div className="min-w-72" key={entry.id}>
-                 <TaxFilingForm entry={entry} defaultDate={asOf} existing={donationDocuments?.[entry.id]} onFeedback={setFeedback} />
-               </div> : <div key={entry.id}><div>{donationDocuments?.[entry.id]?.reference ?? "Not recorded"}</div>
-                 {donationDocuments?.[entry.id]?.evidenceFile && <p className="text-sm">Uploaded proof: {donationDocuments[entry.id].evidenceFile!.filename}</p>}
-               </div>])} />
-         </CardContent></Card></Panel></>}
+             .map(entry => { const filing = donationDocuments?.[entry.id] ?? donationDocuments?.[`journal:${entry.no}`]; return [`JE-${entry.no}`, String(entry.data.taxForm), String(entry.data.taxDue ?? "—"),
+                canPost && reconciliationRole === "approve" ? <div className="min-w-72" key={entry.id}>
+                 <Button size="sm" variant="outline" onClick={() => setFilingEntry(entry)}>Mark filed / record certificate</Button>
+               </div> : <div key={entry.id}><div>{filing?.reference ?? "Not recorded"}</div>
+                 {filing?.evidenceFile && <p className="text-sm">Uploaded proof: {filing.evidenceFile.filename}</p>}
+               </div>]})} />
+            {filingEntry && <LedgerDialog open onOpenChange={open => { if (!open) setFilingEntry(null); }} title={`Record filing for JE-${filingEntry.no}`}>
+              <TaxFilingForm entry={filingEntry} defaultDate={asOf} existing={donationDocuments?.[filingEntry.id] ?? donationDocuments?.[`journal:${filingEntry.no}`]} onFeedback={setFeedback} onSaved={() => setFilingEntry(null)} />
+            </LedgerDialog>}
+          </CardContent></Card></Panel></>}
            {section === "Monthly reconciliation" && <Card><CardHeader><CardTitle>Monthly reconciliation</CardTitle></CardHeader><CardContent className="space-y-3">
             <MonthNavigation value={month} first={firstMonth} onChange={selectMonth} />
            {oldestOpen && <Button variant="outline" onClick={() => selectMonth(oldestOpen)}>Oldest open month ({oldestOpen})</Button>}
@@ -873,7 +876,8 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
            {reconChanged && (recon || reconSigned) && <p role="status" className="text-sm text-destructive">
              {reconSigned ? "Ledger changed after sign-off." : "Ledger changed after draft save. Save a fresh draft before signing."}
            </p>}
-            <form key={`${month}:${recon?.revision ?? 0}`} onSubmit={submitReconciliation} className="space-y-3">
+             <Button type="button" variant="outline" onClick={() => setReconciliationOpen(true)}>Open reconciliation form</Button>
+             {reconciliationOpen && <LedgerDialog open onOpenChange={setReconciliationOpen} title={`Reconcile ${month}`} wide><form key={`${month}:${recon?.revision ?? 0}`} onSubmit={submitReconciliation} className="space-y-3">
             {reconEditable && reconciliationRole === "approve" && <Button type="button" variant="outline" onClick={event => {
               if (!window.confirm("Only copy after checking the actual bank and broker statements. Fill blank statement fields from the ledger?")) return;
               const form = event.currentTarget.form;
@@ -894,16 +898,18 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                  reconEditable ? <Input aria-label={`${label} explanation`} name={`note-${index}`} maxLength={500}
                    defaultValue={line.note ?? ""} /> : line.note || "—"];
              })} />
-           {reconEditable && <Button type="submit" disabled={saving}>Save draft</Button>}
-           </form>
-            {recon && !reconSigned && actor !== recon.prepared_by && (
-              <form onSubmit={submitReconciliation}>
-                <Button type="submit" value="sign" disabled={saving || reconChanged || !reconEditable || reconciliationRole !== "approve"}
-                  title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Monthly-reconciliation approval permission is required." : reconChanged ? "Save a fresh draft after the ledger change." : undefined}>Sign off saved draft</Button>
-              </form>
-            )}
-            {recon && !reconSigned && actor !== recon.prepared_by && (reconChanged || !canPost || reconciliationRole !== "approve") &&
-              <p className="text-sm text-muted-foreground">Sign-off is locked: {!canPost ? "transactional posting service unavailable" : reconciliationRole !== "approve" ? "approval permission required" : "save a fresh draft after the ledger changed"}.</p>}
+            {reconEditable && <Button type="submit" disabled={saving}>Save draft</Button>}
+            </form></LedgerDialog>}
+            {!reconSigned && <><Button type="button" variant="outline" onClick={() => setReconciliationSignoffOpen(true)}>Open sign-off</Button>
+              {reconciliationSignoffOpen && <LedgerDialog open onOpenChange={setReconciliationSignoffOpen} title={`Sign off reconciliation: ${month}`}>
+                <form onSubmit={submitReconciliation}>
+                  <Button type="submit" value="sign" disabled={saving || !recon || !reconEditable || reconChanged || reconciliationRole !== "approve" || actor === recon?.prepared_by}
+                    title={!recon ? "Save a reconciliation draft first." : !canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Monthly-reconciliation approval permission is required." : actor === recon.prepared_by ? "A different reviewer must sign the draft." : reconChanged ? "Save a fresh draft after the ledger change." : undefined}>Sign off saved draft</Button>
+                </form>
+              </LedgerDialog>}
+            </>}
+            {!reconSigned && (!recon || reconChanged || !canPost || reconciliationRole !== "approve" || actor === recon?.prepared_by) &&
+              <p className="text-sm text-muted-foreground">Sign-off is locked: {!recon ? "save a draft first" : !canPost ? "transactional posting service unavailable" : reconciliationRole !== "approve" ? "approval permission required" : actor === recon.prepared_by ? "a different reviewer is required" : "save a fresh draft after the ledger changed"}.</p>}
            {recon?.signed_at && !monthClosed && reconciliationRole === "approve" && (
              <form key={`reopen:${month}:${recon.revision}`} onSubmit={submitReconciliation} className="space-y-2">
                <label className="block max-w-md text-sm">Reason for reopening<Input name="reason" required maxLength={500} /></label>
@@ -915,7 +921,8 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
            <MonthNavigation value={month} first={firstMonth} onChange={selectMonth} />
            <Grid headers={["Selected month checklist", "Requirement", "Status"]} rows={closeChecklist.map(row => [row.label,
              row.required ? "Required" : "Review only", row.ok ? "Complete" : "Needs attention"])} />
-           {(canPost || ["prepare", "approve"].includes(reconciliationRole)) && <form className="mb-4 flex flex-wrap items-end gap-2" onSubmit={async event => {
+             <Button type="button" variant="outline" onClick={() => setPeriodActionsOpen(true)}>Open period actions</Button>
+             {periodActionsOpen && <LedgerDialog open onOpenChange={setPeriodActionsOpen} title={`Period actions: ${month}`}><form className="flex flex-wrap items-end gap-2" onSubmit={async event => {
             event.preventDefault();
             if (saving) return;
             const type = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
@@ -924,7 +931,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
             setSaving(true);
             try {
               const result = await submitLedger("period", { month, type, reason });
-              setFeedback({ error: !result.ok, text: result.ok ? "Period updated." : result.message });
+              mutationToast(result.ok, result.ok ? "Period updated." : result.message); setFeedback(undefined);
               if (result.ok) router.refresh();
             } finally { setSaving(false); }
           }}>
@@ -936,7 +943,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                 <Button value="close" type="submit" disabled={saving || !canPost || reconciliationRole !== "approve" || closeChecklist.some(row => row.required && !row.ok)}
                   title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Period-close approval permission is required." : undefined}>Close month</Button>
              </>}
-           </form>}
+             </form></LedgerDialog>}
            {!canPost && <p className="text-sm text-muted-foreground">Period actions are locked until the transactional posting service is available.</p>}
            <Grid headers={["Month", "Accrual status", "Closed on", "Closed by"]}
              rows={periodRows.map(([key, row]) => [key, row.accruedAt ? "Recorded" : "Pending", row.closedAt?.slice(0, 10) ?? "Open", row.closedBy ?? "—"])} />
@@ -956,9 +963,12 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
            <Grid headers={["Review item", "Ledger evidence"]} rows={["Capital raised and reconciliations", "Performance and fees", "Gifting candidates", "Giving target and documents", "Targets reviewed"]
              .map((label, index) => [label, annualEvidence?.[reviewStart]?.[index] ?? "Evidence is unavailable; refresh the authenticated workspace."])} />
           {annualReviews === null && <p className="text-sm text-muted-foreground">Review storage is unavailable. Evidence is read-only.</p>}
-          <AnnualReviewForm key={reviewStart} fiscalStart={reviewStart} actor={actor}
-            record={annualReviews?.find(row => row.fiscal_start === reviewStart)} canPrepare={canPost && annualReviews !== null}
-            canApprove={canPost && annualReviews !== null && reconciliationRole === "approve"} />
+           <Button type="button" variant="outline" onClick={() => setAnnualReviewOpen(true)}>Open annual-review actions</Button>
+           {annualReviewOpen && <LedgerDialog open onOpenChange={setAnnualReviewOpen} title={`Annual review: ${reviewStart}`}>
+             <AnnualReviewForm key={reviewStart} fiscalStart={reviewStart} actor={actor}
+               record={annualReviews?.find(row => row.fiscal_start === reviewStart)} canPrepare={canPost && annualReviews !== null}
+               canApprove={canPost && annualReviews !== null && reconciliationRole === "approve"} />
+           </LedgerDialog>}
         </CardContent></Card>}
          {section === "Policy & targets" && <Policy registers={registers} entries={entries} canEdit={canPost && approved}
            dataTools={<DataTools maintenanceEnabled={registers.dataToolsEnabled} canExport={registers.canExportFullLedger} />} />}

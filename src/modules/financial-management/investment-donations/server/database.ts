@@ -2,6 +2,7 @@ import "server-only";
 import type { Knex } from "knex";
 import { assertStorageReady } from "./storage.mjs";
 import { remotePostingAvailable } from "./remote-client";
+import { ledgerClient } from "./directus-ledger.mjs";
 
 let pool: Knex | undefined;
 
@@ -26,7 +27,18 @@ export function ledgerDatabase() {
 }
 
 export async function postingAvailable() {
-  if (!process.env.CGL_MYSQL_URL) return remotePostingAvailable();
+  if (!process.env.CGL_MYSQL_URL) {
+    try {
+      const request = ledgerClient();
+      await request("cgl_postings", { query: { limit: "0" } });
+      await request("cgl_registers", { query: { limit: "1", "filter[name][_eq]": "policy" } });
+      return true;
+    } catch {
+      // Keep the old endpoint probe as a compatibility path for deployments
+      // that have installed the transactional extension instead.
+      return remotePostingAvailable();
+    }
+  }
   try {
     await assertStorageReady(ledgerDatabase());
     await ledgerDatabase()("cgl_ledger_commands").first("command_id");

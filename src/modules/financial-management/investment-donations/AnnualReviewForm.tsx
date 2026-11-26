@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { reviewItems, type ReviewEvent } from "./annual-review";
 import { submitLedger } from "./ledger-api";
+import { mutationError, mutationToast } from "./mutation-toast";
 
 export function AnnualReviewForm({ fiscalStart, record, canPrepare, canApprove, actor, history = [] }: {
   fiscalStart: string; record?: ReviewEvent; canPrepare: boolean; canApprove: boolean; actor: number;
@@ -26,9 +27,9 @@ export function AnnualReviewForm({ fiscalStart, record, canPrepare, canApprove, 
       const result = await submitLedger("annual-review", { type: intent, fiscalStart, revision: record?.revision ?? 0,
         checks: intent === "draft" ? reviewItems.map((_, index) => data.has(`check-${index}`)) : undefined,
         reason: intent === "reopen" ? data.get("reason") : undefined });
-      setFeedback({ ok: result.ok, text: result.ok ? "Annual review updated." : result.message });
+      mutationToast(result.ok, result.ok ? "Annual review updated." : result.message); setFeedback(undefined);
       if (result.ok) router.refresh();
-    } catch { setFeedback({ ok: false, text: "Review save could not be confirmed. Refresh before retrying." }); }
+    } catch { mutationError("Review save could not be confirmed. Refresh before retrying."); setFeedback(undefined); }
     finally { setSaving(false); }
   }
   return <div className="space-y-3">
@@ -44,8 +45,9 @@ export function AnnualReviewForm({ fiscalStart, record, canPrepare, canApprove, 
       </fieldset>
       {!signed && <Button type="submit" value="draft" disabled={saving || !canPrepare} title={!canPrepare ? "Transactional posting service or prepare permission is unavailable." : undefined}>Save checklist</Button>}
     </form>
-    {!signed && complete && record?.prepared_by !== actor &&
-      <form onSubmit={submit}><Button type="submit" value="sign" disabled={saving || !canApprove} title={!canApprove ? "Transactional posting service or approval permission is unavailable." : undefined}>Sign off saved checklist</Button></form>}
+    {!signed && <form onSubmit={submit}><Button type="submit" value="sign" disabled={saving || !canApprove || !complete || !record || record.prepared_by === actor}
+      title={!record || !complete ? "Save all five review items first." : record.prepared_by === actor ? "A different approver must sign this review." : !canApprove ? "Transactional posting service or approval permission is unavailable." : undefined}>Sign off saved checklist</Button></form>}
+    {!signed && (!complete || !record) && <p className="text-sm text-muted-foreground">Sign-off is locked until all five items are saved.</p>}
     {!signed && complete && record?.prepared_by !== actor && !canApprove && <p className="text-sm text-muted-foreground">Sign-off is locked until the transactional posting service and annual-review approval permission are available.</p>}
     {!signed && !complete && <p className="text-sm text-muted-foreground">Save all five reviewed items to enable sign-off.</p>}
     {canApprove && !signed && complete && record?.prepared_by === actor && <p className="text-sm text-muted-foreground">A different authorized approver must sign this checklist.</p>}

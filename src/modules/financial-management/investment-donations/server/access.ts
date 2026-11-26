@@ -55,6 +55,11 @@ export async function ledgerAccess() {
     return row && (!grants || grants.has(row.id));
   }).map(row => row.key);
   const remoteRoles = !process.env.CGL_MYSQL_URL ? (userToken ? await remoteLedgerRoles(userToken, id) : {}) : undefined;
-  const roles = remoteRoles && Object.fromEntries(workspaces.map(key => [key, remoteRoles[key] ?? "view"]));
+  // An unavailable legacy custom endpoint must not convert an authenticated
+  // Directus admin into a view-only user. Empty remote roles mean “no remote
+  // policy was supplied”; permissions.ts then applies the local admin/legacy
+  // fallback. A non-empty map is authoritative for deployments that provide it.
+  const roles = remoteRoles && Object.keys(remoteRoles).length > 0 ?
+    Object.fromEntries(workspaces.map(key => [key, remoteRoles[key] ?? "view"])) : undefined;
   return { id, admin, workspaces, roles, userToken };
 }

@@ -13,10 +13,14 @@ const uploaded = z.object({ data: z.object({ id: z.string().uuid(), filename_dow
 export async function uploadFilingEvidence(form: FormData) {
   try {
     const access = await ledgerAccess();
-    const permission = access && !process.env.CGL_MYSQL_URL ? { ...access, rolesAuthoritative: true } : access;
+    // In no-extension Directus mode, use the same local membership/admin role
+    // fallback as the rest of the module. The upload still requires Approve;
+    // do not let an unavailable remote role endpoint turn an administrator into
+    // a false view-only user.
+    const permission = access;
     if (!permission || !allows(workspaceRole(permission, "tax-compliance"), "approve")) return { ok: false as const, message: "Tax-compliance approval permission is required to upload filing evidence." };
     const file = form.get("file");
-    if (!(file instanceof File) || file.size <= 0 || file.size > MAX_PROOF_BYTES) return { ok: false as const, message: "Select a PDF, JPEG or PNG supporting file, no larger than 512 KB." };
+    if (!(file instanceof File) || file.size <= 0 || file.size > MAX_PROOF_BYTES) return { ok: false as const, message: "Select a PDF, JPEG or PNG supporting file, no larger than 1 MB." };
     validateProofUpload(file.name, file.type, new Uint8Array(await file.arrayBuffer()));
     const base = ledgerConnectionBase(process.env.NEXT_PUBLIC_API_BASE_URL);
     const token = process.env.DIRECTUS_STATIC_TOKEN;

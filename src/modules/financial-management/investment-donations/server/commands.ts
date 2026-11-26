@@ -15,9 +15,11 @@ import { readDirectusLedger } from "./read-directus-ledger";
 import { backupLedger, dataToolsEnabled, restoreLedger, sampleBackup } from "./data-tools.mjs";
 import * as actions from "./actions";
 import { combineCsvWorkpapers } from "./export-workpapers.mjs";
-import { postRemoteLedgerCommand, checkRemoteLedgerCommandStatus, remoteLedgerBackup } from "./remote-client";
+import { checkRemoteLedgerCommandStatus, remoteLedgerBackup } from "./remote-client";
 import { ledgerClient } from "./directus-ledger.mjs";
+import { createPosting, getPosting, postingHash } from "./directus-postings.mjs";
 import { prepareLedgerCommand, CommandValidationError } from "./command-dispatch";
+import { applyLedgerCommand, createLedgerState, StateEngineError } from "./state-engine.mjs";
 import { executeLocalLedgerCommand, checkLocalLedgerCommandStatus } from "./local-command-client";
 import type { LedgerCommandStatus } from "../client-idempotency";
 
@@ -43,16 +45,34 @@ export async function executeLedgerCommand(input: unknown): Promise<CommandResul
     if (!process.env.CGL_MYSQL_URL) {
       if (!request.success || !request.data.commandId) return failure("Use the ledger client with a valid command ID before saving.");
       const access = await ledgerAccess();
-      if (!access?.userToken) return { ok: false, state: "unknown", message: "Sign in before saving ledger entries. The pending command ID has been retained." };
+      if (!access) return { ok: false, state: "unknown", message: "Sign in before saving ledger entries. The pending command ID has been retained." };
       if (request.data.expectedActor !== undefined && access.id !== request.data.expectedActor) return { ok: false, state: "unknown", message: "The signed-in user changed. The pending command has been retained for its original user." };
       if (request.data.input && typeof request.data.input === "object" && Object.hasOwn(request.data.input, "actor")) {
         return failure("Ledger actors are resolved from the verified session.");
       }
-      prepareLedgerCommand(request.data.operation, request.data.input, access);
-      // Do not forward prepared.payload: its actor is server-local. The endpoint
-      // independently validates this original command and resolves its own actor.
-      return await postRemoteLedgerCommand(access.userToken, { commandId: request.data.commandId,
-        operation: request.data.operation, input: request.data.input });
+      const prepared = prepareLedgerCommand(request.data.operation, request.data.input, access);
+      const current = await readDirectusLedger();
+      const currentWithPosting = current as typeof current & { posting?: { stateRevision?: number }; auditEvents?: unknown[]; masterEvents?: unknown[]; periodEvents?: unknown[]; reconciliationEvents?: unknown[]; annualReviewEvents?: unknown[] };
+      const currentRevision = Number(currentWithPosting.posting?.stateRevision ?? Math.max(0, ...current.journal.map((row: { no: number }) => row.no)));
+      const existing = await getPosting(request.data.commandId);
+      if (existing) {
+        if (Number(existing.actor) !== access.id || existing.payload_hash !== postingHash(request.data.operation, request.data.input)) {
+          return failure("This command ID was already used for different input or another user.");
+        }
+        return { ok: true, id: String(existing.id), revision: Number(existing.state_revision), replayed: true } as CommandResult & { replayed: boolean };
+      }
+      const registerSnapshot = current.registers as typeof current.registers & { periods?: unknown; recons?: unknown };
+      const transition = applyLedgerCommand(createLedgerState({ journal: current.journal, registers: registerSnapshot,
+        periods: registerSnapshot.periods, recons: registerSnapshot.recons, auditEvents: currentWithPosting.auditEvents,
+        masterEvents: currentWithPosting.masterEvents, periodEvents: currentWithPosting.periodEvents, reconciliationEvents: currentWithPosting.reconciliationEvents,
+        annualReviewEvents: currentWithPosting.annualReviewEvents }),
+        { operation: request.data.operation, input: prepared.payload, actor: access.id, commandId: request.data.commandId });
+      const saved = await createPosting({ commandId: request.data.commandId, stateRevision: currentRevision + 1, actor: access.id,
+        operation: request.data.operation, postingDate: String((request.data.input as { date?: string; month?: string })?.date ?? `${(request.data.input as { month?: string })?.month ?? new Date().toISOString().slice(0, 7)}-01`),
+        input: request.data.input, snapshot: transition.snapshot });
+      const transitionResult = transition.result as { number?: number; journalNumber?: number };
+      return { ok: true, id: String(saved.id ?? request.data.commandId), revision: Number(saved.state_revision ?? currentRevision + 1),
+        number: transitionResult.number ?? transitionResult.journalNumber ?? null };
     }
     if (kind === "master" || kind === "prices") {
       const parsed = kind === "master" ? masterCommand.safeParse(payload) : null;
@@ -81,8 +101,9 @@ export async function executeLedgerCommand(input: unknown): Promise<CommandResul
       default: return failure("Unknown ledger command.");
     }
   } catch (error) {
-    const message = error instanceof MasterDataError || error instanceof CommandValidationError ? error.message : "The command could not be confirmed. Retry the same command after checking your connection.";
-    return { ok: false, message, ...(!process.env.CGL_MYSQL_URL || (request.success && request.data.commandId) ? { state: "unknown" as const } : {}) };
+    const validation = error instanceof MasterDataError || error instanceof CommandValidationError || error instanceof StateEngineError;
+    const message = validation ? error.message : "The command could not be confirmed. Retry the same command after checking your connection.";
+    return { ok: false, message, ...(validation ? { state: "failed" as const } : (!process.env.CGL_MYSQL_URL || (request.success && request.data.commandId) ? { state: "unknown" as const } : {})) };
   }
 }
 
@@ -101,8 +122,14 @@ export async function checkLedgerCommandStatus(commandId: string, expectedActor?
     if (!access) return unknown("Sign in to check the pending ledger command.");
     if (expectedActor !== undefined && access.id !== expectedActor) return unknown("The signed-in user changed. The pending command has been retained for its original user.");
     if (process.env.CGL_MYSQL_URL) return await checkLocalLedgerCommandStatus(ledgerDatabase(), commandId, access);
-    if (!access.userToken) return unknown("Sign in to check the pending ledger command.");
-    return await checkRemoteLedgerCommandStatus(access.userToken, commandId);
+    if (!process.env.CGL_MYSQL_URL) {
+      const posting = await getPosting(commandId);
+      if (!posting) return { ok: false, state: "not-found", commandId, message: "No committed posting exists for this command ID." };
+      if (Number(posting.actor) !== access.id) return unknown("This posting belongs to a different signed-in user.");
+      const result = typeof posting.snapshot === "string" ? JSON.parse(posting.snapshot)?.result ?? {} : posting.snapshot?.result ?? {};
+      return { ok: true, state: "completed", commandId, number: result.number ?? result.journalNumber ?? null, id: String(posting.id) };
+    }
+    return await checkRemoteLedgerCommandStatus(access.userToken ?? "", commandId);
   } catch {
     return unknown("The command status is unavailable or permission could not be verified. Its pending ID has been retained.");
   }
@@ -172,8 +199,9 @@ export async function exportLedgerStatements(input: unknown = {}) {
     const access = await ledgerAccess();
     if (!allows(workspaceRole(access, "transactions"), "view")) return failure("Transactions view permission is required to export financial statements.");
     const { journal, registers } = await readDirectusLedger();
-    const mapping = Object.fromEntries((registers.accountMappings ?? []).filter(row => /^\d{4}$/.test(row.id) && row.coaCode)
-      .map(row => [row.id, row.coaCode!]));
+    const mapping = Object.fromEntries((registers.accountMappings ?? []).filter((row: { id?: unknown; coaCode?: unknown }) =>
+      typeof row.id === "string" && /^\d{4}$/.test(row.id) && typeof row.coaCode === "string" && row.coaCode)
+      .map((row: { id?: unknown; coaCode?: unknown }) => [String(row.id), String(row.coaCode)]));
     const result = financialStatementExport(journal, registers, mapping, parsed.data.afterEntry ?? 0, parsed.data.includeClosing ?? true);
     return { ok: true as const, journal: result.journal, trialBalance: result.trialBalance, lastEntry: result.lastEntry,
       ...(allows(workspaceRole(access, "portfolio-rebalancing"), "view") ? { marketMemo: result.marketMemo } : {}) };

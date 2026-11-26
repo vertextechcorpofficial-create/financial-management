@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { exportFinancialStatements, exportFullJournal, exportLedgerBackup, loadLedgerSample, restoreLedgerBackup, readLedgerActivity } from "./server/commands";
+import { mutationError, mutationToast } from "./mutation-toast";
 
 export function DataTools({ maintenanceEnabled = false, canExport = true, onExportJournal }: {
   maintenanceEnabled?: boolean; canExport?: boolean; onExportJournal?: () => void;
@@ -26,12 +27,12 @@ export function DataTools({ maintenanceEnabled = false, canExport = true, onExpo
     setSaving(true); setFeedback(undefined);
     try {
       const result = financial ? await exportFinancialStatements({ afterEntry, includeClosing }) : await exportFullJournal();
-      if (!result.ok) { setFeedback({ ok: false, text: result.message }); return; }
+      if (!result.ok) { mutationError(result.message); setFeedback(undefined); return; }
       const url = URL.createObjectURL(new Blob([result.content], { type: "text/csv;charset=utf-8" }));
       const anchor = document.createElement("a"); anchor.href = url; anchor.download = result.filename;
       anchor.click(); URL.revokeObjectURL(url);
-      setFeedback({ ok: true, text: financial ? "Mapped financial-statement workpaper exported. This does not post to the main ledger." : "Full journal exported." });
-    } catch { setFeedback({ ok: false, text: "Export could not be completed. Verify all required account mappings before retrying." }); }
+      mutationToast(true, financial ? "Mapped financial-statement workpaper exported." : "Full journal exported."); setFeedback(undefined);
+    } catch { mutationError("Export could not be completed. Verify all required account mappings before retrying."); setFeedback(undefined); }
     finally { setSaving(false); }
   }
   async function exportBackup() {
@@ -39,13 +40,13 @@ export function DataTools({ maintenanceEnabled = false, canExport = true, onExpo
     setSaving(true); setFeedback(undefined);
     try {
       const result = await exportLedgerBackup();
-      if (!result.ok) { setFeedback({ ok: false, text: result.message }); return; }
+      if (!result.ok) { mutationError(result.message); setFeedback(undefined); return; }
       const url = URL.createObjectURL(new Blob([JSON.stringify(result.backup, null, 2)], { type: "application/json" }));
       const anchor = document.createElement("a");
       anchor.href = url; anchor.download = `capital-giving-backup-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click(); URL.revokeObjectURL(url);
-      setFeedback({ ok: true, text: "Backup exported. Store it securely; it contains financial records and personal data." });
-    } catch { setFeedback({ ok: false, text: "Backup could not be exported." }); }
+      mutationToast(true, "Backup exported. Store it securely; it contains financial records and personal data."); setFeedback(undefined);
+    } catch { mutationError("Backup could not be exported."); setFeedback(undefined); }
     finally { setSaving(false); }
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -54,9 +55,9 @@ export function DataTools({ maintenanceEnabled = false, canExport = true, onExpo
     setSaving(true); setFeedback(undefined);
     try {
       const result = mode === "restore" ? await restoreLedgerBackup({ backup, confirmation }) : await loadLedgerSample({ confirmation });
-      setFeedback({ ok: result.ok, text: result.ok ? mode === "restore" ? "Backup restored into the empty ledger." : "Sample loaded into the empty ledger." : result.message });
+      mutationToast(result.ok, result.ok ? mode === "restore" ? "Backup restored into the empty ledger." : "Sample loaded into the empty ledger." : result.message); setFeedback(undefined);
       if (result.ok) { setMode(null); setBackup(undefined); setConfirmation(""); router.refresh(); }
-    } catch { setFeedback({ ok: false, text: "The operation could not be confirmed. Refresh before retrying." }); }
+    } catch { mutationError("The operation could not be confirmed. Refresh before retrying."); setFeedback(undefined); }
     finally { setSaving(false); }
   }
   return <section className="space-y-3" aria-label="Data and backups">

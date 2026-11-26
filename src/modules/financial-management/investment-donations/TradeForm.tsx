@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { accounts, peso, type Entry } from "./ledger";
 import { submitLedger } from "./ledger-api";
+import { mutationError, mutationToast } from "./mutation-toast";
 import type { LedgerRegisters } from "./server/registers";
 import { MasterData } from "./MasterData";
 import { automaticFees, donationTaxPreview, eligibleFormLots, fillLotPicks, lotUnitCost,
@@ -95,12 +96,13 @@ export function TradeForm({ securities, lots, defaultDate, charities, policy, en
     try {
       const saved = await submitLedger(type === "gift" ? "giving" : "trade", { type, sym, date, acctType: accountType,
         picks: type !== "buy" && method === "specific" ? selected : undefined, method,
-        account: form.get("account"), qty: quantity, price, fees: type === "gift" ? 0 : feeTotal,
-        feeBreakdown: type === "gift" ? undefined : fees, memo: form.get("memo"), source: form.get("source"),
-        target, valuation: form.get("valuation") });
-      setResult({ ok: saved.ok, text: saved.ok ? `JE-${saved.number} posted.` : saved.message });
-      if (saved.ok) { close(); router.refresh(); }
-    } catch { setResult({ ok: false, text: "Save could not be confirmed. Refresh before retrying." }); }
+        account: form.get("account") ?? "1000", qty: quantity, price, fees: type === "gift" ? 0 : feeTotal,
+        feeBreakdown: type === "gift" ? undefined : fees, memo: String(form.get("memo") ?? ""),
+        source: type === "gift" ? "Securities donation" : String(form.get("source") ?? ""),
+        target, valuation: String(form.get("valuation") ?? "") });
+      if (saved.ok) { mutationToast(true, `JE-${saved.number} posted.`); setResult(undefined); close(); router.refresh(); }
+      else { mutationError(saved.message); setResult(undefined); }
+    } catch { mutationError("Save could not be confirmed. Refresh before retrying."); setResult(undefined); }
     finally { setSaving(false); }
   }
   if (hideLauncher && !type && !result) return null;

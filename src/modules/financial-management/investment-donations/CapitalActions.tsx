@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { accounts, balance, peso, type Entry } from "./ledger";
 import { submitLedger } from "./ledger-api";
 import { executeLedgerCommand } from "./ledger-api";
+import { mutationError, mutationToast } from "./mutation-toast";
 import type { LedgerRegisters } from "./server/registers";
 import { certificateActiveAt } from "./certificates";
 import { MasterData } from "./MasterData";
@@ -17,9 +18,9 @@ export type CapitalOperation = "shareTransfer" | "voidTransfer" | "declareDivide
 const selectClass = "h-9 w-full rounded-md border bg-background px-2";
 const cashOptions = ["1000", "1010", "1020"].map(code => <option key={code} value={code}>{accounts[code]}</option>);
 
-export function CapitalActions({ registers, defaultDate, entries, revision = 0, hideLauncher = false, initialType, initialTarget, onClose }: {
+export function CapitalActions({ registers, defaultDate, entries, revision = 0, hideLauncher = false, initialType, initialTarget, onClose, canSubmit = true, canApprove = true }: {
   registers: LedgerRegisters; defaultDate: string; entries?: readonly Entry[]; revision?: number;
-  hideLauncher?: boolean; initialType?: CapitalOperation; initialTarget?: string; onClose?: () => void;
+  hideLauncher?: boolean; initialType?: CapitalOperation; initialTarget?: string; onClose?: () => void; canSubmit?: boolean; canApprove?: boolean;
 }) {
   const router = useRouter();
   const [type, setType] = useState<CapitalOperation | null>(initialType ?? null);
@@ -49,11 +50,11 @@ export function CapitalActions({ registers, defaultDate, entries, revision = 0, 
     ["subcollect", "Subscription payment", outstanding.length > 0],
     ["callSubscription", "Call subscription payment", outstanding.length > 0],
     ["issueCertificate", "Issue stock certificate", ready.length > 0],
-    ["capitalIncrease", "Record capital increase", true],
-    ["shareTransfer", "Transfer shares", active.length > 0 && registers.holders.length > 1],
-    ["voidTransfer", "Void a transfer", reversible.length > 0],
-    ["declareDividend", "Declare dividend", true],
-    ["payDividend", "Pay dividend", payable.length > 0],
+    ["capitalIncrease", "Record capital increase", canApprove],
+    ["shareTransfer", "Transfer shares", canApprove && active.length > 0 && registers.holders.length > 1],
+    ["voidTransfer", "Void a transfer", canApprove && reversible.length > 0],
+    ["declareDividend", "Declare dividend", canApprove],
+    ["payDividend", "Pay dividend", canApprove && payable.length > 0],
   ];
   const close = () => { setType(null); onClose?.(); };
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -95,17 +96,17 @@ export function CapitalActions({ registers, defaultDate, entries, revision = 0, 
           : { target: text("target"), account: text("account") };
         result = await submitLedger("capital", { ...input, type, date });
       }
-      setFeedback({ ok: result.ok, text: result.ok ? "number" in result && result.number ? `JE-${result.number} posted.` : "Capital register updated." : result.message });
+      mutationToast(result.ok, result.ok ? "number" in result && result.number ? `JE-${result.number} posted.` : "Capital register updated." : result.message); setFeedback(undefined);
       if (result.ok) { close(); router.refresh(); }
-    } catch { setFeedback({ ok: false, text: "Save could not be confirmed. Refresh before retrying." }); }
+    } catch { mutationError("Save could not be confirmed. Refresh before retrying."); setFeedback(undefined); }
     finally { setSaving(false); }
   }
   if (hideLauncher && !type && !feedback) return null;
   return <Card>
     <CardHeader><CardTitle>{type ? options.find(row => row[0] === type)?.[1] : "Capital actions"}</CardTitle></CardHeader>
     <CardContent className="space-y-3">
-      {!type && !hideLauncher && <div className="flex flex-wrap gap-2">{options.map(([value, label, enabled]) =>
-        <Button key={value} variant="outline" disabled={!enabled} onClick={() => { setType(value); setFeedback(undefined); }}>{label}</Button>)}</div>}
+       {!type && !hideLauncher && <div className="flex flex-wrap gap-2">{options.map(([value, label, enabled]) =>
+         <Button key={value} variant="outline" disabled={!enabled || !canSubmit} title={!canSubmit ? "Transactional posting service is unavailable." : !enabled ? "Approval permission or prerequisite records are missing." : undefined} onClick={() => { setType(value); setFeedback(undefined); }}>{label}</Button>)}</div>}
       {newHolderOpen && <MasterData registers={registers} kind="holder" hideLauncher initialOpen formOnly
         onClose={() => setNewHolderOpen(false)} onSaved={id => setBuyer(id)} />}
       {type && <form hidden={newHolderOpen} onSubmit={submit} className={newHolderOpen ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
@@ -193,7 +194,7 @@ export function CapitalActions({ registers, defaultDate, entries, revision = 0, 
           <label className="grid gap-1">Paying cash account<select name="account" required className={selectClass}>{cashOptions}</select></label>
           <p className="text-sm text-muted-foreground sm:col-span-2">Withholding follows stockholder type. Cash dividends on delinquent subscriptions first settle the unpaid subscription balance.</p>
         </>}
-        <div className="flex gap-2 sm:col-span-2"><Button type="submit" disabled={saving}>{saving ? "Saving..." : options.find(row => row[0] === type)?.[1]}</Button>
+        <div className="flex gap-2 sm:col-span-2"><Button type="submit" disabled={saving || !canSubmit} title={!canSubmit ? "Transactional posting service is unavailable." : undefined}>{saving ? "Saving..." : options.find(row => row[0] === type)?.[1]}</Button>
           <Button type="button" variant="outline" disabled={saving} onClick={close}>Cancel</Button></div>
       </form>}
       {feedback && <p role={feedback.ok ? "status" : "alert"}>{feedback.text}</p>}

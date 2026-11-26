@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { executeLedgerCommand } from "./ledger-api";
 import type { LedgerRegisters } from "./server/registers";
+import { LedgerDialog } from "./LedgerDialog";
+import { mutationError, mutationToast } from "./mutation-toast";
 
 export const securityTaxClasses = { listed: "Listed shares / ETF (PSE)", unlisted: "Unlisted shares",
   fund: "Mutual fund / UITF", govsec: "Government securities / bonds" };
@@ -14,6 +16,11 @@ export const holderTypes = { individual: "Individual (resident)", domestic: "Dom
   nrfc: "Non-resident foreign corporation", nra: "Non-resident individual" };
 const selectClass = "h-9 w-full rounded-md border bg-background px-2";
 type Kind = "security" | "organization" | "holder";
+
+export function formatTin(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 12);
+  return digits.match(/.{1,3}/g)?.join("-") ?? "";
+}
 
 export function MasterData({ registers, revision = 0, kind, hideLauncher = false, initialId, initialOpen = false, onClose, onSaved, formOnly = false, canEdit = true }: {
   registers: LedgerRegisters; revision?: number; kind: Kind; hideLauncher?: boolean;
@@ -27,6 +34,8 @@ export function MasterData({ registers, revision = 0, kind, hideLauncher = false
   const charity = kind === "organization" ? registers.charities.find(row => row.id === editing) : undefined;
   const holder = kind === "holder" ? registers.holders.find(row => row.id === editing) : undefined;
   const [donee, setDonee] = useState(charity?.donee ?? "accredited");
+  const [tin, setTin] = useState(formatTin(holder?.tin ?? ""));
+  useEffect(() => { setTin(formatTin(holder?.tin ?? "")); }, [editing, holder?.tin]);
   const name = kind === "security" ? "Security" : kind === "organization" ? "Organization" : "Stockholder";
   const hasLots = security && registers.lots.some(row => row.sym === security.sym);
   const held = security && registers.lots.some(row => row.sym === security.sym && row.openQty > 0);
@@ -34,6 +43,7 @@ export function MasterData({ registers, revision = 0, kind, hideLauncher = false
   function open(id: string) {
     setEditing(id); setFeedback(undefined);
     setDonee(registers.charities.find(row => row.id === id)?.donee ?? "accredited");
+    setTin(formatTin(registers.holders.find(row => row.id === id)?.tin ?? ""));
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -58,13 +68,13 @@ export function MasterData({ registers, revision = 0, kind, hideLauncher = false
       const revisions = (registers as LedgerRegisters & { masterRevisions?: Record<string, number> }).masterRevisions;
       const result = await executeLedgerCommand({ type: "master", entity,
         operation: "upsert", id: editing || undefined, revision: revisions?.[entity] ?? revision, value });
-      setFeedback({ ok: result.ok, text: result.ok ? `${name} saved.` : result.message });
+      mutationToast(result.ok, result.ok ? `${name} saved.` : result.message); setFeedback(undefined);
       if (result.ok) {
         const savedId = kind === "security" ? security?.sym ?? text("sym").toUpperCase() :
           "id" in result && typeof result.id === "string" ? result.id : editing ?? "";
         onSaved?.(savedId); close(); router.refresh();
       }
-    } catch { setFeedback({ ok: false, text: "Save could not be confirmed. Refresh before retrying." }); }
+    } catch { mutationError("Save could not be confirmed. Refresh before retrying."); setFeedback(undefined); }
     finally { setSaving(false); }
   }
   const rows = kind === "security" ? Object.values(registers.securities).map(row => ({ id: row.sym, name: `${row.sym} · ${row.name}`,
@@ -75,7 +85,7 @@ export function MasterData({ registers, revision = 0, kind, hideLauncher = false
     <CardHeader><CardTitle>{name} register</CardTitle></CardHeader>
     <CardContent className="space-y-3">
       {editing === null && !hideLauncher && <Button type="button" variant="outline" disabled={!canEdit} title={!canEdit ? "Approval permission or posting service is unavailable." : undefined} onClick={() => open("")}>Add {name.toLowerCase()}</Button>}
-      {editing !== null && <form key={`${kind}:${editing}`} onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
+      {editing !== null && <LedgerDialog open onOpenChange={openState => { if (!openState) close(); }} title={`${editing ? "Edit" : "Add"} ${name.toLowerCase()}`} wide><form key={`${kind}:${editing}`} onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
         <h3 className="font-medium sm:col-span-2">{editing ? "Edit" : "Add"} {name.toLowerCase()}</h3>
         {kind === "security" && <>
           <label>Ticker or code<Input name="sym" required maxLength={64} defaultValue={security?.sym} disabled={!!security} /></label>
@@ -96,7 +106,10 @@ export function MasterData({ registers, revision = 0, kind, hideLauncher = false
             {Object.entries(holderTypes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             {holder?.type && !(holder.type in holderTypes) && <option value={holder.type}>{holder.type}</option>}
           </select></label>
-          <label>TIN<Input name="tin" required pattern="[0-9]{3}-?[0-9]{3}-?[0-9]{3}(-?[0-9]{3})?" maxLength={15} defaultValue={holder?.tin} /></label>
+           <label>TIN<Input name="tin" required pattern="[0-9]{3}-[0-9]{3}-[0-9]{3}(-[0-9]{3})?" maxLength={15} value={tin}
+             onChange={event => setTin(formatTin(event.target.value))} placeholder="123-456-789 or 123-456-789-000"
+             inputMode="numeric" aria-describedby="tin-format-help" /></label>
+           <p id="tin-format-help" className="text-xs text-muted-foreground sm:col-span-2">Use 9 digits for individuals or 12 digits with a branch code for businesses.</p>
           <label>Nationality<Input name="nationality" required maxLength={100} defaultValue={holder?.nationality ?? "Filipino"} /></label>
           <label className="sm:col-span-2">Residential or business address<Input name="address" required maxLength={500} defaultValue={holder?.address} /></label>
         </>}
@@ -123,7 +136,7 @@ export function MasterData({ registers, revision = 0, kind, hideLauncher = false
           defaultChecked={((kind === "holder" ? holder : charity) as { active?: boolean } | undefined)?.active !== false} />Active record</label>}
         <div className="flex gap-2 sm:col-span-2"><Button type="submit" disabled={saving || !canEdit} title={!canEdit ? "Approval permission or posting service is unavailable." : undefined}>{saving ? "Saving..." : "Save"}</Button>
           <Button type="button" variant="outline" disabled={saving} onClick={close}>Cancel</Button></div>
-      </form>}
+      </form></LedgerDialog>}
       {feedback && <p role={feedback.ok ? "status" : "alert"}>{feedback.text}</p>}
       {!formOnly && <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="p-2">Name</th><th className="p-2">Status / type</th><th className="p-2">Action</th></tr></thead>
         <tbody>{rows.map(row => <tr key={row.id} className="border-b"><td className="p-2">{row.name}</td><td className="p-2">{row.detail}</td><td className="p-2">

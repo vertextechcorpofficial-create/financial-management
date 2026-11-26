@@ -1,11 +1,11 @@
 // Keep normal multipart submissions below Next.js's default 1 MB Server Action
 // limit without requiring configuration changes outside this module.
-export const MAX_PROOF_BYTES = 512 * 1024;
+export const MAX_PROOF_BYTES = 1024 * 1024;
 const extensions = { "application/pdf": /\.pdf$/i, "image/jpeg": /\.jpe?g$/i, "image/png": /\.png$/i };
 export const proofUuid = value => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 export function validateProofUpload(filename, type, bytes) {
-  if (!extensions[type]?.test(filename) || !bytes?.length || bytes.length > MAX_PROOF_BYTES) throw new Error("Upload a PDF, JPEG or PNG file, no larger than 512 KB.");
+  if (!extensions[type]?.test(filename) || !bytes?.length || bytes.length > MAX_PROOF_BYTES) throw new Error("Upload a PDF, JPEG or PNG file, no larger than 1 MB.");
   const signature = type === "application/pdf" ? [37, 80, 68, 70, 45] : type === "image/png" ? [137, 80, 78, 71, 13, 10, 26, 10] : [255, 216, 255];
   if (!signature.every((byte, index) => bytes[index] === byte)) throw new Error("The file contents do not match its PDF, JPEG or PNG type.");
 }
