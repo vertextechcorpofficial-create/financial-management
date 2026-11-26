@@ -11,7 +11,7 @@ import type {
   BrgySettings,
   BrgyStatus,
 } from "../../types";
-import { canAssign, canMove, projectedTotal, projectedValue, REASON_REQUIRED } from "../../types";
+import { canAssign, canMove, projectedTotal, projectedValue, REASON_REQUIRED, sameName } from "../../types";
 
 type Row = Record<string, unknown>;
 
@@ -184,7 +184,20 @@ export async function createAsset(input: AssetInput): Promise<BrgyAsset> {
   if (input.dateAcquired > today) throw new Error("Date acquired cannot be later than today");
   if (!Number.isFinite(input.quantity) || input.quantity < 1) throw new Error("Quantity must be at least 1");
   if (!Number.isFinite(input.cost) || input.cost < 0) throw new Error("Cost cannot be negative");
-  if (!Number.isFinite(input.lifeSpanYears) || input.lifeSpanYears < 1) throw new Error("Life span must be at least 1 year");
+  const settings = (await fetchLookups(input.barangayId)).settings;
+  let lifeSpan = Number(input.lifeSpanYears);
+  if (!Number.isFinite(lifeSpan) || lifeSpan < 1) {
+    const classification = (await fetchLookups(input.barangayId)).classifications.find((c) => c.id === input.classificationId);
+    const byName = classification?.name?.toLowerCase() ?? "";
+    lifeSpan =
+      (byName.includes("equipment") && settings?.life_equipment) ||
+      (byName.includes("machinery") && settings?.life_machinery) ||
+      (byName.includes("furniture") && settings?.life_furniture) ||
+      (byName.includes("other") && settings?.life_other) ||
+      classification?.life_span_years ||
+      1;
+  }
+  if (!Number.isFinite(lifeSpan) || lifeSpan < 1) throw new Error("Life span must be at least 1 year");
 
   // Rule: barcode, tag number and security tag are unique when filled in
   for (const [field, label] of [["barcode", "barcode"], ["tag_no", "tag number"], ["security_tag", "security tag"]] as const) {
@@ -200,12 +213,16 @@ export async function createAsset(input: AssetInput): Promise<BrgyAsset> {
     }
   }
 
+  // rule 5.13: names are compared ignoring case and extra spaces, so reuse the existing spelling
+  const sameNamed = await get<Row[]>("/items/brgy_asset?filter=" + enc({ name: { _icontains: input.name.trim() } }) + "&fields=name&limit=-1");
+  const storedName = (sameNamed ?? []).map((r) => text(r.name)).find((n) => sameName(n, input.name)) ?? input.name.trim();
+
   const status: BrgyStatus = input.custodianId ? "Active" : "Unassigned";
   const created = await post<Row>("/items/brgy_asset", {
     asset_code: await nextAssetCode(input.barangayId),
     barangay_id: input.barangayId,
     owner_type: "barangay",
-    name: input.name.trim(),
+    name: storedName,
     classification_id: input.classificationId,
     barcode: input.barcode?.trim() || null,
     tag_no: input.tagNo?.trim() || null,
@@ -216,7 +233,7 @@ export async function createAsset(input: AssetInput): Promise<BrgyAsset> {
     date_acquired: input.dateAcquired,
     cost: input.cost,
     quantity: input.quantity,
-    life_span_years: input.lifeSpanYears,
+    life_span_years: lifeSpan,
     condition: input.condition,
     status,
     photo: input.photo ?? null,
@@ -312,6 +329,10 @@ export async function assignCustodian(input: {
   }
   if (!input.custodianId) throw new Error("Choose the custodian who will be responsible for this asset");
   const today = input.startDate ?? new Date().toISOString().slice(0, 10);
+  // rule 5.7: an assignment cannot start before the date acquired
+  if (asset.date_acquired && today < asset.date_acquired) {
+    throw new Error("An assignment cannot start before the date acquired (" + asset.date_acquired + ").");
+  }
 
   const open = detail.assignments.filter((a) => !a.end_date);
   for (const row of open) {
