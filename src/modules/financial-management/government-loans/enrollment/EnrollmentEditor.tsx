@@ -150,6 +150,9 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
         onClick={() => { setShowDecline(value => !value); setError(null); }}>Agency did not approve</Button>}
     </div>
     <h2 className="text-base font-semibold">{record ? (correcting ? "Correct enrollment · " : "Enter the approved loan details · ") + record.reference : "Enroll an existing loan"}</h2>
+    {!correcting && <p className="max-w-3xl text-sm text-muted-foreground">
+      Enter the terms exactly as printed on the agency notice. A second person verifies the enrollment before payroll deducts anything.
+    </p>}
     {correcting && saved?.returnReason && <div className="space-y-1 rounded-lg border p-3 text-sm">
       <p className="font-medium">Return reason</p>
       <p className="whitespace-pre-wrap break-words">{saved.returnReason}</p>

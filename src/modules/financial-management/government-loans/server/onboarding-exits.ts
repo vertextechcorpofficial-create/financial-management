@@ -99,6 +99,42 @@ export async function listOnboardingExits(params: URLSearchParams) {
   }), hasMore: rows.length > pageSize };
 }
 
+export type OnboardingAttention = {
+  hires: { count: number; hasMore: boolean; rows: { id: number; name: string; date: string | null }[] };
+  clearances: { count: number; hasMore: boolean; rows: { id: number; name: string; date: string | null }[] };
+};
+
+export async function readOnboardingAttention(blockedEmployees: ReadonlySet<number>): Promise<OnboardingAttention> {
+  const today = todayManila();
+  const first = new Date(Date.parse(today) - 150 * 86_400_000).toISOString().slice(0, 10);
+  const limit = 50;
+  const [hireRows, exitRows] = await Promise.all([
+    readEnrollmentRows("user", staffEmployee, personFields,
+      { ...employeeFilter, user_dateOfHire: { _gte: first, _lte: today } }, limit, "user_lname,user_fname,user_id"),
+    readEnrollmentRows("user", staffEmployee, personFields,
+      { ...employeeFilter, separation_date: { _nnull: true } }, limit, "user_lname,user_fname,user_id"),
+  ]);
+  const hires = hireRows.slice(0, limit).map(personView);
+  const exits = exitRows.slice(0, limit).map(personView);
+  const hireKeys = hires.flatMap(person => person.hiredOn ? [eventKey("hires", person.id, person.hiredOn)] : []);
+  const exitKeys = exits.flatMap(person => person.separationOn ? [eventKey("exits", person.id, person.separationOn)] : []);
+  const keys = [...hireKeys, ...exitKeys];
+  const events = [];
+  for (let start = 0; start < keys.length; start += 50) {
+    events.push(...await readStaffEvents({ event_key: { _in: keys.slice(start, start + 50) } }, 50));
+  }
+  const eventKeys = new Set(events.map(event => event.event_key));
+  const pendingHires = hires.filter(person => !person.hiredOn || !eventKeys.has(eventKey("hires", person.id, person.hiredOn)));
+  const pendingClearances = exits.filter(person => !person.separationOn ||
+    (!eventKeys.has(eventKey("exits", person.id, person.separationOn)) && !blockedEmployees.has(person.id)));
+  return {
+    hires: { count: pendingHires.length, hasMore: hireRows.length >= limit,
+      rows: pendingHires.slice(0, 3).map(person => ({ id: person.id, name: person.name, date: person.hiredOn })) },
+    clearances: { count: pendingClearances.length, hasMore: exitRows.length >= limit,
+      rows: pendingClearances.slice(0, 3).map(person => ({ id: person.id, name: person.name, date: person.separationOn })) },
+  };
+}
+
 const input = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("DECLARE"), employeeId: positiveId, hasLoans: z.boolean(), note: z.string().trim().max(500).default("") }),
   z.object({ kind: z.literal("CLEAR"), employeeId: positiveId }),

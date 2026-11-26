@@ -20,7 +20,12 @@ import { nextPeriodCommand } from "./period-commands";
 import { flag, LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
 
 const contextInput = z.object({ agencyId: positiveId, month: payrollMonth });
-const viewInput = contextInput.extend({ page: pageNumber, historyPage: pageNumber, issues: z.literal("1").optional() });
+const viewInput = contextInput.extend({
+  page: pageNumber, historyPage: pageNumber, issues: z.literal("1").optional(),
+  q: z.string().trim().max(120).default(""),
+  size: z.coerce.number().int().refine(value => [10, 25, 50].includes(value)).default(25),
+  format: z.enum(["csv"]).optional(),
+});
 const importInput = contextInput.extend({ fileName: z.string().trim().min(1).max(255)
   .refine(name => /\.csv$/i.test(name) && !/[\\/\x00-\x1f\x7f]/.test(name)),
   csv: z.string().min(1).max(billingMaxBytes), columns: z.array(z.number().int()).length(3).optional() });
@@ -153,15 +158,27 @@ export async function readSavedBillingComparison(agencyId: number, month: string
 
 export async function viewAgencyBilling(params: URLSearchParams) {
   if (!params.has("agencyId") && !params.has("month")) return getBillingContext();
-  const { agencyId, month, page, historyPage, issues } = parseInput(viewInput, Object.fromEntries(params));
+  const { agencyId, month, page, historyPage, issues, q, size, format } = parseInput(viewInput, Object.fromEntries(params));
   const [openMonth, current, versions] = await Promise.all([
     getOpenMonth(), getAgencyBillingSummary(agencyId, month),
     readEnrollmentRows(GOVERNMENT_LOAN_BILLING_REVISIONS, revisionSchema, revisionFields, billingScope(agencyId, month),
       pageSize + 1, "-revision,id", (historyPage - 1) * pageSize),
   ]);
-  const rows = issues ? current.rows.filter(needsBillingReview) : current.rows;
-  return { ...current, month, openMonth, canImport: month === openMonth && current.agency.sends_billing, rowCount: rows.length,
-    rows: rows.slice((page - 1) * pageSize, page * pageSize), hasMore: rows.length > page * pageSize,
+  const search = q.toLowerCase();
+  const rows = (issues ? current.rows.filter(needsBillingReview) : current.rows).filter(row => !search ||
+    [row.loanReference, row.systemReference, row.billedName, row.employee]
+      .concat(row.reasons.map(reason => reason.code.replaceAll("_", " ")))
+      .some(value => String(value ?? "").toLowerCase().includes(search)));
+  if (format === "csv") {
+    const header = ["Loan reference", "Employee", "Billed", current.mode === "actual" ? "Withheld" : "Projected", "Difference", "Reason"];
+    const csv = [header, ...rows.map(row => [row.loanReference ?? row.systemReference ?? "", row.employee ?? row.billedName ?? "",
+      row.billed, row.deduction ?? "", row.difference ?? "", row.reasons.map(reason => reason.code.replaceAll("_", " ")).join("; ")])]
+      .map(line => line.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\r\n");
+    return new Response(csv + "\r\n", { headers: { "Content-Type": "text/csv; charset=utf-8", "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": `attachment; filename="agency-billing-${agencyId}-${month}.csv"` } });
+  }
+  return { ...current, month, openMonth, pageSize: size, canImport: month === openMonth && current.agency.sends_billing, rowCount: rows.length,
+    rows: rows.slice((page - 1) * size, page * size), hasMore: rows.length > page * size,
     history: versions.slice(0, pageSize).map(billingRevision), historyHasMore: versions.length > pageSize };
 }
 

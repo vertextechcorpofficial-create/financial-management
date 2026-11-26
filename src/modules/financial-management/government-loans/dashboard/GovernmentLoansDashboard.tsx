@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { useLifecycleRead } from "../loans/lifecycle-client";
+import { useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import type { readLoanDashboard } from "../server/dashboard";
 
 type Dashboard = Awaited<ReturnType<typeof readLoanDashboard>>;
@@ -36,19 +36,33 @@ function deadlineTiming(days: number) {
 function deadlineTone(status: Deadline["status"]) {
   if (status === "overdue" || status === "returned") return "border-destructive/30 bg-destructive/10 text-destructive";
   if (status === "due") return "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
+  if (status === "pending") return "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300";
   if (status === "approved") return "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
   if (status === "awaiting_payroll") return "bg-muted text-muted-foreground";
   return "";
 }
 
+function agencyTone(name: string) {
+  const value = name.toLowerCase();
+  if (value.includes("pag-ibig") || value.includes("hdmf")) return "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300";
+  if (value.includes("sss") || value.includes("social security")) return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300";
+  if (value.includes("bank")) return "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300";
+  return "text-muted-foreground";
+}
+
+function AgencyBadge({ name }: { name: string }) {
+  return <Badge variant="outline" className={agencyTone(name)}>{name}</Badge>;
+}
+
 type KpiCardData = {
   label: string; value: string; detail: string;
   breakdown?: { label: string; value: string; title?: string }[]; more?: number;
-  tone?: "default" | "warning" | "critical";
+  tone?: "default" | "warning" | "critical" | "accent";
 };
 
 function KpiCard({ card }: { card: KpiCardData }) {
   return <section className={cn("flex min-w-0 flex-col justify-between gap-3 rounded-xl border bg-card p-4 shadow-xs",
+    card.tone === "accent" && "border-primary/40 bg-primary/5",
     card.tone === "warning" && "border-amber-300/70 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/20",
     card.tone === "critical" && "border-destructive/40 bg-destructive/5")}>
     <div className="min-w-0 space-y-1">
@@ -70,7 +84,7 @@ function KpiCard({ card }: { card: KpiCardData }) {
 function DashboardSkeleton() {
   return <div className="space-y-4" aria-busy="true" aria-label="Loading Government Loans overview">
     <div className="h-8 w-72 max-w-full animate-pulse rounded-md bg-muted" />
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map(key =>
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">{[0, 1, 2, 3].map(key =>
       <div key={key} className="h-32 animate-pulse rounded-xl border bg-card" />)}</div>
     <div className="grid gap-4 xl:grid-cols-2">
       <div className="h-72 animate-pulse rounded-xl border bg-card" />
@@ -83,14 +97,13 @@ function DashboardSkeleton() {
 export function GovernmentLoansDashboard() {
   const [refresh, setRefresh] = useState(0);
   const [showAll, setShowAll] = useState(false);
-  const result = useLifecycleRead<Dashboard>("/api/fm/government-loans/dashboard", refresh);
-  const data = result?.data;
+  const { data, error, pending } = useRetainedLifecycleRead<Dashboard>("/api/fm/government-loans/dashboard", refresh);
   const reload = () => setRefresh(value => value + 1);
 
   if (!data) {
-    if (result?.error) return <div role="alert" className="space-y-3 rounded-xl border bg-card p-4">
+    if (error) return <div role="alert" className="space-y-3 rounded-xl border bg-card p-4">
       <h2 className="font-semibold">Government Loans overview is unavailable</h2>
-      <p className="text-sm text-muted-foreground">{result.error}</p>
+      <p className="text-sm text-muted-foreground">{error}</p>
       <Button variant="outline" size="sm" onClick={reload}>Retry</Button>
     </div>;
     return <DashboardSkeleton />;
@@ -99,11 +112,18 @@ export function GovernmentLoansDashboard() {
   const severityRank = { critical: 0, warning: 1, info: 2 } as const;
   const alerts = [...data.alerts].sort((left, right) => severityRank[left.severity] - severityRank[right.severity]);
   const visibleAlerts = showAll ? alerts : alerts.slice(0, 5);
+  const agencyCounts = new Map<string, number>();
+  for (const row of data.programs) {
+    const key = row.code || row.agency;
+    agencyCounts.set(key, (agencyCounts.get(key) ?? 0) + row.count);
+  }
   const cards: KpiCardData[] = [
     { label: "Active loans", value: data.activeLoans.toLocaleString("en-PH"),
       detail: data.activeEmployees
         ? `${data.activeEmployees.toLocaleString("en-PH")} employee${data.activeEmployees === 1 ? "" : "s"} with an open schedule`
-        : "Verified enrollments with an open schedule" },
+        : "Verified enrollments with an open schedule",
+      breakdown: [...agencyCounts].slice(0, 3).map(([label, count]) => ({ label, value: String(count) })),
+      more: Math.max(0, agencyCounts.size - 3), tone: "accent" },
     { label: "Monthly amortizations", value: peso(data.monthlyAmortizations),
       detail: "Expected regular deductions for " + monthLabel(data.month) },
     { label: "Withheld not yet remitted", value: peso(data.withheld),
@@ -116,7 +136,7 @@ export function GovernmentLoansDashboard() {
       tone: data.penalties !== "0.00" ? "warning" : "default" },
   ];
 
-  return <div className="space-y-4">
+  return <div className="space-y-4" aria-busy={pending}>
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Badge variant="outline">Open month {monthLabel(data.month)}</Badge>
@@ -124,15 +144,19 @@ export function GovernmentLoansDashboard() {
           {data.payrollReceived ? "Payroll received" : "Payroll awaiting"}
         </Badge>
         <span className="text-muted-foreground">As of {date(data.businessDate)} PHT</span>
-        <span className="text-xs text-muted-foreground" aria-live="polite">Updated {dateTime(data.refreshedAt)}</span>
+        <span className="text-xs text-muted-foreground" aria-live="polite">{pending ? "Refreshing…" : `Updated ${dateTime(data.refreshedAt)} PHT`}</span>
       </div>
-      <Button variant="outline" size="sm" onClick={reload}>
-        <RefreshCw /> Refresh
+      <Button variant="outline" size="sm" onClick={reload} disabled={pending}>
+        <RefreshCw className={cn(pending && "animate-spin")} /> Refresh
       </Button>
     </div>
 
-    {result?.error && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-      <span>Could not refresh the overview: {result.error}</span>
+    <p className="max-w-3xl text-sm text-muted-foreground">
+      Employee loans deducted through payroll and remitted to SSS, Pag-IBIG, and partner lenders.
+    </p>
+
+    {error && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+      <span>Could not refresh the overview: {error}</span>
       <Button variant="outline" size="sm" onClick={reload}>Retry</Button>
     </div>}
 
@@ -146,7 +170,7 @@ export function GovernmentLoansDashboard() {
       </div>
     </div>}
 
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
       {cards.map(card => <KpiCard key={card.label} card={card} />)}
     </div>
 
@@ -201,11 +225,11 @@ export function GovernmentLoansDashboard() {
               No deadlines to show.
             </TableCell></TableRow>}
             {data.deadlines.map(row => <TableRow key={row.key}>
-              <TableCell>{row.agency}</TableCell>
+              <TableCell><AgencyBadge name={row.agency} /></TableCell>
               <TableCell>{monthLabel(row.month)}</TableCell>
               <TableCell className="text-right tabular-nums">{row.withheld === null
                 ? <span className="text-xs text-muted-foreground">Awaiting Payroll</span> : peso(row.withheld)}</TableCell>
-              <TableCell><div>{date(row.due)}</div>
+              <TableCell><div className="whitespace-nowrap">{date(row.due)}</div>
                 <div className="text-xs text-muted-foreground">{deadlineTiming(row.daysUntilDue)}</div></TableCell>
               <TableCell><Badge variant="outline" className={deadlineTone(row.status)}>{row.label}</Badge></TableCell>
             </TableRow>)}
@@ -230,7 +254,7 @@ export function GovernmentLoansDashboard() {
             No active loans.
           </TableCell></TableRow>}
           {data.programs.map(row => <TableRow key={row.agencyId + ":" + row.program}>
-            <TableCell>{row.agency}</TableCell>
+            <TableCell><AgencyBadge name={row.agency} /></TableCell>
             <TableCell>{row.program}</TableCell><TableCell className="text-right">{row.count}</TableCell>
             <TableCell className="text-right tabular-nums">{peso(row.amortization)}</TableCell>
             <TableCell className="text-right tabular-nums">{peso(row.remaining)}</TableCell>

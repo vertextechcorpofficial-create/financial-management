@@ -2,13 +2,19 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { Copy, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
 import { useLifecycleCommand, useLifecycleRead } from "../../loans/lifecycle-client";
 import type { getBillingContext, previewAgencyBilling, viewAgencyBilling } from "../../server/agency-billing";
 import { billingHeaders, billingMaxBytes } from "./csv";
@@ -20,6 +26,20 @@ type View = Extract<Awaited<ReturnType<typeof viewAgencyBilling>>, { rows: Billi
 type Preview = Awaited<ReturnType<typeof previewAgencyBilling>>;
 
 const money = (value: string | null) => value === null ? "—" : peso(value);
+function Metric({ label, value, detail, tone, onClick }: {
+  label: string; value: string; detail?: string; tone?: "warning" | "accent"; onClick?: () => void;
+}) {
+  const content = <>
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+    {detail && <p className="break-all text-xs text-muted-foreground">{detail}</p>}
+  </>;
+  const className = "rounded-lg border bg-card p-3 text-left " + (tone === "warning"
+    ? "border-amber-300/70 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/20"
+    : tone === "accent" ? "border-primary/40 bg-primary/5" : "");
+  return onClick ? <button type="button" onClick={onClick} className={className + " transition-colors hover:bg-muted/50"}>{content}</button>
+    : <div className={className}>{content}</div>;
+}
 const reasonText: Record<BillingReason["code"], string> = {
   UNENROLLED: "Loan reference is missing from enrollment",
   UNVERIFIED: "Enrollment is awaiting verification",
@@ -33,20 +53,20 @@ const reasonText: Record<BillingReason["code"], string> = {
   NO_DEDUCTION: "No deduction reported for this billed loan",
   MISSING_LOAN_REFERENCE: "Payroll result has no matching loan reference",
 };
-function ComparisonTable({ rows, mode }: { rows: BillingRow[]; mode: "actual" | "projected" }) {
-  return <div className="rounded-md border"><Table>
+function ComparisonTable({ rows, mode, totals }: { rows: BillingRow[]; mode: "actual" | "projected"; totals: View["totals"] }) {
+  return <div className="overflow-x-auto rounded-md border"><Table>
     <TableHeader><TableRow>
       {["Loan reference", "Employee", "Billed", mode === "actual" ? "Withheld" : "Projected", "Difference", "Reason"].map(label =>
-        <TableHead key={label}>{label}</TableHead>)}
+        <TableHead key={label} className={["Billed", "Withheld", "Projected", "Difference"].includes(label) ? "text-right" : undefined}>{label}</TableHead>)}
     </TableRow></TableHeader>
     <TableBody>{rows.map(row => <TableRow key={row.key}>
       <TableCell>{row.loanReference ?? "—"}{row.systemReference && <p className="text-xs text-muted-foreground">{row.systemReference}</p>}</TableCell>
       <TableCell>{row.billedName ?? row.employee ?? "—"}
         {row.billedName && row.employee && row.billedName !== row.employee &&
           <p className="text-xs text-muted-foreground">VOS employee {row.employee}</p>}</TableCell>
-      <TableCell className="whitespace-nowrap tabular-nums">{money(row.billed)}</TableCell>
-      <TableCell className="whitespace-nowrap tabular-nums">{money(row.deduction)}</TableCell>
-      <TableCell className="whitespace-nowrap tabular-nums">{row.difference && !row.difference.startsWith("-") && row.difference !== "0.00" && "+"}{money(row.difference)}</TableCell>
+      <TableCell className="whitespace-nowrap text-right tabular-nums">{money(row.billed)}</TableCell>
+      <TableCell className="whitespace-nowrap text-right tabular-nums">{money(row.deduction)}</TableCell>
+      <TableCell className="whitespace-nowrap text-right tabular-nums">{row.difference && !row.difference.startsWith("-") && row.difference !== "0.00" && "+"}{money(row.difference)}</TableCell>
       <TableCell className="whitespace-normal">
         {row.reasons.length ? row.reasons.map((reason, index) => <p key={reason.code + ":" + index} className="text-xs">
           {reason.code === "NO_DEDUCTION" && mode === "projected" ? "No deduction scheduled" : reasonText[reason.code]}
@@ -56,6 +76,13 @@ function ComparisonTable({ rows, mode }: { rows: BillingRow[]; mode: "actual" | 
     </TableRow>)}
       {!rows.length && <TableRow><TableCell colSpan={6} className="py-6 text-center text-muted-foreground">No rows in this view.</TableCell></TableRow>}
     </TableBody>
+    {rows.length > 0 && <TableFooter><TableRow>
+      <TableCell colSpan={2}>Total (all rows)</TableCell>
+      <TableCell className="text-right tabular-nums">{money(totals.billed)}</TableCell>
+      <TableCell className="text-right tabular-nums">{money(totals.deduction)}</TableCell>
+      <TableCell className="text-right tabular-nums">{money(totals.difference)}</TableCell>
+      <TableCell />
+    </TableRow></TableFooter>}
   </Table></div>;
 }
 
@@ -167,7 +194,7 @@ function BillingImport({ agencyId, month, replacement, close, onSaved }: {
           <p className="text-sm">{preview.rowCount} billing row(s) · Billed {money(preview.preview.totals.billed)} · {
             preview.preview.mode === "actual" ? "Withheld" : "Projected"} {money(preview.preview.totals.deduction)}</p>
           {preview.replay && <p role="status" className="text-sm">This file is already the current billing.</p>}
-          <ComparisonTable rows={preview.preview.rows} mode={preview.preview.mode} />
+          <ComparisonTable rows={preview.preview.rows} mode={preview.preview.mode} totals={preview.preview.totals} />
           {replacing && <label className="block text-sm">Replacement reason <span className="text-destructive" aria-hidden>*</span>
             <Textarea required maxLength={500} value={reason} disabled={command.busy} aria-required="true" onChange={event => setReason(event.target.value)} />
           </label>}
@@ -191,22 +218,55 @@ export function AgencyBillingModule() {
   const [agency, setAgency] = useState("");
   const [selectedMonth, setMonth] = useState("");
   const [issues, setIssues] = useState(false);
+  const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [size, setSize] = useState(25);
   const [historyPage, setHistoryPage] = useState(1);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [reload, setReload] = useState(0);
   const [showImport, setShowImport] = useState(false);
   const [notice, setNotice] = useState("");
+  const [exporting, setExporting] = useState(false);
   const skipUrlWrite = useRef(true);
   const context = useLifecycleRead<Context>(endpoint, reload);
   const agencyId = agency || String(context?.data?.agencies[0]?.id ?? "");
   const latest = context?.data?.latestMonths?.[String(agencyId)];
   const month = selectedMonth || latest || context?.data?.openMonth || "";
-  const query = new URLSearchParams({ agencyId, month, page: String(page), historyPage: String(historyPage), ...(issues ? { issues: "1" } : {}) });
+  const query = new URLSearchParams({ agencyId, month, page: String(page), size: String(size), historyPage: String(historyPage),
+    ...(search.trim() ? { q: search.trim() } : {}), ...(issues ? { issues: "1" } : {}) });
   const view = useLifecycleRead<View>(agencyId && month ? endpoint + "?" + query : null, reload);
   const refresh = () => setReload(value => value + 1);
-  const reset = () => { setPage(1); setHistoryPage(1); setNotice(""); };
+  const reset = () => { setPage(1); setHistoryPage(1); setHistoryOpen(false); setNotice(""); };
   const error = context?.error || view?.error;
   const data = view?.data;
+
+  async function exportCsv(action: "copy" | "download") {
+    if (!agencyId || !month) return;
+    setExporting(true); setNotice("");
+    const params = new URLSearchParams({ agencyId, month, format: "csv",
+      ...(search.trim() ? { q: search.trim() } : {}), ...(issues ? { issues: "1" } : {}) });
+    try {
+      const response = await fetch(endpoint + "?" + params);
+      if (!response.ok) throw new Error("Export failed");
+      const csv = await response.text();
+      if (action === "copy") {
+        await copyText(csv);
+        setNotice("Billing CSV copied to clipboard.");
+        return;
+      }
+      const href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = `agency-billing-${agencyId}-${month}.csv`;
+      link.click();
+      URL.revokeObjectURL(href);
+      setNotice("Billing CSV downloaded.");
+    } catch {
+      setNotice("Could not export agency billing.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     const syncFromLocation = () => {
@@ -214,6 +274,8 @@ export function AgencyBillingModule() {
       setAgency(params.get("billingAgency") ?? "");
       setMonth(params.get("billingMonth") ?? "");
       setIssues(params.get("billingIssues") === "1");
+      setSearch(params.get("billingQ") ?? "");
+      setSize([10, 25, 50].includes(Number(params.get("billingSize"))) ? Number(params.get("billingSize")) : 25);
       setPage(Math.max(1, Number(params.get("billingPage")) || 1));
     };
     syncFromLocation();
@@ -229,15 +291,22 @@ export function AgencyBillingModule() {
     setOrDelete("billingAgency", agency);
     setOrDelete("billingMonth", selectedMonth);
     setOrDelete("billingIssues", issues ? "1" : "");
+    setOrDelete("billingQ", search.trim());
+    setOrDelete("billingSize", size !== 25 ? String(size) : "");
     setOrDelete("billingPage", page > 1 ? String(page) : "");
-    const search = params.toString();
-    const target = window.location.pathname + (search ? "?" + search : "") + window.location.hash;
+    const query = params.toString();
+    const target = window.location.pathname + (query ? "?" + query : "") + window.location.hash;
     const current = window.location.pathname + window.location.search + window.location.hash;
     if (target !== current) window.history.replaceState(window.history.state, "", target);
-  }, [agency, selectedMonth, issues, page]);
+  }, [agency, selectedMonth, issues, search, size, page]);
 
   return <section className="space-y-3" aria-label="Agency billing reconciliation">
-    <h2 className="text-lg font-semibold">Billing reconciliation</h2>
+    <div>
+      <h2 className="text-lg font-semibold">Billing reconciliation</h2>
+      <p className="max-w-3xl text-sm text-muted-foreground">
+        Compare the agency&apos;s billing with what payroll deducted, and resolve every difference before remitting.
+      </p>
+    </div>
     <div className="flex flex-wrap items-end justify-between gap-2">
       <div className="flex flex-wrap items-end gap-2">
         <label className="space-y-1 text-sm">Agency <NativeSelect aria-label="Agency" value={agencyId}
@@ -248,54 +317,87 @@ export function AgencyBillingModule() {
         <label className="space-y-1 text-sm">Payroll month <Input type="month" value={month} onChange={event => {
           setMonth(event.target.value); reset();
         }} /></label>
+        <label className="space-y-1 text-sm">Search
+          <Input aria-label="Search billing rows" placeholder="Employee or reference no." className="max-w-60" maxLength={120}
+            value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></label>
         {data?.billingRevision && <label className="flex items-center gap-2 self-end py-2 text-sm">
           <input type="checkbox" checked={issues} onChange={event => { setIssues(event.target.checked); setPage(1); }} />Differences only
         </label>}
+        {(search || issues) && <Button type="button" variant="ghost" size="sm"
+          onClick={() => { setSearch(""); setIssues(false); setPage(1); }}>Clear filters</Button>}
       </div>
       <div className="flex flex-wrap gap-2">
         {data && <Button variant="outline" onClick={refresh}>Refresh</Button>}
+        {data?.billingRevision && <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" disabled={exporting}>Export</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Current rows and filters</DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => void exportCsv("copy")}><Copy className="size-4" />Copy CSV</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void exportCsv("download")}><Download className="size-4" />Download CSV</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>}
         {data?.canImport && <Button onClick={() => setShowImport(true)}>{data.billingRevision ? "Replace billing" : "Import billing"}</Button>}
       </div>
     </div>
     {error && <div role="alert" className="flex items-center gap-2 text-sm text-destructive">{error}
       <Button variant="outline" size="sm" onClick={refresh}>Retry</Button></div>}
-    {!error && (!context?.data || agencyId && !data) && <p role="status" className="text-sm text-muted-foreground">Loading billing…</p>}
+    {!error && (!context?.data || agencyId && !data) && <div className="space-y-2">
+      <Skeleton className="h-24 w-full" />
+      <Skeleton className="h-9 w-full" />
+      <Skeleton className="h-56 w-full" />
+    </div>}
     {context?.data && !context.data.agencies.length && <div className="flex flex-wrap items-center gap-2 rounded-md border p-4 text-sm">
       <p className="text-muted-foreground">No agencies are configured to send billing.</p>
       <Button asChild variant="outline" size="sm"><Link href="/fm/government-loans/remittances?tab=agencies">Add an agency</Link></Button>
     </div>}
     {notice && <p role="status" className="text-sm">{notice}</p>}
     {data && <>
-      {data.billingRevision ? <div className="flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm">
-        <span>{data.mode === "actual" ? "Actual withholding" : "Projected · Awaiting Payroll"}</span>
-        <span>Billed {money(data.totals.billed)}</span>
-        <span>{data.mode === "actual" ? "Withheld" : "Projected"} {money(data.totals.deduction)}</span>
-        <span>Difference {money(data.totals.difference)}</span>
-        {data.totals.discrepancies > 0
-          ? <Button variant="link" size="sm" className="h-auto p-0" onClick={() => { setIssues(true); setPage(1); }}>
-            {data.totals.discrepancies} row(s) to review
-          </Button>
-          : <span className="text-muted-foreground">No differences</span>}
-        {issues && <Button variant="link" size="sm" className="h-auto p-0" onClick={() => { setIssues(false); setPage(1); }}>Show all rows</Button>}
+      {data.billingRevision ? <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Agency billing" value={money(data.totals.billed)} detail={data.billingRevision.fileName} />
+        <Metric label={data.mode === "actual" ? "Withheld by payroll" : "Instructed (payroll not reported)"}
+          value={money(data.totals.deduction)} detail={data.mode === "actual" ? "Actual withholding" : "Projected · Awaiting Payroll"} />
+        <Metric label="Difference" value={money(data.totals.difference)}
+          detail={data.totals.discrepancies ? `${data.totals.discrepancies} line(s) differ` : "Billing matches payroll"}
+          tone={data.totals.discrepancies ? "warning" : undefined} />
+        <Metric label="Items to resolve" value={String(data.totals.discrepancies)}
+          detail={issues ? "Showing differences only" : "Differences only"}
+          tone={data.totals.discrepancies ? "warning" : "accent"}
+          onClick={data.totals.discrepancies ? () => { setIssues(value => !value); setPage(1); } : undefined} />
       </div> : <div className="space-y-2 rounded-md border border-dashed p-4">
         <p className="font-medium">No agency bill for {month}.</p>
-        <p className="text-sm text-muted-foreground">Projected withholding {money(data.totals.deduction)}. Import the agency CSV to reconcile it against Payroll.</p>
+        <p className="text-sm text-muted-foreground">
+          {data.mode === "actual" ? "Actual withholding" : "Projected withholding"} {money(data.totals.deduction)}.
+          {data.canImport && " Import the agency CSV to reconcile it against Payroll."}
+        </p>
         <div className="flex flex-wrap gap-2">
           {data.canImport && <Button onClick={() => setShowImport(true)}>Import billing</Button>}
           {latest && latest !== month && <Button variant="outline" onClick={() => { setMonth(latest); reset(); }}>View latest billing ({latest})</Button>}
         </div>
       </div>}
       {data.billingRevision ? <>
-        <p className="text-sm text-muted-foreground">{data.billingRevision.fileName} · Revision {data.billingRevision.number}
+        <p className="break-all text-sm text-muted-foreground">{data.billingRevision.fileName} · Revision {data.billingRevision.number}
           {data.payrollReceipt && " · Payroll receipt revision " + data.payrollReceipt.revision}</p>
-        <ComparisonTable rows={data.rows} mode={data.mode} />
-        {(page > 1 || data.hasMore) && <nav aria-label="Billing pages" className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(value => value - 1)}>Previous</Button>
-          <span className="text-sm">Page {page} · {data.rowCount} row(s)</span>
-          <Button variant="outline" size="sm" disabled={!data.hasMore} onClick={() => setPage(value => value + 1)}>Next</Button>
-        </nav>}
+        <ComparisonTable rows={data.rows} mode={data.mode} totals={data.totals} />
+        {data.rowCount > 0 && <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <p className="text-muted-foreground">
+            Showing {(page - 1) * size + 1}–{Math.min(page * size, data.rowCount)} of {data.rowCount}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2">Rows
+              <NativeSelect aria-label="Billing rows per page" className="w-20" value={size}
+                onChange={event => { setSize(Number(event.target.value)); setPage(1); }}>
+                {[10, 25, 50].map(value => <option key={value} value={value}>{value}</option>)}
+              </NativeSelect></label>
+            <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(value => value - 1)}>Previous</Button>
+            <Button variant="outline" size="sm" disabled={!data.hasMore} onClick={() => setPage(value => value + 1)}>Next</Button>
+          </div>
+        </div>}
       </> : null}
-      {data.history.length > 0 && <details className="space-y-2 rounded-md border p-3 text-sm">
+      {data.history.length > 0 && <details open={historyOpen} onToggle={event => setHistoryOpen(event.currentTarget.open)}
+        className="space-y-2 rounded-md border p-3 text-sm">
         <summary className="cursor-pointer font-medium">Import history ({data.history.length}{data.historyHasMore ? "+" : ""})</summary>
         <ul className="space-y-1">{data.history.map(revision => <li key={revision.id}>
           Revision {revision.number} · {revision.fileName} · {revision.rowCount} row(s) · {revision.uploadedBy}

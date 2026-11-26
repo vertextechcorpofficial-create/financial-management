@@ -195,4 +195,18 @@ export type LoanRequest = RequestListItem & {
 };
 export type Page<T> = { items: T[]; hasMore: boolean };
 export type RequestSummary = Record<RequestStatus, number>;
-export type RequestPage = Page<RequestListItem> & { summary: RequestSummary };
+export type RequestPage = Page<RequestListItem> & { summary: RequestSummary; total: number; pageSize: number };
+
+export const requestSorts = {
+  reference: "Request",
+  employee: "Employee",
+  agency: "Agency",
+  program: "Program",
+  amount: "Amount",
+  filed: "Filed",
+  updated: "Last updated",
+  status: "Status",
+} as const;
+export type RequestSort = keyof typeof requestSorts;
+export const applicationPageSizes = [10, 25, 50] as const;
+export type ApplicationPageSize = typeof applicationPageSizes[number];

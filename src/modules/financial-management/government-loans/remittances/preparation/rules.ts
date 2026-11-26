@@ -63,7 +63,8 @@ export function remittanceStatus(withheld: string | null, state: RemittanceState
   if (state === "RETURNED") return result("returned");
   if (withheld === null) return result("awaiting_payroll");
   if (!canSelect) return result("nothing");
-  return result(days < 0 ? "overdue" : "due", days < 0 ? "Overdue " + -days + " day(s)" : "Due in " + days + " day(s)");
+  if (days < 0) return result("overdue", "Overdue " + -days + " day(s)");
+  return result("due", days === 0 ? "Due today" : "Due in " + days + " day(s)");
 }
 
 export function remittanceTotals(rows: { withheld: string; penalty: string | null }[]) {
