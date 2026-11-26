@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   BadgeCheck, BarChart3, CalendarCheck2, ClipboardCheck, FilePlus2, HandCoins,
   Landmark, LayoutDashboard, Send, UserRound, type LucideIcon,
@@ -58,6 +60,15 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
   const hasMonthEndClose = workspace.key === "month-end-close";
   const hasReports = workspace.key === "reports";
   const isScaffold = !hasDashboard && !hasAgencies && !hasRequests && !hasApprovals && !hasLoans && !hasMyLoans && !hasRemittanceApproval && !hasMonthEndClose && !hasReports;
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (!tabs.length || !searchParams.has("tab")) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("tab");
+    const search = params.toString();
+    window.history.replaceState(window.history.state, "", window.location.pathname + (search ? "?" + search : "") + window.location.hash);
+  }, [searchParams, tabs.length]);
 
   return <main className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
     <section className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-xs sm:p-5">

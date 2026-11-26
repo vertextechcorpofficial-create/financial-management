@@ -12,6 +12,8 @@ import { readOpenLoanMonth } from "./loan-changes";
 import { readLoanSchedule, readMonthlyLoanSchedules } from "./loan-register";
 import { loanCommand, loanCommandPartKey } from "./loan-requests";
 import { payrollMonth, readPayrollPages } from "./payroll-month-store";
+import { latestRemittances, readRemittanceOverview } from "./remittance-records";
+import { remitKey } from "../remittances/preparation/rules";
 import { downloadLoanDocument, privateRequestFolder } from "./request-documents";
 import { LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
 import { readStaffEvents, saveStaffEvent, staffEvent, staffEventReplay, type StaffEvent } from "./staff-events";
@@ -35,8 +37,9 @@ async function findDispute(reference: string, owner?: number) {
 }
 
 export async function readDisputes(params: URLSearchParams, owner?: number) {
-  const { reference, download, filing, page, notesPage } = parseInput(z.object({
-    reference: z.uuid().optional(), download: z.literal("1").optional(), filing: z.literal("1").optional(), page: pageNumber, notesPage: pageNumber,
+  const { reference, download, filing, page, notesPage, size } = parseInput(z.object({
+    reference: z.uuid().optional(), download: z.literal("1").optional(), filing: z.literal("1").optional(), page: pageNumber,
+    notesPage: pageNumber, size: z.coerce.number().int().refine(value => [25, 50, 100].includes(value)).default(25),
   }), Object.fromEntries(params));
   if (filing && owner !== undefined) {
     const openMonth = await readOpenLoanMonth();
@@ -53,13 +56,25 @@ export async function readDisputes(params: URLSearchParams, owner?: number) {
       return downloadLoanDocument({ file_id: info.evidence.id, file_name: info.evidence.name, mime_type: info.evidence.mime, size_bytes: info.evidence.size });
     }
     const versions = await readStaffEvents({ ...filterFor(owner), reference: { _eq: reference } }, 26, "-revision,id", (notesPage - 1) * 25);
-    return { dispute: summary(current), history: versions.slice(0, 25).map(summary), hasMore: versions.length > 25 };
+    const openMonth = await readOpenLoanMonth();
+    const loan = current.loan_id === null ? null : await readLoanSchedule(current.loan_id, openMonth);
+    const deduction = loan?.history.find(row => row.month === info.month) ?? null;
+    const remittance = loan ? latestRemittances(await readRemittanceOverview({
+      agency_id: { _eq: loan.row.agency_id }, payroll_month: { _eq: info.month },
+    })).get(remitKey(loan.row.agency_id, info.month)) ?? null : null;
+    return { dispute: summary(current), history: versions.slice(0, 25).map(summary), hasMore: versions.length > 25,
+      evidence: loan ? {
+        loanId: loan.row.id, reference: loan.reference, agency: loan.agency, employee: loan.employee, month: info.month,
+        deducted: deduction ? { status: deduction.status, amount: deduction.amount, expected: deduction.expected } : null,
+        remitted: remittance ? { state: remittance.state, paidOn: remittance.payment_date, reference: remittance.payment_reference } : null,
+      } : null };
   }
-  const roots = await readStaffEvents({ ...filterFor(owner), revision: { _eq: 1 } }, 26, "-recorded_at,id", (page - 1) * 25);
-  const pageRoots = roots.slice(0, 25);
+  const limit = size;
+  const roots = await readStaffEvents({ ...filterFor(owner), revision: { _eq: 1 } }, limit + 1, "-recorded_at,id", (page - 1) * limit);
+  const pageRoots = roots.slice(0, limit);
   const versions = pageRoots.length ? await readPayrollPages("government_loan_staff_events", staffEvent,
     Object.keys(staffEvent.shape).join(","), { ...filterFor(owner), reference: { _in: pageRoots.map(row => row.reference) } }, "-revision,id") : [];
-  return { items: pageRoots.map(root => summary(versions.find(row => row.reference === root.reference) ?? root)), hasMore: roots.length > 25 };
+  return { items: pageRoots.map(root => summary(versions.find(row => row.reference === root.reference) ?? root)), hasMore: roots.length > limit };
 }
 
 const filingInput = z.object({ loanId: positiveId, month: payrollMonth, description: z.string().trim().min(1).max(1500) });
