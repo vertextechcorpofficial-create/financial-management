@@ -49,7 +49,7 @@ export function remittanceStatus(withheld: string | null, state: RemittanceState
   reminderDays: number, paymentDate?: string) {
   const days = dayDifference(today, due);
   const canSelect = withheld !== null && centavos(withheld) > 0n && state !== "PENDING" && state !== "APPROVED";
-  const deadlineLabel = days === 0 ? "Due today" : days > 0 ? "Due in " + days + " day(s)" : "Overdue " + -days + " day(s)";
+  const deadlineLabel = days === 0 ? "due today" : days > 0 ? "in " + days + " day(s)" : -days + " day(s) late";
   const result = (status: RemittanceStatus, label: string = remittanceStatuses[status]) => ({
     status, label, canSelect, deadlineLabel: canSelect ? deadlineLabel : null,
     reminder: canSelect && days <= reminderDays,
@@ -57,12 +57,14 @@ export function remittanceStatus(withheld: string | null, state: RemittanceState
   if (state === "PENDING") return result("pending");
   if (state === "APPROVED") {
     const late = paymentDate ? dayDifference(due, paymentDate) : 0;
-    return result("approved", late > 0 ? "Remitted " + late + " day(s) late" : "Remitted on time");
+    return { ...result("approved", late > 0 ? "Remitted " + late + " day(s) late" : "Remitted on time"),
+      deadlineLabel: late > 0 ? late + " day(s) late" : "on time" };
   }
   if (state === "RETURNED") return result("returned");
   if (withheld === null) return result("awaiting_payroll");
   if (!canSelect) return result("nothing");
-  return result(days < 0 ? "overdue" : "due", deadlineLabel);
+  if (days < 0) return result("overdue", "Overdue " + -days + " day(s)");
+  return result("due", days === 0 ? "Due today" : "Due in " + days + " day(s)");
 }
 
 export function remittanceTotals(rows: { withheld: string; penalty: string | null }[]) {

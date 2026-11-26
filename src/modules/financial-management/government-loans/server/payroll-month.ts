@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { expectedDeduction, monthAfter, summarizeWithholding, type PayrollMonthView, type PayrollReceiptPreview } from "../loans/monthly-payroll";
+import { expectedRegularDeduction, monthAfter, summarizeWithholding, type PayrollMonthView, type PayrollReceiptPreview } from "../loans/monthly-payroll";
 import type { AgencyActor } from "./agencies";
 import { centavos } from "../payroll-handoff/contract";
 import { amountFromCentavos } from "../loans/position";
@@ -53,7 +53,7 @@ export async function viewPayrollMonth(params: URLSearchParams): Promise<Payroll
     agencies.set(loan.row.agency_id, loan.agency);
     if ((query.agency && loan.row.agency_id !== query.agency) ||
       (search && ![loan.employee, loan.reference, loan.row.enrollment.agencyReference].some(value => value.toLowerCase().includes(search)))) return [];
-    const expected = results.find(row => row.status !== "X")?.expected ?? (results.length ? "0.00" : expectedDeduction(loan.schedule, loan.history, month));
+    const expected = expectedRegularDeduction(loan.schedule, loan.history, month);
     return [{
       loanId: loan.row.id, reference: loan.reference, employee: loan.employee, agency: loan.agency, agencyId: loan.row.agency_id,
       expected, results, provisional: !current && loan.schedule.firstDeductionMonth < month &&

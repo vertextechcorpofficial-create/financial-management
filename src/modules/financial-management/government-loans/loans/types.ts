@@ -12,6 +12,22 @@ export const registerViews = { active: "Active", closed: "Closed", all: "All enr
 export type RegisterView = keyof typeof registerViews;
 export type RegisterStatus = keyof typeof registerStatusLabels;
 
+export const registerSorts = {
+  reference: "Loan",
+  employee: "Employee",
+  agency: "Agency",
+  principal: "Loan amount",
+  amortization: "Amortization",
+  counted: "Paid / total",
+  estimate: "Estimated balance",
+  statement: "Latest statement",
+  difference: "Difference",
+  status: "Status",
+} as const;
+export type RegisterSort = keyof typeof registerSorts;
+export const registerPageSizes = [10, 25, 50] as const;
+export type RegisterPageSize = typeof registerPageSizes[number];
+
 export const statementSources = ["Statement of account", "Agency billing", "Agency portal", "Letter / notice"] as const;
 export type StatementSource = typeof statementSources[number];
 
@@ -77,6 +93,7 @@ export type LoanRegisterPage = {
   items: RegisterLoan[];
   total: number;
   hasMore: boolean;
+  pageSize: number;
   filters: { agencies: { id: number; name: string }[]; departments: { id: number; name: string }[]; programs: string[] };
   summary: { active: number; withStatement: number; flagged: number; needsUpdate: number };
 };

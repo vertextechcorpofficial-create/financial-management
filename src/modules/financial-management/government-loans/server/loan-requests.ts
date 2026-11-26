@@ -4,8 +4,8 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { canCancelRequest } from "../requests/request-rules";
 import {
-  documentKinds, enrollmentEvidenceKinds, requestDecisionLabels, requestStatusLabels, requestViews,
-  type DocumentKind, type EnrollmentEvidenceKind, type LoanDocumentKind, type LoanRequest, type RequestAssessment, type RequestDecision, type RequestForm, type RequestListItem,
+  documentKinds, enrollmentEvidenceKinds, requestDecisionLabels, requestSorts, requestStatusLabels, requestViews,
+  type DocumentKind, type EnrollmentEvidenceKind, type LoanDocumentKind, type LoanRequest, type RequestAssessment, type RequestDecision, type RequestForm, type RequestListItem, type RequestPage, type RequestSort, type RequestSummary,
   type RequestStatus, type RequestView,
 } from "../requests/types";
 import type { AgencyActor } from "./agencies";
@@ -15,7 +15,7 @@ import {
   readGovernmentLoansItems, writeGovernmentLoansItem,
 } from "./directus";
 import {
-  addRequestInput, cancelRequestInput, invalidDraftFields, LoanRequestError, pageNumber, parseInput, positiveId, requestForm,
+  addRequestInput, cancelRequestInput, employeeRequestForm, invalidDraftFields, LoanRequestError, pageNumber, parseInput, positiveId, requestForm,
   submitRequestInput, updateRequestInput,
 } from "./request-input";
 
@@ -71,10 +71,13 @@ function listItem(row: z.output<typeof requestRow>): RequestListItem {
   };
 }
 
-export async function readRequest(id: number) {
-  const query = new URLSearchParams({ fields: detailFields, filter: JSON.stringify({ id: { _eq: id } }), limit: "1" });
+export async function readRequest(id: number, owner?: number) {
+  const filter = { id: { _eq: id }, ...(owner === undefined ? {} : { employee_user_id: { _eq: owner } }) };
+  const query = new URLSearchParams({ fields: detailFields, filter: JSON.stringify(filter), limit: "1" });
   const { data } = z.object({ data: z.array(requestDetailRow).max(1) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
-  if (!data[0]) throw new LoanRequestError(404, "Loan request could not be found.");
+  if (!data[0] || (owner !== undefined && data[0].form.employeeId !== owner)) {
+    throw new LoanRequestError(404, "Loan request could not be found.");
+  }
   return data[0];
 }
 
@@ -123,8 +126,8 @@ export async function requestDetails(row: Stored, documents?: StoredLoanDocument
   }), filedAssessment: row.filed_assessment, decisionHistory };
 }
 
-export async function getLoanRequest(id: number): Promise<LoanRequest> {
-  const row = await readRequest(id);
+export async function getLoanRequest(id: number, owner?: number): Promise<LoanRequest> {
+  const row = await readRequest(id, owner);
   if (!row.requested_at && row.status !== "DRAFT") throw new LoanRequestError(404, "Loan request could not be found.");
   return requestDetails(row);
 }
@@ -132,26 +135,85 @@ export async function getLoanRequest(id: number): Promise<LoanRequest> {
 const listQuery = z.object({
   status: statuses.optional(), view: views.optional(), q: z.string().trim().max(120).default(""),
   agency: positiveId.optional(), page: pageNumber,
+  sort: z.enum(Object.keys(requestSorts) as [RequestSort, ...RequestSort[]]).default("filed"),
+  direction: z.enum(["asc", "desc"]).default("desc"),
+  size: z.coerce.number().int().refine(value => [10, 25, 50].includes(value)).default(25),
 });
-export async function listLoanRequests(params: URLSearchParams) {
-  const { status, view, q, agency, page } = parseInput(listQuery, Object.fromEntries(params));
+const summaryRow = z.object({ status: statuses, count: z.object({ id: z.coerce.number().int().nonnegative() }) });
+async function requestSummary(owner: number | undefined, agency: number | undefined): Promise<RequestSummary> {
+  const summary = Object.fromEntries(Object.keys(requestStatusLabels).map(status => [status, 0])) as RequestSummary;
+  const filter = {
+    ...(agency ? { agency_id: { _eq: agency } } : {}),
+    ...(owner === undefined ? {} : { employee_user_id: { _eq: owner } }),
+    _and: [{ _or: [{ requested_at: { _nnull: true } }, { status: { _eq: "DRAFT" } }] }],
+  };
+  const query = new URLSearchParams({ "groupBy[]": "status", "aggregate[count]": "id", limit: "100", filter: JSON.stringify(filter) });
+  try {
+    const { data } = z.object({ data: z.array(summaryRow) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+    for (const row of data) summary[row.status] = row.count.id;
+  } catch {
+    // Summary counts are supplementary; keep the request list available if they fail.
+  }
+  return summary;
+}
+
+const requestSortValue = (row: RequestListItem, key: RequestSort): string | number | null => {
+  switch (key) {
+    case "reference": return row.id;
+    case "employee": return row.employeeName;
+    case "agency": return row.agencyName;
+    case "program": return row.program;
+    case "amount": return row.amount ? Math.round(Number(row.amount) * 100) : null;
+    case "filed": return row.requestedAt;
+    case "updated": return row.updatedAt;
+    case "status": return requestStatusLabels[row.status];
+  }
+};
+
+function sortRequests(rows: RequestListItem[], key: RequestSort, direction: "asc" | "desc") {
+  rows.sort((left, right) => {
+    const a = requestSortValue(left, key);
+    const b = requestSortValue(right, key);
+    if (a === null || b === null) return a === b ? right.id - left.id : a === null ? 1 : -1;
+    const order = typeof a === "number" && typeof b === "number" ? a - b
+      : String(a).localeCompare(String(b), undefined, { numeric: true });
+    return (direction === "asc" ? order : -order) || right.id - left.id;
+  });
+}
+
+async function readAllRequests(filter: object) {
+  const rows: z.output<typeof requestRow>[] = [];
+  for (let offset = 0; ; offset += 50) {
+    const query = new URLSearchParams({ fields: listFields, filter: JSON.stringify(filter), limit: "50",
+      offset: String(offset), sort: "-id" });
+    const { data } = z.object({ data: z.array(requestRow).max(50) })
+      .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+    rows.push(...data);
+    if (data.length < 50) return rows;
+  }
+}
+
+export async function listLoanRequests(params: URLSearchParams, owner?: number): Promise<RequestPage> {
+  const { status, view, q, agency, page, sort, direction, size } = parseInput(listQuery, Object.fromEntries(params));
   const ref = /^(?:GLR-)?0*([1-9]\d{0,9})$/i.exec(q)?.[1];
   const statusFilter = view
     ? { _in: requestViews[view].statuses, ...(status ? { _eq: status } : {}) }
     : { _eq: status ?? "DRAFT" };
   const filter = {
     status: statusFilter, ...(agency ? { agency_id: { _eq: agency } } : {}),
+    ...(owner === undefined ? {} : { employee_user_id: { _eq: owner } }),
     _and: [{ _or: [{ requested_at: { _nnull: true } }, { status: { _eq: "DRAFT" } }] }],
     ...(q ? { _or: [{ employee_name: { _icontains: q } }, { agency_name: { _icontains: q } },
       ...(ref ? [{ id: { _eq: Number(ref) } }] : [])] } : {}),
   };
-  const limit = 25;
-  const query = new URLSearchParams({
-    fields: listFields, filter: JSON.stringify(filter), limit: String(limit + 1), offset: String((page - 1) * limit),
-    sort: (view ? view === "in-progress" : status && status !== "DRAFT") ? "-requested_at,-id" : "-updated_at,-id",
-  });
-  const { data } = z.object({ data: z.array(requestRow).max(limit + 1) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
-  return { items: data.slice(0, limit).map(listItem), hasMore: data.length > limit };
+  const rows = (await readAllRequests(filter)).map(listItem);
+  const requestedSort: RequestSort = view === "drafts" || (!view && (!status || status === "DRAFT")) ? "updated" : "filed";
+  sortRequests(rows, params.has("sort") ? sort : requestedSort, direction);
+  const start = (page - 1) * size;
+  return {
+    items: rows.slice(start, start + size), total: rows.length, pageSize: size, hasMore: rows.length > start + size,
+    summary: await requestSummary(owner, agency),
+  };
 }
 
 type Command = { key: string; hash: string; actor: AgencyActor; id?: number };
@@ -188,9 +250,9 @@ export async function readCommandReceipt(command: Command) {
   return receipt;
 }
 
-export async function replayCommand(command: Command) {
+export async function replayCommand(command: Command, owner?: number) {
   const receipt = await readCommandReceipt(command);
-  return receipt ? getLoanRequest(receipt.request_id) : null;
+  return receipt ? getLoanRequest(receipt.request_id, owner) : null;
 }
 
 const staleDraft = () => new LoanRequestError(409, "This draft changed. Reopen it before making another update.");
@@ -247,9 +309,9 @@ export async function commitRequestRevision(command: Command, action: Operation,
 }
 
 export async function writeRequestRevision(command: Command, action: Operation, current: Stored | null,
-  data: object, before: object | null, after: object, now?: string) {
+  data: object, before: object | null, after: object, now?: string, owner?: number) {
   const receipt = await commitRequestRevision(command, action, current, data, before, after, now);
-  return getLoanRequest(receipt.request_id);
+  return getLoanRequest(receipt.request_id, owner);
 }
 
 type LoanBatchAction = "BULK_APPROVAL_STARTED" | "BULK_APPROVAL_SKIPPED" | "BULK_APPROVAL_COMPLETED" |
@@ -275,31 +337,34 @@ function draftValues(form: RequestForm, assessment: RequestAssessment) {
   };
 }
 
-export async function saveLoanRequest(body: unknown, key: string | null, actor: AgencyActor, id?: number) {
+export async function saveLoanRequest(body: unknown, key: string | null, actor: AgencyActor, id?: number, owner?: number) {
   const input = id === undefined
     ? { ...parseInput(addRequestInput, body), expectedRevision: null }
     : parseInput(updateRequestInput, body);
-  const command = loanCommand(key, { action: "save", ...input }, actor, id);
-  const replay = await replayCommand(command);
+  const owned = id === undefined || owner === undefined ? null : await readRequest(id, owner);
+  const form = owner === undefined ? input.form : employeeRequestForm(input.form, owner);
+  const command = loanCommand(key, { action: "save", ...input, form }, actor, id);
+  const replay = await replayCommand(command, owner);
   if (replay) return replay;
-  const current = id === undefined ? null : await readRequest(id);
+  const current = owned ?? (id === undefined ? null : await readRequest(id));
   if (current) assertDraft(current, input.expectedRevision!);
-  const invalid = invalidDraftFields(input.form);
+  const invalid = invalidDraftFields(form);
   if (Object.keys(invalid).length) throw new LoanRequestError(422, "Check the request fields.", invalid);
-  const assessment = await assessRequest(input.form);
-  const values = draftValues(input.form, assessment);
+  const assessment = await assessRequest(form);
+  const values = draftValues(form, assessment);
   const now = new Date().toISOString();
   return writeRequestRevision(command, current ? "DRAFT_SAVED" : "DRAFT_CREATED", current, {
     ...values, status: "DRAFT", ...(current ? {} : { created_by_user_id: actor.actorId, created_at: now }),
-  }, current ? { form: current.form } : null, { form: input.form }, now);
+  }, current ? { form: current.form } : null, { form }, now, owner);
 }
 
-export async function submitLoanRequest(id: number, body: unknown, key: string | null, actor: AgencyActor) {
+export async function submitLoanRequest(id: number, body: unknown, key: string | null, actor: AgencyActor, owner?: number) {
   const input = parseInput(submitRequestInput, body);
+  const owned = owner === undefined ? null : await readRequest(id, owner);
   const command = loanCommand(key, { action: "submit", ...input }, actor, id);
-  const replay = await replayCommand(command);
+  const replay = await replayCommand(command, owner);
   if (replay) return replay;
-  const current = await readRequest(id);
+  const current = owned ?? await readRequest(id);
   assertDraft(current, input.expectedRevision);
   const form = current.form;
   const assessment = await assessRequest(form);
@@ -315,21 +380,22 @@ export async function submitLoanRequest(id: number, body: unknown, key: string |
   return writeRequestRevision(command, "REQUEST_SUBMITTED", current, {
     ...draftValues(form, assessment), status: "REQUESTED", requested_at: now, requested_by_user_id: actor.actorId,
     filed_assessment: filed, consent_snapshot: consent,
-  }, { status: current.status }, { status: "REQUESTED", consent, ...filed }, now);
+  }, { status: current.status }, { status: "REQUESTED", consent, ...filed }, now, owner);
 }
 
-export async function cancelLoanRequest(id: number, body: unknown, key: string | null, actor: AgencyActor) {
+export async function cancelLoanRequest(id: number, body: unknown, key: string | null, actor: AgencyActor, owner?: number) {
   const { expectedRevision, reason: suppliedReason } = parseInput(cancelRequestInput, body);
+  const owned = owner === undefined ? null : await readRequest(id, owner);
   const reason = suppliedReason || null;
   const command = loanCommand(key, { action: "cancel", expectedRevision, reason }, actor, id);
-  const replay = await replayCommand(command);
+  const replay = await replayCommand(command, owner);
   if (replay) return replay;
 
-  const current = await readRequest(id);
+  const current = owned ?? await readRequest(id);
   if (current.revision !== expectedRevision) throw staleRequest();
   if (!canCancelRequest(current.status)) {
     throw new LoanRequestError(409, "Only requested or approved loans can be cancelled before enrollment.");
   }
   return writeRequestRevision(command, "REQUEST_CANCELLED", current, { status: "CANCELLED" },
-    { status: current.status }, { status: "CANCELLED", reason });
+    { status: current.status }, { status: "CANCELLED", reason }, undefined, owner);
 }

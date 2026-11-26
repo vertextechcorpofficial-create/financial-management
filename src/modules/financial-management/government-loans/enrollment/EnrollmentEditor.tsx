@@ -7,9 +7,11 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { RequestEmployeePicker } from "../requests/RequestEmployeePicker";
-import type { AgencyChoice, EmployeeChoice } from "../requests/types";
+import { RequestSection } from "../requests/RequestReview";
+import { enrollmentEvidenceKinds, type AgencyChoice, type EmployeeChoice } from "../requests/types";
 import { declineAgency, enrollExisting, EnrollmentApiError, enrollRequest, previewExisting, priorLoans, resubmitEnrollment } from "./api";
 import { deductionMonthLabel, deductionMonths, unusualReference } from "./rules";
+import { requiredEnrollmentEvidence } from "./verification-rules";
 import type { EnrollmentDetail, EnrollmentOutcome, EnrollmentTerms, ExistingLoanReview, PriorLoan } from "./types";
 
 function Field({ label, error, hint, children }: { label: string; error?: string; hint?: string; children: ReactNode }) {
@@ -68,6 +70,11 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
   const existing = { ...terms, employeeId: employeeId ?? 0, agencyId, program, transfer };
   const identity = JSON.stringify(existing);
   const reviewed = review?.payload === identity ? review.result : null;
+  const requiredEvidence = requiredEnrollmentEvidence({
+    origin: saved?.origin ?? (record ? "REQUEST" : transfer ? "TRANSFER" : "EXISTING"),
+    installmentsPaid: terms.installmentsPaid, priorLoanId: terms.priorLoanId, importTransfer: saved?.importTransfer,
+  }, filed?.applicationType === "RENEWAL");
+  const step = record ? 2 : reviewed ? 3 : pending === "review" ? 2 : 1;
 
   useEffect(() => {
     if (!employeeId || !agencyId) return;
@@ -143,6 +150,9 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
         onClick={() => { setShowDecline(value => !value); setError(null); }}>Agency did not approve</Button>}
     </div>
     <h2 className="text-base font-semibold">{record ? (correcting ? "Correct enrollment · " : "Enter the approved loan details · ") + record.reference : "Enroll an existing loan"}</h2>
+    {!correcting && <p className="max-w-3xl text-sm text-muted-foreground">
+      Enter the terms exactly as printed on the agency notice. A second person verifies the enrollment before payroll deducts anything.
+    </p>}
     {correcting && saved?.returnReason && <div className="space-y-1 rounded-lg border p-3 text-sm">
       <p className="font-medium">Return reason</p>
       <p className="whitespace-pre-wrap break-words">{saved.returnReason}</p>
@@ -232,6 +242,8 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
             value={months.includes(fields.firstDeductionMonth) ? fields.firstDeductionMonth : ""}
             onChange={event => change("firstDeductionMonth", event.target.value)}>
             <option value="">Choose month</option>
+            {fields.firstDeductionMonth && !months.includes(fields.firstDeductionMonth) &&
+              <option value={fields.firstDeductionMonth}>{deductionMonthLabel(fields.firstDeductionMonth)} (saved)</option>}
             {months.map(month => <option key={month} value={month}>{deductionMonthLabel(month)}</option>)}
           </NativeSelect>}
         </Field>
@@ -254,6 +266,11 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
           <input type="checkbox" checked={transfer} onChange={event => setTransfer(event.target.checked)} /> Transferred from a previous employer
         </label>}
       </fieldset>
+      {!record && <ol className="flex flex-wrap gap-1.5 text-xs" aria-label="Enrollment steps">
+        {["Enter terms", "Check Payroll match", "Save for verification"].map((label, index) =>
+          <li key={label} className={"rounded-full border px-2 py-0.5 " + (index + 1 < step ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+            : index + 1 === step ? "border-primary bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>{index + 1}. {label}</li>)}
+      </ol>}
       {!months.length && <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
         Set the Government Loans open month before saving an enrollment.
         <Button type="button" variant="outline" size="sm" onClick={refreshMonth}>Reload months</Button>
@@ -265,11 +282,17 @@ export function EnrollmentEditor({ record, agencies, openMonth, onBack, onReload
           {reviewed.warnings.map(warning => <li key={warning}>{warning}</li>)}
         </ul>}
       </section>}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <RequestSection title="Required for verification">
+        <p className="text-sm text-muted-foreground">Attach these after saving. Verification cannot proceed without the required evidence.</p>
+        <ul className="list-disc space-y-1 pl-5 text-sm">
+          {requiredEvidence.map(kind => <li key={kind}>{enrollmentEvidenceKinds[kind]}</li>)}
+        </ul>
+      </RequestSection>
+      <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur">
         <p className="text-sm text-muted-foreground">A second person verifies the enrollment before deductions start.</p>
         <Button type="submit" disabled={Boolean(pending) || !months.length || Boolean(unusual && !fields.referenceConfirmed)}>
           {pending === "enroll" ? "Saving…" : pending === "review" ? "Checking…" :
-            correcting ? "Resubmit for verification" : record || reviewed ? "Save & send for verification" : "Review existing loan"}
+            correcting ? "Resubmit for verification" : record || reviewed ? "Save & send for verification" : "Check Payroll match"}
         </Button>
       </div>
     </form>}

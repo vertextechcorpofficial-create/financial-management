@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const cookieStore = await cookies();
     const token = cookieStore.get(COOKIE_NAME)?.value;
 
-    // Fetch live entries for this accountNumber
+    // Fetch live entries for this sceCode (or glCode fallback)
     const liveEntries = await fetchEntriesForAccount(glCode, startDate, endDate, token);
 
     const lines: SCEJournalLine[] = (liveEntries || []).map((e, index) => ({
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
       date: e.transactionDate || e.postingDate || startDate,
       jeNo: e.jeNo,
       description: e.description || "General Ledger Entry",
-      glCode: e.accountNumber || glCode,
+      glCode: e.sceCode || e.accountNumber || glCode,
       accountTitle: e.accountTitle || "",
       debit: e.debit || 0,
       credit: e.credit || 0,

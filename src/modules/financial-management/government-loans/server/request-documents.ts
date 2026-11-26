@@ -44,7 +44,8 @@ async function removeUnlinkedFile(fileId: string) {
   if (!data.length) await governmentLoansDirectus("/files/" + fileId, { method: "DELETE" });
 }
 
-async function saveLoanDocument(id: number, kind: LoanDocumentKind, request: Request, actor: AgencyActor, enrollment: boolean) {
+async function saveLoanDocument(id: number, kind: LoanDocumentKind, request: Request, actor: AgencyActor, enrollment: boolean, owner?: number) {
+  const owned = owner === undefined ? null : await readRequest(id, owner);
   const revision = positiveId.safeParse(request.headers.get("If-Match"));
   if (!revision.success) throw new LoanRequestError(422, "Reload the record before attaching a document.");
   if (Number(request.headers.get("Content-Length")) > 6 * 1024 * 1024) throw new LoanRequestError(413, "Choose a file of 5 MB or less.");
@@ -61,7 +62,7 @@ async function saveLoanDocument(id: number, kind: LoanDocumentKind, request: Req
   }, actor, id);
   const replay = await readCommandReceipt(command);
   if (replay) return replay;
-  const row = await (enrollment ? readStagedEnrollment(id) : readRequest(id));
+  const row = owned ?? await (enrollment ? readStagedEnrollment(id) : readRequest(id));
   if (enrollment) {
     if ((row.status !== "ENROLLED" && row.status !== "RETURNED") || row.revision !== revision.data) {
       throw new LoanRequestError(409, "Reload the enrollment before updating its evidence. Verified evidence is locked.");
@@ -99,9 +100,9 @@ async function saveLoanDocument(id: number, kind: LoanDocumentKind, request: Req
   }
 }
 
-export async function saveRequestDocument(id: number, kind: DocumentKind, request: Request, actor: AgencyActor) {
-  const saved = await saveLoanDocument(id, kind, request, actor, false);
-  return getLoanRequest(saved.request_id);
+export async function saveRequestDocument(id: number, kind: DocumentKind, request: Request, actor: AgencyActor, owner?: number) {
+  const saved = await saveLoanDocument(id, kind, request, actor, false, owner);
+  return getLoanRequest(saved.request_id, owner);
 }
 
 export async function saveEnrollmentEvidence(id: number, kind: EnrollmentEvidenceKind, request: Request, actor: AgencyActor) {
@@ -115,8 +116,8 @@ export function parseEnrollmentEvidenceKind(value: string) {
   return parsed.data;
 }
 
-export async function downloadRequestDocument(id: number, kind: DocumentKind, filedOnly = false) {
-  const request = await readRequest(id);
+export async function downloadRequestDocument(id: number, kind: DocumentKind, filedOnly = false, owner?: number) {
+  const request = await readRequest(id, owner);
   if (filedOnly) assertFiledRequest(request);
   const document = (await readRequestDocuments(id)).find(item => item.kind === kind);
   if (!document) throw new LoanRequestError(404, "This request document could not be found.");

@@ -19,6 +19,18 @@ function requestedPage(request: NextRequest): LedgerPage {
   if (!LEDGER_PAGES.some(p => p.slug === page)) throw new LedgerError("Unknown Property Ledger submodule", 400);
   return page as LedgerPage;
 }
+function isSameOrigin(request: NextRequest) {
+  const origin = request.headers.get("origin");
+  if (!origin || request.headers.get("sec-fetch-site") === "cross-site") return false;
+  let parsed: URL;
+  try { parsed = new URL(origin); } catch { return false; }
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim();
+  const host = forwardedHost || request.headers.get("host");
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim();
+  const protocol = forwardedProto || request.nextUrl.protocol.replace(":", "");
+  if (!host || !protocol) return parsed.origin === request.nextUrl.origin;
+  try { return parsed.origin === new URL(`${protocol}://${host}`).origin; } catch { return false; }
+}
 export async function GET(request: NextRequest) {
   try {
     const user = await authorize(requestedPage(request));
@@ -30,7 +42,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // Cookie-authenticated writes must come from this application's origin.
-    if (request.headers.get("origin") !== request.nextUrl.origin) throw new LedgerError("Invalid request origin", 403);
+    if (!isSameOrigin(request)) throw new LedgerError("Invalid request origin", 403);
     const page = requestedPage(request);
     if (!["land-register", "building-register", "accounting-policies"].includes(page)) throw new LedgerError("This Property Ledger view is read-only. Use a registration submodule to save changes.", 403);
     const user = await authorize(page);

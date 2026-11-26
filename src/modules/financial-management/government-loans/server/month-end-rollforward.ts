@@ -3,8 +3,8 @@ import "server-only";
 import { z } from "zod";
 import { amountFromCentavos } from "../loans/position";
 import { centavos } from "../payroll-handoff/contract";
-import { GOVERNMENT_LOAN_REMITTANCE_DECISIONS } from "./directus";
-import { readGroups } from "./enrollment-sources";
+import { GOVERNMENT_LOAN_CLOSES, GOVERNMENT_LOAN_REMITTANCE_DECISIONS } from "./directus";
+import { readEnrollmentRows, readGroups } from "./enrollment-sources";
 import { payrollMonth, type PayrollReceipt } from "./payroll-month-store";
 import type { RemittanceOverview } from "./remittance-records";
 import { positiveId } from "./request-input";
@@ -31,8 +31,15 @@ type ReceiptSource = z.output<typeof receiptSource>;
 type Withholding = { agencyId: number; receiptId: string; amount: bigint };
 const decision = z.object({ remittance_id: z.uuid(), id: z.uuid() });
 
-function signed(value: string) {
+export function signedRollforwardAmount(value: string) {
   return value.startsWith("-") ? -centavos(value.slice(1)) : centavos(value);
+}
+
+const openingSchema = z.object({ id: z.uuid(), month: payrollMonth, rollforward: rollforwardSchema.nullish() });
+export async function readOpeningRollforward(month: string): Promise<Opening | null> {
+  const [previous] = await readEnrollmentRows(GOVERNMENT_LOAN_CLOSES, openingSchema, "id,month,rollforward",
+    { month: { _eq: month } }, 1);
+  return previous ? { ...previous, rollforward: previous.rollforward ?? null } : null;
 }
 
 export async function buildAgencyRollforward(
@@ -49,7 +56,7 @@ export async function buildAgencyRollforward(
   const byReceipt = new Map([...receipts.values()].map(receipt => [receipt.id, receipt]));
   const selected = remittances.filter(row => row.state === "APPROVED" && row.payment_date <= endDate);
   const sources = await readGroups<z.output<typeof decision>, string>(GOVERNMENT_LOAN_REMITTANCE_DECISIONS, decision,
-    selected.filter(row => !previousRows.has(row.agency_id) || row.payment_date.slice(0, 7) === month).map(row => row.id),
+    selected.filter(row => !previousRows.has(row.agency_id) || row.payment_date.slice(0, 7) >= month).map(row => row.id),
     ids => ({ remittance_id: { _in: ids }, action: { _eq: "APPROVE" } }), "remittance_id");
   const approvals = new Map(sources.map(row => [row.remittance_id, row.id]));
   const relevant = new Set([...withholding.filter(row => row.amount !== 0n).map(row => row.agencyId),
@@ -58,10 +65,10 @@ export async function buildAgencyRollforward(
     const activity = withholding.filter(row => row.agencyId === agency.id);
     const paid = selected.filter(row => row.agency_id === agency.id);
     const earlierPaid = paid.filter(row => row.payment_date.slice(0, 7) < month);
-    const thisPaid = paid.filter(row => row.payment_date.slice(0, 7) === month);
+    const thisPaid = paid.filter(row => row.payment_date.slice(0, 7) >= month);
     const earlierWithheld = activity.filter(row => byReceipt.get(row.receiptId)!.month < month);
     const carry = previousRows.get(agency.id);
-    const opening = carry?.closing != null ? signed(carry.closing) :
+    const opening = carry?.closing != null ? signedRollforwardAmount(carry.closing) :
       earlierWithheld.reduce((sum, row) => sum + row.amount, 0n) -
       earlierPaid.reduce((sum, row) => sum + centavos(row.withheld), 0n);
     const withheld = activity.find(row => row.receiptId === receipts.get(month)?.id)?.amount ?? 0n;
@@ -86,7 +93,7 @@ export async function buildAgencyRollforward(
       receipt: currentReceipt ? { id: currentReceipt.id, month, revision: currentReceipt.revision, amount: amountFromCentavos(withheld) } : null,
       payments: thisPaid.map(paymentSource) };
   });
-  const total = (key: keyof Amounts) => amountFromCentavos(rows.reduce((sum, row) => sum + signed(row[key] ?? "0.00"), 0n));
+  const total = (key: keyof Amounts) => amountFromCentavos(rows.reduce((sum, row) => sum + signedRollforwardAmount(row[key] ?? "0.00"), 0n));
   return { complete, rows, totals: { opening: total("opening"), withheld: complete ? total("withheld") : null,
     remitted: total("remitted"), closing: complete ? total("closing") : null, current: complete ? total("current") : null,
     earlier: complete ? total("earlier") : null } };

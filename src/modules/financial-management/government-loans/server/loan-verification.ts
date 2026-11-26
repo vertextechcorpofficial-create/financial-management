@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { todayManila } from "@/modules/financial-management/cooperative/members/format";
+import { requestWaitingDays } from "../approval/rules";
 import { enrollmentReviewStatuses } from "../enrollment/types";
 import { canStartInOpenPeriod, isEnrollmentPreparer, needsImportTransferChoice, requiredEnrollmentEvidence } from "../enrollment/verification-rules";
 import {
@@ -17,7 +18,7 @@ import {
   checkLiveEnrollmentReference, enrollmentDetail, enrollmentListItem, listEnrollmentRecords, readOpenMonth, readStagedEnrollment,
 } from "./loan-enrollment";
 import {
-  commitRequestRevision, loanCommand, loanCommandPartKey, readCommandReceipt, readLoanDocuments,
+  commitRequestRevision, isoDateTime, loanCommand, loanCommandPartKey, readCommandReceipt, readLoanDocuments,
   readRequestDocuments, recordLoanBatchEvent, type StoredLoanDocument,
 } from "./loan-requests";
 import { LoanRequestError, parseInput, positiveId } from "./request-input";
@@ -35,17 +36,22 @@ export async function listEnrollmentVerification(params: URLSearchParams, actor:
   filters.set("status", status);
   const [result, openMonth] = await Promise.all([listEnrollmentRecords(filters), readOpenMonth()]);
   const documents = await readLoanDocuments(result.items.map(row => row.id));
-  return { hasMore: result.hasMore, openMonth, items: result.items.flatMap(row => {
-    const enrollment = row.enrollment;
-    if (!enrollment) return [];
-    const required = requiredEnrollmentEvidence(enrollment, row.form.applicationType === "RENEWAL");
-    return [{
-      ...enrollmentListItem(row), enrollment, revision: row.revision,
-      canDecide: status === "ENROLLED" && !isEnrollmentPreparer(enrollment, actor.actorId),
-      documentsPresent: required.filter(kind => documents.some(file => file.request_id === row.id && file.kind === kind)).length,
-      documentsRequired: required.length,
-    }];
-  }) };
+  const now = new Date();
+  return { hasMore: result.hasMore, openMonth,
+    summary: { ENROLLED: result.summary.ENROLLED, VERIFIED: result.summary.VERIFIED,
+      ACTIVATING: result.summary.ACTIVATING, ACTIVE: result.summary.ACTIVE },
+    items: result.items.flatMap(row => {
+      const enrollment = row.enrollment;
+      if (!enrollment) return [];
+      const required = requiredEnrollmentEvidence(enrollment, row.form.applicationType === "RENEWAL");
+      return [{
+        ...enrollmentListItem(row), enrollment, revision: row.revision,
+        canDecide: status === "ENROLLED" && !isEnrollmentPreparer(enrollment, actor.actorId),
+        documentsPresent: required.filter(kind => documents.some(file => file.request_id === row.id && file.kind === kind)).length,
+        documentsRequired: required.length,
+        waitingDays: requestWaitingDays(isoDateTime(enrollment.resubmittedAt ?? enrollment.encodedAt), now),
+      }];
+    }) };
 }
 
 async function verificationChecks(row: Enrollment, documents: StoredLoanDocument[]) {

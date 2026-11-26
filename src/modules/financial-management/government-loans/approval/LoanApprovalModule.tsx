@@ -55,10 +55,22 @@ function WaitingBadge({ days }: { days: number }) {
   return <Badge variant="outline">{label}</Badge>;
 }
 
+function SummaryCard({ label, value }: { label: string; value: string | number }) {
+  return <div className="rounded-lg border bg-card p-3">
+    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    <p className="text-xl font-semibold tabular-nums">{typeof value === "number" ? value.toLocaleString("en-PH") : value}</p>
+  </div>;
+}
+
+function failedChecks(row: ApprovalQueueItem) {
+  return (row.checks ?? []).filter(check => check.result === "review");
+}
+
 function DecisionsTable({ rows, onReview }: { rows: ApprovalDecisionRow[]; onReview: (id: number) => void }) {
   if (!rows.length) return <p className="rounded-lg border p-4 text-sm text-muted-foreground">No decisions recorded.</p>;
   return <div className="overflow-hidden rounded-lg border">
     <Table>
+      <caption className="sr-only">Recent approval decisions</caption>
       <TableHeader><TableRow>
         <TableHead>Request</TableHead><TableHead>Employee</TableHead><TableHead>Agency</TableHead>
         <TableHead>Decision</TableHead><TableHead>Decided by</TableHead><TableHead>Decided at</TableHead><TableHead>Remarks</TableHead>
@@ -66,7 +78,10 @@ function DecisionsTable({ rows, onReview }: { rows: ApprovalDecisionRow[]; onRev
       <TableBody>{rows.map(item => <TableRow key={item.id}>
         <TableCell><Button type="button" size="sm" variant="link" className="px-0" onClick={() => onReview(item.requestId)}>{item.reference}</Button></TableCell>
         <TableCell>{item.employeeName ?? "—"}</TableCell><TableCell>{item.agencyName ?? "—"}</TableCell>
-        <TableCell><Badge variant={item.decision === "APPROVED" ? "secondary" : "outline"}>{item.decision === "APPROVED" ? "Approved" : "Rejected"}</Badge></TableCell>
+        <TableCell><Badge variant="outline" className={item.decision === "APPROVED"
+          ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+          : "border-destructive/30 bg-destructive/10 text-destructive"}>
+          {item.decision === "APPROVED" ? "Approved" : "Rejected"}</Badge></TableCell>
         <TableCell>{item.actorName}</TableCell>
         <TableCell><time dateTime={item.occurredAt}>{dateTime(item.occurredAt)} PHT</time></TableCell>
         <TableCell className="min-w-36 max-w-72 whitespace-pre-wrap break-words">{item.remarks ?? "—"}</TableCell>
@@ -89,6 +104,7 @@ export function LoanApprovalModule() {
   const [confirmRows, setConfirmRows] = useState<ApprovalQueueItem[] | null>(null);
   const [batchResult, setBatchResult] = useState<BulkApprovalResult | null>(null);
   const [notice, setNotice] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
 
   const query = new URLSearchParams({ q: search.trim(), page: String(page) });
   if (agency) query.set("agency", agency);
@@ -98,7 +114,7 @@ export function LoanApprovalModule() {
   const loadHistory = useCallback((signal: AbortSignal) => approvalDecisions(historyPage, signal), [historyPage]);
   const loadReview = useCallback((signal: AbortSignal) => approvalReview(reviewId!, signal), [reviewId]);
   const queue = useApprovalRead(loadQueue, refresh, 160);
-  const history = useApprovalRead(loadHistory, refresh);
+  const history = useApprovalRead(showHistory ? loadHistory : null, refresh);
   const agencies = useApprovalRead(approvalAgencies, agencyRefresh);
   const detail = useApprovalRead(reviewId === null ? null : loadReview, reviewRefresh);
   const eligible = queue?.data?.items.filter(row => row.filedChecksPass) ?? [];
@@ -147,7 +163,15 @@ export function LoanApprovalModule() {
         .map(item => <li key={item.id} className="break-words"><span className="font-medium">{item.reference}</span> · {item.reason}</li>)}</ul>}
     </section>}
     <section aria-label="Waiting for approval" className="space-y-3">
-      <h2 className="text-base font-semibold">Waiting for approval</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold">Waiting for approval</h2>
+        <Button type="button" variant="outline" size="sm" onClick={refreshLists}>Refresh queue</Button>
+      </div>
+      {queue?.data?.summary && <div className="grid gap-2 sm:grid-cols-3">
+        <SummaryCard label="Waiting" value={queue.data.summary.waiting} />
+        <SummaryCard label="Overdue" value={queue.data.summary.overdue} />
+        <SummaryCard label="Oldest wait" value={queue.data.summary.oldestWaitingDays + (queue.data.summary.oldestWaitingDays === 1 ? " day" : " days")} />
+      </div>}
       <div className="flex flex-wrap items-center gap-3">
         <Input aria-label="Search requests" placeholder="Employee or request no." className="max-w-xs" value={search} maxLength={120}
           onChange={event => { setSearch(event.target.value); changePage(1); }} />
@@ -159,9 +183,11 @@ export function LoanApprovalModule() {
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={overdue} onCheckedChange={value => { setOverdue(value === true); changePage(1); }} /> Overdue only
         </label>
+        {(search || agency || overdue) && <Button type="button" variant="ghost" size="sm"
+          onClick={() => { setSearch(""); setAgency(""); setOverdue(false); changePage(1); }}>Clear filters</Button>}
       </div>
       {agencies?.error && <LoadError message={agencies.error} retry={() => setAgencyRefresh(value => value + 1)} />}
-      {!!selectedRows.length && <div className="flex flex-wrap items-center gap-3 rounded-lg border p-2 text-sm">
+      {!!selectedRows.length && <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-lg border bg-background/95 p-2 text-sm shadow-sm backdrop-blur">
         <span>{selectedRows.length} selected</span>
         <Button type="button" variant="outline" size="sm" onClick={() => setSelected([])}>Clear selection</Button>
         <Button type="button" size="sm" onClick={() => setConfirmRows(selectedRows)}>Approve selected</Button>
@@ -171,26 +197,37 @@ export function LoanApprovalModule() {
       {queue?.data && <>
         <div className="overflow-hidden rounded-lg border">
           <Table>
+            <caption className="sr-only">Loan requests waiting for company approval</caption>
             <TableHeader><TableRow>
               <TableHead><Checkbox aria-label="Select eligible requests on this page" disabled={!eligible.length}
                 checked={selectedRows.length > 0 && (selectedRows.length === eligible.length ? true : "indeterminate")}
                 onCheckedChange={value => setSelected(value === true ? eligible.map(row => row.id) : [])} /></TableHead>
               <TableHead>Request</TableHead><TableHead>Employee</TableHead><TableHead>Agency</TableHead><TableHead>Program</TableHead>
-              <TableHead className="text-right">Amount</TableHead><TableHead>Filed</TableHead><TableHead>Checks at submission</TableHead><TableHead>Waiting</TableHead>
+              <TableHead className="text-right">Amount</TableHead><TableHead>Filed</TableHead><TableHead>Checks at submission</TableHead><TableHead>Waiting</TableHead><TableHead>Action</TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {!queue.data.items.length && <TableRow><TableCell colSpan={9} className="py-8 text-center text-muted-foreground">No requests waiting for approval.</TableCell></TableRow>}
-              {queue.data.items.map(row => <TableRow key={row.id}>
-                <TableCell><Checkbox aria-label={`Select ${row.reference}`} disabled={!row.filedChecksPass} checked={selected.includes(row.id)}
-                  onCheckedChange={value => setSelected(ids => value === true ? [...ids, row.id] : ids.filter(id => id !== row.id))} /></TableCell>
+              {!queue.data.items.length && <TableRow><TableCell colSpan={10} className="py-8 text-center text-muted-foreground">No requests waiting for approval.</TableCell></TableRow>}
+              {queue.data.items.map(row => {
+                const failed = failedChecks(row);
+                const failedText = failed.map(check => check.label + (check.detail ? ": " + check.detail : "")).join("\n");
+                return <TableRow key={row.id}>
+                <TableCell title={!row.filedChecksPass ? failedText || "Checks must be reviewed before selection." : undefined}>
+                  <Checkbox aria-label={`Select ${row.reference}`} disabled={!row.filedChecksPass} checked={selected.includes(row.id)}
+                    onCheckedChange={value => setSelected(ids => value === true ? [...ids, row.id] : ids.filter(id => id !== row.id))} /></TableCell>
                 <TableCell><Button type="button" size="sm" variant="link" className="px-0" onClick={() => setReviewId(row.id)}>{row.reference}</Button></TableCell>
                 <TableCell>{row.employeeName ?? "—"}</TableCell><TableCell>{row.agencyName ?? "—"}</TableCell><TableCell>{row.program}</TableCell>
                 <TableCell className="text-right tabular-nums">{peso(row.amount)}</TableCell>
                 <TableCell><time dateTime={row.requestedAt}>{dateTime(row.requestedAt)} PHT</time></TableCell>
-                <TableCell><Badge variant="outline" className={row.filedChecksPass ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>
-                  {row.filedChecksPass ? "OK" : "Review"}</Badge></TableCell>
+                <TableCell>
+                  <Badge variant="outline" title={failedText} className={row.filedChecksPass ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>
+                    {row.filedChecksPass ? "OK" : failed.length ? failed.length + " review" : "Review"}
+                  </Badge>
+                  {failed.length > 0 && <p className="max-w-48 truncate text-xs text-muted-foreground" title={failedText}>{failed.map(check => check.label).join(", ")}</p>}
+                </TableCell>
                 <TableCell><WaitingBadge days={row.waitingDays} /></TableCell>
-              </TableRow>)}
+                <TableCell><Button type="button" variant="outline" size="sm" onClick={() => setReviewId(row.id)}>Review</Button></TableCell>
+                </TableRow>;
+              })}
             </TableBody>
           </Table>
         </div>
@@ -198,12 +235,18 @@ export function LoanApprovalModule() {
       </>}
     </section>
     <section aria-label="Recent decisions" className="space-y-3">
-      <h2 className="text-base font-semibold">Recent decisions</h2>
-      {!history && <p role="status" className="text-sm text-muted-foreground">Loading decisions…</p>}
-      {history?.error && <LoadError message={history.error} retry={() => setRefresh(value => value + 1)} />}
-      {history?.data && <>
-        <DecisionsTable rows={history.data.items} onReview={setReviewId} />
-        <Pagination name="Decision history pages" page={historyPage} hasMore={history.data.hasMore} onPage={setHistoryPage} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold">Recent decisions</h2>
+        <Button type="button" variant="outline" size="sm" aria-expanded={showHistory}
+          onClick={() => setShowHistory(value => !value)}>{showHistory ? "Hide decisions" : "Show decisions"}</Button>
+      </div>
+      {showHistory && <>
+        {!history && <p role="status" className="text-sm text-muted-foreground">Loading decisions…</p>}
+        {history?.error && <LoadError message={history.error} retry={() => setRefresh(value => value + 1)} />}
+        {history?.data && <>
+          <DecisionsTable rows={history.data.items} onReview={setReviewId} />
+          <Pagination name="Decision history pages" page={historyPage} hasMore={history.data.hasMore} onPage={setHistoryPage} />
+        </>}
       </>}
     </section>
   </div>;
