@@ -12,6 +12,7 @@ import {
   buildMasterlistWorkbook,
 } from "@/modules/financial-management/barangay-asset-inventory-system/reports/services/brgyReportWorkbook";
 import { fetchLookups } from "@/modules/financial-management/barangay-asset-inventory-system/assets/services/brgyAssets";
+import { AccessError, requireBarangayScope, requirePermission, resolveAccess } from "@/modules/financial-management/barangay-asset-inventory-system/shared/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +30,12 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const kind = searchParams.get("kind") ?? "masterlist";
-    const barangayId = Number(searchParams.get("barangayId"));
+    const access = await resolveAccess();
+    requirePermission(access, "reports", "export a report");
+    if (kind === "consolidation" && access.role !== "municipal" && access.role !== "system_admin") {
+      throw new AccessError("Municipal consolidation is for the Municipal Property and Accounting Offices.", 403);
+    }
+    const barangayId = kind === "consolidation" ? 0 : requireBarangayScope(access, Number(searchParams.get("barangayId")), "view");
     const lookups = await fetchLookups(barangayId || undefined);
     const barangay = lookups.barangays.find((b) => b.id === barangayId);
     const label = (barangay ? barangay.code + "-" + barangay.name.replace(/[^a-zA-Z0-9]+/g, "-") : "barangay").toLowerCase();
@@ -74,6 +80,7 @@ export async function GET(req: Request) {
       "masterlist-" + label + "-" + stamp + ".xlsx"
     );
   } catch (err) {
+    if (err instanceof AccessError) return NextResponse.json({ message: err.message }, { status: err.status });
     return NextResponse.json({ message: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }

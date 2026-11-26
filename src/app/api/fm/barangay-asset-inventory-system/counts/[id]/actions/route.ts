@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { closeCount, markCountLine, markUnrecorded } from "@/modules/financial-management/barangay-asset-inventory-system/count/services/brgyCount";
+import { closeCount, fetchCount, markCountLine, markUnrecorded } from "@/modules/financial-management/barangay-asset-inventory-system/count/services/brgyCount";
 import type { BrgyCondition } from "@/modules/financial-management/barangay-asset-inventory-system/types";
+
+import { requireBarangayScope, requirePermission, resolveAccess, AccessError } from "@/modules/financial-management/barangay-asset-inventory-system/shared/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +12,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const { id } = await ctx.params;
     const countId = Number(id);
     const body = await req.json();
+    const access = await resolveAccess();
+    const existing = await fetchCount(countId);
+    requireBarangayScope(access, existing.count.barangay_id, "count");
+    requirePermission(access, "count", "work on a count");
     switch (body?.action) {
       case "mark":
         return NextResponse.json(
@@ -32,6 +38,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         return NextResponse.json({ message: "Unknown action" }, { status: 400 });
     }
   } catch (err) {
+    if (err instanceof AccessError) return NextResponse.json({ message: err.message }, { status: err.status });
     return NextResponse.json({ message: err instanceof Error ? err.message : String(err) }, { status: 400 });
   }
 }

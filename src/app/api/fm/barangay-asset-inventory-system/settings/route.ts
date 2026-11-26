@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { fetchLookups, updateSettings } from "@/modules/financial-management/barangay-asset-inventory-system/assets/services/brgyAssets";
 
+import { requirePermission, resolveAccess } from "@/modules/financial-management/barangay-asset-inventory-system/shared/access";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    const access = await resolveAccess();
+    requirePermission(access, "view", "read settings");
     const lookups = await fetchLookups();
     return NextResponse.json({ settings: lookups.settings, barangays: lookups.barangays });
   } catch (err) {
@@ -16,6 +20,8 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    const access = await resolveAccess();
+    requirePermission(access, "users", "change settings");
     return NextResponse.json(
       await updateSettings({
         salvagePercent: Number(body.salvagePercent ?? 0),

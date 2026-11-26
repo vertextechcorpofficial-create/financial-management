@@ -3,10 +3,13 @@ import {
   assignCustodian,
   cancelAsset,
   changeStatus,
+  fetchAsset,
   updateCondition,
 } from "@/modules/financial-management/barangay-asset-inventory-system/assets/services/brgyAssets";
 import { requestReturn } from "@/modules/financial-management/barangay-asset-inventory-system/transfers/services/brgyTransfers";
 import type { BrgyCondition, BrgyStatus } from "@/modules/financial-management/barangay-asset-inventory-system/types";
+
+import { requireBarangayScope, requirePermission, resolveAccess } from "@/modules/financial-management/barangay-asset-inventory-system/shared/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +19,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const { id } = await ctx.params;
     const assetId = Number(id);
     const body = await req.json();
+    const access = await resolveAccess();
+    const detail = await fetchAsset(assetId);
+    requireBarangayScope(access, detail.asset.barangay_id, "view");
+
+    if (body?.action === "cancel") requirePermission(access, "register", "cancel a record");
+    else requirePermission(access, "assign", "change an assignment, condition or status");
 
     switch (body?.action) {
       case "assign": {
