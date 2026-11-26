@@ -1,21 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { AgencyForm } from "./AgencyForm";
 import { AgencyHistoryDialog } from "./AgencyHistoryDialog";
-import { fetchAgencies } from "./agencies-api";
+import { AgencyRequestError, fetchAgencies, saveAgency } from "./agencies-api";
 import { AGENCY_TYPES, DEADLINE_RULES, PENALTY_BASES, type Agency, type AgencyPage } from "./types";
 
-function AgencyCard({ agency, editing, onEdit, onHistory }: {
+function AgencyCard({ agency, editing, busy, onEdit, onHistory, onToggle }: {
   agency: Agency;
   editing: boolean;
+  busy: boolean;
   onEdit: () => void;
   onHistory: () => void;
+  onToggle: () => void;
 }) {
   const details = [
     ["Loan programs", agency.programs.join(", ")],
@@ -35,7 +39,11 @@ function AgencyCard({ agency, editing, onEdit, onHistory }: {
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="break-all font-semibold">{agency.displayName}</h3>
           <Badge variant="outline">{agency.shortCode}</Badge>
-          <Badge variant={agency.isActive ? "secondary" : "outline"}>{agency.isActive ? "Active" : "Inactive"}</Badge>
+          <span className="flex items-center gap-2 text-sm">
+            <Switch checked={agency.isActive} disabled={busy} onCheckedChange={onToggle}
+              aria-label={`${agency.displayName} active status`} />
+            {busy ? "Saving…" : agency.isActive ? "Active" : "Inactive"}
+          </span>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           {agency.fullName !== agency.displayName ? `${agency.fullName} · ` : ""}{AGENCY_TYPES[agency.agencyType]}
@@ -67,6 +75,9 @@ export function AgenciesModule() {
   const [editor, setEditor] = useState<"new" | Agency | null>(null);
   const [history, setHistory] = useState<Agency | null>(null);
   const [notice, setNotice] = useState("");
+  const [noticeError, setNoticeError] = useState(false);
+  const [toggling, setToggling] = useState<number | null>(null);
+  const skipUrlWrite = useRef(true);
   const query = new URLSearchParams({
     ...(search.trim() ? { search: search.trim() } : {}),
     ...(type ? { type } : {}),
@@ -75,6 +86,34 @@ export function AgenciesModule() {
   }).toString();
   const key = `${query}#${refresh}`;
   const current = result?.key === key ? result : undefined;
+
+  useEffect(() => {
+    const syncFromLocation = () => {
+      const params = new URLSearchParams(window.location.search);
+      setSearch(params.get("agencyQ") ?? "");
+      setType(params.get("agencyType") ?? "");
+      setStatus(params.get("agencyStatus") ?? "");
+      setPage(Math.max(1, Number(params.get("agencyPage")) || 1));
+    };
+    syncFromLocation();
+    skipUrlWrite.current = true;
+    window.addEventListener("popstate", syncFromLocation);
+    return () => window.removeEventListener("popstate", syncFromLocation);
+  }, []);
+
+  useEffect(() => {
+    if (skipUrlWrite.current) { skipUrlWrite.current = false; return; }
+    const params = new URLSearchParams(window.location.search);
+    const setOrDelete = (key: string, value: string) => value ? params.set(key, value) : params.delete(key);
+    setOrDelete("agencyQ", search.trim());
+    setOrDelete("agencyType", type);
+    setOrDelete("agencyStatus", status);
+    setOrDelete("agencyPage", page > 1 ? String(page) : "");
+    const next = params.toString();
+    const target = window.location.pathname + (next ? "?" + next : "") + window.location.hash;
+    const location = window.location.pathname + window.location.search + window.location.hash;
+    if (target !== location) window.history.replaceState(window.history.state, "", target);
+  }, [search, type, status, page]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -92,6 +131,7 @@ export function AgenciesModule() {
 
   function openEditor(value: "new" | Agency) {
     setNotice("");
+    setNoticeError(false);
     setEditor(value);
   }
 
@@ -101,14 +141,56 @@ export function AgenciesModule() {
     setRefresh(value => value + 1);
   }
 
+  async function toggleAgency(agency: Agency) {
+    if (toggling !== null) return;
+    setToggling(agency.id);
+    setNotice("");
+    setNoticeError(false);
+    try {
+      const saved = await saveAgency({
+        expectedRevision: agency.revision,
+        isActive: !agency.isActive,
+        displayName: agency.displayName,
+        fullName: agency.fullName,
+        agencyType: agency.agencyType,
+        programs: agency.programs,
+        referenceExample: agency.referenceExample,
+        paymentReferenceLabel: agency.paymentReferenceLabel,
+        payoutOptions: agency.payoutOptions,
+        employerNumber: agency.employerNumber,
+        deadlineRule: agency.deadlineRule,
+        deadlineDay: agency.deadlineDay,
+        penaltyBasis: agency.penaltyBasis,
+        penaltyRatePercent: agency.penaltyRatePercent,
+        reminderDays: agency.reminderDays,
+        catchUp: agency.catchUp,
+        sendsBilling: agency.sendsBilling,
+      }, agency.id);
+      setNotice(`${saved.displayName} ${saved.isActive ? "activated" : "deactivated"}.`);
+      if (status) setPage(1);
+      setRefresh(value => value + 1);
+    } catch (cause) {
+      setNoticeError(true);
+      setNotice(cause instanceof AgencyRequestError ? cause.message : "Could not update the agency status.");
+    } finally {
+      setToggling(null);
+    }
+  }
+
   return <section aria-labelledby="government-loan-agencies-heading" className="space-y-4">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <h2 id="government-loan-agencies-heading" className="text-lg font-semibold">Agencies</h2>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 id="government-loan-agencies-heading" className="text-lg font-semibold">Agencies</h2>
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          Agencies and lenders the company remits to. Update remittance rules, references, penalties, and which agencies are active.
+        </p>
+      </div>
       <Button type="button" onClick={() => openEditor("new")} disabled={editor !== null}>Add agency</Button>
     </div>
-    {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
+    {notice && <p role={noticeError ? "alert" : "status"} className={"text-sm " + (noticeError ? "text-destructive" : "text-muted-foreground")}>{notice}</p>}
     {editor && <AgencyForm key={editor === "new" ? "new" : editor.id} agency={editor === "new" ? undefined : editor} onReload={reloadAgencies}
       onCancel={() => setEditor(null)} onSaved={saved => {
+        setNoticeError(false);
         setNotice(`${saved.displayName} ${editor === "new" ? "added" : "updated"}.`);
         reloadAgencies();
       }} />}
@@ -133,8 +215,16 @@ export function AgenciesModule() {
           <option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option>
         </NativeSelect>
       </div>
+      {(search || type || status) && <Button type="button" variant="ghost" size="sm"
+        onClick={() => { setSearch(""); setType(""); setStatus(""); setPage(1); }}>Clear filters</Button>}
     </div>
-    {!current && <p role="status" className="text-sm text-muted-foreground">Loading agencies…</p>}
+    {!current && <div className="space-y-2">
+      {[0, 1].map(index => <div key={index} className="space-y-3 rounded-lg border bg-card p-4">
+        <Skeleton className="h-6 w-56" />
+        <Skeleton className="h-4 w-72" />
+        <Skeleton className="h-24 w-full" />
+      </div>)}
+    </div>}
     {current && "error" in current && <div className="space-y-2 rounded-lg border border-destructive/30 p-4">
       <p role="alert" className="text-sm text-destructive">{current.error}</p>
       <Button type="button" variant="outline" size="sm" onClick={() => setRefresh(value => value + 1)}>Retry</Button>
@@ -142,11 +232,15 @@ export function AgenciesModule() {
     {current && "data" in current && <>
       {current.data.agencies.length === 0 && <p className="rounded-lg border p-4 text-sm text-muted-foreground">No agencies match the filters.</p>}
       {current.data.agencies.map(agency => <AgencyCard key={agency.id} agency={agency} editing={editor !== null}
-        onEdit={() => openEditor(agency)} onHistory={() => setHistory(agency)} />)}
-      <div className="flex flex-wrap items-center justify-end gap-2 text-sm">
-        <span className="text-muted-foreground">Page {page}</span>
-        <Button type="button" variant="outline" size="sm" onClick={() => setPage(value => value - 1)} disabled={page === 1}>Previous page</Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => setPage(value => value + 1)} disabled={!current.data.hasMore}>Next page</Button>
+        busy={toggling === agency.id} onEdit={() => openEditor(agency)} onHistory={() => setHistory(agency)}
+        onToggle={() => void toggleAgency(agency)} />)}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <p className="text-muted-foreground">Inactive agencies stay in history and reports; amounts already withheld can still be remitted.</p>
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground">Page {page}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPage(value => value - 1)} disabled={page === 1}>Previous page</Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPage(value => value + 1)} disabled={!current.data.hasMore}>Next page</Button>
+        </div>
       </div>
     </>}
   </section>;

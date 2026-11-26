@@ -214,8 +214,11 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
       <Button type="button" variant="ghost" disabled={busy} onClick={backToRequests}><ArrowLeft /> Back to requests</Button>
       <h2 className="font-semibold">{record ? record.reference + " · Draft" : applicant ? "Apply for a loan" : "New loan request"}</h2>
     </div>
+    <p className="max-w-3xl text-sm text-muted-foreground">
+      Everything the approver needs to decide. After the agency or lender approves the loan, HR enrolls it for payroll deduction.
+    </p>
     <fieldset disabled={busy} className="min-w-0 space-y-4">
-      <Section title="Employee">
+      <Section step={1} title="Employee">
         <div className="max-w-lg">
           {applicant ? <p className="text-sm font-medium">{employee?.name ?? applicant.name} · {applicant.id}</p>
             : <RequestEmployeePicker label="Employee" value={employee} disabled={busy} invalid={Boolean(shownErrors.employeeId)}
@@ -224,7 +227,7 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
         </div>
         {employeeDetails?.id === form.employeeId && <EmployeeDetails employee={employeeDetails} />}
       </Section>
-      <Section title="Loan applied for">
+      <Section step={2} title="Loan applied for">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <SelectField label="Agency / lender" value={form.agencyId?.toString() ?? ""}
             options={agencies.map(item => ({ value: String(item.id), label: item.name }))}
@@ -257,7 +260,7 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
         </label>
       </Section>
 
-      {bank && <Section title="Co-maker">
+      {bank && <Section step={3} title="Co-maker">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <RequestEmployeePicker label="Co-maker" value={coMaker} exclude={form.employeeId} disabled={busy}
@@ -268,7 +271,7 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
           {textField("coMakerRelationship", "Relationship", { max: 160 })}
         </div>
       </Section>}
-      <Section title="Deduction capacity and checks">
+      <Section step={bank ? 4 : 3} title="Deduction capacity and checks">
         {form.employeeId && agency && form.program && <div className="max-w-sm">
           {textField("agencyAmortization", "Monthly amortization from agency", { inputMode: "decimal", max: 13 })}
         </div>}
@@ -279,7 +282,7 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
           <p role="status" className="text-sm text-muted-foreground">Updating request checks…</p>}
       </Section>
 
-      <Section title="Documents">
+      <Section step={bank ? 5 : 4} title="Documents">
         <p className="text-xs text-muted-foreground">Optional. One PDF, JPG, or PNG per document, up to 5 MB.</p>
         <div className="grid gap-3 sm:grid-cols-2">
           {(Object.keys(documentKinds) as DocumentKind[]).map(kind => {
@@ -315,7 +318,7 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
         </div>
       </Section>
 
-      <Section title="Employee consent">
+      <Section step={bank ? 6 : 5} title="Employee consent">
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" checked={form.deductionConsent} className="mt-1 accent-primary"
             onChange={event => change("deductionConsent", event.target.checked)} />

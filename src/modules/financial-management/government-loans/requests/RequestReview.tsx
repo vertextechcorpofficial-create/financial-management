@@ -19,9 +19,9 @@ import {
   type DocumentKind, type LoanRequest, type RequestStatus,
 } from "./types";
 
-export function RequestSection({ title, children }: { title: string; children: ReactNode }) {
+export function RequestSection({ title, step, children }: { title: string; step?: number; children: ReactNode }) {
   return <section className="space-y-4 rounded-lg border bg-card p-4" aria-label={title}>
-    <h3 className="text-sm font-semibold">{title}</h3>
+    <h3 className="text-sm font-semibold">{step ? `${step} · ` : ""}{title}</h3>
     {children}
   </section>;
 }
