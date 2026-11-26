@@ -20,7 +20,16 @@ function oneOf(values: readonly string[], message: string) {
   return z.string().refine((value) => values.includes(value), message);
 }
 
-const dateOnly = z.string().regex(DATE_PATTERN, "Choose a date.");
+function dateField(message: string) {
+  return z.string().regex(DATE_PATTERN, message);
+}
+
+function optionalDateField(message: string) {
+  return z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+    dateField(message).nullable().optional(),
+  );
+}
 
 /** The route body: trusted shapes only, and the money that the engine derives is not accepted here. */
 export const loanBodySchema = z
@@ -42,8 +51,8 @@ export const loanBodySchema = z
     repaymentMethod: oneOf(REPAYMENT_METHODS, "Choose the repayment method."),
     paymentFrequency: oneOf(PAYMENT_FREQUENCIES, "Choose the payment frequency."),
     termPayments: z.number().int().min(1).max(600),
-    releaseDate: dateOnly,
-    firstPaymentDate: dateOnly,
+    releaseDate: dateField("Choose the release date."),
+    firstPaymentDate: dateField("Choose the first payment date."),
     firstPeriodBasis: oneOf(FIRST_PERIOD_BASES, "Choose how the first period is counted."),
     businessDayRule: oneOf(BUSINESS_DAY_RULES, "Choose the holiday rule."),
     proceedsAccountId: z.number().int().positive(),
@@ -55,8 +64,8 @@ export const loanBodySchema = z
     pas23Applies: z.boolean().default(false),
     pas23BorrowingType: z.enum(PAS23_TYPES).nullable().optional(),
     pas23Asset: z.string().trim().max(191).nullable().optional(),
-    pas23CapitalizeFrom: dateOnly.nullable().optional(),
-    pas23CapitalizeUntil: dateOnly.nullable().optional(),
+    pas23CapitalizeFrom: optionalDateField("Choose the capitalization start date."),
+    pas23CapitalizeUntil: optionalDateField("Choose the capitalization end date."),
     remarks: z.string().trim().max(2000).nullable().optional(),
   })
   .superRefine((value, ctx) => {

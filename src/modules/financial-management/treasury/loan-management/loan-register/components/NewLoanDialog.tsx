@@ -247,8 +247,8 @@ export function NewLoanDialog({
         pas23Applies: values.pas23Applies,
         pas23BorrowingType: values.pas23Applies ? values.pas23BorrowingType : null,
         pas23Asset: values.pas23Asset.trim(),
-        pas23CapitalizeFrom: values.pas23CapitalizeFrom,
-        pas23CapitalizeUntil: values.pas23CapitalizeUntil,
+        pas23CapitalizeFrom: values.pas23Applies ? values.pas23CapitalizeFrom : "",
+        pas23CapitalizeUntil: values.pas23Applies ? values.pas23CapitalizeUntil : "",
         remarks: values.remarks.trim(),
       });
       toast.success(`${created.loanNo} recorded. It is waiting for approval.`);
@@ -292,7 +292,17 @@ export function NewLoanDialog({
    *  shows is wrong, and Record loan still validates the whole form. */
   const STEP_FIELDS: Record<number, string[]> = {
     1: ["lenderName", "accountNo", "purpose"],
-    2: ["principal", "annualRate", "termPayments", "releaseDate", "firstPaymentDate", "proceedsAccountId", "pas23BorrowingType"],
+    2: [
+      "principal",
+      "annualRate",
+      "termPayments",
+      "releaseDate",
+      "firstPaymentDate",
+      "proceedsAccountId",
+      "pas23BorrowingType",
+      "pas23CapitalizeFrom",
+      "pas23CapitalizeUntil",
+    ],
     3: [],
   };
   const STEP_TITLE: Record<number, string> = { 1: "Lender details", 2: "Terms and charges", 3: "Summary" };
@@ -669,7 +679,7 @@ export function NewLoanDialog({
                   <Field label="Qualifying asset">
                     <Input value={values.pas23Asset} onChange={(event) => set("pas23Asset", event.target.value)} />
                   </Field>
-                  <Field label="Capitalize from">
+                  <Field label="Capitalize from" error={errors.pas23CapitalizeFrom}>
                     <DateField
                       value={values.pas23CapitalizeFrom}
                       onChange={(value) => set("pas23CapitalizeFrom", value)}
@@ -677,7 +687,7 @@ export function NewLoanDialog({
                       placeholder="Choose a date"
                     />
                   </Field>
-                  <Field label="Capitalize until">
+                  <Field label="Capitalize until" error={errors.pas23CapitalizeUntil}>
                     <DateField
                       value={values.pas23CapitalizeUntil}
                       onChange={(value) => set("pas23CapitalizeUntil", value)}
@@ -914,7 +924,7 @@ function focusFirstError() {
     if (!node) return;
     node.scrollIntoView({ block: "center" });
     // The message is the fallback; the control is what the reader has to fix.
-    const field = node.parentElement?.querySelector<HTMLElement>("input, button[role=combobox], textarea, [role=combobox]");
+    const field = node.parentElement?.querySelector<HTMLElement>("input, button, textarea, [role=combobox]");
     (field ?? node).focus({ preventScroll: true });
   });
 }
@@ -938,7 +948,11 @@ function Field({
         {label}
         {required ? <span className="text-destructive"> *</span> : null}
       </Label>
-      <div data-field-control aria-invalid={error ? true : undefined} className={error ? "[&_input]:border-destructive [&_button[role=combobox]]:border-destructive" : undefined}>
+      <div
+        data-field-control
+        aria-invalid={error ? true : undefined}
+        className={error ? "[&_input]:border-destructive [&_button]:border-destructive" : undefined}
+      >
         {children}
       </div>
       {error ? (

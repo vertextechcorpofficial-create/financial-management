@@ -22,14 +22,14 @@ const CELL =
 /** Every bucket the payment covered, penalty first: dropping one made the split not add up. */
 export function appliedLabel(row: LoanHistoryRow) {
   const parts: string[] = [];
-  if (row.penaltyAmount > 0) parts.push(`${formatCurrency(row.penaltyAmount)} penalty`);
-  if (row.interestAmount > 0) parts.push(`${formatCurrency(row.interestAmount)} interest`);
-  if (row.principalAmount > 0) parts.push(`${formatCurrency(row.principalAmount)} principal`);
-  if (row.advanceAmount > 0) parts.push(`${formatCurrency(row.advanceAmount)} advance`);
+  if (row.penaltyAmount > 0.005) parts.push(`${formatCurrency(row.penaltyAmount)} penalty`);
+  if (row.interestAmount > 0.005) parts.push(`${formatCurrency(row.interestAmount)} interest`);
+  if (row.principalAmount > 0.005) parts.push(`${formatCurrency(row.principalAmount)} principal`);
+  if (row.advanceAmount > 0.005) parts.push(`${formatCurrency(row.advanceAmount)} advance`);
   // The bank charge is extra money out, not part of what the installment absorbed, so it is
   // appended rather than folded into the split.
   const applied = parts.length > 0 ? parts.join(" · ") : "nothing applied";
-  return row.bankCharge > 0 ? `${applied} + ${formatCurrency(row.bankCharge)} charge` : applied;
+  return row.bankCharge > 0.005 ? `${applied} + ${formatCurrency(row.bankCharge)} charge` : applied;
 }
 
 interface Props {
@@ -157,7 +157,7 @@ export function PaymentHistoryCard({ rows, isLoading, accounts, filters, onChang
                     </td>
                     <td className="text-right tabular-nums font-medium">{formatCurrency(row.amount)}</td>
                     <td className="text-xs text-muted-foreground">
-                      <div className="max-w-[240px] truncate" title={appliedLabel(row)}>
+                      <div className="max-w-[420px] whitespace-normal break-words" title={appliedLabel(row)}>
                         {appliedLabel(row)}
                       </div>
                     </td>

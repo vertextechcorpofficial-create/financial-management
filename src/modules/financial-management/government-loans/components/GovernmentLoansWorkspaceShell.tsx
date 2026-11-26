@@ -24,6 +24,7 @@ import { AgencyBillingModule } from "../remittances/billing/AgencyBillingModule"
 import { RemittancePreparationModule } from "../remittances/preparation/RemittancePreparationModule";
 import { RemittanceApprovalModule } from "../remittances/approval/RemittanceApprovalModule";
 import { MonthEndCloseModule } from "../month-end-close/MonthEndCloseModule";
+import { PeriodSetupModule } from "../month-end-close/PeriodSetupModule";
 import { EmployeeLedgerReport, RemittanceReport } from "../reports/GovernmentLoanReports";
 import { AuditTrailReport, YearEndSummaryReport } from "../reports/YearEndAndAuditReports";
 import { LoanRequestsModule } from "../requests/LoanRequestsModule";
@@ -41,9 +42,10 @@ const workspaceIcons: Record<GovernmentLoansWorkspaceKey, LucideIcon> = {
   "my-loans": UserRound,
 };
 
-export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmployee, reportActorId, requestApplicant, initialTab }: {
+export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmployee, reportActorId, requestApplicant, initialTab, canOpenSetup }: {
   reportActorId?: number;
   initialTab?: string;
+  canOpenSetup?: boolean;
   requestApplicant?: Pick<EmployeeChoice, "id" | "name">;
   workspace: GovernmentLoansWorkspace;
   tabs: readonly GovernmentLoansTab[];
@@ -112,14 +114,16 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
             hasAgencies && tab.key === "to-remit" ? <RemittancePreparationModule /> :
             hasAgencies && tab.key === "billing-reconciliation" ? <AgencyBillingModule /> :
             hasRequests && tab.key === "requests" ? <LoanRequestsModule /> :
-            hasRequests && tab.key === "enrollment" ? <LoanEnrollmentModule transferEmployee={transferEmployee} /> :
+            hasRequests && tab.key === "enrollment" ? <LoanEnrollmentModule transferEmployee={transferEmployee} canOpenSetup={canOpenSetup} /> :
             hasApprovals && tab.key === "loan-requests" ? <LoanApprovalModule /> :
             hasApprovals && tab.key === "enrollment-verification" ? <LoanVerificationModule /> :
             hasLoans && (tab.key === "register" || tab.key === "agency-balances") ? <LoanRegisterModule tab={tab.key} /> :
             hasLoans && tab.key === "changes" ? <LoanChangesModule /> :
             hasLoans && tab.key === "onboarding-exits" ? <OnboardingExitsModule /> :
             hasLoans && tab.key === "posting-disputes" ? <PostingDisputesModule /> :
-            hasLoans && tab.key === "payroll-instructions" ? <PayrollInstructionsModule /> :
+            hasLoans && tab.key === "payroll-instructions" ? <PayrollInstructionsModule canOpenSetup={canOpenSetup} /> :
+            hasMonthEndClose && tab.key === "close" ? <MonthEndCloseModule setupHref="?tab=setup" /> :
+            hasMonthEndClose && tab.key === "setup" ? <PeriodSetupModule /> :
             hasReports && tab.key === "employee-ledger" ? <EmployeeLedgerReport key={reportActorId} actorId={reportActorId} /> :
             hasReports && tab.key === "remittance-report" ? <RemittanceReport key={reportActorId} actorId={reportActorId} /> :
             hasReports && tab.key === "year-end-summary" ? <YearEndSummaryReport key={reportActorId} actorId={reportActorId} /> :

@@ -170,21 +170,26 @@ export function InstallmentsCard({
                   return (
                     <tr key={item.id} className={cn("transition-colors hover:bg-muted/40", selected.includes(item.id) && "bg-muted/30")}>
                       <td>
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-primary"
-                          checked={selected.includes(item.id)}
-                          disabled={settled}
-                          onChange={() => onToggle(item.id)}
-                          aria-label={`Select installment ${item.periodNo}`}
-                        />
+                        {settled ? (
+                          <span className="inline-block h-4 w-4 shrink-0" aria-hidden />
+                        ) : (
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-primary"
+                            checked={selected.includes(item.id)}
+                            onChange={() => onToggle(item.id)}
+                            aria-label={`Select installment ${item.periodNo}`}
+                          />
+                        )}
                       </td>
                       <td className="tabular-nums">{item.periodNo}</td>
                       <td>{dueCell(item)}</td>
                       <td className="text-right tabular-nums">{formatCurrency(item.payment)}</td>
                       <td className="text-right tabular-nums text-muted-foreground">{formatCurrency(item.paidAmount)}</td>
                       <td className="text-right tabular-nums font-medium">{formatCurrency(balance)}</td>
-                      <td className="text-right tabular-nums">{item.penalty > 0 ? formatCurrency(item.penalty) : "none"}</td>
+                      <td className="text-right tabular-nums">
+                        {item.penalty > 0 ? formatCurrency(item.penalty) : <span className="text-muted-foreground">—</span>}
+                      </td>
                       <td>
                         <StatusBadge tone={INSTALLMENT_STATUS_TONE[item.status] ?? "neutral"}>
                           {INSTALLMENT_STATUS_LABEL[item.status] ?? item.status}
@@ -215,14 +220,17 @@ export function InstallmentsCard({
               const settled = item.totalOutstanding <= 0;
               return (
                 <li key={item.id} className="flex items-start gap-3 px-4 py-3">
-                  <input
-                    type="checkbox"
-                    className="mt-1 h-4 w-4 accent-primary"
-                    checked={selected.includes(item.id)}
-                    disabled={settled}
-                    onChange={() => onToggle(item.id)}
-                    aria-label={`Select installment ${item.periodNo}`}
-                  />
+                  {settled ? (
+                    <span className="mt-1 inline-block h-4 w-4 shrink-0" aria-hidden />
+                  ) : (
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 accent-primary"
+                      checked={selected.includes(item.id)}
+                      onChange={() => onToggle(item.id)}
+                      aria-label={`Select installment ${item.periodNo}`}
+                    />
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium tabular-nums">#{item.periodNo}</span>

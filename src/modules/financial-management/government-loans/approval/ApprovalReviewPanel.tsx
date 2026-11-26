@@ -6,6 +6,7 @@ import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +16,7 @@ import { RequestCapacity } from "../requests/RequestCapacity";
 import { RequestDetails, RequestSection } from "../requests/RequestReview";
 import { RequestApiError } from "../requests/request-api";
 import { approvalDocumentUrl, decideApproval } from "./api";
+import { requestWaitingDays } from "./rules";
 import type { ApprovalReview, CompanyDecision } from "./types";
 
 export function ApprovalReviewPanel({ review, onBack, onReload, onDecision }: {
@@ -25,6 +27,9 @@ export function ApprovalReviewPanel({ review, onBack, onReload, onDecision }: {
 }) {
   const { request, currentAssessment } = review;
   const remarksId = useId();
+  const filedBy = request.decisionHistory.find(event => event.action === "REQUEST_SUBMITTED")?.actorName;
+  const waitingDays = request.requestedAt ? requestWaitingDays(request.requestedAt, new Date()) : null;
+  const reviewChecks = currentAssessment?.checks.filter(check => check.result === "review").length ?? 0;
   const [remarks, setRemarks] = useState("");
   const [error, setError] = useState<{ message: string; conflict: boolean }>();
   const [busy, setBusy] = useState(false);
@@ -72,6 +77,13 @@ export function ApprovalReviewPanel({ review, onBack, onReload, onDecision }: {
       {request.requestedAt && <p className="text-sm text-muted-foreground">Filed {dateTime(request.requestedAt)} PHT</p>}
     </div>
     {request.status === "APPROVED" && <p className="text-sm font-medium">Approved — awaiting agency</p>}
+    {request.status === "REQUESTED" && <div className="flex flex-wrap items-center gap-2 text-sm">
+      <Badge variant="outline">Filed by {filedBy ?? "—"}</Badge>
+      {waitingDays !== null && <Badge variant="outline">{waitingDays} {waitingDays === 1 ? "day" : "days"} waiting</Badge>}
+      <Badge variant="outline" className={reviewChecks ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"}>
+        {reviewChecks ? `${reviewChecks} check${reviewChecks === 1 ? "" : "s"} to review` : "Checks OK"}
+      </Badge>
+    </div>}
     <RequestDetails record={request} documentHref={kind => approvalDocumentUrl(request.id, kind)} />
     {request.status === "REQUESTED" && <>
       {currentAssessment && <RequestSection title="Current checks">

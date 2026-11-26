@@ -96,6 +96,20 @@ export function toPhtDateString(value: string | Date | number | null | undefined
   return iso ? iso.slice(0, 10) : "";
 }
 
+/** `MM/DD/YYYY` for screens: the desk reads dates month first. */
+export function phtDisplayDate(value: string | Date | number | null | undefined): string {
+  const date = toPhtDateString(value);
+  return date ? `${date.slice(5, 7)}/${date.slice(8, 10)}/${date.slice(0, 4)}` : "—";
+}
+
+/** `MM/DD/YYYY HH:mm:ss` for "prepared by" style stamps. */
+export function phtDisplayDateStamp(value: string | Date | number | null | undefined): string {
+  if (value == null || value === "") return "—";
+  const iso = toPhtStampString(value);
+  if (!iso || iso.length < 19) return "—";
+  return `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)} ${iso.slice(11, 19)}`;
+}
+
 /** Whole days between a stored stamp and now, in PHT. Negative values mean future. */
 export function daysSince(value: string | Date | number | null | undefined): number {
   const date = toPhtDateString(value);

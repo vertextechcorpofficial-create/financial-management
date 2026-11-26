@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import type { AuthorityPolicy, AuthorityTier } from "./types";
+import { createRequestKey } from "./utils/requestKey";
 
 type Snapshot = { amount: string; category: string; purpose: string; policyId: string; divisionId: number | null; departmentId: number | null; status: string };
 type Event = { id: string; case_id: string; revision: number; requester_id: number; actor_name: string; created_at: string; reason: string; action: string; snapshot: Snapshot };
@@ -25,7 +26,7 @@ export function IsolatedWorkflow({ section = "requests" }: { section?: string })
   const submit = async (value: Record<string, unknown>) => {
     setBusy(true); setError(""); setNotice("");
     const signature = JSON.stringify(value);
-    if (pending.current?.signature !== signature) pending.current = { signature, body: { ...value, requestKey: crypto.randomUUID() } };
+    if (pending.current?.signature !== signature) pending.current = { signature, body: { ...value, requestKey: createRequestKey() } };
     try {
       const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pending.current.body) });
       const payload = await response.json();

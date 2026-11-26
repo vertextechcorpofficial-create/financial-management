@@ -10,10 +10,17 @@ export const metadata: Metadata = {
   title: "Loan Payments",
 };
 
-export default function LoanPaymentsPage() {
+export default async function LoanPaymentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ loan?: string }>;
+}) {
+  const resolved = await searchParams;
+  const loanParam = Number(resolved.loan);
+  const initialLoanId = Number.isInteger(loanParam) && loanParam > 0 ? loanParam : null;
   return (
     <PageShell title="Loan Payments">
-      <PaymentsModule />
+      <PaymentsModule initialLoanId={initialLoanId} />
     </PageShell>
   );
 }

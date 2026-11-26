@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Ban, CheckCheck, FileClock, LoaderCircle, Plus, Undo2 , ScrollText} from "lucide-react";
+import { useMemo, useState } from "react";
+import { Ban, CheckCheck, FileClock, LoaderCircle, Plus, RefreshCw, Undo2 , ScrollText} from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import type { BankCheck } from "./types";
 /** Check & Clearing Management (FSD 1.4): register, status tiles and every check action. */
 export function CheckModule() {
   const {
+    allChecks,
     checks,
     counts,
     accounts,
@@ -75,26 +76,40 @@ export function CheckModule() {
     });
   }
 
-  const accountOptions = [
-    { value: "ALL", label: "All accounts" },
-    ...accounts.map((account) => ({ value: String(account.bankId), label: account.label })),
-  ];
+  // Two Al-Amanah accounts share a truncated bank name, so the number leads and the bank
+  // sits under it as the muted second line. Scoped to the chosen bank, or the Account menu
+  // lists accounts the Bank filter has already ruled out.
+  const accountOptions = useMemo(() => {
+    const scopedAccounts = filters.bank ? accounts.filter((account) => account.bankName === filters.bank) : accounts;
+    return [
+      { value: "ALL", label: "All accounts" },
+      ...scopedAccounts.map((account) => ({
+        value: String(account.bankId),
+        label: account.accountNumber ?? account.label,
+        description: account.bankName,
+        searchText: [account.accountNumber, account.bankName].filter(Boolean).join(" "),
+      })),
+    ];
+  }, [accounts, filters.bank]);
 
-  const bankOptions = [
-    { value: "ALL", label: "All banks" },
-    ...[...new Set(accounts.map((account) => account.bankName))].filter(Boolean).map((name) => ({ value: name, label: name })),
-  ];
+  const bankOptions = useMemo(
+    () => [
+      { value: "ALL", label: "All banks" },
+      ...[...new Set(accounts.map((account) => account.bankName))]
+        .filter(Boolean)
+        .map((name) => ({ value: name, label: name })),
+    ],
+    [accounts],
+  );
 
   // Only the selected rows the chosen batch action can actually run on reach the dialog.
-  const batchChecks = checks.filter((check) => {
+  const batchChecks = allChecks.filter((check) => {
     if (!selected.has(check.id)) return false;
     if (batchMode === "CLEAR") return check.status === "IN_CLEARING";
     if (batchMode === "RELEASE") return check.status === "PENDING" && check.direction === "ISSUED";
     return check.status === "RECEIVED" && !check.isPdc;
   });
 
-  const registerTotal =
-    counts.PENDING + counts.RECEIVED + counts.IN_CLEARING + counts.CLEARED + counts.RETURNED + counts.CANCELLED;
   const isFiltered =
     Boolean(filters.q) ||
     (filters.direction ?? "ALL") !== "ALL" ||
@@ -102,6 +117,7 @@ export function CheckModule() {
     (filters.flag ?? "ALL") !== "ALL" ||
     filters.accountId !== undefined ||
     filters.bank !== undefined ||
+    filters.payee !== undefined ||
     filters.from !== undefined ||
     filters.to !== undefined;
 
@@ -180,7 +196,10 @@ export function CheckModule() {
                     <tile.icon className="h-4 w-4" />
                   </span>
                 </div>
-                <p className="mt-1 text-lg font-semibold tabular-nums">{formatNumber(tile.count)}</p>
+                {/* A zero printed before the first read is a claim, not a fact. */}
+                <p className="mt-1 text-lg font-semibold tabular-nums">
+                  {isLoading && total === 0 ? "—" : formatNumber(tile.count)}
+                </p>
               </CardContent>
             </Card>
           ))}
@@ -199,15 +218,30 @@ export function CheckModule() {
             onChange={setFilters}
           />
         }
+        headerActions={
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1"
+            onClick={() => void refetch()}
+            disabled={isLoading}
+            aria-busy={isLoading}
+          >
+            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} aria-hidden="true" />
+            Reload
+          </Button>
+        }
         checks={checks}
-        total={total > 0 ? total : registerTotal}
-      pageSize={pageSize}
-      onPageSizeChange={(size) => {
-        setPageSize(size);
-        setPage(1);
-      }}
+        total={total}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         filtered={isFiltered}
-        isLoading={isLoading}
+        // Previous rows stay on screen while the next request is in flight; the skeleton is
+        // only for the first load, when there is nothing to keep.
+        isLoading={isLoading && checks.length === 0}
         page={page}
         onPageChange={setPage}
         onAction={handleAction}

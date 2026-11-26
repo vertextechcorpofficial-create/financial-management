@@ -9,6 +9,7 @@ import { TIER_LABELS, TIERS } from "../types";
 import { PROPOSED_RULES } from "../policy-seed";
 import type { AuthorityPolicy, AuthorityRule } from "../types";
 import type { OperationsData } from "../operationsTypes";
+import { createRequestKey } from "../utils/requestKey";
 
 const money = (value: string | null) => value === null ? "Not delegated" : new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(value));
 export function WorkflowSettings({ data, panel, onSaved }: { data: OperationsData; panel: string; onSaved: () => void }) {
@@ -20,7 +21,7 @@ export function WorkflowSettings({ data, panel, onSaved }: { data: OperationsDat
   const submit = async (command: object) => {
     setBusy(true); setError("");
     const signature = JSON.stringify({ command, expectedRevision: data.revision });
-    if (pending.current?.signature !== signature) pending.current = { signature, requestId: crypto.randomUUID() };
+    if (pending.current?.signature !== signature) pending.current = { signature, requestId: createRequestKey() };
     try {
       const response = await fetch("/api/fm/treasury/expenses-v2/authority-operations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command, expectedRevision: data.revision, requestId: pending.current.requestId }) });
       const payload = await response.json();

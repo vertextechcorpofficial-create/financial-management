@@ -28,7 +28,7 @@ import { StatusBadge } from "./StatusBadge";
 interface Props {
   change: ChangeListRow | null;
   onOpenChange: (open: boolean) => void;
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -63,9 +63,11 @@ export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
     setIsReversing(true);
     try {
       await reverseChangeRequest(change.id, reason.trim() || null);
-      toast.success(`${change.changeNo} reversed; the loan is back on the previous schedule version.`);
-      onChanged();
+      setIsConfirming(false);
+      setReason("");
       onOpenChange(false);
+      toast.success(`${change.changeNo} reversed; the loan is back on the previous schedule version.`);
+      void onChanged();
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : "The change could not be reversed.");
     } finally {
@@ -164,7 +166,7 @@ export function ChangeDetailDialog({ change, onOpenChange, onChanged }: Props) {
               </>
             ) : null}
 
-            {isConfirming && change ? (
+            {isConfirming && change && change.status === "POSTED" ? (
               <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-3">
                 <p className="text-sm">
                   Reversing {change.changeNo} posts the mirror entry and puts the loan back on schedule version{" "}

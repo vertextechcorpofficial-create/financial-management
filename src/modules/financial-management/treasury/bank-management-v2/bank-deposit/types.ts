@@ -129,6 +129,11 @@ export interface DepositSlipItem {
   customerCode: string | null;
   collectionDate: string | null;
   amount: number;
+  /**
+   * Written before receipt links existed: no settlement row and no check record. The slip's own
+   * deposit status decides whether it counts as resolved, because nothing finer was ever recorded.
+   */
+  legacy: boolean;
   /** Clearing outcome of the check backing this item; cash resolves on the deposit. */
   checkStatus: CheckStatus | null;
   /** Stored `deposit_status` of the slip line: IN_TRANSIT until the slip is marked deposited. */
@@ -147,6 +152,8 @@ export interface UndepositedAsset {
   collectionId: number;
   invoiceId: number | null;
   invoiceNo: string | null;
+  /** What arrived: cash, a cheque, or an adjustment applied to the invoice. */
+  methodLabel: "Cash" | "Check" | "Adjustment";
   documentNumber: string;
   collectionReference: string | null;
   assetType: "CASH" | "CHECK";

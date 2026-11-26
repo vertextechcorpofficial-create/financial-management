@@ -1,6 +1,13 @@
 import "server-only";
 
-import type { DepositSlip, DepositSlipDetail, DepositSlipItem, ResolvedJournalEntry, UndepositedAsset } from "../types";
+import type {
+  DepositSlip,
+  DepositSlipDetail,
+  DepositSlipItem,
+  JournalEntryDraft,
+  ResolvedJournalEntry,
+  UndepositedAsset,
+} from "../types";
 import { daysSince, phtDisplayStamp, phtStamp, phtToday } from "../pht";
 import { postJournalEntry, PostingBlockedError, resolveJournalEntry } from "./gl.service";
 import {
@@ -14,7 +21,7 @@ import {
   roundMoney,
   updateItem,
 } from "./directus";
-import { depositCancelEntry, depositCashEntry } from "../events";
+import { depositCancelEntry, depositCashEntry, receivedCheckEntry } from "../events";
 
 /**
  * Bank Deposit reads and writes.
@@ -215,6 +222,12 @@ async function loadInvoices(
   );
 }
 
+/**
+ * Settlement types that put money in the drawer. MEMO is a note, DRAFT is not posted yet, EWT is
+ * tax withheld before the money reached us, and RETURN takes money back out.
+ */
+const DEPOSITABLE_TYPES = ["CASH", "CHECK", "ADJUSTMENT"] as const;
+
 type SettlementRow = {
   id: number;
   collection_id: number | null;
@@ -222,6 +235,42 @@ type SettlementRow = {
   amount: number | string | null;
   type: string | null;
 };
+
+/**
+ * Invoices settled short. An adjustment tender with remarks starting `adj-` and a balance side of
+ * 2 is a shortage; balance side 1 is an overage, which is money the customer did pay.
+ * `invoice_id` is the identifier both tables carry, so the match is on it. A handful of old
+ * adjustment rows never recorded an invoice, and those would leak their settlement line back into
+ * the queue as if it were cash, so for those only, the amount within the same receipt identifies it.
+ */
+async function loadShortageInvoices(
+  collectionIds: number[],
+): Promise<{ invoices: Set<number>; unlinkedAmounts: Set<string> }> {
+  if (!collectionIds.length) return { invoices: new Set(), unlinkedAmounts: new Set() };
+  const { rows } = await listItems<{ invoice_id: number | null; collection_id: number | null; amount: number | string | null }>(
+    "collection_details",
+    {
+      fields: ["invoice_id", "collection_id", "amount"],
+      filter: {
+        collection_id: { _in: collectionIds },
+        balance_type_id: { _eq: 2 },
+        remarks: { _starts_with: "adj-" },
+      },
+      limit: 800,
+    },
+  );
+  const invoices = new Set<number>();
+  const unlinkedAmounts = new Set<string>();
+  for (const row of rows) {
+    const invoiceId = Number(row.invoice_id ?? 0);
+    if (Number.isInteger(invoiceId) && invoiceId > 0) {
+      invoices.add(invoiceId);
+      continue;
+    }
+    unlinkedAmounts.add(`${Number(row.collection_id ?? 0)}:${roundMoney(asNumber(row.amount)).toFixed(2)}`);
+  }
+  return { invoices, unlinkedAmounts };
+}
 
 /**
  * The money waiting to be banked is the settlement row, not the tender line: the Collection
@@ -233,7 +282,9 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
   const [{ rows: settlements }, { rows: links }, checkResult] = await Promise.all([
     listItems<SettlementRow>("collection_invoices", {
       fields: ["id", "collection_id", "invoice_id", "amount", "type"],
-      filter: { type: { _in: ["CASH", "ADJUSTMENT"] } },
+      // A receipt settles with cash, cheques and the odd adjustment. Leaving CHECK out is why a
+      // cheque-funded receipt showed only its 21.00 adjustment instead of the money that arrived.
+      filter: { type: { _in: DEPOSITABLE_TYPES } },
       limit: 800,
     }),
     listItems<{ collection_invoice_id: number | null }>("bank_deposit_details", {
@@ -248,7 +299,21 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
   ]);
 
   const deposited = new Set(links.map((link) => Number(link.collection_invoice_id)));
-  const pending = settlements.filter((row) => !deposited.has(Number(row.id)));
+  const shortageInvoices = await loadShortageInvoices([
+    ...new Set(settlements.map((row) => Number(row.collection_id)).filter(Boolean)),
+  ]);
+  const pending = settlements.filter((row) => {
+    if (deposited.has(Number(row.id))) return false;
+    if (asString(row.type) !== "ADJUSTMENT") return true;
+    // A shortage adjustment (`adj-…`, balance_type_id 2) has no money to bank: the customer paid
+    // less than the invoice, so a slip carrying it would deposit a negative hole. Overage
+    // (balance_type_id 1) is real cash and stays. invoice_id is the identifier both tables share;
+    // the amount is consulted only for the old rows that never recorded one.
+    const invoiceId = Number(row.invoice_id ?? 0);
+    if (invoiceId > 0) return !shortageInvoices.invoices.has(invoiceId);
+    const key = `${Number(row.collection_id ?? 0)}:${roundMoney(asNumber(row.amount)).toFixed(2)}`;
+    return !shortageInvoices.unlinkedAmounts.has(key);
+  });
   if (!pending.length) return [];
 
   const collectionIds = [...new Set(pending.map((row) => Number(row.collection_id)).filter(Boolean))];
@@ -292,7 +357,10 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
         invoiceNo: invoice?.invoiceNo ?? null,
         documentNumber,
         collectionReference: parent?.docNo ?? null,
-        assetType: check ? "CHECK" : "CASH",
+        // The settlement type says what arrived; the cheque lookup only adds the number and bank.
+        assetType: check || asString(row.type) === "CHECK" ? "CHECK" : "CASH",
+        methodLabel:
+          check || asString(row.type) === "CHECK" ? "Check" : asString(row.type) === "ADJUSTMENT" ? "Adjustment" : "Cash",
         customer: (customerCode ? customerNames.get(customerCode) : undefined) ?? customerCode,
         customerCode,
         bankName: check?.draweeBank ?? null,
@@ -311,23 +379,29 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
     .filter((asset) => asset.isPosted && !asset.isCancelled && asset.collectionDate !== null);
 }
 
-export type DepositPreview = { entry: ResolvedJournalEntry; account: DepositAccount };
+export type DepositPreview = { entries: ResolvedJournalEntry[]; account: DepositAccount };
 
 /**
- * E07 preview for both dialogs. Nothing is written: the same resolver and the same account
- * GL the posting path will use run here, so the panel cannot drift from what posting does.
+ * E07 and E12 preview for both dialogs. Nothing is written: the same resolver and the same
+ * account GL the posting path will use run here, so the panel cannot drift from what posting
+ * does. One entry per posting side, in the order `createDepositSlip` writes them.
  */
-export async function previewDepositSlip(input: { bankAccountId: number; cashTotal: number }): Promise<DepositPreview> {
+export async function previewDepositSlip(input: {
+  bankAccountId: number;
+  cashTotal: number;
+  checkTotal: number;
+}): Promise<DepositPreview> {
   const account = await loadDepositAccount(input.bankAccountId);
   if (!account) throw new NotFoundError(`Bank account ${input.bankAccountId} does not exist.`);
-  const entry = await resolveJournalEntry(
-    depositCashEntry({ bankId: account.bankId, glCoaId: account.glCoaId }, roundMoney(input.cashTotal), {
-      sourceRef: "PREVIEW",
-      postingDate: phtToday(),
-      description: "Cash deposit",
-    }),
-  );
-  return { entry, account };
+  const glAccount = { bankId: account.bankId, glCoaId: account.glCoaId };
+  const base = { sourceRef: "PREVIEW", postingDate: phtToday() };
+  const cash = roundMoney(input.cashTotal);
+  const checks = roundMoney(input.checkTotal);
+  const drafts: JournalEntryDraft[] = [];
+  if (cash > 0) drafts.push(depositCashEntry(glAccount, cash, { ...base, description: "Cash deposit" }));
+  if (checks > 0) drafts.push(receivedCheckEntry("E12", glAccount, checks, { ...base, description: "Check deposit" }));
+  const entries = await Promise.all(drafts.map((draft) => resolveJournalEntry(draft)));
+  return { entries, account };
 }
 
 type UserRow = {
@@ -407,6 +481,60 @@ async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlip
   const collectionById = new Map(collections.map((row) => [Number(row.id), row]));
   const customerNames = await loadCustomerNames([...invoices.values()].map((entry) => entry.customerCode ?? ""));
 
+  // Load slip headers for all slips so we have deposit_no (to join bank_checks) and
+  // total_checks (to type legacy lines that predate receipt links).
+  const { rows: headers } = await listItems<{ id: number; deposit_no: string | null; total_checks: number | string | null }>(
+    "bank_deposit",
+    {
+      fields: ["id", "deposit_no", "total_checks"],
+      filter: { id: { _in: slipIds } },
+      limit: 500,
+    },
+  );
+  const slipChecks = new Map<number, number>();
+  const slipNoById = new Map<number, string>();
+  for (const header of headers) {
+    const id = Number(header.id);
+    slipChecks.set(id, asNumber(header.total_checks));
+    const depNo = asString(header.deposit_no).trim();
+    if (depNo) slipNoById.set(id, depNo);
+  }
+
+  type BankCheckRow = {
+    id: number;
+    check_no: string | null;
+    check_date: string | null;
+    payor: string | null;
+    drawee_bank: string | null;
+    status: string | null;
+    source_ref: string | null;
+    collection_detail_id: number | null;
+  };
+  const slipNos = [...new Set(slipNoById.values())];
+  const checkOrFilters: Record<string, unknown>[] = [];
+  if (invoiceRowIds.length) checkOrFilters.push({ collection_detail_id: { _in: invoiceRowIds } });
+  if (slipNos.length) checkOrFilters.push({ source_ref: { _in: slipNos } });
+
+  const { rows: checkRows } = checkOrFilters.length
+    ? await listItems<BankCheckRow>("bank_checks", {
+        fields: ["id", "check_no", "check_date", "payor", "drawee_bank", "status", "source_ref", "collection_detail_id"],
+        filter: { direction: { _eq: "RECEIVED" }, _or: checkOrFilters },
+        limit: 2000,
+      }).catch(() => ({ rows: [] as BankCheckRow[] }))
+    : { rows: [] as BankCheckRow[] };
+
+  const checkByDetailId = new Map<number, BankCheckRow>();
+  const checkBySlipAndNo = new Map<string, BankCheckRow>();
+  const checkBySlip = new Map<string, BankCheckRow>();
+  for (const row of checkRows) {
+    const detailId = Number(row.collection_detail_id ?? 0);
+    if (detailId > 0 && !checkByDetailId.has(detailId)) checkByDetailId.set(detailId, row);
+    const ref = asString(row.source_ref).trim();
+    const chkNo = asString(row.check_no).trim();
+    if (ref && chkNo && !checkBySlipAndNo.has(`${ref}:${chkNo}`)) checkBySlipAndNo.set(`${ref}:${chkNo}`, row);
+    if (ref && !checkBySlip.has(ref)) checkBySlip.set(ref, row);
+  }
+
   // One row per invoice, the way the Collection Summary reads: a receipt's cash tender and its
   // adjustment legs are two settlement rows against the same invoice, and splitting them on the
   // slip shows the same customer twice for one invoice.
@@ -420,6 +548,19 @@ async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlip
     const slipId = Number(link.bank_deposit_id);
     const key = `${slipId}:${settlement?.invoice_id ?? link.id}`;
     const amount = roundMoney(asNumber(link.amount));
+    // No settlement row: this line cannot name a receipt, a customer or a tender, so it is
+    // labelled legacy and typed from the slip header instead of being guessed as cash.
+    const legacy = !settlement;
+    const isCheck = legacy
+      ? method === CHECK || link.check_no != null || (slipChecks.get(slipId) ?? 0) > 0
+      : method === CHECK;
+    const depositNo = slipNoById.get(slipId) ?? "";
+    const matchedCheck =
+      (link.collection_invoice_id != null ? checkByDetailId.get(Number(link.collection_invoice_id)) : undefined) ??
+      (depositNo && link.check_no ? checkBySlipAndNo.get(`${depositNo}:${asString(link.check_no).trim()}`) : undefined) ??
+      (isCheck && legacy && depositNo ? checkBySlip.get(depositNo) : undefined);
+    const resolvedCheckStatus = (matchedCheck?.status as DepositSlipItem["checkStatus"]) ?? null;
+
     const existing = grouped.get(key);
     if (existing) {
       existing.amount = roundMoney(existing.amount + amount);
@@ -428,27 +569,43 @@ async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlip
       if (method === CHECK) {
         existing.assetType = "CHECK";
         existing.methodLabel = "Check";
-        existing.checkNo = existing.checkNo ?? link.check_no;
+        existing.checkNo = existing.checkNo ?? link.check_no ?? matchedCheck?.check_no ?? null;
       } else if (method === CASH && existing.methodLabel !== "Check") {
         existing.methodLabel = "Cash";
       }
+      if (!existing.checkStatus && resolvedCheckStatus) {
+        existing.checkStatus = resolvedCheckStatus;
+      }
       continue;
     }
+    const resolvedCustomer =
+      (customerCode ? customerNames.get(customerCode) : undefined) ?? customerCode ?? matchedCheck?.payor ?? null;
     grouped.set(key, {
       collectionInvoiceId: Number(link.collection_invoice_id ?? link.id),
       invoiceNo: invoice?.invoiceNo ?? null,
-      assetType: method === CHECK ? "CHECK" : "CASH",
+      assetType: isCheck ? "CHECK" : "CASH",
       // A settlement row with no method was applied as an adjustment (discount, rounding), not
       // as money handed over, so the badge says what it is instead of calling it cash.
-      methodLabel: method === CHECK ? "Check" : method === CASH ? "Cash" : "Adjustment",
-      documentNumber: parent?.collection_receipt_no || parent?.docNo || "No receipt recorded",
-      checkNo: link.check_no,
-      customer: (customerCode ? customerNames.get(customerCode) : undefined) ?? customerCode,
+      methodLabel: legacy
+        ? isCheck
+          ? "Check"
+          : "Cash"
+        : method === CHECK
+          ? "Check"
+          : method === CASH
+            ? "Cash"
+            : "Adjustment",
+      documentNumber: legacy
+        ? matchedCheck?.check_no || depositNo || "Legacy line — prepared before receipt links"
+        : parent?.collection_receipt_no || parent?.docNo || "No receipt recorded",
+      checkNo: link.check_no ?? matchedCheck?.check_no ?? null,
+      customer: resolvedCustomer,
       customerCode,
-      collectionDate: parent?.collection_date ?? null,
+      collectionDate: parent?.collection_date ?? matchedCheck?.check_date ?? null,
       amount,
-      checkStatus: null,
+      checkStatus: resolvedCheckStatus,
       lineStatus: asString(link.deposit_status) || "IN_TRANSIT",
+      legacy,
     });
   }
 
@@ -461,8 +618,13 @@ async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlip
   return result;
 }
 
-/** A cash item resolves when the slip is deposited; a check when the bank clears or returns it. */
+/**
+ * A cash item resolves when the slip is deposited; a check when the bank clears or returns it.
+ * A legacy line was written before receipt links existed: it has no settlement row and no check
+ * record, so the slip's own deposit status is the only evidence there is, and it is the one that counts.
+ */
 function itemResolved(item: DepositSlipItem): boolean {
+  if (item.legacy && !item.checkStatus) return item.lineStatus !== "IN_TRANSIT";
   if (item.assetType === "CASH") return item.lineStatus !== "IN_TRANSIT";
   return item.checkStatus === "CLEARED" || item.checkStatus === "RETURNED" || item.checkStatus === "CANCELLED";
 }
@@ -753,23 +915,24 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
     }
   }
 
-  if (cashTotal > 0) {
+  const glAccount = { bankId: input.bankAccountId, glCoaId: account?.glCoaId ?? null };
+  const postBase = {
+    sourceRef: depositNo,
+    postingDate: input.depositDate,
+    description: `Bank deposit ${depositNo} (${input.slipNo})`,
+  };
+  const drafts: JournalEntryDraft[] = [];
+  if (cashTotal > 0) drafts.push(depositCashEntry(glAccount, cashTotal, postBase));
+  // A cheque on a deposit slip is a customer settlement landing in clearing, not cash in the
+  // bank, so it posts E12 next to the E07 for any cash on the same slip.
+  if (checkTotal > 0) drafts.push(receivedCheckEntry("E12", glAccount, checkTotal, postBase));
+
+  for (const draft of drafts) {
     try {
-      await postJournalEntry(
-        depositCashEntry(
-          { bankId: input.bankAccountId, glCoaId: account?.glCoaId ?? null },
-          cashTotal,
-          {
-            sourceRef: depositNo,
-            postingDate: input.depositDate,
-            description: `Bank deposit ${depositNo} (${input.slipNo})`,
-          },
-        ),
-        null,
-      );
+      await postJournalEntry(draft, null);
     } catch (error) {
       if (error instanceof PostingBlockedError) {
-        postingBlocked = { message: error.message, missingMappingKeys: error.missingMappingKeys };
+        postingBlocked ??= { message: error.message, missingMappingKeys: error.missingMappingKeys };
       } else {
         throw error;
       }
@@ -872,20 +1035,18 @@ export async function cancelDepositSlip(slipId: number, reason: string): Promise
   }
 
   const cashTotal = roundMoney(asNumber(slip.total_cash));
-  if (cashTotal > 0) {
+  const checkTotal = roundMoney(asNumber(slip.total_checks));
+  if (cashTotal > 0 || checkTotal > 0) {
     const account = await loadDepositAccount(Number(slip.target_bank_id ?? 0));
-    await postJournalEntry(
-      depositCancelEntry(
-        { bankId: Number(slip.target_bank_id ?? 0), glCoaId: account?.glCoaId ?? null },
-        cashTotal,
-        {
-          sourceRef: slip.deposit_no,
-          postingDate: phtToday(),
-          description: `Deposit slip ${slip.deposit_no} cancelled — ${reason}`,
-        },
-      ),
-      null,
-    );
+    const glAccount = { bankId: Number(slip.target_bank_id ?? 0), glCoaId: account?.glCoaId ?? null };
+    const postBase = {
+      sourceRef: slip.deposit_no,
+      postingDate: phtToday(),
+      description: `Deposit slip ${slip.deposit_no} cancelled — ${reason}`,
+    };
+    if (cashTotal > 0) await postJournalEntry(depositCancelEntry(glAccount, cashTotal, postBase), null);
+    // E12 put the cheque in clearing; E14 takes it back out, so cancelling reverses both sides.
+    if (checkTotal > 0) await postJournalEntry(receivedCheckEntry("E14", glAccount, checkTotal, postBase), null);
   }
 
   for (const checkId of checkIds) {

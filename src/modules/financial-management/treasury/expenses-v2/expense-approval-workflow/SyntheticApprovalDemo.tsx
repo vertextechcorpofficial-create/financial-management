@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { DEMO_ACTORS, type DemoActor, type DemoRequest } from "./demoEngine";
+import { createRequestKey } from "./utils/requestKey";
 type Item = { snapshot: DemoRequest; revision: number; tier: string; history: { revision: number; action: string; reason: string; demo_actor: string; real_actor_id: number; created_at: string }[] };
 export function SyntheticApprovalDemo() {
   const [items, setItems] = useState<Item[] | null>(null), [actor, setActor] = useState<DemoActor>("CFO"), [reason, setReason] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState(""), [busy, setBusy] = useState(false);
@@ -16,7 +17,7 @@ export function SyntheticApprovalDemo() {
     setBusy(true); setError(""); setNotice("");
     const value = { caseId: item.snapshot.id, revision: item.revision, actor, action, reason, ...(action === "RESUBMIT" ? { correction: { amount, evidence, funds } } : {}) };
     const signature = JSON.stringify(value);
-    if (pending.current?.signature !== signature) pending.current = { signature, body: { ...value, requestKey: crypto.randomUUID() } };
+    if (pending.current?.signature !== signature) pending.current = { signature, body: { ...value, requestKey: createRequestKey() } };
     try {
       const response = await fetch("/api/fm/treasury/expenses-v2/isolated-demo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pending.current.body) }); const payload = await response.json();
       if (!response.ok) { if (response.status < 500) pending.current = null; if (response.status === 409) await load(); throw Error(payload.error); }

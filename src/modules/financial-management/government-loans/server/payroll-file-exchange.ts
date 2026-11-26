@@ -5,7 +5,7 @@ import { z } from "zod";
 import { todayManila } from "@/modules/financial-management/cooperative/members/format";
 import { sameProgram } from "../enrollment/payroll-match";
 import { normalizedReference } from "../enrollment/rules";
-import { canStartInOpenPeriod, isEnrollmentPreparer } from "../enrollment/verification-rules";
+import { canStartInOpenPeriod } from "../enrollment/verification-rules";
 import { centavos, reviewPayrollReceipts } from "../payroll-handoff/contract";
 import { payrollInstructionCsv, payrollReceiptMaxBytes, readPayrollReceiptCsv } from "../payroll-handoff/file-exchange";
 import type { HandoffResult, PayrollAcknowledgement, PayrollHandoffPayload } from "../payroll-handoff/types";
@@ -162,9 +162,6 @@ async function readAcknowledgementUpload(request: Request) {
 
 export async function importPayrollAcknowledgements(id: number, request: Request, actor: AgencyActor): Promise<HandoffResult & { reason: string | null }> {
   const { row, handoff } = await activeHandoff(id);
-  if (isEnrollmentPreparer(row.enrollment, actor.actorId)) {
-    throw new LoanRequestError(403, "A staff member distinct from the encoder and resubmitter must record Payroll acknowledgements.");
-  }
   const upload = await readAcknowledgementUpload(request);
   let receipts;
   try {
