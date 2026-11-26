@@ -389,6 +389,9 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
   const oldestOpen = allMonths.find(key => !registers.periods[key]?.closedAt);
   const periodRows = Array.from(new Set([...allMonths, ...Object.keys(registers.periods)])).sort().reverse()
     .map(key => [key, registers.periods[key] ?? { closedAt: null }] as const);
+  const reconciledMonths = allMonths.filter(key => monthStatus(key) === "Signed").length;
+  const completedMonthTotal = allMonths.filter(key => key <= calendarMonth).length;
+  const statementDate = month ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)) , 0)).toISOString().slice(0, 10) : asOf;
   const closeChecklist = periodChecklist(month, entries, registers, asOf, recon?.signed_at ? recon.payload : undefined);
   function selectMonth(key: string) {
     setMonth(key);
@@ -868,19 +871,30 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
               <TaxFilingForm entry={filingEntry} defaultDate={asOf} existing={donationDocuments?.[filingEntry.id] ?? donationDocuments?.[`journal:${filingEntry.no}`]} onFeedback={setFeedback} onSaved={() => setFilingEntry(null)} />
             </LedgerDialog>}
           </CardContent></Card></Panel></>}
-           {section === "Monthly reconciliation" && <Card><CardHeader><CardTitle>Monthly reconciliation</CardTitle></CardHeader><CardContent className="space-y-3">
+           {section === "Monthly reconciliation" && <Card><CardHeader><div className="flex flex-wrap items-start justify-between gap-3"><div><CardTitle>Monthly reconciliation</CardTitle>
+             <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Each month, match the ledger to bank and broker statements. Every difference needs an explanation before the month can be signed off.</p></div>
+             <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-800">{reconciledMonths} of {completedMonthTotal} completed months reconciled</span></div></CardHeader><CardContent className="space-y-3">
             <MonthNavigation value={month} first={firstMonth} onChange={selectMonth} />
            {oldestOpen && <Button variant="outline" onClick={() => selectMonth(oldestOpen)}>Oldest open month ({oldestOpen})</Button>}
            {month && <nav aria-label="Reconciliation month status" className="flex flex-wrap gap-2">
              {Array.from({ length: 12 }, (_, index) => `${month.slice(0, 4)}-${String(index + 1).padStart(2, "0")}`).map(key =>
                <Button key={key} size="sm" variant={key === month ? "default" : "outline"} aria-current={key === month ? "date" : undefined}
-                 onClick={() => selectMonth(key)}>{key.slice(5)} · {monthStatus(key)}</Button>)}
-           </nav>}
+                  onClick={() => selectMonth(key)}>{key.slice(5)} · {monthStatus(key) === "Signed" ? "Done" : monthStatus(key)}</Button>)}
+            </nav>}
            {reconciliations === null && <p className="text-sm text-muted-foreground">Reconciliation is read-only: draft storage is unavailable.</p>}
-           {recon ? <p className="text-sm">{recon.signed_at ? `Signed by user ${recon.approved_by} on ${recon.signed_at.slice(0, 10)}` :
-             `Draft prepared by user ${recon.prepared_by}`}</p> : snapshot?.at ? <p className="text-sm">Signed by {snapshot.by} on {snapshot.at.slice(0, 10)}</p>
-             : <p className="text-sm text-muted-foreground">No signed statement snapshot for this month.</p>}
-           {reconChanged && (recon || reconSigned) && <p role="status" className="text-sm text-destructive">
+            {recon ? <p className="text-sm">{recon.signed_at ? `Signed by user ${recon.approved_by} on ${recon.signed_at.slice(0, 10)}` :
+              `Draft prepared by user ${recon.prepared_by}`}</p> : snapshot?.at ? <p className="text-sm">Signed by {snapshot.by} on {snapshot.at.slice(0, 10)}</p>
+              : <p className="text-sm text-muted-foreground">No signed statement snapshot for this month.</p>}
+             {month && <div className="flex flex-wrap items-center justify-between rounded-md border px-3 py-2"><span className="font-medium">{month} · statement date {statementDate}</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800">{reconSigned ? "Reconciled" : "Open"}</span></div>}
+            <div className="space-y-3"><h3 className="font-medium">Cash accounts and units held</h3>
+              <Grid headers={["Account / Security", "Ledger balance", "Statement balance", "Difference", "Explanation"]}
+                rows={reconLines.map(line => {
+                  const format = (amount?: number | null) => amount == null ? "—" : line.isCash ? peso(amount) : amount.toLocaleString(undefined, { maximumFractionDigits: 6 });
+                  const label = accounts[line.key] ?? line.key.replace("|", " · ");
+                  return [label, format(line.current), format(line.statement), format(line.difference), line.note || "—"];
+                })} />
+            </div>
+            {reconChanged && (recon || reconSigned) && <p role="status" className="text-sm text-destructive">
              {reconSigned ? "Ledger changed after sign-off." : "Ledger changed after draft save. Save a fresh draft before signing."}
            </p>}
              <Button type="button" variant="outline" onClick={() => setReconciliationOpen(true)}>Open reconciliation form</Button>
