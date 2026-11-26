@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { Copy, Download } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent, type ComponentType, type DragEvent } from "react";
+import { AlertTriangle, Copy, Download, FileText, Landmark, Scale, SearchX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { Textarea } from "@/components/ui/textarea";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
+import { EmptyState, MetricButton, MetricCard, Notice } from "../../components/ui";
 import { useLifecycleCommand, useLifecycleRead } from "../../loans/lifecycle-client";
 import type { getBillingContext, previewAgencyBilling, viewAgencyBilling } from "../../server/agency-billing";
 import { billingHeaders, billingMaxBytes } from "./csv";
@@ -26,19 +27,12 @@ type View = Extract<Awaited<ReturnType<typeof viewAgencyBilling>>, { rows: Billi
 type Preview = Awaited<ReturnType<typeof previewAgencyBilling>>;
 
 const money = (value: string | null) => value === null ? "—" : peso(value);
-function Metric({ label, value, detail, tone, onClick }: {
-  label: string; value: string; detail?: string; tone?: "warning" | "accent"; onClick?: () => void;
+function Metric({ label, value, detail, icon, tone = "slate", alert = false, active = false, onClick }: {
+  label: string; value: string; detail?: string; icon: ComponentType<{ className?: string }>;
+  tone?: "emerald" | "sky" | "amber" | "rose" | "slate"; alert?: boolean; active?: boolean; onClick?: () => void;
 }) {
-  const content = <>
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-    {detail && <p className="break-all text-xs text-muted-foreground">{detail}</p>}
-  </>;
-  const className = "rounded-lg border bg-card p-3 text-left " + (tone === "warning"
-    ? "border-amber-300/70 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/20"
-    : tone === "accent" ? "border-primary/40 bg-primary/5" : "");
-  return onClick ? <button type="button" onClick={onClick} className={className + " transition-colors hover:bg-muted/50"}>{content}</button>
-    : <div className={className}>{content}</div>;
+  const card = <MetricCard icon={icon} label={label} value={value} detail={detail} tone={tone} alert={alert} />;
+  return onClick ? <MetricButton active={active} onClick={onClick} label={label} ringClass="ring-amber-500/40">{card}</MetricButton> : card;
 }
 const reasonText: Record<BillingReason["code"], string> = {
   UNENROLLED: "Loan reference is missing from enrollment",
@@ -74,7 +68,9 @@ function ComparisonTable({ rows, mode, totals }: { rows: BillingRow[]; mode: "ac
         </p>) : "Matched"}
       </TableCell>
     </TableRow>)}
-      {!rows.length && <TableRow><TableCell colSpan={6} className="py-6 text-center text-muted-foreground">No rows in this view.</TableCell></TableRow>}
+      {!rows.length && <TableRow><TableCell colSpan={6} className="p-0">
+        <EmptyState icon={SearchX} title="No rows in this view" description="Try a different search or clear the differences filter." />
+      </TableCell></TableRow>}
     </TableBody>
     {rows.length > 0 && <TableFooter><TableRow>
       <TableCell colSpan={2}>Total (all rows)</TableCell>
@@ -353,19 +349,19 @@ export function AgencyBillingModule() {
       <p className="text-muted-foreground">No agencies are configured to send billing.</p>
       <Button asChild variant="outline" size="sm"><Link href="/fm/government-loans/remittances?tab=agencies">Add an agency</Link></Button>
     </div>}
-    {notice && <p role="status" className="text-sm">{notice}</p>}
+    {notice && <Notice title={notice} />}
     {data && <>
       {data.billingRevision ? <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Agency billing" value={money(data.totals.billed)} detail={data.billingRevision.fileName} />
-        <Metric label={data.mode === "actual" ? "Withheld by payroll" : "Instructed (payroll not reported)"}
-          value={money(data.totals.deduction)} detail={data.mode === "actual" ? "Actual withholding" : "Projected · Awaiting Payroll"} />
-        <Metric label="Difference" value={money(data.totals.difference)}
+        <Metric icon={FileText} label="Agency billing" value={money(data.totals.billed)} detail={data.billingRevision.fileName} tone="sky" />
+        <Metric icon={Landmark} label={data.mode === "actual" ? "Withheld by payroll" : "Instructed (payroll not reported)"}
+          value={money(data.totals.deduction)} detail={data.mode === "actual" ? "Actual withholding" : "Projected · Awaiting Payroll"} tone="emerald" />
+        <Metric icon={Scale} label="Difference" value={money(data.totals.difference)}
           detail={data.totals.discrepancies ? `${data.totals.discrepancies} line(s) differ` : "Billing matches payroll"}
-          tone={data.totals.discrepancies ? "warning" : undefined} />
-        <Metric label="Items to resolve" value={String(data.totals.discrepancies)}
+          tone={data.totals.discrepancies ? "amber" : "slate"} alert={Boolean(data.totals.discrepancies)} />
+        <Metric icon={AlertTriangle} label="Items to resolve" value={String(data.totals.discrepancies)}
           detail={issues ? "Showing differences only" : "Differences only"}
-          tone={data.totals.discrepancies ? "warning" : "accent"}
-          onClick={data.totals.discrepancies ? () => { setIssues(value => !value); setPage(1); } : undefined} />
+          tone={data.totals.discrepancies ? "amber" : "emerald"} alert={Boolean(data.totals.discrepancies)}
+          active={issues} onClick={data.totals.discrepancies ? () => { setIssues(value => !value); setPage(1); } : undefined} />
       </div> : <div className="space-y-2 rounded-md border border-dashed p-4">
         <p className="font-medium">No agency bill for {month}.</p>
         <p className="text-sm text-muted-foreground">

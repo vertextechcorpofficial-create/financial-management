@@ -1,16 +1,17 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { UserMinus, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, PersonAvatar, StatusChip } from "../components/ui";
 import { centavos } from "../payroll-handoff/contract";
 import { amountFromCentavos } from "./position";
 import { loansApi, useLifecycleCommand, useLifecycleRead } from "./lifecycle-client";
@@ -24,12 +25,6 @@ type PersonRow = Person & { status: string | null; hasLoans: boolean; loans: Loa
 type Page = { items: PersonRow[]; hasMore: boolean };
 type Mode = "hires" | "exits";
 const endpoint = loansApi + "/onboarding-exits";
-
-const statusTone = (status: RegisterStatus) => status === "ACTIVE"
-  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-  : status === "SUSPENDED" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-  : status === "FINAL_PAY_REQUESTED" ? "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300"
-  : "text-muted-foreground";
 
 function EmployeeReview({ mode, id, onSaved }: { mode: Mode; id: number; onSaved: () => void }) {
   const [refresh, setRefresh] = useState(0);
@@ -78,7 +73,7 @@ function EmployeeReview({ mode, id, onSaved }: { mode: Mode; id: number; onSaved
         {loans.map(loan => <li key={loan.loanId} className="rounded-md border p-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs">{loan.reference}</span>
-            <Badge variant="outline" className={statusTone(loan.status)}>{registerStatusLabels[loan.status]}</Badge>
+            <StatusChip status={loan.status} label={registerStatusLabels[loan.status]} />
             {loan.refundPending && <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">Refund pending</Badge>}
           </div>
           <p className="mt-1 text-muted-foreground">{loan.agency}</p>
@@ -154,7 +149,15 @@ export function OnboardingExitsModule() {
         <TableBody>
           {!hires?.data && <TableSkeleton columns={4} />}
           {hires?.data?.items.map(person => <TableRow key={person.id}>
-            <TableCell><p className="font-medium">{person.name}</p><p className="text-xs text-muted-foreground">Employee #{person.id}</p></TableCell>
+            <TableCell>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <PersonAvatar name={person.name} size="sm" />
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{person.name}</p>
+                  <p className="text-xs text-muted-foreground">Employee #{person.id}</p>
+                </div>
+              </div>
+            </TableCell>
             <TableCell>{date(person.hiredOn)}</TableCell>
             <TableCell>{person.status
               ? <Badge variant="outline" className={person.hasLoans ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300" : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"}>
@@ -172,9 +175,7 @@ export function OnboardingExitsModule() {
             </TableCell>
           </TableRow>)}
           {hires?.data && !hires?.data.items.length && <TableRow><TableCell colSpan={4} className="p-0">
-            <Empty className="border-0"><EmptyHeader><EmptyMedia variant="icon"><span>👤</span></EmptyMedia>
-              <EmptyTitle>No recent hires</EmptyTitle><EmptyDescription>New employees appear here for the 150-day declaration window.</EmptyDescription>
-            </EmptyHeader></Empty>
+            <EmptyState icon={UserRound} title="No recent hires" description="New employees appear here for the 150-day declaration window." />
           </TableCell></TableRow>}
         </TableBody>
       </Table>
@@ -199,13 +200,21 @@ export function OnboardingExitsModule() {
             const open = person.loans.filter(loan => loan.blocked).length;
             const issued = person.status === "ISSUED";
             return <TableRow key={person.id}>
-              <TableCell><p className="font-medium">{person.name}</p><p className="text-xs text-muted-foreground">Employee #{person.id}</p></TableCell>
+              <TableCell>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <PersonAvatar name={person.name} size="sm" />
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{person.name}</p>
+                  <p className="text-xs text-muted-foreground">Employee #{person.id}</p>
+                </div>
+              </div>
+            </TableCell>
               <TableCell>{date(person.separationOn)}</TableCell>
               <TableCell>
                 {person.loans.length ? <div className="space-y-1">
                   {person.loans.map(loan => <div key={loan.loanId} className="flex flex-wrap items-center gap-1 text-xs">
                     <span className="font-mono">{loan.reference}</span>
-                    <Badge variant="outline" className={statusTone(loan.status)}>{registerStatusLabels[loan.status]}</Badge>
+                    <StatusChip status={loan.status} label={registerStatusLabels[loan.status]} />
                     {loan.refundPending && <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">Refund</Badge>}
                   </div>)}
                 </div> : <span className="text-sm text-muted-foreground">No verified loans</span>}
@@ -222,9 +231,7 @@ export function OnboardingExitsModule() {
             </TableRow>;
           })}
           {exits?.data && !exits?.data.items.length && <TableRow><TableCell colSpan={5} className="p-0">
-            <Empty className="border-0"><EmptyHeader><EmptyMedia variant="icon"><span>👋</span></EmptyMedia>
-              <EmptyTitle>No separations</EmptyTitle><EmptyDescription>Employees with a separation date appear here for loan clearance.</EmptyDescription>
-            </EmptyHeader></Empty>
+            <EmptyState icon={UserMinus} title="No separations" description="Employees with a separation date appear here for loan clearance." />
           </TableCell></TableRow>}
         </TableBody>
       </Table>

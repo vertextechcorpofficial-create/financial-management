@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import { ArrowDown, ArrowUp, BadgeCheck, CheckCircle2, ChevronsUpDown, Clock3, SearchX, ShieldCheck } from "lucide-react";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, PersonAvatar } from "../components/ui";
 import { approvalAgencies, approvalDocumentUrl } from "../approval/api";
 import { REQUEST_SLA_DAYS } from "../approval/rules";
 import { RequestApiError } from "../requests/request-api";
@@ -67,13 +68,14 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-function SummaryCard({ label, value, active, onClick }: { label: string; value: number; active: boolean; onClick: () => void }) {
-  return <button type="button" aria-pressed={active} onClick={onClick}
-    className={cn("rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50",
-      active && "border-primary/60 bg-primary/5")}>
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-    <p className="mt-1 text-xl font-semibold tabular-nums">{value.toLocaleString("en-PH")}</p>
-  </button>;
+function SummaryCard({ label, value, active, onClick, icon, tone, ringClass, detail }: {
+  label: string; value: number; active: boolean; onClick: () => void;
+  icon: ComponentType<{ className?: string }>; tone: "emerald" | "sky" | "amber" | "rose" | "slate";
+  ringClass: string; detail: string;
+}) {
+  return <MetricButton active={active} onClick={onClick} label={label} ringClass={ringClass}>
+    <MetricCard icon={icon} label={label} value={value} detail={detail} tone={tone} />
+  </MetricButton>;
 }
 
 function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
@@ -372,13 +374,15 @@ export function LoanVerificationModule() {
       <p className="max-w-3xl text-sm text-muted-foreground">Check each enrollment against the agency notice before deductions start.</p>
     </div>
     {summary ? <div className={cn("grid grid-cols-2 gap-2 xl:grid-cols-4", queue?.pending && "opacity-60")}>
-      <SummaryCard label="For verification" value={summary.ENROLLED} active={status === "ENROLLED"} onClick={() => changeStatus("ENROLLED")} />
-      <SummaryCard label="Verified · awaiting activation" value={summary.VERIFIED} active={status === "VERIFIED"} onClick={() => changeStatus("VERIFIED")} />
-      <SummaryCard label="Activation pending" value={summary.ACTIVATING} active={status === "ACTIVATING"} onClick={() => changeStatus("ACTIVATING")} />
-      <SummaryCard label="Active" value={summary.ACTIVE} active={status === "ACTIVE"} onClick={() => changeStatus("ACTIVE")} />
-    </div> : queue?.error ? null : <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-      {[0, 1, 2, 3].map(value => <Skeleton key={value} className="h-[74px] rounded-lg" />)}
-    </div>}
+      <SummaryCard label="For verification" value={summary.ENROLLED} active={status === "ENROLLED"} onClick={() => changeStatus("ENROLLED")}
+        icon={ShieldCheck} tone="sky" ringClass="ring-sky-500/40" detail="Waiting for a second reviewer" />
+      <SummaryCard label="Verified · awaiting activation" value={summary.VERIFIED} active={status === "VERIFIED"} onClick={() => changeStatus("VERIFIED")}
+        icon={BadgeCheck} tone="emerald" ringClass="ring-emerald-500/40" detail="Ready to activate" />
+      <SummaryCard label="Activation pending" value={summary.ACTIVATING} active={status === "ACTIVATING"} onClick={() => changeStatus("ACTIVATING")}
+        icon={Clock3} tone="amber" ringClass="ring-amber-500/40" detail="Payroll instructions in progress" />
+      <SummaryCard label="Active" value={summary.ACTIVE} active={status === "ACTIVE"} onClick={() => changeStatus("ACTIVE")}
+        icon={CheckCircle2} tone="emerald" ringClass="ring-emerald-500/40" detail="Deducted through Payroll" />
+    </div> : queue?.error ? null : <MetricCardsSkeleton />}
     <div className="flex flex-wrap gap-2">
       <Input className="max-w-sm" aria-label="Search verification queue" placeholder="Employee, loan, encoder, or agency reference" maxLength={120}
         value={search} onChange={event => changeFilter(() => setSearch(event.target.value))} />
@@ -439,11 +443,11 @@ export function LoanVerificationModule() {
             <TableHead>Evidence</TableHead>
           </TableRow></TableHeader>
           <TableBody>
-            {!items.length && <TableRow><TableCell colSpan={status === "ENROLLED" ? 9 : 8} className="py-8 text-center text-muted-foreground">
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <span>{hasFilters ? "No enrollments match these filters." : "No enrollments waiting for verification."}</span>
-                {hasFilters && <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>}
-              </div>
+            {!items.length && <TableRow><TableCell colSpan={status === "ENROLLED" ? 9 : 8} className="p-0">
+              <EmptyState icon={SearchX}
+                title={hasFilters ? "No enrollments match these filters" : "No enrollments waiting for verification"}
+                description={hasFilters ? "Try a different search or clear the filters." : "Enrollments appear here after they are saved."}
+                action={hasFilters ? <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button> : undefined} />
             </TableCell></TableRow>}
             {items.map(item => <TableRow key={item.id} className="cursor-pointer hover:bg-muted/50" onClick={() => selectRecord(item.id)}>
               {status === "ENROLLED" && <TableCell onClick={event => event.stopPropagation()}><Checkbox aria-label={`Select ${item.reference}`} checked={selected.includes(item.id)} disabled={!item.canDecide}
@@ -453,7 +457,12 @@ export function LoanVerificationModule() {
                 <span className="block max-w-56 truncate text-xs text-muted-foreground" title={item.enrollment.agencyReference}>{item.enrollment.agencyReference}</span>
                 {item.importBatchId && <span className="block text-xs text-muted-foreground">{enrollmentBatchReference(item.importBatchId)}</span>}
               </TableCell>
-              <TableCell>{item.employeeName ?? "—"}</TableCell>
+              <TableCell>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <PersonAvatar name={item.employeeName ?? "Employee"} size="sm" />
+                  <span className="truncate font-medium">{item.employeeName ?? "—"}</span>
+                </div>
+              </TableCell>
               <TableCell>{item.agencyName ?? "—"}<span className="block text-xs text-muted-foreground">{item.program}</span></TableCell>
               <TableCell className="text-right tabular-nums">{peso(item.enrollment.monthlyAmortization)}</TableCell>
               <TableCell>{deductionMonthLabel(item.enrollment.firstDeductionMonth)}</TableCell>

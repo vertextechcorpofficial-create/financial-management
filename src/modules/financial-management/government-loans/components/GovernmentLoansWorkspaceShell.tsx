@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabIcon } from "./tab-icons";
+import { tabTriggerClass } from "./ui";
 import { LoanApprovalModule } from "../approval/LoanApprovalModule";
 import { LoanEnrollmentModule } from "../enrollment/LoanEnrollmentModule";
 import { LoanVerificationModule } from "../enrollment/LoanVerificationModule";
@@ -104,7 +106,8 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
       {tabs.length ? <Tabs key={initialTab} defaultValue={transferEmployee ? "enrollment" : initialTab ?? tabs[0].key} className={isScaffold ? "mt-4 gap-4" : "gap-4"}>
         <div className="overflow-x-auto">
           <TabsList aria-label={`${workspace.title} tabs`} className="flex h-auto w-full max-w-full min-w-0 justify-start gap-1 overflow-x-auto rounded-lg bg-muted/50 p-1">
-            {tabs.map(tab => <TabsTrigger key={tab.key} value={tab.key} className="shrink-0 whitespace-nowrap data-[state=active]:bg-background">
+            {tabs.map(tab => <TabsTrigger key={tab.key} value={tab.key} className={tabTriggerClass}>
+              <TabIcon tabKey={tab.key} />
               {tab.title}
             </TabsTrigger>)}
           </TabsList>

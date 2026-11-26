@@ -15,6 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { DetailSkeleton, Notice, PersonAvatar, StatusChip, tabTriggerClass } from "../components/ui";
+import { TabIcon } from "../components/tab-icons";
 import { deductionMonthLabel } from "../enrollment/rules";
 import type { getLoanChanges } from "../server/loan-changes";
 import { RequestApiError } from "../requests/request-api";
@@ -255,37 +257,43 @@ export function LoanRegisterDialog({ id, startRecording, panel, onPanelChange, o
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
     <DialogContent className="flex max-h-[90dvh] flex-col overflow-hidden sm:max-w-5xl">
       <DialogHeader>
-        <DialogTitle>{loan ? loan.reference + " · " + loan.employee : "Loan details"}</DialogTitle>
-        <DialogDescription>{loan ? loan.agency + " · " + loan.program : "View loan terms, statements, changes, and payroll instructions."}</DialogDescription>
+        <DialogTitle>
+          <span className="flex min-w-0 items-center gap-3">
+            <PersonAvatar name={loan?.employee ?? "Loan"} size="lg" />
+            <span className="min-w-0">
+              <span className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="min-w-0 truncate">{loan?.employee ?? "Loan details"}</span>
+                {loan && <StatusChip status={loan.status} label={registerStatusLabels[loan.status]} />}
+              </span>
+              <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
+                {loan ? loan.reference + " · " + loan.agency + " · " + loan.program : "View loan terms, statements, changes, and payroll instructions."}
+              </span>
+            </span>
+          </span>
+        </DialogTitle>
+        <DialogDescription className="sr-only">Loan details, statements, changes, and payroll instructions.</DialogDescription>
       </DialogHeader>
-      {!detail && !error && <div className="space-y-3" aria-hidden="true">
-        <Skeleton className="h-6 w-56" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-40 w-full" />
-      </div>}
+      {!detail && !error && <DetailSkeleton />}
       {error && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
         <span className="min-w-0 flex-1">{error}</span>
         <Button type="button" variant="outline" size="sm" onClick={reload}>Retry</Button>
       </div>}
-      {notice && <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p>}
+      {notice && <Notice title={notice} />}
       {loan && detail && <Tabs value={panel} onValueChange={value => onPanelChange(value as LoanPanel)} className="min-h-0 flex-1 gap-3">
         <div className="overflow-x-auto">
           <TabsList variant="line" aria-label="Loan detail tabs" className="w-full justify-start">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="statements">Statements{detail.statements.items.length ? ` (${detail.statements.items.length})` : ""}</TabsTrigger>
-            <TabsTrigger value="changes">Changes</TabsTrigger>
-            <TabsTrigger value="instructions">Payroll instructions</TabsTrigger>
+            <TabsTrigger value="overview" className={tabTriggerClass}><TabIcon tabKey="overview" />Overview</TabsTrigger>
+            <TabsTrigger value="statements" className={tabTriggerClass}><TabIcon tabKey="statements" />Statements{detail.statements.items.length ? ` (${detail.statements.items.length})` : ""}</TabsTrigger>
+            <TabsTrigger value="changes" className={tabTriggerClass}><TabIcon tabKey="changes" />Changes</TabsTrigger>
+            <TabsTrigger value="instructions" className={tabTriggerClass}><TabIcon tabKey="instructions" />Payroll instructions</TabsTrigger>
           </TabsList>
         </div>
         <div className={cn("min-h-0 flex-1 overflow-y-auto pr-1 transition-opacity", pending && "opacity-60")} aria-busy={pending}>
           <TabsContent value="overview" className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className={loan.status === "ACTIVE" ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300" : undefined}>
-                {registerStatusLabels[loan.status]}
-              </Badge>
-              {loan.active && loan.awaitingPayroll && <Badge variant="secondary">Awaiting Payroll results</Badge>}
-              {loan.agencyBalance.stale && <Badge variant="destructive">Stale statement</Badge>}
-              {!loan.agencyBalance.latest && <Badge variant="outline">No statement</Badge>}
+              {loan.active && loan.awaitingPayroll && <StatusChip status="pending" label="Awaiting Payroll results" />}
+              {loan.agencyBalance.stale && <StatusChip status="warning" label="Stale statement" />}
+              {!loan.agencyBalance.latest && <StatusChip status="missing" label="No statement" />}
             </div>
             <dl className="grid grid-cols-2 gap-3 rounded-md border p-3 text-sm sm:grid-cols-3">
               {[
