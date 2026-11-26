@@ -20,6 +20,8 @@ import {
     getInvoiceRequiredBalance,
     getSourceAllocationCapacity,
     SETTLEMENT_BALANCE_TOLERANCE,
+    roundCurrency,
+    toSettlementUnits,
 } from "../utils/settlement-balance";
 
 export type { RawAllocation, RawCashBucket, RawTreasuryPouch } from "../utils/settlement-printable-data";
@@ -205,7 +207,7 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
                     const histMemos = Math.max(0, (inv.totalMemos || 0) - myMemos);
                     const histReturns = Math.max(0, (inv.totalReturns || 0) - myReturns);
 
-                    const trueStartingBalance = (inv.originalAmount || 0) - histPayments - histMemos - histReturns;
+                    const trueStartingBalance = roundCurrency((inv.originalAmount || 0) - histPayments - histMemos - histReturns);
 
                     return { ...inv, totalPayments: histPayments, totalMemos: histMemos, totalReturns: histReturns, remainingBalance: trueStartingBalance };
                 });
@@ -585,7 +587,7 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
         }
     };
 
-    const getUsedAmount = (sourceId: string) => Math.round(allocations.filter(a => a.sourceTempId === sourceId).reduce((sum, a) => sum + a.amountApplied, 0) * 100) / 100;
+    const getUsedAmount = (sourceId: string) => roundCurrency(allocations.filter(a => a.sourceTempId === sourceId).reduce((sum, a) => sum + a.amountApplied, 0));
     const getInvoiceApplied = (invoiceId: number) => getInvoiceAppliedForSettlement(allocations, invoiceId);
 
     const handleAllocate = (invoiceId: number, sourceId: string, amountInput: number) => {
@@ -603,7 +605,7 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
             if (
                 !Number.isFinite(requestedAmount)
                 || requestedAmount <= SETTLEMENT_BALANCE_TOLERANCE
-                || Math.abs(requestedAmount - source.originalAmount) > SETTLEMENT_BALANCE_TOLERANCE
+                || roundCurrency(requestedAmount - source.originalAmount) !== 0
             ) {
                 toast.error("Invoice-linked adjustments must be allocated for their full amount.");
                 return;
@@ -624,7 +626,7 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
                 );
                 const finalAmount = capSettlementAllocation(requestedAmount, walletAvailable, invoiceAvailable);
 
-                if (Math.abs(finalAmount - source.originalAmount) > SETTLEMENT_BALANCE_TOLERANCE) {
+                if (roundCurrency(finalAmount - source.originalAmount) !== 0) {
                     toast.error("The linked invoice does not have enough remaining balance for this adjustment. Edit the adjustment amount first.");
                     return;
                 }
@@ -635,7 +637,7 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
             const filtered = prev.filter(a => !(a.invoiceId === invoiceId && a.sourceTempId === sourceId));
             const safeInput = Number.isFinite(amountInput) ? Math.max(0, amountInput) : 0;
 
-            if (safeInput > 0.009) {
+            if (toSettlementUnits(safeInput) > 0) {
                 const combinedSources = [...wallet, ...credits];
                 const wItem = combinedSources.find(w => w.id === sourceId);
                 const inv = cartInvoices.find(i => i.id === invoiceId);
@@ -658,7 +660,7 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
                     );
                     const finalAmount = capSettlementAllocation(safeInput, walletAvailable, invoiceAvailable);
 
-                    if (finalAmount > 0.009) {
+                    if (finalAmount > 0) {
                         filtered.push({
                             invoiceId: invoiceId,
                             invoiceNo: inv.invoiceNo || "",
@@ -686,6 +688,8 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
     };
 
     const createEwt = async (amount: number, referenceNo: string, invoiceId?: number | null) => {
+        amount = roundCurrency(amount);
+        if (amount <= 0) return;
         try {
             const tempEwtId = `ewt-new-${Date.now()}`;
             setWallet(prev => [...prev, {
@@ -761,12 +765,12 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
             .reduce((sum, allocation) => sum + allocation.amountApplied, 0);
 
         return sourceAllocations.some(allocation => allocation.invoiceId !== item.invoiceId)
-            || Math.abs(allocatedToLinkedInvoice - item.originalAmount) > SETTLEMENT_BALANCE_TOLERANCE;
+            || roundCurrency(allocatedToLinkedInvoice - item.originalAmount) !== 0;
     });
 
     const showInvalidInvoiceLinkedAdjustment = (item: WalletItem) => {
         toast.error(
-            `Invoice-linked adjustment ${item.label} must be allocated for its full ₱${item.originalAmount.toFixed(2)} amount to its linked invoice.`
+            `Invoice-linked adjustment ${item.label} must be allocated for its full ₱${item.originalAmount.toFixed(3)} amount to its linked invoice.`
         );
     };
 
@@ -776,7 +780,7 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
             const sourceAllocations = allocations.filter(item => item.sourceTempId === allocation.sourceTempId);
             const total = sourceAllocations.reduce((sum, item) => sum + item.amountApplied, 0);
             if (!source || sourceAllocations.some(item => !Number.isFinite(item.amountApplied) || item.amountApplied < 0)
-                || Math.round(total * 100) > Math.round(source.originalAmount * 100)) {
+                || toSettlementUnits(total) > toSettlementUnits(source.originalAmount)) {
                 toast.error(`The allocation for ${source?.label || "this sales return"} exceeds its available return amount. Update the allocation before continuing.`);
                 return false;
             }
@@ -877,7 +881,7 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
             if (underAllocatedInvoice) {
                 const remaining = getInvoiceRequiredBalance(underAllocatedInvoice) - getInvoiceApplied(underAllocatedInvoice.id);
                 toast.error(
-                    `Invoice ${underAllocatedInvoice.invoiceNo} still has ₱${remaining.toLocaleString(undefined, { minimumFractionDigits: 2 })} unallocated. Apply the balance or remove it from the cart.`
+                    `Invoice ${underAllocatedInvoice.invoiceNo} still has ₱${remaining.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} unallocated. Apply the balance or remove it from the cart.`
                 );
                 return false;
             }
@@ -891,7 +895,7 @@ export function useSettlement(pouchId: string | number, activeInvoiceId: number 
             const cartTotals = getCartBalanceTotals(cartInvoices, allocations);
             if (Math.abs(cartTotals.difference) > SETTLEMENT_BALANCE_TOLERANCE) {
                 toast.error(
-                    `Settlement cart is not balanced. ₱${Math.abs(cartTotals.difference).toLocaleString(undefined, { minimumFractionDigits: 2 })} remains unallocated.`
+                    `Settlement cart is not balanced. ₱${Math.abs(cartTotals.difference).toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} remains unallocated.`
                 );
                 return false;
             }

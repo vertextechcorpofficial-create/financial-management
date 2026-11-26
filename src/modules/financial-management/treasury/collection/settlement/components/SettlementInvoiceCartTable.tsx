@@ -82,10 +82,10 @@ export default function SettlementInvoiceCartTable({
         ? `Invoice ${underAllocatedInvoice.invoiceNo} still has ₱${(
             getInvoiceRequiredBalance(underAllocatedInvoice)
             - getInvoiceAppliedForSettlement(allocations, underAllocatedInvoice.id)
-        ).toLocaleString(undefined, { minimumFractionDigits: 2 })} unallocated. Apply the balance or remove it before committing.`
+        ).toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} unallocated. Apply the balance or remove it before committing.`
         : overAllocatedInvoice
             ? `The allocation for ${overAllocatedInvoice.invoiceNo} exceeds its remaining balance.`
-            : `Settlement cart is not balanced. ₱${Math.abs(cartBalanceTotals.difference).toLocaleString(undefined, { minimumFractionDigits: 2 })} remains unallocated.`;
+            : `Settlement cart is not balanced. ₱${Math.abs(cartBalanceTotals.difference).toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} remains unallocated.`;
 
     return (
         <div className="relative w-full h-full flex flex-col overflow-hidden bg-card">
@@ -149,7 +149,7 @@ export default function SettlementInvoiceCartTable({
                             const appliedAdj = invoiceAllocations.filter(a => a.allocationType === "ADJUSTMENT").reduce((sum, a) => sum + a.amountApplied, 0);
                             const appliedCredits = invoiceAllocations.filter(a => a.allocationType === "MEMO" || a.allocationType === "RETURN").reduce((sum, a) => sum + a.amountApplied, 0);
                             const hasEWTApplied = invoiceAllocations.some(a => a.allocationType === "EWT");
-                            const isFullySettled = appliedSession >= (getInvoiceRequiredBalance(inv) - 0.01);
+                            const isFullySettled = appliedSession >= getInvoiceRequiredBalance(inv);
                             const isPartiallySettled = appliedSession > 0 && !isFullySettled;
 
                             let rowStatus = ""; let badgeColor = ""; let rowBg = "bg-background"; let IconComponent: React.ReactNode = null;
@@ -203,20 +203,20 @@ export default function SettlementInvoiceCartTable({
 
                                     <TableCell className="text-right align-top py-2">
                                         <div className="flex flex-col items-end">
-                                            <div className="font-mono font-black text-xs">₱{inv.originalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                                            <div className="font-mono font-black text-xs">₱{inv.originalAmount.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</div>
                                             <div className="mt-1 flex flex-col gap-0.5">
                                                 {(inv.totalPayments > 0 || inv.totalMemos > 0 || inv.totalReturns > 0) && (
                                                     <div className="text-[7.5px] font-bold text-muted-foreground uppercase tracking-widest flex gap-1 justify-end leading-none border-b border-dashed pb-0.5 mb-0.5">
-                                                        <span>Paid: <span className="text-foreground font-mono">₱{inv.totalPayments.toLocaleString()}</span></span>
-                                                        {inv.totalMemos > 0 && <span>Memo: <span className="text-foreground font-mono">₱{inv.totalMemos.toLocaleString()}</span></span>}
-                                                        {inv.totalReturns > 0 && <span>Ret: <span className="text-foreground font-mono">₱{inv.totalReturns.toLocaleString()}</span></span>}
+                                                        <span>Paid: <span className="text-foreground font-mono">₱{inv.totalPayments.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</span></span>
+                                                        {inv.totalMemos > 0 && <span>Memo: <span className="text-foreground font-mono">₱{inv.totalMemos.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</span></span>}
+                                                        {inv.totalReturns > 0 && <span>Ret: <span className="text-foreground font-mono">₱{inv.totalReturns.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</span></span>}
                                                     </div>
                                                 )}
                                                 <Popover>
                                                     <PopoverTrigger asChild>
                                                         <button className="text-[8.5px] font-black uppercase tracking-widest text-primary flex items-center gap-1 hover:underline outline-none group leading-none">
                                                             Open Bal:
-                                                            ₱{inv.remainingBalance.toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                                            ₱{inv.remainingBalance.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}
                                                             <History size={10} className="text-muted-foreground group-hover:text-primary transition-colors"/>
                                                         </button>
                                                     </PopoverTrigger>
@@ -224,7 +224,7 @@ export default function SettlementInvoiceCartTable({
                                                         <div className="bg-primary p-2 text-white flex justify-between items-center"><h4 className="font-black text-[10px] uppercase tracking-widest flex items-center gap-1.5"><History size={12}/> Audit Trail</h4><Badge variant="outline" className="text-white border-white/50 text-[8px] h-4 py-0 leading-none">{inv.invoiceNo}</Badge></div>
                                                         <div className="p-2 space-y-1.5 max-h-[250px] overflow-y-auto scrollbar-thin">
                                                             <div className="flex justify-between text-[8px] font-black uppercase text-muted-foreground border-b pb-1"><span>Date / Ref</span><span>Applied</span></div>
-                                                            {inv.history && inv.history.length > 0 ? ( inv.history.map((h, i) => ( <div key={`hist-${inv.id}-${i}`} className="flex justify-between items-center py-1.5 border-b border-muted/30 last:border-0"><div className="flex flex-col"><span className="text-[9px] font-mono font-bold text-foreground leading-none">{h.date}</span><span className="text-[7px] font-black uppercase text-muted-foreground mt-0.5 leading-none">{h.type} • {h.reference}</span></div><span className="text-[10px] font-black text-emerald-600">₱{h.amount.toLocaleString()}</span></div>)) ) : ( <div className="py-6 text-center flex flex-col items-center gap-2 text-muted-foreground"><Info size={20} className="opacity-20"/><p className="text-[9px] font-bold uppercase italic">No Historical Records</p></div>)}
+                                                            {inv.history && inv.history.length > 0 ? ( inv.history.map((h, i) => ( <div key={`hist-${inv.id}-${i}`} className="flex justify-between items-center py-1.5 border-b border-muted/30 last:border-0"><div className="flex flex-col"><span className="text-[9px] font-mono font-bold text-foreground leading-none">{h.date}</span><span className="text-[7px] font-black uppercase text-muted-foreground mt-0.5 leading-none">{h.type} • {h.reference}</span></div><span className="text-[10px] font-black text-emerald-600">₱{h.amount.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</span></div>)) ) : ( <div className="py-6 text-center flex flex-col items-center gap-2 text-muted-foreground"><Info size={20} className="opacity-20"/><p className="text-[9px] font-bold uppercase italic">No Historical Records</p></div>)}
                                                         </div>
                                                     </PopoverContent>
                                                 </Popover>
@@ -233,12 +233,12 @@ export default function SettlementInvoiceCartTable({
                                     </TableCell>
 
                                     <TableCell className="text-right align-top py-2 pr-4">
-                                        <div className={`font-mono font-black text-xs leading-none ${appliedSession > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>{appliedSession > 0 ? `₱${appliedSession.toLocaleString(undefined, {minimumFractionDigits: 2})}` : "—"}</div>
+                                        <div className={`font-mono font-black text-xs leading-none ${appliedSession > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>{appliedSession > 0 ? `₱${appliedSession.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}` : "—"}</div>
                                         <div className="mt-1 flex flex-col gap-0.5">
                                             {invoiceAllocations.map((alloc, idx) => (
                                                 <div key={`alloc-${inv.id}-${alloc.sourceTempId}-${idx}`} className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest flex gap-1 justify-end leading-none">
                                                     <span>{combinedSources.find(w => w.id === alloc.sourceTempId)?.type || 'ADJ'}:</span>
-                                                    <span className="text-foreground font-mono">₱{alloc.amountApplied.toLocaleString()}</span>
+                                                    <span className="text-foreground font-mono">₱{alloc.amountApplied.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -251,8 +251,8 @@ export default function SettlementInvoiceCartTable({
                     {filteredCartInvoices.length > 0 && (
                         <TableFooter className="bg-muted/90 backdrop-blur-md sticky bottom-0 z-20 outline outline-1 outline-border shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                             <TableRow>
-                                <TableCell colSpan={2} className="text-right py-2"><span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mr-4">Open Balance:</span><span className="font-mono font-black text-xs">₱{cartTotalBalance.toLocaleString(undefined, {minimumFractionDigits: 2})}</span></TableCell>
-                                <TableCell className="text-right py-2 border-l border-border/50 pr-4"><div className="flex flex-col items-end"><span className="text-[8px] font-black uppercase tracking-widest text-emerald-600 mb-0.5 leading-none">Applied This Pouch</span><span className="font-mono font-black text-emerald-600 text-xs leading-none">₱{cartTotalAppliedSession.toLocaleString(undefined, {minimumFractionDigits: 2})}</span></div></TableCell>
+                                <TableCell colSpan={2} className="text-right py-2"><span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mr-4">Open Balance:</span><span className="font-mono font-black text-xs">₱{cartTotalBalance.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</span></TableCell>
+                                <TableCell className="text-right py-2 border-l border-border/50 pr-4"><div className="flex flex-col items-end"><span className="text-[8px] font-black uppercase tracking-widest text-emerald-600 mb-0.5 leading-none">Applied This Pouch</span><span className="font-mono font-black text-emerald-600 text-xs leading-none">₱{cartTotalAppliedSession.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</span></div></TableCell>
                             </TableRow>
                         </TableFooter>
                     )}
