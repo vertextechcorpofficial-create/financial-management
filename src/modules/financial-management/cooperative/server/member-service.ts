@@ -127,7 +127,7 @@ function countsFor(items: RegisterItem[]) {
     members: items.filter(item => item.membershipStatus === "MEMBER").length,
     nonMembers: items.filter(item => item.membershipStatus === "NON_MEMBER").length,
     separated: items.filter(item => item.membershipStatus === "SEPARATED").length,
-    documentsMissing: items.filter(item => (item.documents?.missing.length ?? 0) > 0).length,
+    documentsMissing: items.filter(item => item.membershipStatus === "MEMBER" && (item.documents?.missing.length ?? 0) > 0).length,
   };
 }
 
@@ -195,6 +195,9 @@ export async function getMemberRegister(search: URLSearchParams): Promise<Regist
   }
   const pageItems = loanFilter ? items.slice(start, start + pageSize) : items;
   const withdrawals = withdrawalMatches ?? pageWithdrawals ?? await readWithdrawalBalances(membershipIds(pageItems));
+  const memberDepartments = all
+    .filter(item => item.membershipStatus === "MEMBER")
+    .map(item => item.departmentName);
   return {
     items: withdrawals.state === "ready" ? pageItems.map(item => {
       if (item.membershipId === null) return item;
@@ -204,7 +207,7 @@ export async function getMemberRegister(search: URLSearchParams): Promise<Regist
     total: loanFilter ? items.length : matches.length,
     page,
     pageSize,
-    departments: [...new Set(all.map(item => item.departmentName).filter((name): name is string => Boolean(name)))].sort(),
+    departments: [...new Set(memberDepartments.filter((name): name is string => Boolean(name)))].sort(),
     counts: countsFor(all),
     loanSource: loans.state === "ready" ? { state: "ready", data: null } : loans,
     loanFilterUnavailable,
