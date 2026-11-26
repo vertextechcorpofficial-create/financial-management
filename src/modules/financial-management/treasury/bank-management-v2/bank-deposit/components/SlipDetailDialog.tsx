@@ -21,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
-import { phtDisplayStamp, toPhtDateString } from "../pht";
+import { phtDisplayDate, phtDisplayDateStamp, toPhtDateString } from "../pht";
 import { toneClass } from "../constants";
 import { fetchDepositSlip } from "../providers/depositApi";
 import { DateField } from "./DateField";
@@ -85,6 +85,7 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
   const reasonError = reason.trim().length < 5 ? "Give a short reason (at least 5 characters)." : "";
   const items = current?.items ?? [];
   const cashTotal = items.filter((item) => item.assetType === "CASH").reduce((total, item) => total + item.amount, 0);
+  const checkTotal = items.filter((item) => item.assetType === "CHECK").reduce((total, item) => total + item.amount, 0);
 
   // Both fields show the slip's own values until the desk types something else, so no effect is needed.
   const handoverDate = depositDate || toPhtDateString(slip.depositDate);
@@ -124,11 +125,11 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
           <DialogHeader className="border-b px-6 py-4">
             <DialogTitle className="line-clamp-1 font-mono">{slip.depositNo}</DialogTitle>
             <DialogDescription className="line-clamp-2 max-w-md">
-              {toPhtDateString(slip.depositDate)} · {slip.targetBankLabel}
+              {phtDisplayDate(slip.depositDate)} · {slip.targetBankLabel}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={slip.status} />
               {slip.bouncedCount > 0 ? (
@@ -148,7 +149,7 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
                 <Label htmlFor="slip-detail-bank" className="text-xs text-muted-foreground">
                   Deposit to
                 </Label>
-                <Input id="slip-detail-bank" value={slip.targetBankLabel} disabled readOnly />
+                <Input id="slip-detail-bank" value={slip.targetBankLabel} title={slip.targetBankLabel} disabled readOnly />
                 <p className="text-[11px] text-muted-foreground">
                   {slip.glCode
                     ? `Linked GL ${slip.glCode}${slip.glTitle ? ` · ${slip.glTitle}` : ""}`
@@ -163,7 +164,7 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
                 {depositable ? (
                   <DateField id="slip-detail-date" value={handoverDate} onChange={setDepositDate} inDialog />
                 ) : (
-                  <Input id="slip-detail-date" value={toPhtDateString(slip.depositDate)} disabled readOnly />
+                  <Input id="slip-detail-date" value={phtDisplayDate(slip.depositDate)} disabled readOnly />
                 )}
               </div>
               <div className="space-y-1.5">
@@ -199,7 +200,7 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
                   disabled
                   readOnly
                 />
-                <p className="text-[11px] text-muted-foreground">{phtDisplayStamp(slip.datePrepared)}</p>
+                <p className="text-[11px] text-muted-foreground">{phtDisplayDateStamp(slip.datePrepared)}</p>
               </div>
             </div>
 
@@ -218,12 +219,8 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
               />
             </div>
 
-            {cashTotal > 0 ? (
-              <DepositPreview
-                bankAccountId={slip.targetBankId}
-                cashTotal={cashTotal}
-                checkCount={items.filter((item) => item.assetType === "CHECK").length}
-              />
+            {cashTotal > 0 || checkTotal > 0 ? (
+              <DepositPreview bankAccountId={slip.targetBankId} cashTotal={cashTotal} checkTotal={checkTotal} />
             ) : null}
 
             <div className="rounded-xl border border-border/60">
@@ -302,7 +299,7 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
                             ) : null}
                           </TableCell>
                           <TableCell className="whitespace-nowrap font-mono text-sm">
-                            {item.collectionDate ? toPhtDateString(item.collectionDate) : "—"}
+                            {item.collectionDate ? phtDisplayDate(item.collectionDate) : "—"}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-right text-sm tabular-nums">
                             {formatCurrency(item.amount)}
@@ -330,7 +327,7 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
                 />
                 <p className="text-xs text-muted-foreground">
                   {depositable
-                    ? "Cancelling reverses the cash posting and returns the checks to the vault."
+                    ? "Cancelling reverses both postings (cash and checks) and returns the checks to the vault."
                     : "The collections go back to Collections on hand and the slip is kept for the trail."}
                 </p>
                 {touched && reasonError && <p className="text-xs text-destructive">{reasonError}</p>}

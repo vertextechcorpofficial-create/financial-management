@@ -2,7 +2,7 @@ import { ArrowDownToLine, Banknote, Clock, ScrollText } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { cn, formatCurrency } from "@/lib/utils";
-import { toPhtDateString } from "../pht";
+import { phtDisplayDate } from "../pht";
 import { accentClass, toneClass } from "../constants";
 
 type Kpis = {
@@ -24,7 +24,7 @@ export function DepositKpis({ totals }: { totals: Kpis }) {
       label: "Undeposited cash",
       value: formatCurrency(totals.cash),
       sub: `${totals.cashCount} collection(s)${
-        totals.oldestCashDate ? ` · oldest ${toPhtDateString(totals.oldestCashDate)}` : ""
+        totals.oldestCashDate ? ` · oldest ${phtDisplayDate(totals.oldestCashDate)}` : ""
       }`,
       icon: Banknote,
       tone: totals.cashCount > 0 ? ("success" as const) : ("neutral" as const),

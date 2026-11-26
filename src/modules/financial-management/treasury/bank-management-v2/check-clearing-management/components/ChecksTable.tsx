@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 
-import { toPhtDateString } from "../pht";
+import { phtDisplayDate } from "../pht";
 import { isDisbursementCheck } from "../disbursement-check";
 import { StatusBadge } from "./StatusBadge";
 import { TablePager } from "./TablePager";
@@ -108,6 +108,8 @@ type Props = {
   /** Rows per page, held by the hook so the page request and the pager agree. */
   pageSize: number;
   onPageSizeChange: (size: number) => void;
+  /** Card-header controls (e.g. Reload), rendered beside the count chip. */
+  headerActions?: ReactNode;
 };
 
 /** The check register: issued and received checks across every account. */
@@ -125,6 +127,7 @@ export function ChecksTable({
   filters,
   pageSize,
   onPageSizeChange,
+  headerActions,
 }: Props) {
 
   // The server pages now, so the rows that arrive are already the page: no slicing here. `total`
@@ -170,11 +173,14 @@ export function ChecksTable({
           <h2 className="text-sm font-semibold">Check register</h2>
           <p className="text-xs text-muted-foreground">Click a row for its details and audit trail.</p>
         </div>
-        <Badge variant="outline" className="tabular-nums text-[11px]">
-          {filtered
-            ? `${formatNumber(checks.length)} of ${formatNumber(total)} checks`
-            : `${formatNumber(total)} checks`}
-        </Badge>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Badge variant="outline" className="tabular-nums text-[11px]">
+            {filtered
+              ? `${formatNumber(checks.length)} of ${formatNumber(total)} checks`
+              : `${formatNumber(total)} checks`}
+          </Badge>
+          {headerActions}
+        </div>
       </header>
 
       {filters}
@@ -187,8 +193,12 @@ export function ChecksTable({
         </div>
       ) : checks.length === 0 ? (
         <div className="px-4 py-16 text-center">
-          <p className="text-sm font-medium">No checks match these filters</p>
-          <p className="mt-1 text-sm text-muted-foreground">Issue a check or record one received from a customer.</p>
+          <p className="text-sm font-medium">{filtered ? "No checks match these filters" : "No checks yet"}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {filtered
+              ? "Clear a filter or widen the dates to see more."
+              : "Issue a check, or record one received from a customer."}
+          </p>
         </div>
       ) : (
         <>
@@ -319,7 +329,7 @@ export function ChecksTable({
                     </span>
                   </TableCell>
                   <TableCell className="text-right text-sm tabular-nums">{formatCurrency(check.amount)}</TableCell>
-                  <TableCell className="whitespace-nowrap text-sm">{toPhtDateString(check.checkDate)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm">{phtDisplayDate(check.checkDate)}</TableCell>
                   <TableCell>
                     <span className="flex flex-wrap items-center gap-1">
                       <StatusBadge status={check.status} />
@@ -350,7 +360,7 @@ export function ChecksTable({
                     </span>
                     {check.isPdc && check.status === "RECEIVED" ? (
                       <span className="mt-1 block text-xs text-muted-foreground">
-                        Deposit from {toPhtDateString(check.checkDate)}
+                        Deposit from {phtDisplayDate(check.checkDate)}
                       </span>
                     ) : null}
                   </TableCell>
@@ -420,7 +430,7 @@ export function ChecksTable({
                   {check.payee ?? check.payor ?? "—"}
                 </p>
                 <p className="truncate text-xs text-muted-foreground" title={check.bankAccountLabel}>
-                  {check.bankAccountNumber ?? check.bankAccountLabel} · {toPhtDateString(check.checkDate)}
+                  {check.bankAccountNumber ?? check.bankAccountLabel} · {phtDisplayDate(check.checkDate)}
                 </p>
                 {check.bankAccountBank ? (
                   <p className="truncate text-[11px] text-muted-foreground" title={check.bankAccountBank}>

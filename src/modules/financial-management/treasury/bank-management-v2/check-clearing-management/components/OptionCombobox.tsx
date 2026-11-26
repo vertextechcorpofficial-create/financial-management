@@ -80,18 +80,33 @@ export function OptionCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className={cn("w-full justify-between font-normal", className)}
+          className={cn("h-9 w-full justify-between py-0 font-normal", className)}
         >
-          <span
-            className={cn("min-w-0 flex-1 truncate text-left", !selected && !(allowCustom && value) && "text-muted-foreground")}
-            title={selected?.label ?? (allowCustom && value ? value : undefined)}
-          >
-            {selected?.label ?? (allowCustom && value ? value : placeholder)}
+          {/* Same two-line reading as the menu: label first, context muted beneath, both
+              clipped inside the fixed h-9 so the control never grows on selection. */}
+          <span className="flex min-w-0 flex-1 flex-col justify-center text-left leading-tight">
+            <span
+              className={cn(
+                "block w-full truncate",
+                !selected && !(allowCustom && value) && "text-muted-foreground",
+              )}
+              title={selected?.label ?? (allowCustom && value ? value : undefined)}
+            >
+              {selected?.label ?? (allowCustom && value ? value : placeholder)}
+            </span>
+            {selected?.description ? (
+              <span className="block w-full truncate text-xs text-muted-foreground" title={selected.description}>
+                {selected.description}
+              </span>
+            ) : null}
           </span>
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[340px] max-w-[calc(100vw-2rem)] p-0" align="start">
+      <PopoverContent
+        className="w-(--radix-popover-trigger-width) min-w-[340px] max-w-[calc(100vw-2rem)] p-0"
+        align="start"
+      >
         <Command>
                     <CommandInput
             placeholder={searchPlaceholder}

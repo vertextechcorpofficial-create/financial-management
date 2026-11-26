@@ -98,6 +98,14 @@ export function toPhtDateString(value: string | Date | number | null | undefined
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+/** `MM/DD/YYYY`, the house date format for anything a reader compares by eye. */
+export function phtDisplayDate(value: string | Date | number | null | undefined): string {
+  const date = toPhtDateString(value);
+  if (!date) return "—";
+  const [year, month, day] = date.split("-");
+  return `${month}/${day}/${year}`;
+}
+
 /** `2 Nov 2026` for a stored date, in PHT; `—` when there is no date. */
 export function phtDateLabel(value: string | Date | number | null | undefined): string {
   const date = toPhtDateString(value);

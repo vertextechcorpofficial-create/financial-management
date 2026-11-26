@@ -95,10 +95,11 @@ export async function markSlipDeposited(slipId: number, confirmation: DepositCon
   ).then((payload) => payload.slip);
 }
 
-/** E07 lines for both dialogs; the server resolves the account's Linked GL (E07 never uses a dummy). */
+/** Every line both dialogs will post (E07 for cash, E12 for cheques); the server resolves the Linked GL. */
 export async function previewDepositSlip(payload: {
   bankAccountId: number;
   cashTotal: number;
+  checkTotal: number;
 }): Promise<DepositPreview> {
   return unwrap<DepositPreview>(
     await fetch("/api/fm/treasury/bank-management-v2/bank-deposit/slips/preview", {
@@ -110,7 +111,7 @@ export async function previewDepositSlip(payload: {
 }
 
 export type DepositPreview = {
-  entry: ResolvedJournalEntry;
+  entries: ResolvedJournalEntry[];
   account: { bankId: number; label: string; glCoaId: number | null; glCode: string | null; glTitle: string | null; glFallback: boolean };
 };
 
