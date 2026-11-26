@@ -28,6 +28,7 @@ const pageSize = 25;
 const monthQuery = z.object({
   month: payrollMonth.optional(), agencyId: positiveId.optional(), page: pageNumber,
   status: z.enum(Object.keys(remittanceStatuses) as [keyof typeof remittanceStatuses, ...(keyof typeof remittanceStatuses)[]]).optional(),
+  action: z.literal("1").optional(), grouped: z.literal("1").optional(),
 });
 const rowRequest = z.object({ agencyId: positiveId, month: payrollMonth, reference: z.string().trim().max(200).default(""),
   penaltyOverride: payrollMoney.nullable().default(null) });
@@ -89,7 +90,6 @@ export async function listRemittancePreparation(params: URLSearchParams) {
     const live = record && record.state !== "RETURNED";
     const due = live ? record.due_date : remittanceDeadline(month, agency);
     const status = remittanceStatus(withheld, record?.state ?? null, today, due, agency.reminderDays, record?.payment_date);
-    if (filters.status && filters.status !== status.status) return [];
     return [{ key, agencyId: agency.id, agency: agency.displayName, agencyCode: agency.shortCode, month, due, withheld,
       referenceLabel: agency.paymentReferenceLabel,
       policy: { deadlineRule: agency.deadlineRule, deadlineDay: agency.deadlineDay, penaltyBasis: agency.penaltyBasis,
@@ -97,10 +97,20 @@ export async function listRemittancePreparation(params: URLSearchParams) {
       payment: record ? { id: record.id, paymentDate: record.payment_date, reference: record.payment_reference,
         penalty: record.entered_penalty, returnReason: record.return_reason } : null, ...status }];
   }));
+  const counts = Object.fromEntries(Object.keys(remittanceStatuses).map(key => [key, 0])) as Record<keyof typeof remittanceStatuses, number>;
+  for (const row of items) counts[row.status]++;
+  const actionableRows = items.filter(row => row.status === "due" || row.status === "overdue" || row.status === "returned");
+  const actionable = {
+    count: actionableRows.length,
+    withheld: remittanceTotals(actionableRows.map(row => ({ withheld: row.withheld ?? "0.00", penalty: null }))).withheld,
+  };
+  const filtered = items.filter(row => (!filters.action || row.status === "due" || row.status === "overdue" || row.status === "returned") &&
+    (!filters.status || row.status === filters.status));
+  const paged = filters.grouped ? filtered : filtered.slice((filters.page - 1) * pageSize, filters.page * pageSize);
   const usableAgencies = agencies.filter(agency => agency.isActive ||
     saved.some(row => row.agency_id === agency.id) || [...byMonth.values()].some(totals => (totals.get(agency.id) ?? 0n) > 0n));
   return { openMonth: open, businessDate: today, agencies: usableAgencies.map(agency => ({ id: agency.id, name: agency.displayName })),
-    items: items.slice((filters.page - 1) * pageSize, filters.page * pageSize), total: items.length, hasMore: items.length > filters.page * pageSize };
+    counts, actionable, items: paged, total: filtered.length, hasMore: !filters.grouped && filtered.length > filters.page * pageSize };
 }
 
 type BatchInput = z.output<typeof batchRequest>;

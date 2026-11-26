@@ -55,6 +55,12 @@ export function expectedDeduction(schedule: LoanSchedule, history: ConfirmedDedu
   return amountFromCentavos((counted < schedule.term ? centavos(amortization) : 0n) + deductionCatchUp(schedule.catchUp, regular, month));
 }
 
+export function expectedRegularDeduction(schedule: LoanSchedule, history: ConfirmedDeduction[], month: string) {
+  const results = history.filter(result => result.month === month);
+  return results.find(result => result.status !== "X")?.expected ??
+    (results.length ? "0.00" : expectedDeduction(schedule, history, month));
+}
+
 export function summarizeWithholding(rows: MonthlyResult[]) {
   const totals = new Map<number, bigint>();
   for (const row of rows) {

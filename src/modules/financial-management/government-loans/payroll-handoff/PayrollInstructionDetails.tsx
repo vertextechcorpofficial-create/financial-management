@@ -22,7 +22,7 @@ export function PayrollInstructionDetails({ payload, state, reason, acknowledgem
       <div className="space-y-1">
         <dt className="font-medium">Start deduction</dt>
         <dd>{start.agencyReference} · {deductionMonthLabel(start.effectiveMonth)}</dd>
-        <dd>{peso(start.monthlyAmount)} per month · {start.remainingInstallments} installments left</dd>
+        <dd>{peso(start.monthlyAmount)} per month · {start.remainingInstallments} installment{start.remainingInstallments === 1 ? "" : "s"} left</dd>
         {(startAck?.payrollLoanId ?? start.payrollLoanId) && <dd>Payroll loan {startAck?.payrollLoanId ?? start.payrollLoanId}</dd>}
         <dd className="break-all text-xs text-muted-foreground">{start.id}</dd>
         {startAck && <dd className="break-words">Payroll receipt {startAck.receiptId}{startAck.cutoffId ? " · cutoff " + startAck.cutoffId : ""} · {dateTime(startAck.acknowledgedAt)} PHT</dd>}

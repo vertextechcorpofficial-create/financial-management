@@ -7,6 +7,7 @@ import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_PAYROLL_RESULTS } from "./dir
 import { readEnrollmentRows, readGroups } from "./enrollment-sources";
 import { readOpenLoanMonth } from "./loan-changes";
 import { payrollMoney, readLatestReceipts, readPayrollPages, receiptSummary } from "./payroll-month-store";
+import { payrollMonthFilter } from "./payroll-month-filter";
 import { readRemittanceApprovalIds, readReportRemittances } from "./remittance-records";
 import { employeeName } from "./request-assessment";
 import { LoanRequestError, parseInput, positiveId } from "./request-input";
@@ -30,7 +31,7 @@ export async function reportYearEnd(params: URLSearchParams, full = false) {
   const [receipts, payments, agencies] = await Promise.all([
     readLatestReceipts(start, end),
     readReportRemittances({ state: { _eq: "APPROVED" }, _or: [
-      { payroll_month: { _gte: start, _lte: end } },
+      payrollMonthFilter("payroll_month", start, end),
       { payment_date: { _gte: start + "-01", _lte: year + "-12-31" } },
     ] }),
     readPayrollPages(GOVERNMENT_LOAN_AGENCIES, agencyRow, Object.keys(agencyRow.shape).join(","), {}, "id"),

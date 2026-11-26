@@ -4,8 +4,8 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { canCancelRequest } from "../requests/request-rules";
 import {
-  documentKinds, enrollmentEvidenceKinds, requestDecisionLabels, requestStatusLabels, requestViews,
-  type DocumentKind, type EnrollmentEvidenceKind, type LoanDocumentKind, type LoanRequest, type RequestAssessment, type RequestDecision, type RequestForm, type RequestListItem,
+  documentKinds, enrollmentEvidenceKinds, requestDecisionLabels, requestSorts, requestStatusLabels, requestViews,
+  type DocumentKind, type EnrollmentEvidenceKind, type LoanDocumentKind, type LoanRequest, type RequestAssessment, type RequestDecision, type RequestForm, type RequestListItem, type RequestPage, type RequestSort, type RequestSummary,
   type RequestStatus, type RequestView,
 } from "../requests/types";
 import type { AgencyActor } from "./agencies";
@@ -135,9 +135,66 @@ export async function getLoanRequest(id: number, owner?: number): Promise<LoanRe
 const listQuery = z.object({
   status: statuses.optional(), view: views.optional(), q: z.string().trim().max(120).default(""),
   agency: positiveId.optional(), page: pageNumber,
+  sort: z.enum(Object.keys(requestSorts) as [RequestSort, ...RequestSort[]]).default("filed"),
+  direction: z.enum(["asc", "desc"]).default("desc"),
+  size: z.coerce.number().int().refine(value => [10, 25, 50].includes(value)).default(25),
 });
-export async function listLoanRequests(params: URLSearchParams, owner?: number) {
-  const { status, view, q, agency, page } = parseInput(listQuery, Object.fromEntries(params));
+const summaryRow = z.object({ status: statuses, count: z.object({ id: z.coerce.number().int().nonnegative() }) });
+async function requestSummary(owner: number | undefined, agency: number | undefined): Promise<RequestSummary> {
+  const summary = Object.fromEntries(Object.keys(requestStatusLabels).map(status => [status, 0])) as RequestSummary;
+  const filter = {
+    ...(agency ? { agency_id: { _eq: agency } } : {}),
+    ...(owner === undefined ? {} : { employee_user_id: { _eq: owner } }),
+    _and: [{ _or: [{ requested_at: { _nnull: true } }, { status: { _eq: "DRAFT" } }] }],
+  };
+  const query = new URLSearchParams({ "groupBy[]": "status", "aggregate[count]": "id", limit: "100", filter: JSON.stringify(filter) });
+  try {
+    const { data } = z.object({ data: z.array(summaryRow) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+    for (const row of data) summary[row.status] = row.count.id;
+  } catch {
+    // Summary counts are supplementary; keep the request list available if they fail.
+  }
+  return summary;
+}
+
+const requestSortValue = (row: RequestListItem, key: RequestSort): string | number | null => {
+  switch (key) {
+    case "reference": return row.id;
+    case "employee": return row.employeeName;
+    case "agency": return row.agencyName;
+    case "program": return row.program;
+    case "amount": return row.amount ? Math.round(Number(row.amount) * 100) : null;
+    case "filed": return row.requestedAt;
+    case "updated": return row.updatedAt;
+    case "status": return requestStatusLabels[row.status];
+  }
+};
+
+function sortRequests(rows: RequestListItem[], key: RequestSort, direction: "asc" | "desc") {
+  rows.sort((left, right) => {
+    const a = requestSortValue(left, key);
+    const b = requestSortValue(right, key);
+    if (a === null || b === null) return a === b ? right.id - left.id : a === null ? 1 : -1;
+    const order = typeof a === "number" && typeof b === "number" ? a - b
+      : String(a).localeCompare(String(b), undefined, { numeric: true });
+    return (direction === "asc" ? order : -order) || right.id - left.id;
+  });
+}
+
+async function readAllRequests(filter: object) {
+  const rows: z.output<typeof requestRow>[] = [];
+  for (let offset = 0; ; offset += 50) {
+    const query = new URLSearchParams({ fields: listFields, filter: JSON.stringify(filter), limit: "50",
+      offset: String(offset), sort: "-id" });
+    const { data } = z.object({ data: z.array(requestRow).max(50) })
+      .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+    rows.push(...data);
+    if (data.length < 50) return rows;
+  }
+}
+
+export async function listLoanRequests(params: URLSearchParams, owner?: number): Promise<RequestPage> {
+  const { status, view, q, agency, page, sort, direction, size } = parseInput(listQuery, Object.fromEntries(params));
   const ref = /^(?:GLR-)?0*([1-9]\d{0,9})$/i.exec(q)?.[1];
   const statusFilter = view
     ? { _in: requestViews[view].statuses, ...(status ? { _eq: status } : {}) }
@@ -149,13 +206,14 @@ export async function listLoanRequests(params: URLSearchParams, owner?: number) 
     ...(q ? { _or: [{ employee_name: { _icontains: q } }, { agency_name: { _icontains: q } },
       ...(ref ? [{ id: { _eq: Number(ref) } }] : [])] } : {}),
   };
-  const limit = 25;
-  const query = new URLSearchParams({
-    fields: listFields, filter: JSON.stringify(filter), limit: String(limit + 1), offset: String((page - 1) * limit),
-    sort: (view ? view === "in-progress" : status && status !== "DRAFT") ? "-requested_at,-id" : "-updated_at,-id",
-  });
-  const { data } = z.object({ data: z.array(requestRow).max(limit + 1) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
-  return { items: data.slice(0, limit).map(listItem), hasMore: data.length > limit };
+  const rows = (await readAllRequests(filter)).map(listItem);
+  const requestedSort: RequestSort = view === "drafts" || (!view && (!status || status === "DRAFT")) ? "updated" : "filed";
+  sortRequests(rows, params.has("sort") ? sort : requestedSort, direction);
+  const start = (page - 1) * size;
+  return {
+    items: rows.slice(start, start + size), total: rows.length, pageSize: size, hasMore: rows.length > start + size,
+    summary: await requestSummary(owner, agency),
+  };
 }
 
 type Command = { key: string; hash: string; actor: AgencyActor; id?: number };

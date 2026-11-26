@@ -1,14 +1,18 @@
-import type { LoanRequest, RequestCheck, RequestListItem } from "../requests/types";
+import type { LoanRequest, Page, RequestCheck, RequestListItem } from "../requests/types";
 
 export const APPROVAL_PAGE_SIZE = 25;
 export const companyDecisions = ["APPROVE", "REJECT"] as const;
 export type CompanyDecision = typeof companyDecisions[number];
 
+export type ApprovalQueueCheck = Pick<RequestCheck, "label" | "result" | "detail">;
 export type ApprovalQueueItem = Pick<RequestListItem, "id" | "reference" | "revision" | "employeeName" | "agencyName" | "program" | "amount"> & {
   requestedAt: string;
   waitingDays: number;
   filedChecksPass: boolean;
+  checks: ApprovalQueueCheck[];
 };
+export type ApprovalQueueSummary = { waiting: number; overdue: number; oldestWaitingDays: number };
+export type ApprovalQueuePage = Page<ApprovalQueueItem> & { summary: ApprovalQueueSummary };
 
 export type ApprovalAssessment = NonNullable<LoanRequest["filedAssessment"]>;
 export type ApprovalReview = { request: LoanRequest; currentAssessment: ApprovalAssessment | null };

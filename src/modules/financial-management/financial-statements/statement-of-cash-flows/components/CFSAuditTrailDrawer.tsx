@@ -69,6 +69,7 @@ export function CFSAuditTrailDrawer() {
       endDate: filters.endDate,
       activity: activityCode,
       coaId: line.coaId ?? undefined,
+      companyCode: filters.entity,
       page,
       size: 15,
       signal: controller.signal,
@@ -92,7 +93,7 @@ export function CFSAuditTrailDrawer() {
       });
 
     return () => controller.abort();
-  }, [line, filters.startDate, filters.endDate, page]);
+  }, [line, filters.startDate, filters.endDate, filters.entity, page]);
 
   const handleToggleEntry = async (entry: CFSEntryItem) => {
     if (selectedJournal?.journalEntryId === entry.jeNo) {
@@ -102,7 +103,7 @@ export function CFSAuditTrailDrawer() {
 
     setLoadingJournalId(entry.jeNo);
     try {
-      const details = await getLiveCashFlowTransactionDetails(entry.jeNo, entry.sourceModule);
+      const details = await getLiveCashFlowTransactionDetails(entry.jeNo, entry.sourceModule, filters.entity);
       setSelectedJournal(details);
     } catch {
       setSelectedJournal(null);

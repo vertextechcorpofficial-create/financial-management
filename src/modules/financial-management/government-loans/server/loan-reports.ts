@@ -12,6 +12,7 @@ import { readChangeInstructions, readLoanChangeHistory, readOpenLoanMonth, type 
 import { agencyStatement, readLoanSchedule, readMonthlyLoanSchedules } from "./loan-register";
 import { isoDateTime } from "./loan-requests";
 import { payrollMonth, payrollMoney, readLatestReceipts, readPayrollPages, readPayrollResults } from "./payroll-month-store";
+import { payrollMonthFilter } from "./payroll-month-filter";
 import { latestRemittances, readRemittanceApprovalIds, readReportRemittances } from "./remittance-records";
 import { employeeName } from "./request-assessment";
 import { flag, LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
@@ -145,7 +146,7 @@ async function ledgerDetails(selected: Loan, open: string) {
   const [events, instructions, attempts] = await Promise.all([
     readLoanChangeHistory(loanId),
     readChangeInstructions({ request_id: { _eq: loanId }, action: { _eq: "REFUND" } }),
-    readReportRemittances({ agency_id: { _eq: row.agency_id }, payroll_month: { _gte: schedule.firstDeductionMonth, _lte: open },
+    readReportRemittances({ ...payrollMonthFilter("payroll_month", schedule.firstDeductionMonth, open), agency_id: { _eq: row.agency_id },
       state: { _in: ["APPROVED", "PENDING"] } }),
   ]);
   const attemptsByMonth = latestRemittances(attempts);

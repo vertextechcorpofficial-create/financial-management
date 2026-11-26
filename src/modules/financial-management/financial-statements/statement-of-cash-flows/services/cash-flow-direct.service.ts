@@ -8,6 +8,7 @@ export interface FetchSummaryParams {
   startDate: string;
   endDate: string;
   groupBy?: "day" | "week" | "month";
+  companyCode?: string;
   signal?: AbortSignal;
 }
 
@@ -18,6 +19,7 @@ export interface FetchEntriesParams {
   coaId?: number | string;
   page?: number;
   size?: number;
+  companyCode?: string;
   signal?: AbortSignal;
 }
 
@@ -32,6 +34,10 @@ export async function getLiveCashFlowSummary(
     endDate: params.endDate,
     groupBy: params.groupBy || "month",
   });
+
+  if (params.companyCode) {
+    query.set("companyCode", params.companyCode);
+  }
 
   const res = await fetch(
     `/api/fm/financial-statements/statement-of-cash-flow/summary?${query.toString()}`,
@@ -67,6 +73,9 @@ export async function getLiveCashFlowEntries(
   if (params.coaId !== undefined && params.coaId !== null && params.coaId !== "") {
     query.set("coaId", String(params.coaId));
   }
+  if (params.companyCode) {
+    query.set("companyCode", params.companyCode);
+  }
 
   const res = await fetch(
     `/api/fm/financial-statements/statement-of-cash-flow/entries?${query.toString()}`,
@@ -91,9 +100,11 @@ export async function getLiveCashFlowEntries(
 export async function getLiveCashFlowTransactionDetails(
   journalEntryId: string,
   sourceModule: string,
+  companyCode?: string,
   signal?: AbortSignal,
 ): Promise<CFSJournalDetails> {
   const query = new URLSearchParams({ journalEntryId, sourceModule });
+  if (companyCode) query.set("companyCode", companyCode);
 
   const res = await fetch(
     `/api/fm/financial-statements/statement-of-cash-flow/transactions?${query.toString()}`,

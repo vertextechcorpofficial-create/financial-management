@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { PayrollInstructionDetails } from "../payroll-handoff/PayrollInstructionDetails";
-import { RequestDecisionHistory, RequestDetails, RequestSection } from "../requests/RequestReview";
+import { RequestDecisionHistory, RequestDetails, RequestSection, RequestStatusSummary } from "../requests/RequestReview";
 import { enrollmentEvidenceKinds, requestStatusLabels, type DocumentKind, type EnrollmentEvidenceKind } from "../requests/types";
 import { enrollmentBatchReference } from "./import-csv";
 import { deductionMonthLabel } from "./rules";
@@ -45,6 +45,7 @@ export function EnrollmentDetails({ record, documentHref, payrollEvidenceHref, c
         Replaced by enrollment {successor.enrollmentId} · {successor.state === "ACCEPTED" ? "Renewal acknowledged by Payroll" : "Payroll acknowledgement pending"}
       </p>}
     </div>
+    <RequestStatusSummary record={record.request} reason={enrollment?.returnReason ?? undefined} />
     {enrollment && <RequestSection title="Saved loan terms">
       <div className="flex flex-wrap gap-2">
         {enrollment.referenceConfirmed && <Badge variant="outline">Reference confirmed as printed</Badge>}
@@ -55,10 +56,6 @@ export function EnrollmentDetails({ record, documentHref, payrollEvidenceHref, c
           <dt className="text-muted-foreground">{label}</dt><dd className="break-words font-medium">{value}</dd>
         </div>)}
       </dl>
-      {record.status === "RETURNED" && enrollment.returnReason && <div className="rounded-md border p-3 text-sm">
-        <p className="font-medium">Return reason</p>
-        <p className="whitespace-pre-wrap break-words">{enrollment.returnReason}</p>
-      </div>}
     </RequestSection>}
     {payrollHandoff && <RequestSection title="Payroll handoff">
       <PayrollInstructionDetails {...payrollHandoff} evidenceHref={payrollEvidenceHref} />

@@ -55,9 +55,23 @@ export type EnrollmentListItem = {
   program: string;
   enrollment: EnrollmentSnapshot | null;
   importBatchId: number | null;
+  evidenceSummary?: { required: number; onFile: number } | null;
 };
 
-export type EnrollmentPage = Page<EnrollmentListItem> & { openMonth: string | null };
+export type EnrollmentSummary = Record<EnrollmentStatus, number>;
+export type EnrollmentPage = Page<EnrollmentListItem> & { openMonth: string | null; summary: EnrollmentSummary; total: number; pageSize: number };
+
+export const enrollmentSorts = {
+  reference: "Loan",
+  employee: "Employee",
+  agency: "Agency",
+  program: "Program",
+  amortization: "Amortization",
+  starts: "First deduction",
+  status: "Status",
+  updated: "Last updated",
+} as const;
+export type EnrollmentSort = keyof typeof enrollmentSorts;
 export type EnrollmentEvidence = { kind: EnrollmentEvidenceKind; name: string };
 export type EnrollmentDetail = EnrollmentListItem & {
   request: LoanRequest;

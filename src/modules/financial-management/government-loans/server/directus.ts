@@ -32,7 +32,7 @@ export type GovernmentLoansCollection = "user" | "modules" | "user_access_module
   | typeof GOVERNMENT_LOAN_REMITTANCE_DECISIONS | typeof GOVERNMENT_LOAN_CLOSES;
 
 export class GovernmentLoansDirectusError extends Error {
-  constructor(readonly status: number, readonly code?: string) {
+  constructor(readonly status: number, readonly code?: string, readonly source?: string) {
     super("The Government Loans data service could not complete the request.");
   }
 }
@@ -44,17 +44,20 @@ export async function governmentLoansDirectus(path: string, init: RequestInit = 
 
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
+  const source = path.split("?")[0];
   const response = await fetch(`${base}${path}`, {
     ...init,
     headers,
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.timeout(timeout),
+  }).catch(error => {
+    throw new GovernmentLoansDirectusError(503, error instanceof Error ? error.name : "FETCH_FAILED", source);
   });
   if (!response.ok) {
-    const error = init.method && init.method !== "GET" ? await response.json().catch(() => null) : null;
+    const error = await response.json().catch(() => null);
     const code = error?.errors?.[0]?.extensions?.code;
-    throw new GovernmentLoansDirectusError(response.status, typeof code === "string" ? code : undefined);
+    throw new GovernmentLoansDirectusError(response.status, typeof code === "string" ? code : undefined, source);
   }
   return response;
 }
