@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
-import { toPhtDateString } from "../pht";
+import { phtDisplayDate } from "../pht";
 import { toneClass } from "../constants";
 import { StatusBadge } from "./StatusBadge";
 import { SlipFiltersBar } from "./SlipFilters";
@@ -106,7 +106,7 @@ export function SlipsTable({
                     }}
                   >
                     <TableCell className="whitespace-nowrap font-mono text-sm">
-                      {toPhtDateString(slip.depositDate)}
+                      {phtDisplayDate(slip.depositDate)}
                     </TableCell>
                     <TableCell className="max-w-[140px]">
                       <p className="truncate font-mono text-sm" title={slip.depositNo}>
@@ -177,7 +177,7 @@ export function SlipsTable({
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate font-mono text-sm">{toPhtDateString(slip.depositDate)}</p>
+                    <p className="truncate font-mono text-sm">{phtDisplayDate(slip.depositDate)}</p>
                     <p className="truncate text-xs text-muted-foreground" title={slip.referenceNo ?? undefined}>
                       {slip.depositNo}
                       {slip.referenceNo ? ` · ${slip.referenceNo}` : ""}

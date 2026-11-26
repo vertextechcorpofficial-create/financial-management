@@ -9,9 +9,10 @@ export const dynamic = "force-dynamic";
 const PreviewSchema = z.object({
   bankAccountId: z.coerce.number().int().positive(),
   cashTotal: z.coerce.number().min(0).max(999_999_999_999),
+  checkTotal: z.coerce.number().min(0).max(999_999_999_999).default(0),
 });
 
-/** E07 preview: resolve the cash leg against `bank_gl_mapping` and write nothing. */
+/** E07 and E12 preview: resolve each leg against `bank_gl_mapping` and write nothing. */
 export async function POST(request: Request) {
   let payload: unknown;
   try {

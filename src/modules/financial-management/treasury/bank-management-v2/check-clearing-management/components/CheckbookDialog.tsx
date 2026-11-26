@@ -17,18 +17,26 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-import { phtDateLabel, phtToday } from "../pht";
+import { phtDisplayDate, phtToday } from "../pht";
 import { OptionCombobox } from "./OptionCombobox";
 import type { CheckbookSeries } from "../types";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  accounts: { bankId: number; label: string }[];
+  accounts: { bankId: number; label: string; bankName?: string; accountNumber?: string | null }[];
   isSaving: boolean;
   loadSeries: () => Promise<{ series: CheckbookSeries[]; notice?: string } | null>;
   onRegister: (payload: { bankAccountId: number; seriesStart: string; seriesEnd: string }) => Promise<unknown>;
 };
+
+/** Series labels arrive as "Bank · account number" (checks.service.ts). The number is what
+ *  tells two series on the same bank apart, so it leads and the bank sits muted beneath. */
+function splitAccountLabel(label: string) {
+  const at = label.lastIndexOf(" · ");
+  if (at < 0) return { number: null, bank: label };
+  return { number: label.slice(at + 3), bank: label.slice(0, at) };
+}
 
 /**
  * Checkbook series (FSD 1.4): binds a range of leaf numbers to one account so issuing a
@@ -57,14 +65,20 @@ export function CheckbookDialog({ open, onOpenChange, accounts, isSaving, loadSe
     };
   }, [open, loadSeries]);
 
+  // The dialog stays mounted between openings, so both directions reset the form: leaving
+  // must not keep the chosen account, and opening must not show last time's values.
+  function resetForm() {
+    setBankAccountId("");
+    setSeriesStart("");
+    setSeriesEnd("");
+    setError(null);
+    setLoaded(false);
+    setNotice(null);
+    setSeries([]);
+  }
+
   function handleOpenChange(next: boolean) {
-    if (!next) {
-      setBankAccountId("");
-      setSeriesStart("");
-      setSeriesEnd("");
-      setError(null);
-      setLoaded(false);
-    }
+    resetForm();
     onOpenChange(next);
   }
 
@@ -82,10 +96,15 @@ export function CheckbookDialog({ open, onOpenChange, accounts, isSaving, loadSe
 
     const result = await onRegister({ bankAccountId: Number(bankAccountId), seriesStart: String(start), seriesEnd: String(end) });
     if (result) {
+      // The dialog stays open after a registration; a cleared form stops the next range from
+      // being booked against an account the reader did not re-choose.
+      setBankAccountId("");
       setSeriesStart("");
       setSeriesEnd("");
+      setError(null);
       const refreshed = await loadSeries();
       setSeries(refreshed?.series ?? []);
+      setNotice(refreshed?.notice ?? null);
     }
   }
 
@@ -108,7 +127,16 @@ export function CheckbookDialog({ open, onOpenChange, accounts, isSaving, loadSe
                 </Label>
                 <OptionCombobox
                   id="cb-account"
-                  options={accounts.map((account) => ({ value: String(account.bankId), label: account.label }))}
+                  options={accounts.map((account) => {
+                    const { number, bank } = splitAccountLabel(account.label);
+                    // Two accounts at one bank differ only by number, so the number leads.
+                    return {
+                      value: String(account.bankId),
+                      label: account.accountNumber ?? number ?? account.label,
+                      description: account.bankName ?? bank ?? undefined,
+                      searchText: `${bank ?? ""} ${number ?? ""}`,
+                    };
+                  })}
                   value={bankAccountId}
                   onChange={setBankAccountId}
                   placeholder="Select account"
@@ -183,11 +211,19 @@ export function CheckbookDialog({ open, onOpenChange, accounts, isSaving, loadSe
                         const end = Number(entry.seriesEnd);
                         const next = entry.nextNo ? Number(entry.nextNo) : start;
                         const remaining = Number.isFinite(end) ? Math.max(0, end - next + 1) : 0;
+                        const account = splitAccountLabel(entry.bankAccountLabel);
                         return (
                           <TableRow key={entry.id}>
                             <TableCell className="text-sm tabular-nums">CB-{String(entry.id).padStart(2, "0")}</TableCell>
-                            <TableCell className="max-w-[240px] truncate text-sm" title={entry.bankAccountLabel}>
-                              {entry.bankAccountLabel}
+                            <TableCell className="max-w-[240px] text-sm">
+                              <p className="truncate tabular-nums" title={entry.bankAccountLabel}>
+                                {account.number ?? account.bank}
+                              </p>
+                              {account.number ? (
+                                <p className="truncate text-[11px] text-muted-foreground" title={entry.bankAccountLabel}>
+                                  {account.bank}
+                                </p>
+                              ) : null}
                             </TableCell>
                             <TableCell className="whitespace-nowrap text-sm tabular-nums">
                               {entry.seriesStart}–{entry.seriesEnd}
@@ -196,7 +232,7 @@ export function CheckbookDialog({ open, onOpenChange, accounts, isSaving, loadSe
                               {remaining === 0 ? "Exhausted" : entry.nextNo ?? entry.seriesStart}
                             </TableCell>
                             <TableCell className="text-right text-sm tabular-nums">{remaining}</TableCell>
-                            <TableCell className="whitespace-nowrap text-sm">{phtDateLabel(entry.createdAt)}</TableCell>
+                            <TableCell className="whitespace-nowrap text-sm">{phtDisplayDate(entry.createdAt)}</TableCell>
                           </TableRow>
                         );
                       })}
@@ -205,7 +241,7 @@ export function CheckbookDialog({ open, onOpenChange, accounts, isSaving, loadSe
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                Today is {phtDateLabel(phtToday())}. A series must belong to the account the checks are drawn on.
+                Today is {phtDisplayDate(phtToday())}.
               </p>
             </div>
           </div>
