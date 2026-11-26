@@ -1,6 +1,8 @@
 import { RequestApiError } from "../requests/request-api";
 import type { DocumentKind, Page } from "../requests/types";
-import type { ApprovalDecisionRow, ApprovalQueuePage, ApprovalReview, ApprovalSelection, BulkApprovalResult, CompanyDecision } from "./types";
+import type {
+  ApprovalDecisionPage, ApprovalQueuePage, ApprovalReview, ApprovalSelection, BulkApprovalResult, CompanyDecision,
+} from "./types";
 
 const endpoint = "/api/fm/government-loans/loan-approval/requests";
 
@@ -18,7 +20,8 @@ const post = (body: object, key: string): RequestInit => ({
 });
 
 export const approvalQueue = (query: string, signal: AbortSignal) => request<ApprovalQueuePage>("?" + query, { signal });
-export const approvalDecisions = (page: number, signal: AbortSignal) => request<Page<ApprovalDecisionRow>>("?view=decisions&page=" + page, { signal });
+export const approvalDecisions = (query: string, signal: AbortSignal) =>
+  request<ApprovalDecisionPage>("?view=decisions&" + query, { signal });
 export const approvalReview = (id: number, signal: AbortSignal) => request<ApprovalReview>("/" + id, { signal });
 export const approvalDocumentUrl = (id: number, kind: DocumentKind) => `${endpoint}/${id}/documents/${kind}`;
 
