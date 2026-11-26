@@ -107,6 +107,8 @@ export function totalsFromRows(rows: readonly LoanScheduleRow[]): ScheduleTotals
   let interest = 0;
   let principal = 0;
   let payment = 0;
+  let eirInterest = 0;
+  let costAmortization = 0;
   let paidPrincipal = 0;
   let paidInterest = 0;
   let paidPenalty = 0;
@@ -114,6 +116,8 @@ export function totalsFromRows(rows: readonly LoanScheduleRow[]): ScheduleTotals
     interest += row.interest;
     principal += row.principal;
     payment += row.payment;
+    eirInterest += row.eir_interest;
+    costAmortization += row.cost_amortization;
     paidPrincipal += row.paid_principal;
     paidInterest += row.paid_interest;
     paidPenalty += row.paid_penalty;
@@ -122,6 +126,8 @@ export function totalsFromRows(rows: readonly LoanScheduleRow[]): ScheduleTotals
     interest: round2(interest),
     principal: round2(principal),
     payment: round2(payment),
+    eirInterest: round2(eirInterest),
+    costAmortization: round2(costAmortization),
     paidPrincipal: round2(paidPrincipal),
     paidInterest: round2(paidInterest),
     paidPenalty: round2(paidPenalty),

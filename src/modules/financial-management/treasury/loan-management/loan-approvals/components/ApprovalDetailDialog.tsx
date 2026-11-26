@@ -175,27 +175,27 @@ export function ApprovalDetailDialog({
               two-up grid left the right half of a 1000px dialog empty (QA item 5). */}
           <div className="space-y-4">
             <Group title="Lender details">
-              <Row label="Branch" value={row.branch ?? "Not recorded"} />
+              <Row label="Branch" value={row.branch || "—"} />
               <Row
                 label="Account officer"
-                value={detail?.accountOfficer ?? "Not recorded"}
+                value={detail?.accountOfficer || "—"}
               />
               <Row
                 label="Contact phone"
-                value={detail?.contactPhone ?? "Not recorded"}
+                value={detail?.contactPhone || "—"}
               />
               <Row
                 label="Contact email"
-                value={detail?.contactEmail ?? "Not recorded"}
+                value={detail?.contactEmail || "—"}
               />
               {/* What the lender holds against the loan belongs with the lender, not the terms. */}
               <Row
                 label="Security"
-                value={detail ? securityLine(detail) : "not recorded"}
+                value={detail ? securityLine(detail) : "—"}
               />
               <Row
                 label="Guarantor"
-                value={detail?.guarantor ?? "None recorded"}
+                value={detail?.guarantor || "—"}
               />
             </Group>
 
@@ -321,7 +321,7 @@ export function ApprovalDetailDialog({
               />
               <Row
                 label="Purpose"
-                value={detail?.purpose ?? "Not recorded"}
+                value={detail?.purpose || "—"}
                 title={detail?.purpose ?? undefined}
               />
             </Group>

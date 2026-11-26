@@ -129,7 +129,7 @@ export function ChangesModule() {
         onOpenChange={(open) => {
           if (!open) setDetailId(null);
         }}
-        onChanged={() => void changes.reload()}
+        onChanged={() => changes.reload()}
       />
     </div>
   );

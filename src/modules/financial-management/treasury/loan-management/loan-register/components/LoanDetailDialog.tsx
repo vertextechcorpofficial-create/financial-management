@@ -129,7 +129,10 @@ export function LoanDetailDialog({
 
             <div className="grid gap-4 md:grid-cols-2">
               <Group title="Terms">
-                <Row label="Repayment method" value={REPAYMENT_METHOD_LABEL[loan.repayment_method]} />
+                <Row
+                  label="Repayment method"
+                  value={`${REPAYMENT_METHOD_LABEL[loan.repayment_method]} · ${PAYMENT_FREQUENCY_LABEL[loan.payment_frequency]}`}
+                />
                 <Row label="First payment" value={formatDateMDY(loan.first_payment_date)} />
                 <Row label="Maturity" value={formatDateMDY(loan.maturity_date)} />
                 <Row label="First period interest" value={FIRST_PERIOD_BASIS_LABEL[loan.first_period_basis]} />
@@ -146,7 +149,49 @@ export function LoanDetailDialog({
                 />
               </Group>
 
-              <Group title="Installments">
+              <Group title="Rate and charges">
+                <Row
+                  label="Nominal rate a year"
+                  value={`${formatNumber(loan.nominal_rate, "en-PH", 4)}% ${RATE_TYPE_LABEL[loan.rate_type].toLowerCase()}`}
+                  strong
+                />
+                <Row
+                  label="Effective rate a year"
+                  value={`${formatNumber(loan.eir_rate * 100, "en-PH", 4)}%`}
+                  strong
+                />
+                <Row
+                  label="Penalty"
+                  value={`${formatNumber(loan.penalty_rate_monthly, "en-PH", 2)}% a month · ${formatNumber(loan.grace_days)} grace days`}
+                />
+                <Row label="Processing fee" value={formatCurrency(loan.processing_fee)} />
+                <Row
+                  label="Stamp tax"
+                  value={`${formatCurrency(loan.dst_amount)} · ${DST_TREATMENT_LABEL[loan.dst_treatment].toLowerCase()}`}
+                />
+                <Row label="Other costs" value={formatCurrency(loan.other_costs)} />
+              </Group>
+
+              <Group title="Money and holding">
+                <Row label="Paid to date" value={formatCurrency(loan.paidToDate)} />
+                <Row label="Advance held" value={formatCurrency(loan.advance_balance)} />
+                <Row label="Proceeds account" value={loan.proceedsAccountLabel ?? "—"} />
+                <Row label="Branch" value={loan.branch || "—"} />
+                <Row label="Account officer" value={loan.account_officer || "—"} />
+                <Row label="Loan account / PN number" value={loan.account_no} />
+              </Group>
+
+              <Group title="Trail">
+                <Row label="Submitted" value={stamp(loan.submitted_at)} />
+                <Row label="Approved" value={stamp(loan.approved_at)} />
+                <Row label="Released" value={stamp(loan.released_at)} />
+                <Row label="Closed" value={stamp(loan.closed_at)} />
+                <Row label="PAS 23" value={Number(loan.pas23_applies) === 1 ? leaseWord(loan) : "Not applied"} />
+                <Row label="Purpose" value={loan.purpose || "—"} />
+              </Group>
+            </div>
+
+            <Group title="Installments">
               {scheduleError ? (
                 <Row label="The schedule" value={scheduleError} />
               ) : !schedule ? (
@@ -155,45 +200,52 @@ export function LoanDetailDialog({
                 <Row label="The schedule" value="No installments have been built for this loan." />
               ) : (
                 <div ref={installmentsRef} className="px-4 py-3">
-                  {/* The dialog column is narrower than six money columns, so the table keeps its
-                      widths and scrolls inside the card instead of clipping the balance. */}
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[600px] table-fixed text-xs">
+                    <table className="w-full min-w-[680px] table-fixed text-xs">
                       <thead>
                         <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                          <th className="w-9 py-1 pl-0 pr-3 text-left font-medium">#</th>
-                          <th className="w-[150px] py-1 pl-4 pr-3 text-left font-medium">Payment due</th>
-                          <th className="py-1 pl-3 pr-4 text-right font-medium last:pr-4">Payment</th>
-                          <th className="py-1 pl-3 pr-4 text-right font-medium last:pr-4">Principal</th>
-                          <th className="py-1 pl-3 pr-4 text-right font-medium last:pr-4">Interest</th>
-                          <th className="py-1 pl-3 pr-4 text-right font-medium last:pr-4">Balance</th>
+                          <th className="w-10 py-1 pl-0 pr-3 text-left font-medium">#</th>
+                          <th className="w-[105px] py-1 px-3 text-left font-medium">Due date</th>
+                          <th className="w-[170px] py-1 px-3 text-left font-medium">Payment due</th>
+                          <th className="py-1 pl-3 pr-4 text-right font-medium">Payment</th>
+                          <th className="py-1 pl-3 pr-4 text-right font-medium">Interest</th>
+                          <th className="py-1 pl-3 pr-4 text-right font-medium">Principal</th>
+                          <th className="py-1 pl-3 pr-0 text-right font-medium">Balance</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/50">
                         {schedule.rows.map((row) => {
+                          const shifted = Boolean(row.payment_due_date && row.payment_due_date !== row.due_date);
                           const reason = paymentShiftReason(row.due_date, row.payment_due_date, schedule.holidays);
                           return (
                             <tr key={row.id}>
-                              <td className="py-1 pl-0 pr-3 tabular-nums text-muted-foreground">{row.period_no}</td>
-                              {/* QA 5: the payable date is a column of its own, printed for every row, and a
-                                  shifted one names the weekend or holiday it moved off. Two lines, never four:
-                                  the payable date, then "was <scheduled date> · <reason>". */}
-                              <td className="py-1 pl-4 pr-3 tabular-nums">
-                                <span className="block whitespace-nowrap">{formatDateMDY(row.payment_due_date)}</span>
-                                {row.payment_due_date && row.payment_due_date !== row.due_date ? (
-                                  <span
-                                    className="block truncate text-[11px] text-muted-foreground"
-                                    title={`was ${formatDateMDY(row.due_date)}${reason ? ` · ${reason}` : ""}`}
-                                  >
-                                    was {formatDateMDY(row.due_date)}
-                                    {reason ? ` · ${reason}` : ""}
-                                  </span>
-                                ) : null}
+                              <td className="py-1.5 pl-0 pr-3 text-left tabular-nums text-muted-foreground">
+                                {row.period_no}
                               </td>
-                              <td className="py-1 pl-3 pr-4 text-right tabular-nums">{formatCurrency(row.payment)}</td>
-                              <td className="py-1 pl-3 pr-4 text-right tabular-nums">{formatCurrency(row.principal)}</td>
-                              <td className="py-1 pl-3 pr-4 text-right tabular-nums">{formatCurrency(row.interest)}</td>
-                              <td className="py-1 pl-3 pr-4 text-right tabular-nums">{formatCurrency(row.closing_principal)}</td>
+                              <td className="py-1.5 px-3 tabular-nums whitespace-nowrap">
+                                {formatDateMDY(row.due_date)}
+                              </td>
+                              <td className="py-1.5 px-3 tabular-nums">
+                                <span className="block whitespace-nowrap">{formatDateMDY(row.payment_due_date)}</span>
+                                <span
+                                  className="block truncate text-[11px] text-muted-foreground"
+                                  title={
+                                    shifted
+                                      ? `was ${formatDateMDY(row.due_date)}${reason ? ` · ${reason}` : ""}`
+                                      : "same"
+                                  }
+                                >
+                                  {shifted
+                                    ? `${reason || `was ${formatDateMDY(row.due_date)}`}`
+                                    : "same"}
+                                </span>
+                              </td>
+                              <td className="py-1.5 pl-3 pr-4 text-right tabular-nums">{formatCurrency(row.payment)}</td>
+                              <td className="py-1.5 pl-3 pr-4 text-right tabular-nums">{formatCurrency(row.interest)}</td>
+                              <td className="py-1.5 pl-3 pr-4 text-right tabular-nums">{formatCurrency(row.principal)}</td>
+                              <td className="py-1.5 pl-3 pr-0 text-right tabular-nums">
+                                {formatCurrency(row.closing_principal)}
+                              </td>
                             </tr>
                           );
                         })}
@@ -221,48 +273,6 @@ export function LoanDetailDialog({
                 </div>
               )}
             </Group>
-
-            <Group title="Rate and charges">
-                <Row
-                  label="Nominal rate a year"
-                  value={`${formatNumber(loan.nominal_rate, "en-PH", 4)}% ${RATE_TYPE_LABEL[loan.rate_type].toLowerCase()}`}
-                  strong
-                />
-                <Row
-                  label="Effective rate a year"
-                  value={`${formatNumber(loan.eir_rate * 100, "en-PH", 4)}%`}
-                  strong
-                />
-                <Row
-                  label="Penalty"
-                  value={`${formatNumber(loan.penalty_rate_monthly, "en-PH", 2)}% a month · ${formatNumber(loan.grace_days)} grace days`}
-                />
-                <Row label="Processing fee" value={formatCurrency(loan.processing_fee)} />
-                <Row
-                  label="Stamp tax"
-                  value={`${formatCurrency(loan.dst_amount)} · ${DST_TREATMENT_LABEL[loan.dst_treatment].toLowerCase()}`}
-                />
-                <Row label="Other costs" value={formatCurrency(loan.other_costs)} />
-              </Group>
-
-              <Group title="Money and holding">
-                <Row label="Paid to date" value={formatCurrency(loan.paidToDate)} />
-                <Row label="Advance held" value={formatCurrency(loan.advance_balance)} />
-                <Row label="Proceeds account" value={loan.proceedsAccountLabel ?? "not recorded"} />
-                <Row label="Branch" value={loan.branch || "not recorded"} />
-                <Row label="Account officer" value={loan.account_officer || "not recorded"} />
-                <Row label="Loan account / PN number" value={loan.account_no} />
-              </Group>
-
-              <Group title="Trail">
-                <Row label="Submitted" value={stamp(loan.submitted_at)} />
-                <Row label="Approved" value={stamp(loan.approved_at)} />
-                <Row label="Released" value={stamp(loan.released_at)} />
-                <Row label="Closed" value={stamp(loan.closed_at)} />
-                <Row label="PAS 23" value={Number(loan.pas23_applies) === 1 ? leaseWord(loan) : "Not applied"} />
-                <Row label="Purpose" value={loan.purpose || "not recorded"} />
-              </Group>
-            </div>
 
             {loan.remarks ? (
               <div className="rounded-lg border border-border/60 bg-muted/20 px-4 py-3">

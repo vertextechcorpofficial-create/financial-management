@@ -390,32 +390,32 @@ export function LoanView({
         ) : view === "lender" ? (
           <>
             <div className="hidden overflow-x-auto min-[1300px]:block">
-              <Table className="[&_th:first-child]:pl-4 [&_td:first-child]:pl-4 [&_th:last-child]:pr-4 [&_td:last-child]:pr-4 [&_th]:py-2.5 [&_td]:py-3">
+              <Table className="min-w-[1060px] [&_th:first-child]:pl-4 [&_td:first-child]:pl-4 [&_th:last-child]:pr-4 [&_td:last-child]:pr-4 [&_th]:py-2.5 [&_td]:py-3">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[56px] text-right">#</TableHead>
-                    <TableHead className="w-[110px]">Due date</TableHead>
-                    <TableHead className="w-[150px]">Payment due</TableHead>
-                    <TableHead className="w-[120px] text-right">Interest</TableHead>
+                    <TableHead className="w-[48px] text-left">#</TableHead>
+                    <TableHead className="w-[105px]">Due date</TableHead>
+                    <TableHead className="w-[175px]">Payment due</TableHead>
+                    <TableHead className="w-[130px] text-right">Opening principal</TableHead>
+                    <TableHead className="w-[120px] text-right">Payment</TableHead>
+                    <TableHead className="w-[115px] text-right">Interest</TableHead>
                     <TableHead className="w-[120px] text-right">Principal</TableHead>
-                    <TableHead className="w-[130px] text-right">Installment</TableHead>
-                    <TableHead className="w-[140px] text-right">Opening principal</TableHead>
-                    <TableHead className="w-[140px] text-right">Closing principal</TableHead>
-                    <TableHead className="w-[120px] text-right">Paid</TableHead>
+                    <TableHead className="w-[135px] text-right">Closing principal</TableHead>
+                    <TableHead className="w-[110px] text-right">Paid</TableHead>
                     <TableHead className="w-[110px]">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <TableRow className="bg-muted/30">
-                    <TableCell className="text-right tabular-nums">0</TableCell>
+                    <TableCell className="text-left tabular-nums">0</TableCell>
                     <TableCell className="tabular-nums">{formatDateMDY(loan.releaseDate)}</TableCell>
                     <TableCell className="tabular-nums text-muted-foreground">Release</TableCell>
-                    <TableCell className="text-right text-muted-foreground"></TableCell>
-                    <TableCell className="text-right text-muted-foreground"></TableCell>
-                    <TableCell className="text-right text-muted-foreground"></TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
                     <TableCell className="text-right tabular-nums">{money(loan.principal)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{money(loan.principal)}</TableCell>
-                    <TableCell className="text-right text-muted-foreground"></TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
                     <TableCell>
                       <StatusBadge tone="neutral">Release</StatusBadge>
                     </TableCell>
@@ -424,21 +424,21 @@ export function LoanView({
                     const reason = paymentShiftReason(row.due_date, row.payment_due_date, data.holidays);
                     return (
                       <TableRow key={row.id}>
-                        <TableCell className="text-right tabular-nums">{row.period_no}</TableCell>
+                        <TableCell className="text-left tabular-nums">{row.period_no}</TableCell>
                         <TableCell className="tabular-nums">{formatDateMDY(row.due_date)}</TableCell>
                         <TableCell className="tabular-nums">
                           {formatDateMDY(row.payment_due_date)}
                           {reason ? <span className="block text-xs text-muted-foreground">{reason}</span> : null}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">{money(row.interest)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{money(row.principal)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{money(row.payment)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">
                           {money(row.opening_principal)}
                         </TableCell>
+                        <TableCell className="text-right tabular-nums">{money(row.payment)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{money(row.interest)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{money(row.principal)}</TableCell>
                         <TableCell className="text-right tabular-nums">{money(row.closing_principal)}</TableCell>
                         <TableCell className="text-right tabular-nums" title={paidTitle(row)}>
-                          {paidOn(row) > 0 ? money(paidOn(row)) : "none"}
+                          {paidOn(row) > 0 ? money(paidOn(row)) : <span className="text-muted-foreground">—</span>}
                         </TableCell>
                         <TableCell>
                           <StatusBadge tone={INSTALLMENT_STATUS_TONE[row.status]}>
@@ -451,14 +451,13 @@ export function LoanView({
                 </TableBody>
                 <TableFooter>
                   <TableRow>
-                    <TableCell colSpan={3} className="text-xs text-muted-foreground">
-                      {data.total} installment{data.total === 1 ? "" : "s"} in this view
+                    <TableCell colSpan={4} className="text-xs text-muted-foreground">
+                      Total shown · {data.total} installment{data.total === 1 ? "" : "s"}
                     </TableCell>
+                    <TableCell className="text-right tabular-nums">{money(data.totals.payment)}</TableCell>
                     <TableCell className="text-right tabular-nums">{money(data.totals.interest)}</TableCell>
                     <TableCell className="text-right tabular-nums">{money(data.totals.principal)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{money(data.totals.payment)}</TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground"></TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground"></TableCell>
+                    <TableCell className="text-right text-xs text-muted-foreground">—</TableCell>
                     <TableCell className="text-right tabular-nums">{money(data.totals.paid)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {!data.tie
@@ -481,7 +480,7 @@ export function LoanView({
                   <StatusBadge tone="neutral">Release</StatusBadge>
                 </div>
                 <p className="text-xs text-muted-foreground tabular-nums">
-                  {formatDateMDY(loan.releaseDate)} · opening {money(loan.principal)} · closing {money(loan.principal)}
+                  {formatDateMDY(loan.releaseDate)} · closing {money(loan.principal)}
                 </p>
               </li>
               {data.rows.map((row) => {
@@ -499,7 +498,7 @@ export function LoanView({
                       {reason ? ` (${reason})` : ""}
                     </p>
                     <p className="text-xs text-muted-foreground tabular-nums">
-                      Installment {money(row.payment)} · interest {money(row.interest)} · principal {money(row.principal)}
+                      Payment {money(row.payment)} · interest {money(row.interest)} · principal {money(row.principal)}
                     </p>
                     <p className="text-xs text-muted-foreground tabular-nums">
                       Closing principal {money(row.closing_principal)}
@@ -510,34 +509,67 @@ export function LoanView({
               })}
             </ul>
           </>
-        ) : (
+        ) : (() => {
+          const initialCarrying = loan.proceedsNet > 0 ? loan.proceedsNet : (data.rows[0]?.open_carrying ?? loan.principal);
+          const lastClosing = data.rows[data.rows.length - 1]?.close_carrying ?? 0;
+          const eirTies = Math.abs(lastClosing) < 0.005;
+          return (
           <>
+            <div className="border-b border-border/50 bg-muted/20 px-4 py-2 text-xs text-muted-foreground tabular-nums">
+              <span className="font-medium text-foreground">{money(initialCarrying)}</span> = Σ CFₜ / (1 + EIR)ᵗ ⇒{" "}
+              <span className="font-medium text-foreground">EIR = {effectiveRate(loan.eirRate)}</span> p.a.
+            </div>
             <div className="hidden overflow-x-auto min-[1300px]:block">
-              <Table className="[&_th:first-child]:pl-4 [&_td:first-child]:pl-4 [&_th:last-child]:pr-4 [&_td:last-child]:pr-4 [&_th]:py-2.5 [&_td]:py-3">
+              <Table className="min-w-[1160px] [&_th:first-child]:pl-4 [&_td:first-child]:pl-4 [&_th:last-child]:pr-4 [&_td:last-child]:pr-4 [&_th]:py-2.5 [&_td]:py-3">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[56px] text-right">#</TableHead>
-                    <TableHead className="w-[110px]">Due date</TableHead>
-                    <TableHead className="w-[150px]">Payment due</TableHead>
-                    <TableHead className="w-[150px] text-right">Interest expense</TableHead>
-                    <TableHead className="w-[160px] text-right">Cost amortization</TableHead>
-                    <TableHead className="w-[150px] text-right">Closing carrying</TableHead>
-                    <TableHead className="w-[110px]">Status</TableHead>
+                    <TableHead className="w-[48px] text-left">#</TableHead>
+                    <TableHead className="w-[105px]">Due date</TableHead>
+                    <TableHead className="w-[175px]">Payment due</TableHead>
+                    <TableHead className="w-[135px] text-right">Opening carrying (A)</TableHead>
+                    <TableHead className="w-[130px] text-right">Interest expense (B)</TableHead>
+                    <TableHead className="w-[135px] text-right">Contractual interest (C)</TableHead>
+                    <TableHead className="w-[140px] text-right">Cost amortization (D = B - C)</TableHead>
+                    <TableHead className="w-[120px] text-right">Principal (E)</TableHead>
+                    <TableHead className="w-[130px] text-right">Scheduled payment</TableHead>
+                    <TableHead className="w-[135px] text-right">Closing carrying</TableHead>
+                    <TableHead className="w-[105px]">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  <TableRow className="bg-muted/30">
+                    <TableCell className="text-left tabular-nums">0</TableCell>
+                    <TableCell className="tabular-nums">{formatDateMDY(loan.releaseDate)}</TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">Release</TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right tabular-nums">{money(initialCarrying)}</TableCell>
+                    <TableCell>
+                      <StatusBadge tone="neutral">Release</StatusBadge>
+                    </TableCell>
+                  </TableRow>
                   {data.rows.map((row) => {
                     const reason = paymentShiftReason(row.due_date, row.payment_due_date, data.holidays);
                     return (
                       <TableRow key={row.id}>
-                        <TableCell className="text-right tabular-nums">{row.period_no}</TableCell>
+                        <TableCell className="text-left tabular-nums">{row.period_no}</TableCell>
                         <TableCell className="tabular-nums">{formatDateMDY(row.due_date)}</TableCell>
                         <TableCell className="tabular-nums">
                           {formatDateMDY(row.payment_due_date)}
                           {reason ? <span className="block text-xs text-muted-foreground">{reason}</span> : null}
                         </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {money(row.open_carrying)}
+                        </TableCell>
                         <TableCell className="text-right tabular-nums">{money(row.eir_interest)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{money(row.interest)}</TableCell>
                         <TableCell className="text-right tabular-nums">{money(row.cost_amortization)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{money(row.principal)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{money(row.payment)}</TableCell>
                         <TableCell className="text-right tabular-nums">{money(row.close_carrying)}</TableCell>
                         <TableCell>
                           <StatusBadge tone={INSTALLMENT_STATUS_TONE[row.status]}>
@@ -548,10 +580,35 @@ export function LoanView({
                     );
                   })}
                 </TableBody>
+                <TableFooter>
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-xs text-muted-foreground">
+                      Total shown · {data.total} period{data.total === 1 ? "" : "s"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{money(data.totals.eirInterest)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{money(data.totals.interest)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{money(data.totals.costAmortization)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{money(data.totals.principal)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{money(data.totals.payment)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{money(lastClosing)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {eirTies ? "Ties to zero" : "Closing balance"}
+                    </TableCell>
+                  </TableRow>
+                </TableFooter>
               </Table>
             </div>
 
             <ul className="divide-y divide-border min-[1300px]:hidden">
+              <li className="space-y-1 bg-muted/30 px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium tabular-nums">0 · Release</span>
+                  <StatusBadge tone="neutral">Release</StatusBadge>
+                </div>
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  {formatDateMDY(loan.releaseDate)} · closing carrying {money(initialCarrying)}
+                </p>
+              </li>
               {data.rows.map((row) => {
                 const reason = paymentShiftReason(row.due_date, row.payment_due_date, data.holidays);
                 return (
@@ -567,17 +624,21 @@ export function LoanView({
                       {reason ? ` (${reason})` : ""}
                     </p>
                     <p className="text-xs text-muted-foreground tabular-nums">
-                      Interest expense {money(row.eir_interest)} · amortization {money(row.cost_amortization)}
+                      Interest expense {money(row.eir_interest)} · contractual {money(row.interest)} · amortization {money(row.cost_amortization)}
                     </p>
                     <p className="text-xs text-muted-foreground tabular-nums">
-                      Closing carrying {money(row.close_carrying)}
+                      Principal {money(row.principal)} · closing carrying {money(row.close_carrying)}
                     </p>
                   </li>
                 );
               })}
             </ul>
+            <p className="border-t border-border/50 px-4 py-2 text-xs text-muted-foreground">
+              Final-period interest expense is set so the carrying amount closes at exactly zero.
+            </p>
           </>
-        )}
+          );
+        })()}
 
         <TablePager
           page={page}

@@ -944,18 +944,19 @@ export async function getChange(id: number): Promise<ChangeListRow> {
   });
   const row = rows[0];
   if (!row) throw new LoanNotFoundError("That change does not exist.");
-  const loan = await readLoan(row.loan_id).catch(() => null);
-  const accounts = await listMoneyAccounts();
+  const [loan, accounts, entry] = await Promise.all([
+    readLoan(row.loan_id).catch(() => null),
+    listMoneyAccounts(),
+    row.journal_entry_id !== null
+      ? listItems<{ entry_no: string }>("loan_journal_entry", {
+          fields: ["entry_no"],
+          filter: { id: { _eq: row.journal_entry_id } },
+          limit: 1,
+        })
+      : Promise.resolve(null),
+  ]);
   const account = row.account_id === null ? null : accounts.find((item) => item.id === row.account_id);
-  let entryNo: string | null = null;
-  if (row.journal_entry_id !== null) {
-    const entry = await listItems<{ entry_no: string }>("loan_journal_entry", {
-      fields: ["entry_no"],
-      filter: { id: { _eq: row.journal_entry_id } },
-      limit: 1,
-    });
-    entryNo = entry.rows[0]?.entry_no ?? null;
-  }
+  const entryNo = entry?.rows[0]?.entry_no ?? null;
   return mapChangeRow(row, {
     loanNo: loan?.loanNo ?? null,
     lenderName: loan?.lenderName ?? null,
@@ -982,25 +983,43 @@ export async function reverseChange(id: number, reason: string | null, actorId: 
   }
 
   const now = phtStamp();
+  const previousVersion = Math.max(1, (change.scheduleVersion ?? 1) - 1);
+
+  const [linesRes, originalRes, previousRows] = await Promise.all([
+    change.journalEntryId !== null
+      ? listItems<{ coa_id: number; memo: string; debit: string | number; credit: string | number }>(
+          "loan_journal_line",
+          {
+            fields: ["coa_id", "memo", "debit", "credit"],
+            filter: { entry_id: { _eq: change.journalEntryId } },
+            sort: "line_no",
+            limit: 100,
+          },
+        )
+      : Promise.resolve({
+          rows: [] as { coa_id: number; memo: string; debit: string | number; credit: string | number }[],
+        }),
+    change.journalEntryId !== null
+      ? listItems<{ entry_no: string }>("loan_journal_entry", {
+          fields: ["entry_no"],
+          filter: { id: { _eq: change.journalEntryId } },
+          limit: 1,
+        })
+      : Promise.resolve({ rows: [] as { entry_no: string }[] }),
+    readSchedule(loan.id, previousVersion),
+  ]);
+
+  let mirror: { id: number; entryNo: string } | null = null;
+  let originalNo: string | null = null;
 
   if (change.journalEntryId !== null) {
-    const { rows: lines } = await listItems<{ coa_id: number; memo: string; debit: string | number; credit: string | number }>(
-      "loan_journal_line",
-      { fields: ["coa_id", "memo", "debit", "credit"], filter: { entry_id: { _eq: change.journalEntryId } }, sort: "line_no", limit: 100 },
-    );
-    const original = await listItems<{ entry_no: string }>("loan_journal_entry", {
-      fields: ["entry_no"],
-      filter: { id: { _eq: change.journalEntryId } },
-      limit: 1,
-    });
-    const originalNo = original.rows[0]?.entry_no ?? null;
-
-    const mirror = await postJournal(
+    originalNo = originalRes.rows[0]?.entry_no ?? null;
+    mirror = await postJournal(
       loan.id,
       change.effectiveDate,
       ENTRY_TYPE[change.kind],
       `Reversal of ${change.changeNo}${reason ? ` · ${reason}` : ""}`,
-      lines.map((line) => ({
+      linesRes.rows.map((line) => ({
         coaId: Number(line.coa_id),
         memo: `Reversal · ${line.memo}`,
         debit: asNumber(line.credit),
@@ -1009,25 +1028,8 @@ export async function reverseChange(id: number, reason: string | null, actorId: 
       now,
       actorId,
     );
-
-    // The pair has to point at each other: the original entry names the entry that reversed it,
-    // and the mirror names the entry it reverses. Writing the original's own number into its own
-    // reverses_entry_no told a reader that the entry reversed itself.
-    await updateItem("loan_journal_entry", mirror.id, {
-      reverses_entry_no: originalNo,
-      updated_at: now,
-      updated_by: actorId,
-    });
-    await updateItem("loan_journal_entry", change.journalEntryId, {
-      status: "REVERSED",
-      reverses_entry_no: mirror.entryNo,
-      updated_at: now,
-      updated_by: actorId,
-    });
   }
 
-  const previousVersion = Math.max(1, (change.scheduleVersion ?? 1) - 1);
-  const previousRows = await readSchedule(loan.id, previousVersion);
   // Undoing a change must not quietly cure a loan that was already behind: the schedule comes back
   // on its own evidence, so a period still marked OVERDUE brings the loan back as OVERDUE.
   const stillOverdue = previousRows.some((row) => row.status === "OVERDUE");
@@ -1044,31 +1046,60 @@ export async function reverseChange(id: number, reason: string | null, actorId: 
   else if (previousRows.length > 0) {
     loanPatch.maturity_date = previousRows[previousRows.length - 1].paymentDueDate;
   }
-  await updateItem("loan", loan.id, loanPatch);
 
-  // `reversed_by_id` refers to a change row; reversing posts a mirror entry rather than a second
-  // change, so the column stays empty and the entry pair carries the link.
-  await updateItem("loan_change", change.id, {
+  const nextNotes = reason ? `${change.notes ? `${change.notes} · ` : ""}Reversed: ${reason}` : change.notes;
+
+  const writes: Promise<unknown>[] = [
+    updateItem("loan", loan.id, loanPatch),
+    // `reversed_by_id` refers to a change row; reversing posts a mirror entry rather than a second
+    // change, so the column stays empty and the entry pair carries the link.
+    updateItem("loan_change", change.id, {
+      status: "REVERSED",
+      reversed_by_id: null,
+      notes: nextNotes,
+      updated_at: now,
+      updated_by: actorId,
+    }),
+    createItem("loan_event", {
+      loan_id: loan.id,
+      kind: "SCHEDULE_REBUILT",
+      occurred_at: now,
+      description: `${change.changeNo} reversed; the loan is back on schedule version ${previousVersion}.`,
+      amount: null,
+      reference: change.changeNo,
+      actor_id: actorId,
+      created_at: now,
+      created_by: actorId,
+      updated_at: now,
+      updated_by: actorId,
+    }),
+  ];
+
+  if (mirror && change.journalEntryId !== null) {
+    // The pair has to point at each other: the original entry names the entry that reversed it,
+    // and the mirror names the entry it reverses. Writing the original's own number into its own
+    // reverses_entry_no told a reader that the entry reversed itself.
+    writes.push(
+      updateItem("loan_journal_entry", mirror.id, {
+        reverses_entry_no: originalNo,
+        updated_at: now,
+        updated_by: actorId,
+      }),
+      updateItem("loan_journal_entry", change.journalEntryId, {
+        status: "REVERSED",
+        reverses_entry_no: mirror.entryNo,
+        updated_at: now,
+        updated_by: actorId,
+      }),
+    );
+  }
+
+  await Promise.all(writes);
+
+  return {
+    ...change,
     status: "REVERSED",
-    reversed_by_id: null,
-    notes: reason ? `${change.notes ? `${change.notes} · ` : ""}Reversed: ${reason}` : change.notes,
-    updated_at: now,
-    updated_by: actorId,
-  });
-
-  await createItem("loan_event", {
-    loan_id: loan.id,
-    kind: "SCHEDULE_REBUILT",
-    occurred_at: now,
-    description: `${change.changeNo} reversed; the loan is back on schedule version ${previousVersion}.`,
-    amount: null,
-    reference: change.changeNo,
-    actor_id: actorId,
-    created_at: now,
-    created_by: actorId,
-    updated_at: now,
-    updated_by: actorId,
-  });
-
-  return getChange(change.id);
+    reversedById: null,
+    notes: nextNotes,
+  };
 }
