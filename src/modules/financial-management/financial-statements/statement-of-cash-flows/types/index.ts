@@ -59,6 +59,12 @@ export interface CFSSummaryTrendPoint {
 export interface CFSSummaryResponse {
   success: boolean;
   message?: string;
+  missingKey?: boolean;
+  companyCode?: string;
+  companyName?: string;
+  reportLabel?: string;
+  includedCompanies?: string[];
+  missingCompanies?: { code: string; name: string; reason: string }[];
   period: {
     startDate: string;
     endDate: string;

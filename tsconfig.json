@@ -41,6 +41,9 @@
     "src/modules/financial-management/accounting/supplier-management/payment-terms/utils/sample"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next",
+    "out",
+    "dist"
   ]
 }

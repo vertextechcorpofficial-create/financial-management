@@ -33,6 +33,7 @@ export function CFSAccountMappingTab() {
       startDate: filters.startDate,
       endDate: filters.endDate,
       activity: "UNCLASSIFIED",
+      companyCode: filters.entity,
       size: 50,
       signal: controller.signal,
     })
@@ -53,7 +54,7 @@ export function CFSAccountMappingTab() {
       });
 
     return () => controller.abort();
-  }, [filters.startDate, filters.endDate, unmapped.length]);
+  }, [filters.startDate, filters.endDate, filters.entity, unmapped.length]);
 
   // Aggregate document references per unclassified category
   const exceptions = React.useMemo(() => {
