@@ -8,10 +8,11 @@ import { centavos } from "../payroll-handoff/contract";
 import { remitKey, remittanceDeadline, remittanceStatus } from "../remittances/preparation/rules";
 import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_PAYROLL_RESULTS, GOVERNMENT_LOAN_REQUESTS, readGovernmentLoansItems } from "./directus";
 import { readGroups } from "./enrollment-sources";
-import { readChangeInstructions, readLoanChangeHistory, readOpenLoanMonth } from "./loan-changes";
+import { readChangeInstructions, readLoanChangeHistory, readOpenLoanMonth, type ChangeInstruction } from "./loan-changes";
 import { agencyStatement, readLoanSchedule, readMonthlyLoanSchedules } from "./loan-register";
 import { isoDateTime } from "./loan-requests";
 import { payrollMonth, payrollMoney, readLatestReceipts, readPayrollPages, readPayrollResults } from "./payroll-month-store";
+import { payrollMonthFilter } from "./payroll-month-filter";
 import { latestRemittances, readRemittanceApprovalIds, readReportRemittances } from "./remittance-records";
 import { employeeName } from "./request-assessment";
 import { flag, LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
@@ -45,6 +46,74 @@ function ledgerLoan({ row, schedule, history, reference, employee, agency, cover
 }
 
 const payout = z.object({ date: z.iso.date(), reference: z.string() });
+
+function loanRefund(instruction: ChangeInstruction) {
+  return {
+    id: instruction.id, state: instruction.state, month: instruction.effective_month,
+    amount: payrollMoney.parse(instruction.details.amount),
+    reference: typeof instruction.details.reference === "string" ? instruction.details.reference : "",
+    payout: instruction.state === "PAID" ? payout.parse(instruction.details.payout) : null,
+  };
+}
+
+function* monthlyDeductions({ schedule, history, receipts }: Loan, open: string) {
+  const results = new Map(history.map(result => [result.month, result]));
+  for (let month = schedule.firstDeductionMonth; month <= open; month = monthAfter(month)) {
+    const result = results.get(month);
+    const receipt = receipts.get(month);
+    const expected = result?.expected ?? expectedDeduction(schedule, history, month);
+    const pendingFinalPay = schedule.changes.some(change => change.kind === "SEPARATION" && !change.finalPayReceived && change.month === month);
+    yield {
+      relevant: !!result || expected !== "0.00" || pendingFinalPay,
+      deduction: { month, status: result?.status ?? (receipt ? "NO_RESULT" as const : "AWAITING" as const),
+        expected, actual: result?.amount ?? null, receiptId: receipt?.id ?? null, revision: receipt?.revision ?? null,
+        unpaid: result?.status === "X" ? amountFromCentavos(centavos(result.expected) - centavos(result.amount)) : null },
+    };
+  }
+}
+
+function ownLoanSummary(selected: Loan, open: string) {
+  const { id, reference, program, agency, agencyId, status, active, amortization, counted, term, estimate } = ledgerLoan(selected, open);
+  return { id, reference, program, agency, agencyId, status, active, amortization, counted, term, estimate };
+}
+
+export async function listOwnLoans(owner: number) {
+  const open = await readOpenLoanMonth();
+  const loans = await readMonthlyLoanSchedules(open, owner);
+  const refunds = new Map<number, ReturnType<typeof loanRefund>[]>();
+  for (let start = 0; start < loans.length; start += 50) {
+    const instructions = await readChangeInstructions({ action: { _eq: "REFUND" },
+      employee_id: { _eq: owner }, request_id: { _in: loans.slice(start, start + 50).map(loan => loan.row.id) } });
+    for (const instruction of instructions) {
+      const entries = refunds.get(instruction.request_id) ?? [];
+      entries.push(loanRefund(instruction));
+      refunds.set(instruction.request_id, entries);
+    }
+  }
+  return {
+    loans: loans.map(selected => {
+      const { history, schedule } = selected;
+      const latest = history.reduce<typeof history[number] | undefined>(
+        (previous, row) => !previous || row.month > previous.month ? row : previous, undefined);
+      const shortfall = latest ? centavos(latest.expected) - centavos(latest.amount) : 0n;
+      const notice = latest && (latest.status === "P" || latest.status === "F") && shortfall > 0n ? {
+        month: latest.month, status: latest.status, expected: latest.expected, actual: latest.amount,
+        shortfall: amountFromCentavos(shortfall), catchUp: schedule.catchUp,
+        catchUpMonth: monthAfter(latest.month),
+        catchUpScheduled: schedule.catchUp && centavos(expectedDeduction(schedule, history, monthAfter(latest.month))) > 0n,
+      } : null;
+      return { ...ownLoanSummary(selected, open), notice, refunds: refunds.get(selected.row.id) ?? [] };
+    }),
+  };
+}
+
+export async function readOwnLoan(id: number, owner: number) {
+  const open = await readOpenLoanMonth();
+  const selected = await readLoanSchedule(id, open, owner);
+  return { loan: ownLoanSummary(selected, open),
+    deductions: [...monthlyDeductions(selected, open)].filter(row => row.relevant).map(({ deduction }) => deduction).reverse() };
+}
+
 export async function reportEmployeeLedger(params: URLSearchParams, full = false) {
   const filters = parseInput(z.object({ employeeId: positiveId, agency: positiveId.optional(),
     status: z.enum(["active", "closed"]).optional(), ...reportQuery("ledger", "reference") }), Object.fromEntries(params));
@@ -72,17 +141,16 @@ export async function reportLedgerLoan(params: URLSearchParams) {
 }
 
 async function ledgerDetails(selected: Loan, open: string) {
-  const { schedule, history, receipts, row } = selected;
+  const { schedule, history, row } = selected;
   const loanId = row.id;
   const [events, instructions, attempts] = await Promise.all([
     readLoanChangeHistory(loanId),
     readChangeInstructions({ request_id: { _eq: loanId }, action: { _eq: "REFUND" } }),
-    readReportRemittances({ agency_id: { _eq: row.agency_id }, payroll_month: { _gte: schedule.firstDeductionMonth, _lte: open },
+    readReportRemittances({ ...payrollMonthFilter("payroll_month", schedule.firstDeductionMonth, open), agency_id: { _eq: row.agency_id },
       state: { _in: ["APPROVED", "PENDING"] } }),
   ]);
   const attemptsByMonth = latestRemittances(attempts);
   const approvals = await readRemittanceApprovalIds(attempts.filter(item => item.state === "APPROVED").map(item => item.id));
-  const byMonth = new Map(history.map(result => [result.month, result]));
   const currentEvidence = new Map(history.map(result => [result.receiptId, result]));
   const oldReceiptIds = [...new Set([...attemptsByMonth.values()].map(item => item.source_snapshot.receiptId))]
     .filter(id => !currentEvidence.has(id));
@@ -92,34 +160,25 @@ async function ledgerDetails(selected: Loan, open: string) {
     for (const result of older) currentEvidence.set(result.receiptId, result);
   }
   const deductions = [];
-  for (let month = schedule.firstDeductionMonth; month <= open; month = monthAfter(month)) {
-    const result = byMonth.get(month);
-    const receipt = receipts.get(month);
+  for (const { relevant, deduction } of monthlyDeductions(selected, open)) {
+    const { month, receiptId } = deduction;
     const attempt = attemptsByMonth.get(remitKey(row.agency_id, month));
     const covered = attempt ? currentEvidence.get(attempt.source_snapshot.receiptId) : undefined;
     const linked = covered && covered.month === month && covered.agencyId === row.agency_id &&
       covered.status !== "F" && centavos(covered.amount) > 0n ? attempt : undefined;
-    const expected = result?.expected ?? expectedDeduction(schedule, history, month);
-    const pendingFinalPay = schedule.changes.some(change => change.kind === "SEPARATION" && !change.finalPayReceived && change.month === month);
-    if (!result && expected === "0.00" && !linked && !pendingFinalPay) continue;
-    deductions.push({ month, status: result?.status ?? (receipt ? "NO_RESULT" as const : "AWAITING" as const),
-      expected, actual: result?.amount ?? null, receiptId: receipt?.id ?? null, revision: receipt?.revision ?? null,
-      unpaid: result?.status === "X" ? amountFromCentavos(centavos(result.expected) - centavos(result.amount)) : null,
+    if (!relevant && !linked) continue;
+    deductions.push({ ...deduction,
       remittance: linked ? { id: linked.id, approvalId: approvals.get(linked.id) ?? null, state: linked.state,
         reference: linked.payment_reference, date: linked.payment_date, receiptId: linked.source_snapshot.receiptId,
         revision: linked.source_snapshot.receiptRevision, included: covered!.amount,
-        olderSource: linked.source_snapshot.receiptId !== receipt?.id } : null });
+        olderSource: linked.source_snapshot.receiptId !== receiptId } : null });
   }
   const reversed = new Set(events.map(event => event.after_values.reversedRevision));
   return {
     loan: ledgerLoan(selected, open), deductions: deductions.reverse(),
     events: events.map(event => ({ revision: event.revision, action: event.action, actor: event.actor_name,
       at: isoDateTime(event.occurred_at), ...event.after_values, reversed: reversed.has(event.revision) })),
-    refunds: instructions.map(instruction => ({
-      id: instruction.id, state: instruction.state, month: instruction.effective_month,
-      amount: payrollMoney.parse(instruction.details.amount), reference: typeof instruction.details.reference === "string" ? instruction.details.reference : "",
-      payout: instruction.state === "PAID" ? payout.parse(instruction.details.payout) : null,
-    })),
+    refunds: instructions.map(loanRefund),
   };
 }
 

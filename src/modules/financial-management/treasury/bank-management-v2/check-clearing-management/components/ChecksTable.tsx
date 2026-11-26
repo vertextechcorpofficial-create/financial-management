@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 
 import { phtDisplayDate } from "../pht";
+import { isDisbursementCheck } from "../disbursement-check";
 import { StatusBadge } from "./StatusBadge";
 import { TablePager } from "./TablePager";
 import type { BankCheck } from "../types";
@@ -61,7 +62,8 @@ export function allowedActions(check: BankCheck): { action: CheckAction; label: 
   }
   // Cleared is terminal: the bank has kept the money, so nothing may move it again.
   // The FSD's row 12 allowed a return after clearing; the third-QA review overruled it.
-  if ((status === "RETURNED" || status === "CANCELLED") && !check.replacedById) {
+  if ((status === "RETURNED" || status === "CANCELLED") && !check.replacedById &&
+      !isDisbursementCheck(direction, check.sourceRef)) {
     actions.push({ action: "REPLACE", label: "Replace check" });
   }
   return actions;

@@ -7,6 +7,7 @@ import { findVatSplitDivisionError } from "../../_payable-split-integrity";
 import { acquireMemoCapLock, refreshSupplierMemoStatuses, validateSupplierMemoCaps } from "../../_memo-cap-integrity";
 import { validatePaymentLine } from "../../_payment-method";
 import { hasDisbursementApprovalAccess } from "../../_approval-access";
+import { CheckHandoffError, prepareChecks, syncPostedChecks, validateCheckHandoff } from "../../_check-handoff";
 import { markWerPlanLiquidatedIfSettled } from "../../../../reports/logistics-wer/_payables";
 
 export const runtime = "nodejs";
@@ -136,7 +137,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
 
-    if (!status) return NextResponse.json({ message: "Status is required" }, { status: 400 });
+    if (!status || !Number.isSafeInteger(id) || id <= 0) {
+        return NextResponse.json({ message: "A valid voucher ID and status are required." }, { status: 400 });
+    }
 
     const decoded = decodeJwtPayload(token);
     const encoderEmail = decoded?.email || decoded?.sub || null;
@@ -150,11 +153,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     let releaseMemoCapLock: (() => void) | undefined;
+    let voucherPosted = false;
 
     try {
         // 1. Fetch current record from Directus
         const directusUrl = `${DIRECTUS_URL}/items/disbursement/${id}`;
-        const currentRes = await fetch(directusUrl, {
+        const currentRes = await fetch(`${directusUrl}?fields=*,payee.id,payee.supplier_name`, {
             headers: { Authorization: `Bearer ${DIRECTUS_TOKEN}` },
             cache: "no-store",
         });
@@ -163,9 +167,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         const currentDis = (await currentRes.json()).data;
 
         const currentStatus = String(currentDis.status || "");
+        voucherPosted = currentStatus === "Posted" && Number(currentDis.isPosted) === 1 && status === "Posted";
         const isReplay = currentStatus === status ||
             (status === "Submitted" && currentStatus === "Approved" && Number(currentDis.total_amount) < 1000);
         if (isReplay) {
+            if (voucherPosted) {
+                const [lines, banks] = await Promise.all([getLineItems([id]), getBankMap()]);
+                await syncPostedChecks(prepareChecks(lines.payments.get(id) || [], banks), currentDis, currentDis.payee?.supplier_name);
+            }
             return NextResponse.json(await loadNormalizedDisbursement(currentDis, token));
         }
 
@@ -261,9 +270,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         let newStatus = status;
         let approverId: number | null | undefined = relationId(currentDis.approver_id, "user_id");
         let dateApproved = currentDis.date_approved;
-        let postedBy: number | null | undefined = relationId(currentDis.posted_by, "user_id");
-        let datePosted = currentDis.date_posted;
-        let isPosted = currentDis.isPosted;
+        const postedBy = status === "Posted" ? currentUserId : relationId(currentDis.posted_by, "user_id");
+        let cheques: ReturnType<typeof prepareChecks> = [];
         let submittedBy: number | null | undefined = relationId(currentDis.submitted_by, "user_id");
         let dateSubmitted = currentDis.date_submitted;
         let releasedBy: number | null | undefined = relationId(currentDis.released_by, "user_id");
@@ -410,17 +418,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
                 if (!isBalanced) {
                     return NextResponse.json({ message: "Cannot post: Debits do not match Credits. The voucher must be balanced first." }, { status: 400 });
                 }
-                if (currentDis.approver_id != null && Number(currentDis.approver_id) === currentUserId) {
+                if (relationId(currentDis.approver_id, "user_id") === currentUserId) {
                     return NextResponse.json({
                         message: "Segregation of Duties Violation",
                         detail: "The user who approved the voucher cannot post it."
                     }, { status: 400 });
                 }
-                isPosted = 1;
-                postedBy = currentUserId;
-                datePosted = new Date().toISOString();
-                // Sync PO statuses
-                await syncPurchaseOrderStatuses(currentDis, payables);
+                cheques = prepareChecks(payments, bankMap);
+                await validateCheckHandoff(cheques);
                 break;
 
             case "Draft":
@@ -442,8 +447,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
             approver_id: approverId,
             date_approved: dateApproved,
             posted_by: postedBy,
-            date_posted: datePosted,
-            isPosted: isPosted,
+            date_posted: status === "Posted" ? new Date().toISOString() : currentDis.date_posted,
+            isPosted: status === "Posted" ? 1 : currentDis.isPosted,
             submitted_by: submittedBy,
             date_submitted: dateSubmitted,
             released_by: releasedBy,
@@ -451,17 +456,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
             paid_amount: paidAmount
         };
 
-        const patchRes = await fetch(`${DIRECTUS_URL}/items/disbursement/${id}?fields=*.*`, {
+        const headers = { Authorization: `Bearer ${DIRECTUS_TOKEN}`, "Content-Type": "application/json" };
+        const patchRes = await fetch(`${directusUrl}?fields=*.*`, {
             method: "PATCH",
-            headers: {
-                Authorization: `Bearer ${DIRECTUS_TOKEN}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(updatePayload)
+            headers,
+            body: JSON.stringify(updatePayload),
         });
-
         if (!patchRes.ok) throw new Error(await patchRes.text());
+        voucherPosted = status === "Posted";
         const updatedDis = (await patchRes.json()).data;
+        if (voucherPosted) {
+            await syncPurchaseOrderStatuses(currentDis, payables);
+        }
 
         // Logistics WER liquidation sync (gated: WER-sourced disbursements only,
         // settled states only; failures must not break the status transition).
@@ -477,6 +483,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
         if (status === "Posted" || status === "Returned for Revision") {
             await lockAppliedMemos(payables, currentPayeeId);
+        }
+        if (voucherPosted) {
+            await syncPostedChecks(cheques, updatedDis, currentDis.payee?.supplier_name);
         }
 
         // 5. Build DTO representation
@@ -502,6 +511,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         return NextResponse.json(normalized);
 
     } catch (err: unknown) {
+        if (voucherPosted) {
+            console.error("[Disbursement] Posted voucher follow-up failed", id, err);
+            return NextResponse.json({
+                message: "Voucher posted. Open it in the Cash Issuance Ledger and select Sync cheques to retry the Check & Clearing handoff.",
+                ...(err instanceof CheckHandoffError && { detail: `Voucher posted. ${err.message} Open it in the Cash Issuance Ledger to retry the handoff.` }),
+            }, { status: err instanceof CheckHandoffError ? err.status : 502 });
+        }
+        if (err instanceof CheckHandoffError) {
+            return NextResponse.json({ message: err.message }, { status: err.status });
+        }
         const errorMessage = err instanceof Error ? err.message : String(err);
         return NextResponse.json({ message: "BFF Error", detail: errorMessage }, { status: 502 });
     } finally {

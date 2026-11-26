@@ -5,12 +5,13 @@ import { ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Command, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { employeeOptions } from "./request-api";
+import { staffRequestApi } from "./request-api";
 import type { EmployeeChoice, Page } from "./types";
 
-export function RequestEmployeePicker({ label, value, onChange, exclude, invalid, disabled }: {
+export function RequestEmployeePicker({ label, value, onChange, exclude, invalid, disabled, lookup = staffRequestApi.employeeOptions }: {
   label: string; value: EmployeeChoice | null; onChange: (choice: EmployeeChoice) => void;
   exclude?: number | null; invalid?: boolean; disabled?: boolean;
+  lookup?: typeof staffRequestApi.employeeOptions;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQuery] = useState("");
@@ -27,14 +28,14 @@ export function RequestEmployeePicker({ label, value, onChange, exclude, invalid
     if (!open) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      employeeOptions(search, controller.signal).then(data => {
+      lookup(search, controller.signal).then(data => {
         if (!controller.signal.aborted) setResult({ key, data });
       }).catch(error => {
         if (!controller.signal.aborted) setResult({ key, error: error instanceof Error ? error.message : "Could not look up employees." });
       });
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [open, search, key]);
+  }, [open, search, key, lookup]);
 
   return <Popover open={open} onOpenChange={setOpen} modal>
     <PopoverTrigger asChild>

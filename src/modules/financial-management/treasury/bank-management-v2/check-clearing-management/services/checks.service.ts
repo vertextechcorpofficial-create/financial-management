@@ -1,4 +1,5 @@
 import "server-only";
+import { isDisbursementCheck } from "../disbursement-check";
 
 import { CHECK_CANCEL_REASONS, CHECK_RETURN_REASONS, CHECK_STATUS_LABELS, STALE_CHECK_DAYS } from "../constants";
 import type { PayableKey } from "../constants";
@@ -463,13 +464,14 @@ function toCheck(
 ): BankCheck {
   const status = checkStatus(row.status);
   const ageDays = daysSince(row.check_date);
+  const direction = checkDirection(row.direction);
   return {
     id: Number(row.id),
     bankAccountId: Number(row.bank_account_id ?? 0),
     bankAccountLabel: labels.get(Number(row.bank_account_id)) ?? "—",
     bankAccountNumber: parts.get(Number(row.bank_account_id))?.number ?? null,
     bankAccountBank: parts.get(Number(row.bank_account_id))?.bank ?? null,
-    direction: checkDirection(row.direction),
+    direction,
     checkNo: asString(row.check_no),
     checkDate: toPhtDateString(row.check_date),
     amount: roundMoney(asNumber(row.amount)),
@@ -492,7 +494,7 @@ function toCheck(
     replacesId: row.replaces_id == null ? null : Number(row.replaces_id),
     replacedByNo: row.replaced_by_id == null ? null : (checkNos.get(Number(row.replaced_by_id)) ?? null),
     replacesNo: row.replaces_id == null ? null : (checkNos.get(Number(row.replaces_id)) ?? null),
-    sourceType: sourceType(row.source_type),
+    sourceType: isDisbursementCheck(direction, row.source_ref) ? "DISBURSEMENT" : sourceType(row.source_type),
     sourceRef: row.source_ref,
     remarks: row.remarks,
     createdAt: toPhtDateString(row.created_at),
@@ -1053,6 +1055,7 @@ export async function applyCheckAction(
   const row = await loadCheckRow(checkId);
   const status = checkStatus(row.status);
   const direction = checkDirection(row.direction);
+  const voucherLinked = isDisbursementCheck(direction, row.source_ref);
   const amount = roundMoney(asNumber(row.amount));
   const checkNo = asString(row.check_no);
   const checkDate = toPhtDateString(row.check_date);
@@ -1125,7 +1128,7 @@ export async function applyCheckAction(
       );
     }
 
-    const posting = await postCheckEntry(clearDraft(row, account, checkNo, amount, clearedDate));
+    const posting = voucherLinked ? null : await postCheckEntry(clearDraft(row, account, checkNo, amount, clearedDate));
     const eventCode = direction === "ISSUED" ? "E10" : "E13";
 
     await updateItem(CHECKS, checkId, { status: "CLEARED", cleared_at: `${clearedDate}T00:00:00` });
@@ -1135,7 +1138,7 @@ export async function applyCheckAction(
       fromStatus: status,
       toStatus: "CLEARED",
       eventCode,
-      journalEntryId: posting.journalEntryId,
+      journalEntryId: posting?.journalEntryId ?? null,
       note,
       actorId,
     });
@@ -1165,8 +1168,8 @@ export async function applyCheckAction(
       direction === "ISSUED" ? "E11" : status === "CLEARED" ? "E15" : "E14";
     const description = `Check ${checkNo} returned — ${reason}`;
     const base = draftBase(`${checkNo}-RET`, today, description);
-    const posting =
-      eventCode === "E11"
+    const posting = voucherLinked ? null
+      : eventCode === "E11"
         ? await postCheckEntry(issuedCheckEntry("E11", account, amount, payableKeyFor(row), base))
         : await postCheckEntry(receivedCheckEntry(eventCode, account, amount, base));
 
@@ -1181,8 +1184,8 @@ export async function applyCheckAction(
       fromStatus: status,
       toStatus: "RETURNED",
       eventCode,
-      journalEntryId: posting.journalEntryId,
-      note: `Returned: ${reason}`,
+      journalEntryId: posting?.journalEntryId ?? null,
+      note: `Returned: ${reason}${voucherLinked ? ". Refer to Accounting for the posted voucher correction." : ""}`,
       actorId,
     });
     return { check: await reloadCheck(checkId) };
@@ -1216,8 +1219,8 @@ export async function applyCheckAction(
 
     const description = `Check ${checkNo} cancelled — ${reason}`;
     const base = draftBase(`${checkNo}-CAN`, today, description);
-    const posting =
-      direction === "ISSUED"
+    const posting = voucherLinked ? null
+      : direction === "ISSUED"
         ? await postCheckEntry(issuedCheckEntry("E11", account, amount, payableKeyFor(row), base))
         : await postCheckEntry(receivedCheckEntry("E14", account, amount, base));
 
@@ -1228,8 +1231,8 @@ export async function applyCheckAction(
       fromStatus: status,
       toStatus: "CANCELLED",
       eventCode: direction === "ISSUED" ? "E11" : "E14",
-      journalEntryId: posting.journalEntryId,
-      note: `Cancelled: ${reason}`,
+      journalEntryId: posting?.journalEntryId ?? null,
+      note: `Cancelled: ${reason}${voucherLinked ? ". Refer to Accounting for the posted voucher correction." : ""}`,
       actorId,
     });
     return { check: await reloadCheck(checkId) };
@@ -1237,6 +1240,9 @@ export async function applyCheckAction(
 
   if (status !== "RETURNED" && status !== "CANCELLED") {
     throw new ConflictError("Only Returned or Cancelled checks can be replaced.", "action");
+  }
+  if (voucherLinked) {
+    throw new ConflictError("Arrange a voucher correction with Accounting before issuing a replacement.", "action");
   }
   const replacement = input.replacement;
   if (!replacement) {
@@ -1409,6 +1415,7 @@ export async function clearChecks(
         );
       }
 
+      if (isDisbursementCheck(row.direction, row.source_ref)) continue;
       const account = await accountRef(Number(row.bank_account_id));
       const { missingMappingKeys } = await resolveJournalEntry(
         clearDraft(row, account, asString(row.check_no), asNumber(row.amount), clearedDate),

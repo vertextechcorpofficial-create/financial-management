@@ -60,12 +60,13 @@ export async function listOnboardingExits(params: URLSearchParams) {
   }
   const today = todayManila();
   const first = new Date(Date.parse(today) - 150 * 86_400_000).toISOString().slice(0, 10);
+  const search = q ? q.split(/\s+/).map(part => ({ _or: [
+    { user_fname: { _icontains: part } }, { user_mname: { _icontains: part } }, { user_lname: { _icontains: part } },
+    ...(/^[1-9]\d{0,9}$/.test(part) ? [{ user_id: { _eq: Number(part) } }] : []),
+  ] })) : [];
   const filter = { ...employeeFilter,
     ...(mode === "hires" ? { user_dateOfHire: { _gte: first, _lte: today } } : { separation_date: { _nnull: true } }),
-    _and: [...employeeFilter._and, ...(q ? [{ _or: [
-      { user_fname: { _icontains: q } }, { user_lname: { _icontains: q } },
-      ...(/^[1-9]\d{0,9}$/.test(q) ? [{ user_id: { _eq: Number(q) } }] : []),
-    ] }] : [])],
+    _and: [...employeeFilter._and, ...search],
   };
   const rows = await readEnrollmentRows("user", staffEmployee, personFields, filter, pageSize + 1,
     "user_lname,user_fname,user_id", (page - 1) * pageSize);

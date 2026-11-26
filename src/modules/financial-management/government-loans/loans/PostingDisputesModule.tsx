@@ -93,8 +93,11 @@ export function PostingDisputesModule({ self = false }: { self?: boolean }) {
     {!result?.data && <p role={result?.error ? "alert" : "status"}>{result?.error ?? "Loading disputes…"}
       {result?.error && <Button variant="outline" size="sm" onClick={reload}>Retry</Button>}</p>}
     {result?.data && <div className="flex flex-wrap gap-2">
-      {result.data.items.map(dispute => <Button key={dispute.reference} size="sm" variant={selected === dispute.reference ? "default" : "outline"}
-        onClick={() => setSelected(dispute.reference)}>{shortRef(dispute.reference)} · {dispute.loanReference} · {disputeLabels[dispute.status]}</Button>)}
+      {result.data.items.map(dispute => <div key={dispute.reference} className={self ? "w-full space-y-2 rounded-lg border p-3 text-sm" : undefined}>
+        <Button size="sm" variant={selected === dispute.reference ? "default" : "outline"}
+          onClick={() => setSelected(dispute.reference)}>{shortRef(dispute.reference)} · {dispute.loanReference} · {disputeLabels[dispute.status]}</Button>
+        {self && <p className="text-muted-foreground">{dispute.month}{dispute.note && ` · ${dispute.note}`}</p>}
+      </div>)}
       {!result.data.items.length && <p>No disputes filed.</p>}
     </div>}
     {(page > 1 || result?.data?.hasMore) && <nav className="flex gap-2" aria-label="Dispute pages">

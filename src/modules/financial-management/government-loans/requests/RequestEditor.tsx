@@ -2,13 +2,17 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowLeft, FileText } from "lucide-react";
+import {
+  AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { date, peso } from "@/modules/financial-management/cooperative/members/format";
-import { assess, RequestApiError, requestDocumentUrl, saveDraft, submitDraft, uploadRequestDocument } from "./request-api";
+import { employeeRequestApi, RequestApiError, staffRequestApi } from "./request-api";
 import { changeRequestField } from "./request-rules";
 import { RequestCapacity } from "./RequestCapacity";
 import { RequestEmployeePicker } from "./RequestEmployeePicker";
@@ -57,11 +61,16 @@ function EmployeeDetails({ employee }: { employee: EmployeeSummary }) {
   </dl>;
 }
 
-export function RequestEditor({ initial, agencies, onBack, onReload }: {
+export function RequestEditor({ initial, agencies, applicant, onBack, onReload }: {
   initial: LoanRequest | null; agencies: AgencyChoice[];
-  onBack: (view?: RequestView) => void; onReload: (id: number) => void;
+  applicant?: Pick<EmployeeChoice, "id" | "name">;
+  onBack: (view?: RequestView, notice?: string) => void; onReload: (id: number) => void;
 }) {
-  const [form, setForm] = useState(initial?.form ?? emptyRequest);
+  const api = applicant ? employeeRequestApi : staffRequestApi;
+  const { assess, requestDocumentUrl, saveDraft, submitDraft, uploadRequestDocument } = api;
+  const initialForm = initial?.form ?? (applicant ? { ...emptyRequest, employeeId: applicant.id } : emptyRequest);
+  const [form, setForm] = useState(initialForm);
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(initialForm));
   const [record, setRecord] = useState(initial);
   const [selectedEmployee, setEmployee] = useState<EmployeeChoice | null>(null);
   const [selectedCoMaker, setCoMaker] = useState<EmployeeChoice | null>(null);
@@ -72,13 +81,25 @@ export function RequestEditor({ initial, agencies, onBack, onReload }: {
   const [feedback, setFeedback] = useState("");
   const [actionError, setActionError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [confirmSubmit, setConfirmSubmit] = useState(false);
   const actionLock = useRef(false);
   const keys = useRef<{ save?: { input: string; key: string }; submit?: { input: string; key: string } }>({});
   const formId = useId();
   const readOnly = record !== null && record.status !== "DRAFT";
   const serialized = JSON.stringify(form);
+  const dirty = serialized !== savedSnapshot || Object.keys(files).length > 0;
   const previewKey = previewAttempt + ":" + serialized;
   const currentPreview = preview?.key === previewKey ? preview : undefined;
+
+  useEffect(() => {
+    if (!dirty || readOnly) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty, readOnly]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -91,7 +112,7 @@ export function RequestEditor({ initial, agencies, onBack, onReload }: {
       });
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [previewKey, readOnly, serialized]);
+  }, [assess, previewKey, readOnly, serialized]);
 
   const data = currentPreview?.data;
   const employeeDetails = (data ?? preview?.data)?.employee;
@@ -103,6 +124,8 @@ export function RequestEditor({ initial, agencies, onBack, onReload }: {
   const coMaker = data?.coMaker ?? (selectedCoMaker?.id === form.coMakerId ? selectedCoMaker : null);
   const missing = data?.fieldErrors ?? (initial && JSON.stringify(initial.form) === serialized ? initial.missing : {});
   const shownErrors = { ...fieldErrors };
+  const missingCount = Object.keys(missing).length;
+  const documentCount = (record?.documents.length ?? 0) + Object.keys(files).length;
   const ready = data && Object.keys(data.fieldErrors).length === 0;
 
   function change<K extends keyof RequestForm>(key: K, value: RequestForm[K]) {
@@ -137,11 +160,13 @@ export function RequestEditor({ initial, agencies, onBack, onReload }: {
         saved = await saveDraft(form, saved, key);
         setRecord(saved);
         setForm(saved.form);
+        setSavedSnapshot(JSON.stringify(saved.form));
       }
       for (const kind of Object.keys(files) as DocumentKind[]) {
         const pending = files[kind]!;
         saved = await uploadRequestDocument(saved, kind, pending.file, pending.key);
         setRecord(saved);
+        setSavedSnapshot(JSON.stringify(saved.form));
         setFiles(current => {
           const next = { ...current };
           delete next[kind];
@@ -150,7 +175,7 @@ export function RequestEditor({ initial, agencies, onBack, onReload }: {
       }
       if (submit) {
         await submitDraft(saved, actionKey("submit", saved.id + ":" + saved.revision));
-        onBack("in-progress");
+        onBack("in-progress", `${saved.reference} submitted for approval.`);
       } else {
         setFeedback("Draft saved.");
         setFieldErrors(saved.missing);
@@ -175,20 +200,26 @@ export function RequestEditor({ initial, agencies, onBack, onReload }: {
     </label>;
   }
 
-  if (readOnly) return <RequestReview key={record.revision} record={record} onBack={() => onBack()}
-    onCancelled={() => onBack("decided")} onReload={() => onReload(record.id)} />;
+  function backToRequests() {
+    if (dirty && !window.confirm("Discard unsaved changes?")) return;
+    onBack(record ? "drafts" : undefined);
+  }
+
+  if (readOnly) return <RequestReview key={record.revision} record={record} api={api} onBack={() => onBack()}
+    onCancelled={() => onBack("decided", `${record.reference} cancelled.`)} onReload={() => onReload(record.id)} />;
 
   const options = (values: readonly string[]) => values.map(value => ({ value, label: value }));
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <Button type="button" variant="ghost" disabled={busy} onClick={() => onBack(record ? "drafts" : undefined)}><ArrowLeft /> Back to requests</Button>
-      <h2 className="font-semibold">{record ? record.reference + " · Draft" : "New loan request"}</h2>
+      <Button type="button" variant="ghost" disabled={busy} onClick={backToRequests}><ArrowLeft /> Back to requests</Button>
+      <h2 className="font-semibold">{record ? record.reference + " · Draft" : applicant ? "Apply for a loan" : "New loan request"}</h2>
     </div>
     <fieldset disabled={busy} className="min-w-0 space-y-4">
       <Section title="Employee">
         <div className="max-w-lg">
-          <RequestEmployeePicker label="Employee" value={employee} disabled={busy} invalid={Boolean(shownErrors.employeeId)}
-            onChange={choice => { setEmployee(choice); change("employeeId", choice.id); }} />
+          {applicant ? <p className="text-sm font-medium">{employee?.name ?? applicant.name} · {applicant.id}</p>
+            : <RequestEmployeePicker label="Employee" value={employee} disabled={busy} invalid={Boolean(shownErrors.employeeId)}
+              onChange={choice => { setEmployee(choice); change("employeeId", choice.id); }} />}
           <MissingField text={shownErrors.employeeId} />
         </div>
         {employeeDetails?.id === form.employeeId && <EmployeeDetails employee={employeeDetails} />}
@@ -230,7 +261,8 @@ export function RequestEditor({ initial, agencies, onBack, onReload }: {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <RequestEmployeePicker label="Co-maker" value={coMaker} exclude={form.employeeId} disabled={busy}
-              invalid={Boolean(shownErrors.coMakerId)} onChange={choice => { setCoMaker(choice); change("coMakerId", choice.id); }} />
+              lookup={api.employeeOptions} invalid={Boolean(shownErrors.coMakerId)}
+              onChange={choice => { setCoMaker(choice); change("coMakerId", choice.id); }} />
             <MissingField text={shownErrors.coMakerId} />
           </div>
           {textField("coMakerRelationship", "Relationship", { max: 160 })}
@@ -287,20 +319,29 @@ export function RequestEditor({ initial, agencies, onBack, onReload }: {
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" checked={form.deductionConsent} className="mt-1 accent-primary"
             onChange={event => change("deductionConsent", event.target.checked)} />
-          <span>The employee authorizes deduction of the loan amortization from their pay and of any unpaid balance from final pay if they separate.</span>
+          <span>{applicant ? "I authorize deduction of the loan amortization from my pay and of any unpaid balance from final pay if I separate."
+            : "The employee authorizes deduction of the loan amortization from their pay and of any unpaid balance from final pay if they separate."}</span>
         </label>
         <MissingField text={shownErrors.deductionConsent} />
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" checked={form.dataSharingConsent} className="mt-1 accent-primary"
             onChange={event => change("dataSharingConsent", event.target.checked)} />
-          <span>The employee consents to sharing their employment and pay information with {agency?.name ?? "the agency or lender"} for this loan.</span>
+          <span>{applicant ? "I consent to sharing my employment and pay information with" : "The employee consents to sharing their employment and pay information with"} {agency?.name ?? "the agency or lender"} for this loan.</span>
         </label>
         <MissingField text={shownErrors.dataSharingConsent} />
       </Section>
     </fieldset>
 
-    <section className="space-y-3 rounded-lg border bg-card p-4">
-      {Object.keys(missing).length > 0 && <div className="space-y-1 text-sm">
+    <section className="sticky bottom-0 z-10 space-y-3 rounded-lg border bg-background/95 p-4 shadow-lg backdrop-blur">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <p className={dirty ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}>
+          {dirty ? "Unsaved changes" : "All changes saved"}
+        </p>
+        <p className="text-muted-foreground">{missingCount
+          ? `${missingCount} required field${missingCount === 1 ? "" : "s"} remaining`
+          : "Ready to submit"}</p>
+      </div>
+      {missingCount > 0 && <div className="max-h-24 space-y-1 overflow-y-auto text-sm">
         <h3 className="font-medium">Required before submission</h3>
         <ul className="list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
           {Object.entries(missing).map(([key, error]) => <li key={key}>{error}</li>)}
@@ -310,8 +351,28 @@ export function RequestEditor({ initial, agencies, onBack, onReload }: {
       {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" disabled={busy} onClick={() => void finish(false)}>Save draft</Button>
-        <Button type="button" disabled={busy || !ready} onClick={() => void finish(true)}>{busy ? "Saving…" : "Submit for approval"}</Button>
+        <Button type="button" disabled={busy || !ready} onClick={() => setConfirmSubmit(true)}>{busy ? "Saving…" : "Submit for approval"}</Button>
       </div>
     </section>
+
+    <AlertDialog open={confirmSubmit} onOpenChange={setConfirmSubmit}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Submit this loan request?</AlertDialogTitle>
+          <AlertDialogDescription>The request will be sent to Loan Approval. You can still cancel it before enrollment.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <dl className="grid gap-2 text-sm">
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Employee</dt><dd className="text-right font-medium">{employee?.name ?? "—"}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Agency / program</dt><dd className="text-right font-medium">{agency?.name ?? "—"} · {form.program || "—"}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Amount / term</dt><dd className="text-right font-medium">{form.amount ? peso(form.amount) : "—"} · {form.term || "—"} months</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Estimated monthly</dt><dd className="text-right font-medium">{data?.capacity?.estimatedAmortization ? peso(data.capacity.estimatedAmortization) : "—"}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Documents</dt><dd className="text-right font-medium">{documentCount ? documentCount + " attached or pending" : "None attached"}</dd></div>
+        </dl>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Back to request</AlertDialogCancel>
+          <Button type="button" disabled={busy} onClick={() => { setConfirmSubmit(false); void finish(true); }}>Confirm and submit</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>;
 }

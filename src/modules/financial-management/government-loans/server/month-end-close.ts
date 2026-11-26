@@ -16,8 +16,9 @@ import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_CLOSES, GOVERNMENT_LOAN_PAYRO
 import { readEnrollmentRows, readGroups } from "./enrollment-sources";
 import { readChangeInstructions } from "./loan-changes";
 import { isoDateTime } from "./loan-requests";
-import { buildAgencyRollforward, rollforwardSchema } from "./month-end-rollforward";
+import { buildAgencyRollforward, readOpeningRollforward, rollforwardSchema } from "./month-end-rollforward";
 import { payrollMoney, payrollMonth, readLatestReceipts, readPayrollPages, receiptSummary } from "./payroll-month-store";
+import { payrollMonthFilter } from "./payroll-month-filter";
 import { nextPeriodCommand, readOpenMonth } from "./period-commands";
 import { readRemittanceOverview } from "./remittance-records";
 import { flag, LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
@@ -57,11 +58,11 @@ async function buildChecklist(month: string) {
   const [agencies, receipts, payments, instructions, previous] = await Promise.all([
     readPayrollPages(GOVERNMENT_LOAN_AGENCIES, agencySchema, Object.keys(agencySchema.shape).join(","), {}, "id"),
     readLatestReceipts("1000-01", month),
-    readRemittanceOverview({ _or: [{ payroll_month: { _lt: month } },
+    readRemittanceOverview({ _or: [payrollMonthFilter("payroll_month", "1000-01", monthAfter(month, -1)),
       { state: { _eq: "APPROVED" }, payment_date: { _lte: endDate } }] }),
-    readChangeInstructions({ action: { _in: ["SEPARATION", "REFUND"] }, effective_month: { _lte: month },
+    readChangeInstructions({ ...payrollMonthFilter("effective_month", "1000-01", month), action: { _in: ["SEPARATION", "REFUND"] },
       state: { _nin: ["CANCELLED", "PAID"] } }),
-    readClose({ month: { _eq: monthAfter(month, -1) } }),
+    readOpeningRollforward(monthAfter(month, -1)),
   ]);
   const resultRows: z.output<typeof resultSchema>[] = [];
   const receiptIds = [...receipts.values()].map(receipt => receipt.id);

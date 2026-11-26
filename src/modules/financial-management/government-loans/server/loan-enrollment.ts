@@ -7,14 +7,14 @@ import { deductionMonths, exactMoney, normalizedReference, unusualReference } fr
 import { matchPayrollEnrollment } from "../enrollment/payroll-match";
 import {
   enrollmentWorkflowStatuses, enrollmentStatuses, type EnrollmentDetail, type EnrollmentListItem, type EnrollmentOutcome, type EnrollmentPage,
-  type EnrollmentSnapshot, type EnrollmentTerms, type ExistingLoanReview, type PriorLoan,
+  type EnrollmentSnapshot, type EnrollmentSummary, type EnrollmentTerms, type ExistingLoanReview, type PriorLoan,
 } from "../enrollment/types";
 import { canStartInOpenPeriod } from "../enrollment/verification-rules";
 import { ENROLLMENT_PAGE_SIZE } from "../enrollment/verification-types";
 import { positiveMoney } from "../requests/request-rules";
 import { emptyRequest, type AgencyChoice } from "../requests/types";
 import type { AgencyActor } from "./agencies";
-import { GOVERNMENT_LOAN_REQUESTS } from "./directus";
+import { GOVERNMENT_LOAN_REQUESTS, readGovernmentLoansItems } from "./directus";
 import {
   enrollmentBenefitCode as benefitCode, readEnrollmentRows as rows, readLinkedPayrollLoans, readPayrollReferences, readReservedReferences,
 } from "./enrollment-sources";
@@ -85,6 +85,30 @@ const listInput = z.object({
   q: z.string().trim().max(120).default(""), agency: positiveId.optional(),
   status: z.enum(["APPROVED", ...enrollmentWorkflowStatuses]).optional(), batch: positiveId.optional(), page: pageNumber,
 });
+const summaryRow = z.object({ status: enrollmentStatus, count: z.object({ id: z.coerce.number().int().nonnegative() }) });
+async function enrollmentSummary(agency: number | undefined, batch: number | undefined): Promise<EnrollmentSummary> {
+  const summary = Object.fromEntries(enrollmentStatuses.map(status => [status, 0])) as EnrollmentSummary;
+  const filter = {
+    ...(agency ? { agency_id: { _eq: agency } } : {}),
+    ...(batch ? { import_batch_id: { _eq: batch } } : {}),
+    _and: [{
+      _or: [
+        { status: { _eq: "APPROVED" }, requested_at: { _nnull: true } },
+        { status: { _eq: "AGENCY_DECLINED" }, requested_at: { _nnull: true } },
+        { status: { _in: enrollmentWorkflowStatuses }, enrollment: { _nnull: true } },
+      ],
+    }],
+  };
+  const query = new URLSearchParams({ "groupBy[]": "status", "aggregate[count]": "id", limit: "100", filter: JSON.stringify(filter) });
+  try {
+    const { data } = z.object({ data: z.array(summaryRow) }).parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REQUESTS, query));
+    for (const row of data) summary[row.status] = row.count.id;
+  } catch {
+    // Summary counts are supplementary; keep the enrollment list available if they fail.
+  }
+  return summary;
+}
+
 export async function listEnrollmentRecords(params: URLSearchParams) {
   const { q, agency, status, batch, page } = parseInput(listInput, Object.fromEntries(params));
   const systemRef = /^(?:GLR?-)?0*([1-9]\d{0,9})$/i.exec(q)?.[1];
@@ -94,6 +118,7 @@ export async function listEnrollmentRecords(params: URLSearchParams) {
     _and: [
       { _or: [
         { status: { _eq: "APPROVED" }, requested_at: { _nnull: true } },
+        { status: { _eq: "AGENCY_DECLINED" }, requested_at: { _nnull: true } },
         { status: { _in: enrollmentWorkflowStatuses }, enrollment: { _nnull: true } },
       ] },
       ...(q ? [{ _or: [
@@ -105,7 +130,7 @@ export async function listEnrollmentRecords(params: URLSearchParams) {
   const limit = ENROLLMENT_PAGE_SIZE;
   const matches = await rows(GOVERNMENT_LOAN_REQUESTS, listRow, Object.keys(listRow.shape).join(","), filter,
     limit + 1, "-updated_at,-id", (page - 1) * limit);
-  return { items: matches.slice(0, limit), hasMore: matches.length > limit };
+  return { items: matches.slice(0, limit), hasMore: matches.length > limit, summary: await enrollmentSummary(agency, batch) };
 }
 
 export async function listLoanEnrollments(params: URLSearchParams): Promise<EnrollmentPage> {
