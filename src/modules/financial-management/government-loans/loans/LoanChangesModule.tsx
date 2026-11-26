@@ -1,21 +1,39 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import type { getLoanChanges } from "../server/loan-changes";
 import { changeLabels, type ChangeKind } from "./lifecycle";
 import { loansApi, useLifecycleCommand, useLifecycleRead } from "./lifecycle-client";
 import { monthAfter } from "./monthly-payroll";
-import { registerStatusLabels, type LoanRegisterPage } from "./types";
+import { registerPageSizes, registerStatusLabels, type LoanRegisterPage, type RegisterLoan, type RegisterSort } from "./types";
 
 type ChangeDetail = Awaited<ReturnType<typeof getLoanChanges>>;
 const acknowledgementTemplate = "instruction_id,transmission_id,payroll_loan_id,effective_month,result,reference,date\r\n";
+const pageSizeOptions = registerPageSizes;
+const defaultFilters = { q: "", agency: "", department: "", short: "" };
 
-function ChangeReview({ id }: { id: number }) {
+const amount = (value: string | null) => value === null ? "—" : peso(value);
+const maskedReference = (value: string) => value.length > 4 ? "••••" + value.slice(-4) : value;
+const statusTone = (status: RegisterLoan["status"]) => status === "ACTIVE"
+  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+  : status === "SUSPENDED" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+  : status === "FINAL_PAY_REQUESTED" ? "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300"
+  : status === "COMPLETED" ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300"
+  : "text-muted-foreground";
+
+function ChangeReview({ id, onSaved }: { id: number; onSaved: () => void }) {
   const [refresh, setRefresh] = useState(0);
   const [selectedKind, setKind] = useState<ChangeKind>("AMORTIZATION");
   const [reversal, setReversal] = useState<number>();
@@ -25,12 +43,17 @@ function ChangeReview({ id }: { id: number }) {
   const loaded = useLifecycleRead<ChangeDetail>(url, refresh);
   const reload = () => setRefresh(value => value + 1);
   const data = loaded?.data;
-  if (!data) return <p role={loaded?.error ? "alert" : "status"}>{loaded?.error ?? "Loading loan changes…"}
-    {loaded?.error && <Button variant="outline" size="sm" onClick={reload}>Retry</Button>}</p>;
+  if (!data) return <div className="space-y-3" aria-busy="true">
+    <p role={loaded?.error ? "alert" : "status"} className="text-sm text-muted-foreground">
+      {loaded?.error ?? "Loading loan changes…"}
+    </p>
+    {loaded?.error && <Button variant="outline" size="sm" onClick={reload}>Retry</Button>}
+    {!loaded?.error && <><Skeleton className="h-20 w-full" /><Skeleton className="h-40 w-full" /></>}
+  </div>;
   const { loan, history, statements, openMonth, businessDate } = data;
   const canChangeTerms = loan.active && loan.status !== "FINAL_PAY_REQUESTED";
   const kind = canChangeTerms ? selectedKind : "REFUND";
-  const saved = () => { setNotice("Loan updated."); setReversal(undefined); reload(); };
+  const saved = () => { setNotice("Loan updated."); setReversal(undefined); reload(); onSaved(); };
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -52,11 +75,14 @@ function ChangeReview({ id }: { id: number }) {
     });
   }
 
-  return <section className="space-y-4 rounded-md border p-4">
-    <h3 className="font-semibold">{loan.reference} · {loan.employee}</h3>
-    <p className="text-sm">{loan.agency} · {registerStatusLabels[loan.status]} · Monthly amortization {peso(loan.amortization)}</p>
+  return <div className="space-y-4">
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <Badge variant="outline" className={statusTone(loan.status)}>{registerStatusLabels[loan.status]}</Badge>
+      <span>{loan.agency} · {loan.program}</span>
+      <span className="text-muted-foreground">Monthly amortization {peso(loan.amortization)}</span>
+    </div>
     {data.finalPay && <p className="text-sm">Final pay withheld {peso(data.finalPay.withheld)} · Unpaid agency balance {peso(data.finalPay.unpaid)}</p>}
-    {notice && <p role="status">{notice}</p>}
+    {notice && <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p>}
     {command.error && <p role="alert" className="text-sm text-destructive">{command.error} <Button size="sm" variant="outline" onClick={reload}>Reload loan</Button></p>}
     <form key={loan.revision + ":" + kind + ":" + reversal} onSubmit={event => void submit(event)} className="space-y-3 rounded-md border p-3">
       {reversal ? <label className="block text-sm">Reason for reversing change #{reversal}<Textarea name="reason" required maxLength={500} /></label> :
@@ -93,13 +119,19 @@ function ChangeReview({ id }: { id: number }) {
     </form>
     <section className="space-y-2">
       <h4 className="font-medium">Change history and Payroll instructions</h4>
-      {!history.length && <p className="text-sm text-muted-foreground">No changes recorded.</p>}
+      {!history.length && <Empty className="border-0 py-6">
+        <EmptyHeader>
+          <EmptyMedia variant="icon"><span className="text-lg">#</span></EmptyMedia>
+          <EmptyTitle>No changes recorded</EmptyTitle>
+          <EmptyDescription>Amortization, suspension, separation, direct payment, and refund changes appear here.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>}
       {loan.renewal && <p className="text-sm">Renewal effective {loan.renewal.month} · Replacement loan #{loan.renewal.replacementId}</p>}
       {history.map(event => {
         const row = data.instructions.find(instruction => instruction.id === event.after_values.instructionId);
         return <div key={event.revision} className="space-y-2 rounded-md border p-3 text-sm">
           <p className="font-medium">#{event.revision} · {event.after_values.remarks}{event.reversed ? " · Reversed" : ""}</p>
-          <p>{event.actor_name} · {dateTime(event.occurred_at)}</p>
+          <p className="text-muted-foreground">{event.actor_name} · {dateTime(event.occurred_at)}</p>
           {row && <p>{row.state.replaceAll("_", " ")} · Effective {row.effective_month}
             {typeof row.details.amount === "string" && " · " + peso(row.details.amount)}
             {typeof row.details.balance === "string" && " · Final-pay cap " + peso(row.details.balance)}
@@ -129,31 +161,177 @@ function ChangeReview({ id }: { id: number }) {
         </div>;
       })}
     </section>
-  </section>;
+  </div>;
+}
+
+function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
+  label: string; sortKey: RegisterSort; sort: RegisterSort; direction: "asc" | "desc"; align?: "right";
+  onSort: (key: RegisterSort) => void;
+}) {
+  const active = sortKey === sort;
+  return <TableHead className={cn(align === "right" && "text-right")}
+    aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : undefined}>
+    <button type="button" onClick={() => onSort(sortKey)}
+      className={cn("inline-flex w-full items-center gap-1 whitespace-nowrap hover:text-foreground",
+        align === "right" && "justify-end", active ? "text-foreground" : "text-muted-foreground")}>
+      {label}<span className="text-[10px]">{active ? (direction === "asc" ? "▲" : "▼") : "↕"}</span>
+    </button>
+  </TableHead>;
 }
 
 export function LoanChangesModule() {
-  const [search, setSearch] = useState("");
+  const [view, setView] = useState<"active" | "closed">("active");
+  const [filters, setFilters] = useState(defaultFilters);
+  const [sort, setSort] = useState<RegisterSort>("reference");
+  const [direction, setDirection] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
-  const [id, select] = useState<number>();
+  const [size, setSize] = useState(25);
   const [refresh, setRefresh] = useState(0);
-  const result = useLifecycleRead<LoanRegisterPage>(loansApi + "/register?" +
-    new URLSearchParams({ q: search, page: String(page), view: "all" }), refresh);
-  return <div className="space-y-3">
-    <h2 className="text-lg font-semibold">Loan changes</h2>
-    <Input className="max-w-sm" aria-label="Find a loan" placeholder="Employee or loan reference" value={search}
-      maxLength={120} onChange={event => { setSearch(event.target.value); setPage(1); }} />
-    {!result?.data && <p role={result?.error ? "alert" : "status"}>{result?.error ?? "Loading loans…"}
-      {result?.error && <Button size="sm" variant="outline" onClick={() => setRefresh(value => value + 1)}>Retry</Button>}</p>}
-    {result?.data && <div className="flex flex-wrap gap-2">
-      {result.data.items.map(loan => <Button key={loan.id} type="button" size="sm" variant={id === loan.id ? "default" : "outline"}
-        onClick={() => select(loan.id)}>{loan.reference} · {loan.employee}</Button>)}
-      {result.data.items.length === 0 && <p>No loans match.</p>}
+  const [selected, setSelected] = useState<{ id: number; reference: string; employee: string }>();
+  const query = new URLSearchParams({
+    view, page: String(page), sort, direction, size: String(size),
+    ...Object.fromEntries(Object.entries(filters).flatMap(([name, value]) => value.trim() ? [[name, value.trim()]] : [])),
+  }).toString();
+  const url = loansApi + "/register?" + query;
+  const result = useLifecycleRead<LoanRegisterPage>(url, refresh);
+  const data = result?.data;
+  const options = data?.filters ?? { agencies: [], departments: [], programs: [] };
+  const total = data?.total ?? 0;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const start = total ? (page - 1) * size + 1 : 0;
+  const end = Math.min(page * size, total);
+  const reload = () => setRefresh(value => value + 1);
+  const update = (name: keyof typeof filters, value: string) => {
+    setFilters(previous => ({ ...previous, [name]: value }));
+    setPage(1);
+  };
+  const toggleSort = (key: RegisterSort) => {
+    if (key === sort) setDirection(value => value === "asc" ? "desc" : "asc");
+    else { setSort(key); setDirection(key === "reference" ? "desc" : "asc"); }
+    setPage(1);
+  };
+
+  return <section className="space-y-4">
+    <header>
+      <h2 className="text-lg font-semibold">Loan Changes</h2>
+      <p className="max-w-3xl text-sm text-muted-foreground">
+        Record separations, direct payments, amortization changes, suspensions, and agency refunds. Each change becomes an instruction to Payroll; changes made in the open period can be reversed.
+      </p>
+    </header>
+
+    <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Loan change scope">
+      {([["active", "Active loans"], ["closed", "Closed loans (refunds)"]] as const).map(([value, label]) =>
+        <Button key={value} type="button" size="sm" variant={view === value ? "default" : "outline"}
+          aria-pressed={view === value} onClick={() => { setView(value); setPage(1); }}>{label}</Button>)}
+    </div>
+
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-background p-3">
+      <Input className="w-full sm:max-w-xs" value={filters.q} maxLength={120} placeholder="Employee, loan, or agency reference"
+        aria-label="Search loans for changes" onChange={event => update("q", event.target.value)} />
+      <NativeSelect aria-label="Filter by agency" value={filters.agency} onChange={event => update("agency", event.target.value)}>
+        <option value="">All agencies</option>
+        {options.agencies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </NativeSelect>
+      <NativeSelect aria-label="Filter by department" value={filters.department} onChange={event => update("department", event.target.value)}>
+        <option value="">All departments</option>
+        {options.departments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </NativeSelect>
+      <label className="flex items-center gap-2 px-2 text-sm">
+        <input type="checkbox" className="size-4 accent-emerald-700" checked={filters.short === "1"}
+          onChange={event => update("short", event.target.checked ? "1" : "")} />Last deduction short
+      </label>
+      <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
+        <span aria-live="polite">{data ? (total ? `Showing ${start}–${end} of ${total}` : "No loans") : "Loading…"}</span>
+        {(filters.q || filters.agency || filters.department || filters.short) &&
+          <Button type="button" variant="ghost" size="sm" onClick={() => { setFilters(defaultFilters); setPage(1); }}>Clear</Button>}
+      </div>
+    </div>
+
+    {result?.error && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+      <span className="min-w-0 flex-1">{result.error}</span>
+      <Button type="button" variant="outline" size="sm" onClick={reload}>Retry</Button>
     </div>}
-    {(page > 1 || result?.data?.hasMore) && <nav className="flex gap-2" aria-label="Loan pages">
-      <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(value => value - 1)}>Previous</Button>
-      <Button size="sm" variant="outline" disabled={!result?.data?.hasMore} onClick={() => setPage(value => value + 1)}>Next</Button>
-    </nav>}
-    {id && <ChangeReview key={id} id={id} />}
-  </div>;
+
+    <div className="space-y-2">
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader><TableRow>
+            <SortHeader label="Loan" sortKey="reference" sort={sort} direction={direction} onSort={toggleSort} />
+            <SortHeader label="Employee" sortKey="employee" sort={sort} direction={direction} onSort={toggleSort} />
+            <SortHeader label="Agency" sortKey="agency" sort={sort} direction={direction} onSort={toggleSort} />
+            <TableHead>Program</TableHead>
+            <SortHeader label="Loan amount" sortKey="principal" sort={sort} direction={direction} align="right" onSort={toggleSort} />
+            <SortHeader label="Amortization" sortKey="amortization" sort={sort} direction={direction} align="right" onSort={toggleSort} />
+            <SortHeader label="Paid / total" sortKey="counted" sort={sort} direction={direction} align="right" onSort={toggleSort} />
+            <SortHeader label="Remaining (est.)" sortKey="estimate" sort={sort} direction={direction} align="right" onSort={toggleSort} />
+            <SortHeader label="Status" sortKey="status" sort={sort} direction={direction} onSort={toggleSort} />
+          </TableRow></TableHeader>
+          <TableBody>
+            {!data && Array.from({ length: 8 }, (_, row) => <TableRow key={row}>
+              {Array.from({ length: 9 }, (_, cell) => <TableCell key={cell}><Skeleton className={cn("h-4", cell === 0 ? "w-24" : "w-full max-w-28")} /></TableCell>)}
+            </TableRow>)}
+            {data?.items.map(loan => <TableRow key={loan.id} className="cursor-pointer hover:bg-muted/50"
+              onClick={() => setSelected({ id: loan.id, reference: loan.reference, employee: loan.employee })}>
+              <TableCell>
+                <span className="whitespace-nowrap text-xs font-medium">{loan.reference}</span>
+                <p className="mt-1 max-w-36 truncate text-xs text-muted-foreground" title="Masked agency reference">{maskedReference(loan.agencyReference)}</p>
+              </TableCell>
+              <TableCell>{loan.employee}{loan.department && <p className="text-xs text-muted-foreground">{loan.department}</p>}</TableCell>
+              <TableCell>{loan.agency}</TableCell>
+              <TableCell>{loan.program}</TableCell>
+              <TableCell className="text-right tabular-nums">{peso(loan.principal)}</TableCell>
+              <TableCell className="text-right tabular-nums">{peso(loan.amortization)}</TableCell>
+              <TableCell className="text-right tabular-nums">{loan.counted} / {loan.term}</TableCell>
+              <TableCell className="text-right">
+                <p className="tabular-nums">{amount(loan.agencyBalance.latest ? loan.agencyBalance.adjusted : loan.estimate)}</p>
+                <p className="text-xs text-muted-foreground">{loan.agencyBalance.latest ? `per agency ${date(loan.agencyBalance.latest.date)}` : "estimate"}</p>
+              </TableCell>
+              <TableCell>
+                <div className="flex flex-wrap gap-1">
+                  <Badge variant="outline" className={statusTone(loan.status)}>{registerStatusLabels[loan.status]}</Badge>
+                  {loan.active && loan.lastDeductionShort && <Badge variant="destructive" title="Last deduction was short">Short</Badge>}
+                </div>
+              </TableCell>
+            </TableRow>)}
+            {data && !data.items.length && <TableRow><TableCell colSpan={9} className="p-0">
+              <Empty className="border-0">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon"><span className="text-lg">±</span></EmptyMedia>
+                  <EmptyTitle>No loans to change</EmptyTitle>
+                  <EmptyDescription>{view === "active" ? "No active loans match these filters." : "No closed loans match these filters."}</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            </TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </div>
+      {total > 10 && <nav aria-label="Loan change pages" className="flex flex-wrap items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">Rows per page
+          <NativeSelect aria-label="Rows per page" className="h-8 w-20" value={String(size)}
+            onChange={event => { setSize(Number(event.target.value)); setPage(1); }}>
+            {pageSizeOptions.map(value => <option key={value} value={value}>{value}</option>)}
+          </NativeSelect>
+        </label>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Page {page} of {pages}</span>
+          <Button type="button" variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</Button>
+          <Button type="button" variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</Button>
+        </div>
+      </nav>}
+    </div>
+
+    <p className="text-sm text-muted-foreground">Need the full register view? <Link className="underline" href="/fm/government-loans/loans?tab=register">Open the Loan Register</Link>.</p>
+
+    <Dialog open={!!selected} onOpenChange={open => { if (!open) setSelected(undefined); }}>
+      <DialogContent className="flex max-h-[90dvh] flex-col overflow-hidden sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>{selected ? `${selected.reference} · ${selected.employee}` : "Loan change"}</DialogTitle>
+          <DialogDescription>Record or reverse a change, then review the instruction sent to Payroll.</DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          {selected && <ChangeReview id={selected.id} onSaved={() => { setPage(1); reload(); }} />}
+        </div>
+      </DialogContent>
+    </Dialog>
+  </section>;
 }

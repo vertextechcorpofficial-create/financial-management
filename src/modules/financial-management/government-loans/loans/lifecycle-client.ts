@@ -31,6 +31,29 @@ export function useLifecycleRead<T>(url: string | null, refresh = 0) {
   return loaded?.key === key ? loaded : undefined;
 }
 
+// Same reader as useLifecycleRead, but keeps the last successful payload on screen while a
+// refresh is in flight and after a failed refresh. The dashboard is heavy and should not blank.
+export function useRetainedLifecycleRead<T>(url: string, refresh = 0) {
+  const [loaded, setLoaded] = useState<{ key: string; data?: T; error?: string }>();
+  const [lastData, setLastData] = useState<T>();
+  const key = url + ":" + refresh;
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void response(url, { signal: controller.signal }).then(result => result.json()).then(data => {
+        if (controller.signal.aborted) return;
+        setLoaded({ key, data });
+        setLastData(data);
+      }).catch((error: Error) => {
+        if (!controller.signal.aborted) setLoaded({ key, error: error.message });
+      });
+    }, 150);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [url, key]);
+  const current = loaded?.key === key ? loaded : undefined;
+  return { data: current?.data ?? lastData, error: current?.error, pending: Boolean(lastData) && !current?.data };
+}
+
 export function useLifecycleCommand() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

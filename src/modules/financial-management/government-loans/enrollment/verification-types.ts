@@ -13,9 +13,11 @@ export type VerificationQueueItem = EnrollmentListItem & {
   canDecide: boolean;
   documentsPresent: number;
   documentsRequired: number;
+  waitingDays: number;
 };
 
-export type VerificationQueue = Page<VerificationQueueItem> & { openMonth: string | null };
+export type VerificationSummary = Record<VerificationStatus, number>;
+export type VerificationQueue = Page<VerificationQueueItem> & { openMonth: string | null; summary: VerificationSummary };
 export type VerificationReview = {
   record: EnrollmentDetail & { enrollment: EnrollmentSnapshot };
   canDecide: boolean;

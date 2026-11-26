@@ -8,13 +8,14 @@ export interface ClassifierInput {
   description?: string;
   memo?: string;
   sourceModule?: string;
+  generated?: boolean;
 }
 
 /**
  * Deterministically classifies a posted GL line into an SCE movement tag
  */
 export function classifyJournalLine(input: ClassifierInput): SCEMovementTag {
-  const { glCode, debit, description = "", memo = "" } = input;
+  const { glCode, debit, description = "", memo = "", generated } = input;
   const text = `${description} ${memo}`.toLowerCase();
 
   // 1. Year-end closing entry (closing GL 3900 / 3510 into 3210)
@@ -22,8 +23,8 @@ export function classifyJournalLine(input: ClassifierInput): SCEMovementTag {
     return "close";
   }
 
-  // 2. Net Income (GL 3900)
-  if (glCode === "3900") {
+  // 2. Net Income (GL 3900 or backend-generated monthly net income row)
+  if (glCode === "3900" || generated) {
     return "net_income";
   }
 

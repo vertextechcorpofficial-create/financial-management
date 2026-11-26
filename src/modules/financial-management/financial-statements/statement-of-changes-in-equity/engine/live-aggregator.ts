@@ -62,7 +62,8 @@ export function aggregateLiveSCEData(
       accMov[acc.glCode] = { debit: 0, credit: 0, net: 0 };
     }
     for (const item of entries) {
-      const code = item.accountNumber || "";
+      // Prioritize sceCode, fallback to accountNumber
+      const code = item.sceCode || item.accountNumber || "";
       if (accMov[code]) {
         accMov[code].debit += item.debit || 0;
         accMov[code].credit += item.credit || 0;
@@ -117,16 +118,18 @@ export function aggregateLiveSCEData(
 
   // Classify each transaction line
   for (const item of filteredPeriodEntries) {
+    const sceCode = item.sceCode || item.accountNumber || "";
     const tag = classifyJournalLine({
-      glCode: item.accountNumber || "",
+      glCode: sceCode,
       accountTitle: item.accountTitle || "",
       debit: item.debit || 0,
       credit: item.credit || 0,
       description: item.description,
+      generated: item.generated,
     });
 
     if (movementRowsMap[tag]) {
-      const accDef = EQUITY_GL_ACCOUNTS.find((a) => a.glCode === item.accountNumber);
+      const accDef = EQUITY_GL_ACCOUNTS.find((a) => a.glCode === sceCode);
       if (accDef && accDef.componentKey !== "totalEquity") {
         const net = accDef.normalBalance === "debit" ? (item.debit - item.credit) : (item.credit - item.debit);
         movementRowsMap[tag][accDef.componentKey] += net;
@@ -220,16 +223,18 @@ export function aggregateLiveSCEData(
     }
 
     for (const item of filteredCompEntries) {
+      const sceCode = item.sceCode || item.accountNumber || "";
       const tag = classifyJournalLine({
-        glCode: item.accountNumber || "",
+        glCode: sceCode,
         accountTitle: item.accountTitle || "",
         debit: item.debit || 0,
         credit: item.credit || 0,
         description: item.description,
+        generated: item.generated,
       });
 
       if (compMovementRowsMap[tag]) {
-        const accDef = EQUITY_GL_ACCOUNTS.find((a) => a.glCode === item.accountNumber);
+        const accDef = EQUITY_GL_ACCOUNTS.find((a) => a.glCode === sceCode);
         if (accDef && accDef.componentKey !== "totalEquity") {
           const net = accDef.normalBalance === "debit" ? (item.debit - item.credit) : (item.credit - item.debit);
           compMovementRowsMap[tag][accDef.componentKey] += net;

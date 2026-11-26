@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
+import { peso } from "@/modules/financial-management/cooperative/members/format";
 import { bulkApprove } from "./api";
 import type { ApprovalQueueItem, BulkApprovalResult } from "./types";
 
@@ -46,8 +47,11 @@ export function BulkApprovalDialog({ rows, onClose, onComplete }: {
         <DialogDescription>Each request will be checked again before approval.</DialogDescription>
       </DialogHeader>
       <div className="min-h-0 space-y-3 overflow-y-auto px-0.5 py-1">
+        <p className="text-sm text-muted-foreground">Each request is rechecked when the batch is submitted. Requests that changed or are no longer eligible will be skipped with a reason.</p>
         <ul className="divide-y rounded-md border text-sm">
-          {rows.map(row => <li key={row.id} className="break-words px-3 py-2">{row.reference} · {row.employeeName ?? "Employee"} · {row.program}</li>)}
+          {rows.map(row => <li key={row.id} className="break-words px-3 py-2">
+            <span className="font-medium">{row.reference}</span> · {row.employeeName ?? "Employee"} · {row.agencyName ?? "Agency"} · {peso(row.amount)}
+          </li>)}
         </ul>
         <div className="space-y-1.5">
           <Label htmlFor={remarksId}>Shared remarks (optional)</Label>

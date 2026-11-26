@@ -1,24 +1,39 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
+import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { deductionMonthLabel } from "../enrollment/rules";
 import type { Page } from "../requests/types";
 import { payrollAcknowledgementTemplate } from "./file-exchange";
 import { PayrollInstructionDetails } from "./PayrollInstructionDetails";
 import { PayrollResults } from "./PayrollResults";
-import { handoffStatusLabels, type PayrollInstructionRow } from "./types";
+import { handoffStatusLabels, type HandoffStatus, type PayrollInstructionRow } from "./types";
+
+const statusTone = (state: HandoffStatus) => state === "ACCEPTED"
+  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+  : state === "RETRYABLE" || state === "NEEDS_REVIEW"
+    ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+    : state === "CANCELLED" ? "text-muted-foreground" : "";
 
 export function PayrollInstructionsModule() {
+  const [tab, setTab] = useState("outbound");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [refresh, setRefresh] = useState(0);
   const [notice, setNotice] = useState("");
+  const [expanded, setExpanded] = useState<string>();
   const [loaded, setLoaded] = useState<{ key: string; data?: Page<PayrollInstructionRow>; error?: string }>();
   const query = new URLSearchParams({ q: search.trim(), page: String(page), ...(status ? { state: status } : {}) }).toString();
   const key = query + ":" + refresh;
@@ -41,45 +56,115 @@ export function PayrollInstructionsModule() {
   }, [query, key]);
 
   return <div className="space-y-4">
-    <PayrollResults />
-    <h2 className="text-lg font-semibold">Outbound instructions</h2>
-    <div className="flex flex-wrap gap-2">
-      <Input className="max-w-sm" value={search} maxLength={120} placeholder="Employee, loan, or agency reference"
-        aria-label="Search Payroll instructions" onChange={event => { setSearch(event.target.value); setPage(1); }} />
-      <NativeSelect aria-label="Filter Payroll instructions by status" value={status}
-        onChange={event => { setStatus(event.target.value); setPage(1); }}>
-        <option value="">All delivery statuses</option>
-        {Object.entries(handoffStatusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-      </NativeSelect>
-      <Button type="button" variant="outline" onClick={() => setRefresh(value => value + 1)}>Refresh instructions</Button>
-    </div>
-    {!current && <p role="status" className="text-sm text-muted-foreground">Loading Payroll instructions…</p>}
-    {notice && <p role="status" className="text-sm">{notice}</p>}
-    {current?.error && <p role="alert" className="text-sm text-destructive">{current.error}</p>}
-    {current?.data?.items.length === 0 && <p className="rounded-lg border p-4 text-sm text-muted-foreground">No Payroll instructions match.</p>}
-    {current?.data?.items.map(item => <details key={item.payload.handoffId} className="rounded-lg border p-3">
-      <summary className="cursor-pointer rounded-sm text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
-        <span className="ml-1 font-medium">{item.reference} · {item.employeeName ?? "Employee " + item.payload.employeeId}</span>
-        <span className="ml-2 text-muted-foreground">{item.agencyName} · {deductionMonthLabel(item.payload.start.effectiveMonth)}</span>
-        <Badge variant="outline" className="ml-2">{handoffStatusLabels[item.state]}</Badge>
-      </summary>
-      <div className="mt-3 space-y-3 border-t pt-3">
-        <PayrollInstructionDetails {...item} />
-        {item.fileExchange && (item.state === "QUEUED" || item.state === "RETRYABLE") && <PayrollDownload item={item} onDownloaded={() => {
-          setNotice(`${item.reference} · CSV downloaded. Awaiting Payroll acknowledgement.`);
-          setRefresh(value => value + 1);
-        }} />}
-        {item.state !== "ACCEPTED" && <a className="inline-block text-sm text-primary underline" download="payroll-acknowledgement-template.csv"
-          href={"data:text/csv;charset=utf-8," + encodeURIComponent(payrollAcknowledgementTemplate(item.payload))}>
-          Download acknowledgement template
-        </a>}
-      </div>
-    </details>)}
-    {current?.data && (page > 1 || current.data.hasMore) && <nav className="flex flex-wrap justify-end gap-2" aria-label="Payroll instruction pages">
-      <Button type="button" size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</Button>
-      <span className="self-center text-xs">Page {page}</span>
-      <Button type="button" size="sm" variant="outline" disabled={!current.data.hasMore} onClick={() => setPage(page + 1)}>Next</Button>
-    </nav>}
+    <header>
+      <h2 className="text-lg font-semibold">Payroll instructions</h2>
+      <p className="max-w-3xl text-sm text-muted-foreground">
+        What this module sent to Payroll, and what Payroll reported back. Payroll performs the deduction and returns the result.
+      </p>
+    </header>
+
+    <Tabs value={tab} onValueChange={setTab} className="gap-3">
+      <TabsList aria-label="Payroll instruction views" className="w-full justify-start">
+        <TabsTrigger value="outbound">Outbound — instructions</TabsTrigger>
+        <TabsTrigger value="inbound">Inbound — results</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="inbound" className="mt-0">
+        <PayrollResults />
+      </TabsContent>
+
+      <TabsContent value="outbound" className="mt-0 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input className="w-full sm:max-w-xs" value={search} maxLength={120} placeholder="Employee, loan, or agency reference"
+            aria-label="Search Payroll instructions" onChange={event => { setSearch(event.target.value); setPage(1); }} />
+          <NativeSelect aria-label="Filter Payroll instructions by status" value={status}
+            onChange={event => { setStatus(event.target.value); setPage(1); }}>
+            <option value="">All delivery statuses</option>
+            {Object.entries(handoffStatusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+          </NativeSelect>
+          <Button type="button" variant="outline" size="sm" onClick={() => setRefresh(value => value + 1)}>Refresh</Button>
+          <span className="ml-auto text-sm text-muted-foreground">{current?.data
+            ? `${current.data.items.length}${current.data.hasMore ? "+" : ""} instruction${current.data.items.length === 1 ? "" : "s"}`
+            : "Loading…"}</span>
+        </div>
+
+        {notice && <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p>}
+        {current?.error && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          <span className="min-w-0 flex-1">{current.error}</span>
+          <Button size="sm" variant="outline" onClick={() => setRefresh(value => value + 1)}>Retry</Button>
+        </div>}
+
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader><TableRow>
+              <TableHead className="w-8" />
+              <TableHead>Loan / Employee</TableHead>
+              <TableHead>Agency</TableHead>
+              <TableHead>Program</TableHead>
+              <TableHead>Effective month</TableHead>
+              <TableHead className="text-right">Monthly amount</TableHead>
+              <TableHead className="text-right">Remaining</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Updated</TableHead>
+            </TableRow></TableHeader>
+            <TableBody>
+              {!current && Array.from({ length: 8 }, (_, row) => <TableRow key={row}>
+                {Array.from({ length: 9 }, (_, cell) => <TableCell key={cell}><Skeleton className={cn("h-4", cell === 1 ? "w-40" : "w-24")} /></TableCell>)}
+              </TableRow>)}
+              {current?.data?.items.map(item => {
+                const open = expanded === item.payload.handoffId;
+                return <Fragment key={item.payload.handoffId}>
+                  <TableRow key={item.payload.handoffId} className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => setExpanded(open ? undefined : item.payload.handoffId)}>
+                    <TableCell>{open ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}</TableCell>
+                    <TableCell>
+                      <p className="font-medium">{item.reference}</p>
+                      <p className="text-xs text-muted-foreground">{item.employeeName ?? "Employee " + item.payload.employeeId}</p>
+                    </TableCell>
+                    <TableCell>{item.agencyName ?? "Agency " + item.payload.agencyId}</TableCell>
+                    <TableCell>{item.payload.program}</TableCell>
+                    <TableCell>{deductionMonthLabel(item.payload.start.effectiveMonth)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{peso(item.payload.start.monthlyAmount)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{item.payload.start.remainingInstallments}</TableCell>
+                    <TableCell><Badge variant="outline" className={statusTone(item.state)}>{handoffStatusLabels[item.state]}</Badge></TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{dateTime(item.updatedAt)}</TableCell>
+                  </TableRow>
+                  {open && <TableRow key={item.payload.handoffId + ":detail"}>
+                    <TableCell colSpan={9} className="bg-muted/20">
+                      <div className="space-y-3">
+                        <PayrollInstructionDetails {...item} />
+                        <div className="flex flex-wrap items-center gap-3">
+                          {item.fileExchange && (item.state === "QUEUED" || item.state === "RETRYABLE") &&
+                            <PayrollDownload item={item} onDownloaded={() => {
+                              setNotice(`${item.reference} · CSV downloaded. Awaiting Payroll acknowledgement.`);
+                              setRefresh(value => value + 1);
+                            }} />}
+                          {item.state !== "ACCEPTED" && <a className="inline-block text-sm text-primary underline" download="payroll-acknowledgement-template.csv"
+                            href={"data:text/csv;charset=utf-8," + encodeURIComponent(payrollAcknowledgementTemplate(item.payload))}>
+                            Download acknowledgement template
+                          </a>}
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>}
+                </Fragment>;
+              })}
+              {current?.data && !current.data.items.length && <TableRow><TableCell colSpan={9} className="p-0">
+                <Empty className="border-0"><EmptyHeader><EmptyMedia variant="icon"><span>↗</span></EmptyMedia>
+                  <EmptyTitle>No Payroll instructions match</EmptyTitle><EmptyDescription>Instructions appear here after an enrollment is verified.</EmptyDescription>
+                </EmptyHeader></Empty>
+              </TableCell></TableRow>}
+            </TableBody>
+          </Table>
+        </div>
+
+        {current?.data && (page > 1 || current.data.hasMore) && <nav className="flex flex-wrap justify-end gap-2" aria-label="Payroll instruction pages">
+          <Button type="button" size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</Button>
+          <span className="self-center text-sm text-muted-foreground">Page {page}</span>
+          <Button type="button" size="sm" variant="outline" disabled={!current.data.hasMore} onClick={() => setPage(page + 1)}>Next</Button>
+        </nav>}
+      </TabsContent>
+    </Tabs>
   </div>;
 }
 
