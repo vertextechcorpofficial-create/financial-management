@@ -97,6 +97,12 @@ export class AccessError extends Error {
   }
 }
 
+/** Section 4.9: only LGU staff may send an asset to a barangay, or move it between barangays. */
+export function requireLguStaff(access: Access, what: string): void {
+  if (access.role === "municipal" || access.role === "system_admin") return;
+  throw new AccessError("Only LGU staff can " + what + ".", 403);
+}
+
 /** Every route checks this before it touches data. */
 export function requirePermission(access: Access, permission: BrgyPermission, what: string): void {
   if (can(access, permission)) return;

@@ -28,9 +28,10 @@ import type {
 } from "./types";
 import { BRGY_CONDITIONS, BRGY_STATUSES, projectedTotal, projectedValue } from "./types";
 import { printAssetLabel } from "./shared/brgyLabel";
+import { LguConsole } from "./lgu/components/LguConsole";
 
 const API = "/api/fm/barangay-asset-inventory-system";
-const TABS = ["Assets", "Custody", "Physical count", "Disposal", "Transfers", "Reports", "Settings"] as const;
+const TABS = ["Assets", "Custody", "Physical count", "Disposal", "Transfers", "Reports", "LGU console", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 const peso = (n: number) => "PHP " + n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -53,6 +54,12 @@ async function call(path: string, init?: RequestInit) {
 
 export function BarangayAssetModule() {
   const [tab, setTab] = React.useState<Tab>("Assets");
+  const [access, setAccess] = React.useState<{
+    role: string;
+    barangayId: number | null;
+    unconfigured: boolean;
+    permissions: Record<string, boolean>;
+  } | null>(null);
   const [lookups, setLookups] = React.useState<Lookups | null>(null);
   const [barangayId, setBarangayId] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -83,6 +90,36 @@ export function BarangayAssetModule() {
     })();
   }, [barangayId]);
 
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        setAccess(await call("/access"));
+      } catch {
+        /* the routes still enforce, the screen just cannot tailor itself */
+      }
+    })();
+  }, []);
+
+  // Table 5: the tabs a role cannot use are not offered to it
+  const allowedTabs = React.useMemo(() => {
+    if (!access) return TABS;
+    const p = access.permissions;
+    return TABS.filter((t) => {
+      if (t === "Settings") return p.users === true;
+      if (t === "LGU console") return access.role === "municipal" || access.role === "system_admin";
+      if (t === "Custody") return p.assign === true;
+      if (t === "Physical count") return p.count === true;
+      if (t === "Disposal") return p.disposeRequest === true || p.disposeApprove === true;
+      if (t === "Reports") return p.reports === true;
+      return true;
+    });
+  }, [access]);
+
+  React.useEffect(() => {
+    if (access && !allowedTabs.includes(tab)) setTab(allowedTabs[0] ?? "Assets");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowedTabs]);
+
   const settings = lookups?.settings ?? null;
   const [missingCount, setMissingCount] = React.useState(0);
 
@@ -102,9 +139,27 @@ export function BarangayAssetModule() {
     <div className="flex flex-col gap-4 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Barangay Asset Inventory</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">Barangay Asset Inventory</h1>
+            {access ? (
+              <Badge variant="outline">
+                {access.role === "system_admin"
+                  ? "System Admin"
+                  : access.role === "barangay_admin"
+                    ? "Barangay Admin"
+                    : access.role === "property_custodian"
+                      ? "Property Custodian"
+                      : access.role === "encoder"
+                        ? "Encoder"
+                        : access.role === "municipal"
+                          ? "Municipal Property and Accounting"
+                          : "Auditor / Viewer"}
+              </Badge>
+            ) : null}
+            {access?.unconfigured ? <Badge variant="destructive">roles not set up yet</Badge> : null}
+          </div>
           <p className="text-sm text-muted-foreground">
-            Barangay property, custody, yearly count, disposal and reports. Values follow the barangay guide.
+            Barangay property, custody, yearly count, disposal and reports. The screen offers only what your role may do.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -127,7 +182,7 @@ export function BarangayAssetModule() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {TABS.map((t) => (
+        {allowedTabs.map((t) => (
           <Button key={t} size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)}>
             {t}
           </Button>
@@ -170,6 +225,8 @@ export function BarangayAssetModule() {
         <TransfersTab barangayId={barangayId} lookups={lookups} setError={setError} setNotice={setNotice} />
       ) : tab === "Reports" ? (
         <ReportsTab barangayId={barangayId} setError={setError} />
+      ) : tab === "LGU console" ? (
+        <LguConsole barangays={lookups.barangays} setError={setError} setNotice={setNotice} />
       ) : (
         <SettingsTab settings={settings} setError={setError} setNotice={setNotice} />
       )}
@@ -386,13 +443,61 @@ function AddAssetDialog({
   });
   const [busy, setBusy] = React.useState(false);
   const [formError, setFormError] = React.useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
+  const [knownNames, setKnownNames] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    void (async () => {
+      try {
+        const data = await call("/assets/names?barangayId=" + barangayId);
+        setKnownNames(data.names ?? []);
+      } catch {
+        /* suggestions are a convenience, never a blocker */
+      }
+    })();
+  }, [open, barangayId]);
 
   const lifeFor = (classificationId: string) => {
     const c = lookups.classifications.find((x) => String(x.id) === classificationId);
     return c && c.life_span_years ? String(c.life_span_years) : "";
   };
 
+  /** Section 4.1: problems are shown beside the item concerned, before anything is sent. */
+  function validate(): Record<string, string> {
+    const errors: Record<string, string> = {};
+    if (!form.name.trim()) errors.name = "Item name is required";
+    if (!form.dateAcquired) errors.dateAcquired = "Date acquired is required";
+    else if (form.dateAcquired > today()) errors.dateAcquired = "Date acquired cannot be later than today";
+    const qty = Number(form.quantity);
+    if (!Number.isFinite(qty) || qty < 1) errors.quantity = "Quantity must be at least 1";
+    const cost = Number(form.cost || 0);
+    if (!Number.isFinite(cost) || cost < 0) errors.cost = "Cost cannot be negative";
+    const life = Number(form.lifeSpanYears);
+    if (!Number.isFinite(life) || life < 1) errors.lifeSpanYears = "Life span must be at least 1 year";
+    return errors;
+  }
+
+  function fieldForMessage(message: string): string | null {
+    const m = message.toLowerCase();
+    if (m.includes("barcode")) return "barcode";
+    if (m.includes("tag number")) return "tagNo";
+    if (m.includes("security tag")) return "securityTag";
+    if (m.includes("item name") || m.includes("name is required")) return "name";
+    if (m.includes("date acquired")) return "dateAcquired";
+    if (m.includes("quantity")) return "quantity";
+    if (m.includes("life span")) return "lifeSpanYears";
+    if (m.includes("cost")) return "cost";
+    return null;
+  }
+
   async function submit() {
+    const errors = validate();
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      setFormError(null);
+      return;
+    }
     setBusy(true);
     setFormError(null);
     try {
@@ -430,7 +535,9 @@ function AddAssetDialog({
       await onSaved();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setFormError(message);
+      const field = fieldForMessage(message);
+      if (field) setFieldErrors({ [field]: message });
+      else setFormError(message);
       setError(null);
     } finally {
       setBusy(false);
@@ -450,8 +557,19 @@ function AddAssetDialog({
         </DialogHeader>
         <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-6 py-2">
           <Field label="Item name">
-            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Monobloc chair, white" />
+            <Input
+              value={form.name}
+              list="brgy-item-names"
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Monobloc chair, white"
+            />
+            {fieldErrors.name ? <span className="text-xs text-destructive">{fieldErrors.name}</span> : null}
           </Field>
+          <datalist id="brgy-item-names">
+            {knownNames.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Classification">
               <select
@@ -497,24 +615,31 @@ function AddAssetDialog({
             </Field>
             <Field label="Date acquired">
               <Input type="date" value={form.dateAcquired} onChange={(e) => setForm({ ...form, dateAcquired: e.target.value })} />
+              {fieldErrors.dateAcquired ? <span className="text-xs text-destructive">{fieldErrors.dateAcquired}</span> : null}
             </Field>
             <Field label="Cost, pesos">
               <Input value={form.cost} onChange={(e) => setForm({ ...form, cost: e.target.value })} placeholder="30000" />
+              {fieldErrors.cost ? <span className="text-xs text-destructive">{fieldErrors.cost}</span> : null}
             </Field>
             <Field label="Quantity">
               <Input value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
+              {fieldErrors.quantity ? <span className="text-xs text-destructive">{fieldErrors.quantity}</span> : null}
             </Field>
             <Field label="Life span, years">
               <Input value={form.lifeSpanYears} onChange={(e) => setForm({ ...form, lifeSpanYears: e.target.value })} />
+              {fieldErrors.lifeSpanYears ? <span className="text-xs text-destructive">{fieldErrors.lifeSpanYears}</span> : null}
             </Field>
             <Field label="Barcode">
               <Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
+              {fieldErrors.barcode ? <span className="text-xs text-destructive">{fieldErrors.barcode}</span> : null}
             </Field>
             <Field label="Tag number">
               <Input value={form.tagNo} onChange={(e) => setForm({ ...form, tagNo: e.target.value })} />
+              {fieldErrors.tagNo ? <span className="text-xs text-destructive">{fieldErrors.tagNo}</span> : null}
             </Field>
             <Field label="Security tag">
               <Input value={form.securityTag} onChange={(e) => setForm({ ...form, securityTag: e.target.value })} />
+              {fieldErrors.securityTag ? <span className="text-xs text-destructive">{fieldErrors.securityTag}</span> : null}
             </Field>
             <Field label="Serial number">
               <Input value={form.serialNo} onChange={(e) => setForm({ ...form, serialNo: e.target.value })} />
@@ -731,6 +856,35 @@ function AssetDetailDialog({
               <Field label="Describe the defect, required">
                 <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} />
               </Field>
+              <Field label="Photo of the defect, optional">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="text-xs"
+                  disabled={busy}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setBusy(true);
+                    setFormError(null);
+                    try {
+                      const body = new FormData();
+                      body.append("file", file);
+                      const res = await fetch("/api/fm/barangay-asset-inventory-system/assets/" + asset.id + "/photo", { method: "POST", body });
+                      if (!res.ok) {
+                        const payload = await res.json().catch(() => null);
+                        throw new Error(payload?.message ?? "The photo could not be attached");
+                      }
+                      await onChanged();
+                    } catch (err) {
+                      setFormError(err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                />
+              </Field>
+              <p className="text-xs text-muted-foreground">The LGU sees this photo with the return, so the defect is visible before they decide.</p>
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="outline" onClick={() => setAction(null)}>Cancel</Button>
                 <Button size="sm" disabled={busy} onClick={() => void run({ action: "return", defect: remarks })}>Request return</Button>

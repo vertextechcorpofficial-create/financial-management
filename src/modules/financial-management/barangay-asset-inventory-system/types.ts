@@ -187,6 +187,9 @@ export interface BrgyTransfer {
   requested_by: string | null;
   decided_by: string | null;
   decision_remark: string | null;
+  /** the LGU asset this transfer came from, kept so the link survives their edits */
+  lgu_asset_id?: number | null;
+  source_system?: string | null;
 }
 
 export interface BrgySettings {

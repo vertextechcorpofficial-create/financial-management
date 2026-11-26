@@ -140,6 +140,19 @@ export async function listAssets(params: {
   };
 }
 
+/** Section 4.1: item names are picked from existing choices first. */
+export async function listAssetNames(barangayId: number): Promise<string[]> {
+  const rows = await get<{ name: string }[]>(
+    "/items/brgy_asset?filter=" +
+      enc({ _and: [{ barangay_id: { _eq: barangayId } }, { cancelled: { _eq: false } }] }) +
+      "&groupBy[]=name&fields=name&limit=-1"
+  );
+  return (rows ?? [])
+    .map((r) => text(r.name))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
 /** Rule 13: AST-(barangay code)-(running number), never reused within a barangay. */
 async function nextAssetCode(barangayId: number): Promise<string> {
   const bar = await get<Row[]>("/items/brgy_barangay?filter=" + enc({ id: { _eq: barangayId } }) + "&fields=code&limit=1");

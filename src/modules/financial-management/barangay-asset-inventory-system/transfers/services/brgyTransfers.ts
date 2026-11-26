@@ -25,6 +25,68 @@ export async function listTransfers(barangayId: number): Promise<{ incoming: Brg
   return { incoming: incoming.data.map(mapTransfer), outgoing: outgoing.data.map(mapTransfer) };
 }
 
+/**
+ * Section 4.9 from the LGU side: take one of their assets and create the barangay's waiting copy.
+ * The LGU asset id, the source system and a snapshot are stored on the transfer, so the link
+ * survives their edits and a later split into separate deployments.
+ */
+export async function assignLguAsset(input: {
+  lguAssetId: number;
+  toBarangayId: number;
+  remark?: string | null;
+  actor?: string | null;
+  snapshot?: Record<string, unknown> | null;
+  name: string;
+  dateAcquired?: string | null;
+  cost?: number;
+  lifeSpanYears?: number;
+}): Promise<BrgyTransfer> {
+  const bar = await get<Row[]>("/items/brgy_barangay?filter=" + enc({ id: { _eq: input.toBarangayId } }) + "&fields=code,name&limit=1");
+  const code = text(bar?.[0]?.code) || "BRG";
+  const stem = "AST-" + code + "-";
+  const existing = await get<Row[]>("/items/brgy_asset?filter=" + enc({ asset_code: { _starts_with: stem } }) + "&fields=asset_code&limit=-1");
+  let max = 0;
+  for (const row of existing ?? []) {
+    const n = parseInt(text(row.asset_code).slice(stem.length), 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  const assetCode = stem + String(max + 1).padStart(4, "0");
+
+  const created = await post<Row>("/items/brgy_asset", {
+    asset_code: assetCode,
+    barangay_id: input.toBarangayId,
+    owner_type: "lgu",
+    name: input.name,
+    date_acquired: input.dateAcquired ?? null,
+    cost: input.cost ?? 0,
+    quantity: 1,
+    life_span_years: input.lifeSpanYears && input.lifeSpanYears > 0 ? input.lifeSpanYears : 5,
+    condition: "Good",
+    status: "For Receiving",
+    is_draft: false,
+    cancelled: false,
+    source: "lgu transfer",
+    created_by: input.actor ?? null,
+  });
+  const assetId = Number(created.id);
+
+  const transfer = await post<Row>("/items/brgy_transfer", {
+    asset_id: assetId,
+    direction: "lgu_to_barangay",
+    from_barangay_id: null,
+    to_barangay_id: input.toBarangayId,
+    status: "for_receiving",
+    remark: input.remark ?? null,
+    requested_by: input.actor ?? null,
+    lgu_asset_id: input.lguAssetId,
+    source_system: "lgu",
+    snapshot: input.snapshot ? JSON.stringify(input.snapshot) : null,
+  });
+
+  await recordHistory(assetId, "transfer", null, "For Receiving", input.actor ?? null, "From the LGU register, asset " + input.lguAssetId);
+  return mapTransfer(transfer);
+}
+
 /** Section 4.9: the LGU sends an asset, which waits as For Receiving until accepted. */
 export async function createIncomingTransfer(input: {
   assetId: number;
