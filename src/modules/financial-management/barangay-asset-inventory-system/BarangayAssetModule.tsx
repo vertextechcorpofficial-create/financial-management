@@ -27,6 +27,7 @@ import type {
   BrgyTransfer,
 } from "./types";
 import { BRGY_CONDITIONS, BRGY_STATUSES, projectedTotal, projectedValue } from "./types";
+import { printAssetLabel } from "./shared/brgyLabel";
 
 const API = "/api/fm/barangay-asset-inventory-system";
 const TABS = ["Assets", "Custody", "Physical count", "Disposal", "Transfers", "Reports", "Settings"] as const;
@@ -83,6 +84,19 @@ export function BarangayAssetModule() {
   }, [barangayId]);
 
   const settings = lookups?.settings ?? null;
+  const [missingCount, setMissingCount] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!barangayId) return;
+    void (async () => {
+      try {
+        const data = await call("/assets?barangayId=" + barangayId + "&status=Missing&pageSize=5");
+        setMissingCount(Number(data.total ?? 0));
+      } catch {
+        /* the notice is optional, never block the screen on it */
+      }
+    })();
+  }, [barangayId, tab]);
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -119,6 +133,23 @@ export function BarangayAssetModule() {
           </Button>
         ))}
       </div>
+
+      {missingCount > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <span className="font-medium">{missingCount} asset(s) marked Missing.</span>
+          <span className="text-muted-foreground">Section 4.6 asks the Barangay Admin to follow up through the official lost property procedure.</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={() => {
+              setTab("Assets");
+            }}
+          >
+            Open the register
+          </Button>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
@@ -490,6 +521,8 @@ function AssetDetailDialog({
   const [condition, setCondition] = React.useState<BrgyCondition>(asset.condition);
   const [toStatus, setToStatus] = React.useState<BrgyStatus>("Active");
   const [remarks, setRemarks] = React.useState("");
+  const [repairNote, setRepairNote] = React.useState("");
+  const [repairCondition, setRepairCondition] = React.useState<BrgyCondition>("Good");
   const [formError, setFormError] = React.useState<string | null>(null);
 
   async function run(body: Record<string, unknown>) {
@@ -531,6 +564,13 @@ function AssetDetailDialog({
             {asset.owner_type === "lgu" ? (
               <Button size="sm" variant="outline" onClick={() => setAction("return")}>Return to LGU</Button>
             ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => printAssetLabel({ asset, barangay: lookups.barangays.find((b) => b.id === asset.barangay_id)?.name ?? "" })}
+            >
+              Print label
+            </Button>
             <Button size="sm" variant="ghost" onClick={() => setAction("cancel")}>Cancel record</Button>
           </div>
 
@@ -571,6 +611,18 @@ function AssetDetailDialog({
                   ))}
                 </select>
               </Field>
+              {condition === "Needs Repair" ? (
+                <p className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+                  Needs Repair suggests changing the status to <strong>Under Repair</strong>. Saving the condition does not change the status, so
+                  use Change status next.
+                </p>
+              ) : null}
+              {condition === "Unserviceable" ? (
+                <p className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs">
+                  Unserviceable means it cannot be used or repaired. After saving, choose <strong>Under Repair</strong> if a repair is still worth
+                  trying, or <strong>For Disposal</strong> to send it for approval.
+                </p>
+              ) : null}
               <Field label="Remark, required">
                 <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} />
               </Field>
@@ -590,12 +642,43 @@ function AssetDetailDialog({
                   ))}
                 </select>
               </Field>
+              {toStatus === "Under Repair" ? (
+                <Field label="Who is repairing it">
+                  <Input value={repairNote} onChange={(e) => setRepairNote(e.target.value)} placeholder="Name of the repairer or shop" />
+                </Field>
+              ) : null}
+              {toStatus === "Active" ? (
+                <Field label="Condition after the repair">
+                  <select
+                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    value={repairCondition}
+                    onChange={(e) => setRepairCondition(e.target.value as BrgyCondition)}
+                  >
+                    <option value="Good">Good</option>
+                    <option value="Fair">Fair</option>
+                  </select>
+                </Field>
+              ) : null}
               <Field label="Reason, required for Missing, For Disposal and Disposed">
                 <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} />
               </Field>
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="outline" onClick={() => setAction(null)}>Cancel</Button>
-                <Button size="sm" disabled={busy} onClick={() => void run({ action: "status", to: toStatus, reason: remarks })}>Change status</Button>
+                <Button
+                  size="sm"
+                  disabled={busy}
+                  onClick={() =>
+                    void run({
+                      action: "status",
+                      to: toStatus,
+                      reason: remarks,
+                      repairNote: toStatus === "Under Repair" ? repairNote : null,
+                      condition: toStatus === "Active" && repairCondition ? repairCondition : null,
+                    })
+                  }
+                >
+                  Change status
+                </Button>
               </div>
             </div>
           ) : null}
@@ -625,6 +708,47 @@ function AssetDetailDialog({
           ) : null}
 
           {formError ? <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">{formError}</p> : null}
+
+          <section>
+            <h3 className="mb-1 text-sm font-medium">Photo</h3>
+            <div className="flex flex-wrap items-center gap-3 rounded border p-2">
+              {asset.photo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={"/api/fm/barangay-asset-inventory-system/assets/" + asset.id + "/photo?v=" + asset.photo}
+                  alt={"Photo of " + asset.name}
+                  className="h-24 w-32 rounded object-cover"
+                />
+              ) : (
+                <span className="text-xs text-muted-foreground">No photo yet. One clear photo per asset is strongly encouraged.</span>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                className="text-xs"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setBusy(true);
+                  setFormError(null);
+                  try {
+                    const body = new FormData();
+                    body.append("file", file);
+                    const res = await fetch("/api/fm/barangay-asset-inventory-system/assets/" + asset.id + "/photo", { method: "POST", body });
+                    if (!res.ok) {
+                      const payload = await res.json().catch(() => null);
+                      throw new Error(payload?.message ?? "Upload failed");
+                    }
+                    await onChanged();
+                  } catch (err) {
+                    setFormError(err instanceof Error ? err.message : String(err));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              />
+            </div>
+          </section>
 
           <section>
             <h3 className="mb-1 text-sm font-medium">History</h3>
@@ -833,6 +957,27 @@ function CountSheet({ countId, onClose, setError, onChanged }: { countId: number
     closed: boolean;
   } | null>(null);
   const [unrecordedName, setUnrecordedName] = React.useState("");
+  const [scanValue, setScanValue] = React.useState("");
+  const [scanMiss, setScanMiss] = React.useState<string | null>(null);
+
+  /** Section 4.7: scanning the barcode or tag speeds the count up. */
+  async function scanOne() {
+    const needle = scanValue.trim().toLowerCase();
+    if (!needle || !detail) return;
+    const hit = detail.expected.find(({ asset }) => {
+      if (!asset) return false;
+      return [asset.asset_code, asset.barcode, asset.tag_no, asset.security_tag, asset.serial_no]
+        .filter(Boolean)
+        .some((code) => String(code).toLowerCase() === needle);
+    });
+    if (!hit?.asset) {
+      setScanMiss("No asset in this count matches " + scanValue.trim());
+      return;
+    }
+    setScanMiss(null);
+    setScanValue("");
+    await act({ action: "mark", assetId: hit.asset.id, result: "found" });
+  }
 
   const load = React.useCallback(async () => {
     try {
@@ -877,6 +1022,26 @@ function CountSheet({ countId, onClose, setError, onChanged }: { countId: number
       </div>
 
       {!detail.closed ? (
+        <>
+        <div className="flex flex-wrap items-center gap-2 rounded border bg-muted/30 p-2">
+          <Input
+            className="max-w-xs"
+            placeholder="Scan or type a barcode, tag or asset ID"
+            value={scanValue}
+            onChange={(e) => setScanValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void scanOne();
+              }
+            }}
+          />
+          <Button size="sm" onClick={() => void scanOne()} disabled={!scanValue.trim()}>
+            Mark found
+          </Button>
+          {scanMiss ? <span className="text-xs text-destructive">{scanMiss}</span> : null}
+        </div>
+
         <div className="flex flex-wrap items-center gap-2 rounded border bg-muted/30 p-2">
           <Input className="max-w-xs" placeholder="Item found but not on the list" value={unrecordedName} onChange={(e) => setUnrecordedName(e.target.value)} />
           <Button
@@ -890,6 +1055,7 @@ function CountSheet({ countId, onClose, setError, onChanged }: { countId: number
             Note as not yet recorded
           </Button>
         </div>
+        </>
       ) : null}
 
       <div className="max-h-[420px] overflow-y-auto rounded border">

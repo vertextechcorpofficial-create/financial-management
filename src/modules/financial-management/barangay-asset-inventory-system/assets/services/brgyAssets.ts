@@ -372,6 +372,8 @@ export async function changeStatus(input: {
   reason?: string | null;
   actor?: string | null;
   repairNote?: string | null;
+  /** section 4.4: when a repair finishes the condition goes back to Good or Fair */
+  condition?: BrgyCondition | null;
 }): Promise<AssetDetail> {
   const detail = await fetchAsset(input.assetId);
   const asset = detail.asset;
@@ -383,7 +385,9 @@ export async function changeStatus(input: {
     throw new Error("Please give a reason before changing the status to " + input.to + ".");
   }
   const patchBody: Row = { status: input.to };
-  if (input.to === "Active") patchBody.condition = asset.condition === "Unserviceable" ? "Good" : asset.condition;
+  if (input.condition) patchBody.condition = input.condition;
+  else if (input.to === "Active" && asset.condition === "Unserviceable") patchBody.condition = "Good";
+  if (input.to === "Under Repair" && input.repairNote) patchBody.remarks = [asset.remarks, "Repairer: " + input.repairNote].filter(Boolean).join("\n");
   await patch("/items/brgy_asset/" + asset.id, patchBody);
   await recordHistory(asset.id, "status", asset.status, input.to, input.actor ?? null, input.reason ?? input.repairNote ?? null);
   if (input.to === "Missing" || input.to === "For Disposal") {
