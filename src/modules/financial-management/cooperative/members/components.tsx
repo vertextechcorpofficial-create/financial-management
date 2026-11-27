@@ -88,11 +88,13 @@ export function SectionHeading({
   title,
   description,
   aside,
+  required = false,
 }: {
   step?: string;
   title: string;
   description?: string;
   aside?: ReactNode;
+  required?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -103,7 +105,10 @@ export function SectionHeading({
           </span>
         )}
         <div className="min-w-0">
-          <p className="text-sm font-semibold">{title}</p>
+          <p className="text-sm font-semibold">
+            {title}
+            {required && <span className="ml-0.5 text-destructive" aria-hidden="true">*</span>}
+          </p>
           {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
         </div>
       </div>
