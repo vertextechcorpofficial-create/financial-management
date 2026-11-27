@@ -28,10 +28,20 @@ export async function listCounts(barangayId: number): Promise<BrgyCount[]> {
   return res.data.map(mapCount);
 }
 
-/** Section 4.7: only one count can be open per barangay at a time. */
+/** Section 4.7: only one count can be open per barangay at a time, and a year is counted once. */
 export async function openCount(input: { barangayId: number; year: number; actor?: string | null; remarks?: string | null }): Promise<BrgyCount> {
   const open = await list<Row>("/items/brgy_count?filter=" + enc({ _and: [{ barangay_id: { _eq: input.barangayId } }, { status: { _eq: "open" } }] }) + "&limit=1");
   if (open.data.length) throw new Error("A count for this barangay is already open. Close it before opening a new one.");
+  // rule 94: a closed count is final, so the year itself is used up, not only the open slot
+  const sameYear = await list<Row>(
+    "/items/brgy_count?filter=" + enc({ _and: [{ barangay_id: { _eq: input.barangayId } }, { year: { _eq: input.year } }] }) + "&limit=1"
+  );
+  if (sameYear.data.length) {
+    const existing = mapCount(sameYear.data[0]);
+    throw new Error(
+      "This barangay already has a " + existing.status + " count for " + input.year + ". A year is counted once, and a closed count cannot be changed."
+    );
+  }
   const created = await post<Row>("/items/brgy_count", {
     barangay_id: input.barangayId,
     year: input.year,

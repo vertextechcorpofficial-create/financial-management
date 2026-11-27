@@ -68,7 +68,7 @@ export function BarangayAssetModule({
   const [barangayId, setBarangayId] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
-  const [missingCount, setMissingCount] = React.useState(0);
+
 
   React.useEffect(() => {
     void (async () => {
@@ -116,17 +116,7 @@ export function BarangayAssetModule({
     })();
   }, [barangayId]);
 
-  React.useEffect(() => {
-    if (!barangayId) return;
-    void (async () => {
-      try {
-        const data = await call("/assets?barangayId=" + barangayId + "&status=Missing&pageSize=5");
-        setMissingCount(Number(data.total ?? 0));
-      } catch {
-        /* the notice is optional, never block the screen on it */
-      }
-    })();
-  }, [barangayId, tab]);
+
 
   // a refusal belongs to the action that produced it, so moving to another screen clears it
   React.useEffect(() => {
@@ -139,7 +129,8 @@ export function BarangayAssetModule({
     const p = access.permissions;
     return TABS.filter((t) => {
       if (t === "System admin") return p.users === true;
-      if (t === "Settings") return p.users === true;
+      // municipal governs the rates behind every projected value, so they read them, never change them
+      if (t === "Settings") return p.users === true || access.role === "municipal";
       // Table 5 keeps writing the lists with the System Admin, so municipal reads them only
       if (t === "LGU Admin") return p.users === true || access.role === "municipal";
       if (t === "LGU console") return access.role === "municipal" || access.role === "system_admin";
@@ -147,19 +138,23 @@ export function BarangayAssetModule({
     });
   }, [access]);
 
-  const allowedSections = React.useMemo(() => {
-    if (!access) return SECTIONS;
-    const p = access.permissions;
-    return SECTIONS.filter((s) => {
-      if (s === "Custody") return p.assign === true;
-      if (s === "Physical count") return p.count === true;
-      if (s === "Disposal") return p.disposeRequest === true || p.disposeApprove === true;
-      if (s === "Reports") return p.reports === true;
-      return true;
-    });
-  }, [access]);
+  // a role may look at every section of its own barangay, because reading is how an auditor audits.
+  // What changes per role is whether the actions inside are offered, and the strip says so.
+  const allowedSections = SECTIONS;
 
   const activeSection: Section = allowedSections.includes(section) ? section : "Assets";
+
+  const sectionReadOnly = React.useMemo(() => {
+    const p = access?.permissions;
+    if (!p) return false;
+    if (activeSection === "Assets") return !p.register && !p.editRecord && !p.cancelRecord && !p.assign;
+    if (activeSection === "Custody") return !p.assign;
+    if (activeSection === "Physical count") return !p.count;
+    if (activeSection === "Disposal") return !p.disposeRequest && !p.disposeApprove;
+    if (activeSection === "Transfers") return !p.assign;
+    if (activeSection === "Reports") return !p.reports;
+    return false;
+  }, [access, activeSection]);
   // a direct URL must obey the same rule as the tab strip, or a role could open anything by typing it
   const tabAllowed = access === null || allowedTabs.includes(tab);
 
@@ -195,18 +190,26 @@ export function BarangayAssetModule({
             Barangay property, custody, yearly count, disposal and reports. The screen offers only what your role may do.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-muted-foreground" htmlFor="barangay">
-            Barangay
-          </label>
-          {pinnedBarangay ? (
-            <span className="rounded-md border bg-muted/40 px-3 py-1.5 text-sm">
+        {pinnedBarangay ? (
+          // a barangay role is pinned, so it gets a label rather than a control that pretends to work
+          <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your barangay</span>
+            <span className="text-sm font-semibold">
               {pinnedBarangay.code} {pinnedBarangay.name}
             </span>
-          ) : (
+          </div>
+        ) : (
+          // the one switcher that every screen follows, so it is the loudest control on the page
+          <div className="flex items-center gap-3 rounded-lg border-2 border-primary/50 bg-primary/5 px-3 py-2 shadow-sm">
+            <div className="flex flex-col leading-tight">
+              <label htmlFor="barangay" className="text-xs font-semibold uppercase tracking-wide text-primary">
+                Working barangay
+              </label>
+              <span className="text-[11px] text-muted-foreground">every screen below follows this</span>
+            </div>
             <select
               id="barangay"
-              className="h-9 rounded-md border bg-background px-3 text-sm"
+              className="cursor-pointer h-10 min-w-[13rem] rounded-md border-2 border-primary/50 bg-background px-3 text-sm font-semibold shadow-sm outline-none focus-visible:ring-[3px] focus-visible:ring-primary/40"
               value={barangayId ?? ""}
               onChange={(e) => setBarangayId(Number(e.target.value))}
             >
@@ -216,8 +219,8 @@ export function BarangayAssetModule({
                 </option>
               ))}
             </select>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {standalone ? null : (
@@ -231,29 +234,18 @@ export function BarangayAssetModule({
       )}
 
       {tab === "Asset Management" ? (
-        <SubTabs
-          label="Asset Management"
-          value={activeSection}
-          onChange={setSection}
-          tabs={allowedSections.map((s) => ({ id: s, label: s }))}
-        />
-      ) : null}
-
-      {missingCount > 0 ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          <span className="font-medium">{missingCount} asset(s) marked Missing.</span>
-          <span className="text-muted-foreground">The Barangay Admin follows up through the official lost property procedure.</span>
-          <Button
-            size="sm"
-            variant="outline"
-            className="ml-auto"
-            onClick={() => {
-              setTab("Asset Management");
-              setSection("Assets");
-            }}
-          >
-            Open the register
-          </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <SubTabs
+            label="Asset Management"
+            value={activeSection}
+            onChange={setSection}
+            tabs={allowedSections.map((s) => ({ id: s, label: s }))}
+          />
+          {sectionReadOnly ? (
+            <Badge variant="outline" title="Your role may read this screen but not change it">
+              Read only for your role
+            </Badge>
+          ) : null}
         </div>
       ) : null}
 
@@ -292,24 +284,49 @@ export function BarangayAssetModule({
             setNotice={setNotice}
           />
         ) : activeSection === "Custody" ? (
-          <CustodyTab barangayId={barangayId} lookups={lookups} settings={settings} setError={setError} setNotice={setNotice} />
+          <CustodyTab
+            barangayId={barangayId}
+            lookups={lookups}
+            settings={settings}
+            canAssign={access?.permissions.assign === true}
+            setError={setError}
+            setNotice={setNotice}
+          />
         ) : activeSection === "Physical count" ? (
-          <CountTab barangayId={barangayId} lookups={lookups} setError={setError} setNotice={setNotice} />
+          <CountTab
+            barangayId={barangayId}
+            lookups={lookups}
+            canCount={access?.permissions.count === true}
+            setError={setError}
+            setNotice={setNotice}
+          />
         ) : activeSection === "Disposal" ? (
-          <DisposalTab barangayId={barangayId} setError={setError} setNotice={setNotice} />
+          <DisposalTab
+            barangayId={barangayId}
+            canApprove={access?.permissions.disposeApprove === true}
+            canComplete={access?.permissions.disposeRequest === true}
+            setError={setError}
+            setNotice={setNotice}
+          />
         ) : activeSection === "Transfers" ? (
-          <TransfersTab barangayId={barangayId} lookups={lookups} setError={setError} setNotice={setNotice} />
+          <TransfersTab
+            barangayId={barangayId}
+            lookups={lookups}
+            canAssign={access?.permissions.assign === true}
+            setError={setError}
+            setNotice={setNotice}
+          />
         ) : (
           <ReportsTab barangayId={barangayId} setError={setError} />
         )
       ) : tab === "LGU console" ? (
-        <LguConsole barangays={lookups.barangays} setError={setError} setNotice={setNotice} />
+        <LguConsole barangays={lookups.barangays} barangayId={barangayId} />
       ) : tab === "LGU Admin" ? (
         <LguAdminTab canEdit={access?.permissions.users === true} setError={setError} setNotice={setNotice} />
       ) : tab === "System admin" ? (
         <SystemAdminTab setError={setError} setNotice={setNotice} onRoleChanged={refreshAccess} />
       ) : (
-        <SettingsTab settings={settings} setError={setError} setNotice={setNotice} />
+        <SettingsTab settings={settings} canEdit={access?.permissions.users === true} setError={setError} setNotice={setNotice} />
       )}
     </div>
   );

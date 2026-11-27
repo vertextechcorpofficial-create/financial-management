@@ -209,7 +209,7 @@ export function SystemAdminTab({
             className="max-w-xs"
           />
           <select
-            className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
           >
@@ -222,7 +222,7 @@ export function SystemAdminTab({
             ))}
           </select>
           <select
-            className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
             value={barangayFilter}
             onChange={(e) => setBarangayFilter(e.target.value)}
           >
@@ -302,7 +302,7 @@ export function SystemAdminTab({
                     <td className="p-2 align-top">
                       <div className="flex flex-wrap gap-1">
                         <select
-                          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                          className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                           value={draft.role}
                           disabled={!user.email}
                           onChange={(e) =>
@@ -320,7 +320,7 @@ export function SystemAdminTab({
                           ))}
                         </select>
                         <select
-                          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                          className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                           value={draft.barangayId}
                           disabled={!user.email || !BARANGAY_ROLES.includes(draft.role)}
                           onChange={(e) => setDraft(user, { barangayId: e.target.value })}

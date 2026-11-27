@@ -14,6 +14,9 @@ import type { BrgyRole } from "../types";
 export type BrgyPermission =
   | "view"
   | "register"
+  // editing and cancelling are their own rights, so a registrar cannot rewrite history
+  | "editRecord"
+  | "cancelRecord"
   | "assign"
   | "condition"
   | "disposeRequest"
@@ -23,14 +26,19 @@ export type BrgyPermission =
   | "users";
 
 const MATRIX: Record<BrgyRole, BrgyPermission[]> = {
-  barangay_admin: ["view", "register", "assign", "condition", "disposeRequest", "disposeApprove", "count", "reports"],
-  property_custodian: ["view", "register", "assign", "condition", "disposeRequest", "count", "reports"],
+  barangay_admin: [
+    "view", "register", "editRecord", "cancelRecord", "assign", "condition", "disposeRequest", "disposeApprove", "count", "reports",
+  ],
+  property_custodian: ["view", "register", "editRecord", "cancelRecord", "assign", "condition", "disposeRequest", "count", "reports"],
+  // the encoder records what exists. Correcting or cancelling a record is the custodian's job
   encoder: ["view", "register", "reports"],
   viewer: ["view", "reports"],
   // Table 5 gives municipal "assign to a barangay only": that path is the LGU console, which uses
   // requireLguStaff, not the barangay custody action. Section 5 forbids editing a barangay's records.
   municipal: ["view", "reports"],
-  system_admin: ["view", "register", "assign", "condition", "disposeRequest", "disposeApprove", "count", "reports", "users"],
+  system_admin: [
+    "view", "register", "editRecord", "cancelRecord", "assign", "condition", "disposeRequest", "disposeApprove", "count", "reports", "users",
+  ],
 };
 
 export interface Access {

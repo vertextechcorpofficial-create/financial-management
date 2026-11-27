@@ -14,7 +14,20 @@ import { Pager } from "../../shared/Pager";
  * They get one pane each and a pager, so a long incoming queue never buries the outgoing list at
  * the bottom of the screen.
  */
-export function TransfersTab({ barangayId, lookups, setError, setNotice }: { barangayId: number; lookups: Lookups; setError: (v: string | null) => void; setNotice: (v: string | null) => void }) {
+export function TransfersTab({
+  barangayId,
+  lookups,
+  canAssign,
+  setError,
+  setNotice,
+}: {
+  barangayId: number;
+  lookups: Lookups;
+  /** every role may watch the queue, receiving or rejecting needs the assign right */
+  canAssign: boolean;
+  setError: (v: string | null) => void;
+  setNotice: (v: string | null) => void;
+}) {
   const [data, setData] = React.useState<{ incoming: BrgyTransfer[]; outgoing: BrgyTransfer[] }>({ incoming: [], outgoing: [] });
   const [pane, setPane] = React.useState<"incoming" | "outgoing">("incoming");
   const [page, setPage] = React.useState(1);
@@ -82,7 +95,7 @@ export function TransfersTab({ barangayId, lookups, setError, setNotice }: { bar
                   <td className="p-2">{t.status}</td>
                   <td className="p-2">{t.direction}</td>
                   <td className="p-2 text-right">
-                    {t.status === "for_receiving" ? (
+                    {t.status === "for_receiving" && canAssign ? (
                       <span className="flex justify-end gap-1">
                         <Button size="sm" onClick={() => void act({ transferId: t.id, decision: "receive" })}>
                           Receive
@@ -91,6 +104,8 @@ export function TransfersTab({ barangayId, lookups, setError, setNotice }: { bar
                           Reject
                         </Button>
                       </span>
+                    ) : t.status === "for_receiving" ? (
+                      <span className="text-xs text-muted-foreground">Read only for your role</span>
                     ) : t.status === "for_return" ? (
                       <span className="flex justify-end gap-1">
                         <Button size="sm" onClick={() => void act({ transferId: t.id, decision: "confirm_return" })}>

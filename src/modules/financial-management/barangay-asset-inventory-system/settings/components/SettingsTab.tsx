@@ -8,7 +8,18 @@ import { call, Field } from "../../shared/ui";
 
 /* -------------------------------------------------------------- settings */
 
-export function SettingsTab({ settings, setError, setNotice }: { settings: BrgySettings | null; setError: (v: string | null) => void; setNotice: (v: string | null) => void }) {
+export function SettingsTab({
+  settings,
+  canEdit,
+  setError,
+  setNotice,
+}: {
+  settings: BrgySettings | null;
+  /** municipal reads these rates, only the system admin changes them */
+  canEdit: boolean;
+  setError: (v: string | null) => void;
+  setNotice: (v: string | null) => void;
+}) {
   const [form, setForm] = React.useState({
     salvagePercent: String(settings?.salvage_percent ?? 0),
     approvalRequired: settings?.approval_required ?? true,
@@ -42,25 +53,38 @@ export function SettingsTab({ settings, setError, setNotice }: { settings: BrgyS
     }
   }
 
+  const ro = !canEdit;
   return (
     <div className="grid max-w-xl gap-3 rounded-md border p-4">
+      {ro ? (
+        <p className="text-sm text-muted-foreground">
+          Read only for your role. These rates decide every projected value, so the System Admin keeps them.
+        </p>
+      ) : null}
       <Field label="Salvage percent of cost, the projected value never goes below it">
-        <Input value={form.salvagePercent} onChange={(e) => setForm({ ...form, salvagePercent: e.target.value })} />
+        <Input disabled={ro} value={form.salvagePercent} onChange={(e) => setForm({ ...form, salvagePercent: e.target.value })} />
       </Field>
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={form.approvalRequired} onChange={(e) => setForm({ ...form, approvalRequired: e.target.checked })} />
+        <input
+          type="checkbox"
+          disabled={ro}
+          checked={form.approvalRequired}
+          onChange={(e) => setForm({ ...form, approvalRequired: e.target.checked })}
+        />
         Disposal needs approval from another person
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Equipment life, years"><Input value={form.lifeEquipment} onChange={(e) => setForm({ ...form, lifeEquipment: e.target.value })} /></Field>
-        <Field label="Machinery life, years"><Input value={form.lifeMachinery} onChange={(e) => setForm({ ...form, lifeMachinery: e.target.value })} /></Field>
-        <Field label="Furniture life, years"><Input value={form.lifeFurniture} onChange={(e) => setForm({ ...form, lifeFurniture: e.target.value })} /></Field>
-        <Field label="Other assets life, years"><Input value={form.lifeOther} onChange={(e) => setForm({ ...form, lifeOther: e.target.value })} /></Field>
+        <Field label="Equipment life, years"><Input disabled={ro} value={form.lifeEquipment} onChange={(e) => setForm({ ...form, lifeEquipment: e.target.value })} /></Field>
+        <Field label="Machinery life, years"><Input disabled={ro} value={form.lifeMachinery} onChange={(e) => setForm({ ...form, lifeMachinery: e.target.value })} /></Field>
+        <Field label="Furniture life, years"><Input disabled={ro} value={form.lifeFurniture} onChange={(e) => setForm({ ...form, lifeFurniture: e.target.value })} /></Field>
+        <Field label="Other assets life, years"><Input disabled={ro} value={form.lifeOther} onChange={(e) => setForm({ ...form, lifeOther: e.target.value })} /></Field>
       </div>
       <div className="text-sm text-muted-foreground">Valuation method: straight line, fixed for now.</div>
-      <div>
-        <Button disabled={busy} onClick={() => void save()}>{busy ? "Saving..." : "Save settings"}</Button>
-      </div>
+      {ro ? null : (
+        <div>
+          <Button disabled={busy} onClick={() => void save()}>{busy ? "Saving..." : "Save settings"}</Button>
+        </div>
+      )}
     </div>
   );
 }

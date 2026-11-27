@@ -8,7 +8,19 @@ import { call } from "../../shared/ui";
 
 /* -------------------------------------------------------------- disposal */
 
-export function DisposalTab({ barangayId, setError, setNotice }: { barangayId: number; setError: (v: string | null) => void; setNotice: (v: string | null) => void }) {
+export function DisposalTab({
+  barangayId,
+  canApprove,
+  canComplete,
+  setError,
+  setNotice,
+}: {
+  barangayId: number;
+  canApprove: boolean;
+  canComplete: boolean;
+  setError: (v: string | null) => void;
+  setNotice: (v: string | null) => void;
+}) {
   const [rows, setRows] = React.useState<{ request: BrgyDisposal; asset: BrgyAsset | null }[]>([]);
 
   const load = React.useCallback(async () => {
@@ -60,12 +72,14 @@ export function DisposalTab({ barangayId, setError, setNotice }: { barangayId: n
               <td className="p-2">{request.requested_by ?? ""}</td>
               <td className="p-2">{request.approved_by ?? ""}</td>
               <td className="p-2 text-right">
-                {request.status === "pending" ? (
+                {request.status === "pending" && canApprove ? (
                   <span className="flex justify-end gap-1">
                     <Button size="sm" onClick={() => void act(request.id, { action: "approve", remark: window.prompt("Approve remark") ?? "" })}>Approve</Button>
                     <Button size="sm" variant="ghost" onClick={() => void act(request.id, { action: "return", remark: window.prompt("Why return this request?") ?? "" })}>Return</Button>
                   </span>
-                ) : request.status === "approved" ? (
+                ) : request.status === "pending" ? (
+                  <span className="text-xs text-muted-foreground">Waiting for the Barangay Admin</span>
+                ) : request.status === "approved" && canComplete ? (
                   <Button
                     size="sm"
                     onClick={() => {
@@ -75,6 +89,8 @@ export function DisposalTab({ barangayId, setError, setNotice }: { barangayId: n
                   >
                     Mark disposed
                   </Button>
+                ) : request.status === "approved" ? (
+                  <span className="text-xs text-muted-foreground">Read only for your role</span>
                 ) : null}
               </td>
             </tr>
