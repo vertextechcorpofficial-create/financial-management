@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState, type ComponentType } from "react";
 import { BadgeCheck, CheckCircle2, Plus, RotateCcw, Search, SearchX, ShieldCheck, X } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +12,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { EmptyState, MetricButton, MetricCard, Notice, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
+import { EmptyState, MetricButton, MetricCard, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { agencyOptions, requestDocumentUrl } from "../requests/request-api";
 import { applicationPageSizes, requestStatusLabels, type AgencyChoice, type EmployeeChoice } from "../requests/types";
 import { getEnrollment, importBatches, listEnrollments } from "./api";
@@ -177,7 +178,6 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
   const [data, setData] = useState<EnrollmentPage>();
   const [detail, setDetail] = useState<{ key: string; data?: EnrollmentDetail; error?: string }>();
   const [agencies, setAgencies] = useState<{ items: AgencyChoice[]; error?: string }>({ items: [] });
-  const [notice, setNotice] = useState("");
   const [saved, setSaved] = useState<SavedView[]>([]);
   const [saving, setSaving] = useState(false);
   const detailKey = selected + ":" + detailAttempt;
@@ -270,7 +270,7 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
     if (data && page > pages) setPage(1);
   }, [data, page, pages]);
 
-  const back = () => { setSelected(null); setCorrecting(false); setNotice(""); setInitialTransfer(undefined); };
+  const back = () => { setSelected(null); setCorrecting(false); setInitialTransfer(undefined); };
   const refreshMonth = () => { reloadList(value => value + 1); reloadImport(value => value + 1); };
   const agencyError = agencies.error && <LoadError message={agencies.error} retry={() => reloadAgencies(value => value + 1)} />;
 
@@ -315,7 +315,7 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
         agencies={agencies.items} openMonth={data?.openMonth ?? null} canOpenSetup={canOpenSetup}
         onBack={correcting ? () => setCorrecting(false) : back} onReload={() => reloadDetail(count => count + 1)}
         refreshMonth={refreshMonth} onSaved={result => {
-          setNotice(correcting ? "Enrollment resubmitted for verification." :
+          toast.success(correcting ? "Enrollment resubmitted for verification." :
             result.status === "ENROLLED" ? "Enrollment saved for verification." : "Agency decline recorded.");
           setCorrecting(false); setInitialTransfer(undefined); setSelected(result.id);
           reloadDetail(count => count + 1); refreshMonth();
@@ -323,7 +323,6 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
     </div>;
     return <div className="space-y-3">
       <Button type="button" variant="ghost" onClick={back}>Back to enrollment</Button>
-      {notice && <Notice title={notice} />}
       {record?.error && <LoadError message={record.error} retry={() => reloadDetail(value => value + 1)} />}
       {!record && <p role="status" className="text-sm text-muted-foreground">Loading enrollment…</p>}
       {value && <EnrollmentDetails record={value} documentHref={kind => requestDocumentUrl(value.id, kind)}>

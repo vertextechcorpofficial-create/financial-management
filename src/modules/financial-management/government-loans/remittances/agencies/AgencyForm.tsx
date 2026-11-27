@@ -1,6 +1,7 @@
 "use client";
 
 import { cloneElement, isValidElement, useId, useState, type FormEvent, type ReactElement, type ReactNode } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -93,7 +94,12 @@ export function AgencyForm({ agency, onCancel, onSaved, onReload }: {
       }, agency?.id);
       onSaved(saved);
     } catch (cause) {
-      setError(cause instanceof AgencyRequestError ? cause : { message: "Could not save the agency. Try again." });
+      const next: { message: string; field?: string } = cause instanceof AgencyRequestError
+        ? { message: cause.message, field: cause.field }
+        : { message: "Could not save the agency. Try again." };
+      setError(next);
+      toast.error(next.message, next.field === "expectedRevision"
+        ? { action: { label: "Reload agency", onClick: onReload } } : undefined);
     } finally {
       setSaving(false);
     }
@@ -107,10 +113,6 @@ export function AgencyForm({ agency, onCancel, onSaved, onReload }: {
       </SheetHeader>
       <form onSubmit={submit} noValidate className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
-          {error && <div className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3">
-            <p role="alert" className="text-sm text-destructive">{error.message}</p>
-            {error.field === "expectedRevision" && <Button type="button" variant="outline" size="sm" onClick={onReload}>Reload agency</Button>}
-          </div>}
           <fieldset disabled={saving} className="space-y-3">
             <legend className="text-sm font-semibold">Agency details</legend>
             <div className="grid gap-4 sm:grid-cols-2">

@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { UserMinus, UserRound } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -41,12 +42,15 @@ function EmployeeReview({ mode, id, onSaved }: { mode: Mode; id: number; onSaved
     {!loaded?.error && <><Skeleton className="h-5 w-48" /><Skeleton className="h-20 w-full" /></>}
   </div>;
   const { person, record, loans } = data;
-  const save = (body: object) => command.run(endpoint, body, () => { reload(); onSaved(); });
+  const save = (body: object, message: string) => command.run(endpoint, body, () => {
+    toast.success(message); reload(); onSaved();
+  });
 
   function declare(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    return save({ kind: "DECLARE", employeeId: id, hasLoans: form.get("hasLoans") === "yes", note: form.get("note") });
+    return save({ kind: "DECLARE", employeeId: id, hasLoans: form.get("hasLoans") === "yes", note: form.get("note") },
+      "Loan declaration saved.");
   }
 
   return <div className="space-y-3">
@@ -54,7 +58,6 @@ function EmployeeReview({ mode, id, onSaved }: { mode: Mode; id: number; onSaved
       <span className="font-medium">{person.name}</span>
       <span className="text-muted-foreground">{mode === "hires" ? "Hired " + date(person.hiredOn) : "Separating " + date(person.separationOn)}</span>
     </div>
-    {command.error && <p role="alert" className="text-destructive">{command.error}</p>}
     {record && <p role="status" className="text-sm">{mode === "hires"
       ? record.detail.hasLoans ? "Existing loans declared" : "No existing loans declared"
       : "Loan clearance issued"} · {record.actor_name} · {dateTime(record.recorded_at)}</p>}
@@ -83,7 +86,7 @@ function EmployeeReview({ mode, id, onSaved }: { mode: Mode; id: number; onSaved
       </ul>
       {!loans.length && <p className="text-sm text-muted-foreground">No verified loans for this employee.</p>}
       {!record && <Button disabled={command.busy || loans.some(loan => loan.blocked)}
-        onClick={() => void save({ kind: "CLEAR", employeeId: id })}>Issue loan clearance</Button>}
+        onClick={() => void save({ kind: "CLEAR", employeeId: id }, "Loan clearance issued.")}>Issue loan clearance</Button>}
     </>}
   </div>;
 }
@@ -110,13 +113,17 @@ export function OnboardingExitsModule() {
 
   function declare(person: PersonRow, hasLoans: boolean) {
     void command.run(endpoint, { kind: "DECLARE", employeeId: person.id, hasLoans }, () => {
+      toast.success(hasLoans ? `Existing loans declared for ${person.name}.` : `No existing loans declared for ${person.name}.`);
       reload();
       if (hasLoans) setSelected({ mode: "hires", id: person.id, name: person.name });
     });
   }
 
   function clear(person: PersonRow) {
-    void command.run(endpoint, { kind: "CLEAR", employeeId: person.id }, reload);
+    void command.run(endpoint, { kind: "CLEAR", employeeId: person.id }, () => {
+      toast.success(`Loan clearance issued for ${person.name}.`);
+      reload();
+    });
   }
 
   return <section className="space-y-4">
@@ -131,7 +138,6 @@ export function OnboardingExitsModule() {
         value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} />
       <span className="text-sm text-muted-foreground">{command.busy ? "Saving…" : "Employee movements come from the HR system."}</span>
     </div>
-    {command.error && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{command.error}</p>}
 
     <div className="rounded-lg border">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">

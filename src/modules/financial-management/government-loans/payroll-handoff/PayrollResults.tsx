@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -28,7 +29,6 @@ function PayrollReceipt({ view, refresh, canOpenSetup }: { view: PayrollMonthVie
   const [preview, setPreview] = useState<PayrollReceiptPreview>();
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const key = useRef<string | null>(null);
   const pending = useRef(false);
 
@@ -36,13 +36,13 @@ function PayrollReceipt({ view, refresh, canOpenSetup }: { view: PayrollMonthVie
     if (pending.current) return;
     pending.current = true;
     setBusy(true);
-    setError("");
     setPreview(undefined);
     key.current = null;
     try {
       setPreview(await responseData<PayrollReceiptPreview>(endpoint + "/receipt?" + new URLSearchParams({ month: view.month })));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not preview the Payroll receipt.");
+      toast.error(cause instanceof Error ? cause.message : "Could not preview the Payroll receipt.",
+        { action: { label: "Retry", onClick: () => void inspect() } });
     } finally {
       setBusy(false);
       pending.current = false;
@@ -53,16 +53,17 @@ function PayrollReceipt({ view, refresh, canOpenSetup }: { view: PayrollMonthVie
     if (!preview || pending.current) return;
     pending.current = true;
     setBusy(true);
-    setError("");
     key.current ??= consignmentRequestId();
     try {
       await responseData<ReceiptSummary>(endpoint + "/receipt", {
         method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key.current },
         body: JSON.stringify({ month: view.month, token: preview.token, reason }),
       });
+      toast.success(preview.receipt ? "Payroll receipt corrected." : "Payroll receipt confirmed.");
       refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not confirm the Payroll receipt.");
+      toast.error(cause instanceof Error ? cause.message : "Could not confirm the Payroll receipt.",
+        { action: { label: "Retry", onClick: () => void confirm() } });
     } finally {
       setBusy(false);
       pending.current = false;
@@ -90,7 +91,6 @@ function PayrollReceipt({ view, refresh, canOpenSetup }: { view: PayrollMonthVie
         <span>Receipt confirmation requires approved Payroll coverage for this month.</span>
         {canOpenSetup && <Link className="underline" href="/fm/government-loans/month-end-close?tab=setup">Open Period setup</Link>}
       </p>)}
-    {error && <p role="alert" className="text-destructive">{error}</p>}
     {preview && <div className="space-y-2 rounded-md border p-2">
       <p>Payroll runs {preview.runIds.map(id => "#" + id).join(", ")} · {preview.count} loan result(s)</p>
       {preview.totals.map(total => <p key={total.agencyId}>{agencyName(total.agencyId)} · {peso(total.amount)} withheld</p>)}

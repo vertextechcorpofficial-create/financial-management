@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
@@ -78,6 +79,7 @@ export function PayrollCoveragePanel({ data, onChanged }: { data: PeriodSetupVie
       contractHash: preview.contractHash, token: preview.token, acknowledgeWarnings: acknowledged,
       reason: reason.trim(), expectedOpenMonth: data.openMonth, expectedContractHash: data.contractHash,
     }, () => {
+      toast.success("Payroll coverage saved.");
       setApprovalReference(""); setPreview(undefined); setAcknowledged(false); setReason(""); onChanged();
     });
   }
@@ -87,7 +89,10 @@ export function PayrollCoveragePanel({ data, onChanged }: { data: PeriodSetupVie
     await clearCommand.run(endpoint, {
       action: "CLEAR_CONTRACT", reason: clearReason.trim(),
       expectedOpenMonth: data.openMonth, expectedContractHash: data.contractHash,
-    }, () => { setClearOpen(false); setClearReason(""); onChanged(); });
+    }, () => {
+      toast.success("Payroll coverage cleared.");
+      setClearOpen(false); setClearReason(""); onChanged();
+    });
   }
 
   return <section className="space-y-4 rounded-xl border bg-card p-4 shadow-xs sm:p-5" aria-labelledby="payroll-coverage">
@@ -188,7 +193,6 @@ export function PayrollCoveragePanel({ data, onChanged }: { data: PeriodSetupVie
         </Button>
         <span className="text-xs text-muted-foreground">{selectedRuns} run(s) selected</span>
       </div>
-      {command.error && <p role="alert" className="text-sm text-destructive">{command.error}</p>}
     </div>}
 
     {preview && <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
@@ -242,7 +246,6 @@ export function PayrollCoveragePanel({ data, onChanged }: { data: PeriodSetupVie
       </div>
     </div>}
 
-    {clearCommand.error && <p role="alert" className="text-sm text-destructive">{clearCommand.error}</p>}
     <AlertDialog open={clearOpen} onOpenChange={open => { if (!clearCommand.busy) setClearOpen(open); }}>
       <AlertDialogContent>
         <AlertDialogHeader>

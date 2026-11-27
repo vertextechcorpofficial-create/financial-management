@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent, type ComponentType, type DragEvent } from "react";
 import { AlertTriangle, Copy, Download, FileText, Landmark, Scale, SearchX } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -15,7 +16,7 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { Textarea } from "@/components/ui/textarea";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
-import { EmptyState, MetricButton, MetricCard, Notice } from "../../components/ui";
+import { EmptyState, MetricButton, MetricCard } from "../../components/ui";
 import { useLifecycleCommand, useLifecycleRead } from "../../loans/lifecycle-client";
 import type { getBillingContext, previewAgencyBilling, viewAgencyBilling } from "../../server/agency-billing";
 import { billingHeaders, billingMaxBytes } from "./csv";
@@ -195,7 +196,7 @@ function BillingImport({ agencyId, month, replacement, close, onSaved }: {
             <Textarea required maxLength={500} value={reason} disabled={command.busy} aria-required="true" onChange={event => setReason(event.target.value)} />
           </label>}
         </>}
-        {(fileError || command.error) && <p role="alert" className="text-sm text-destructive">{fileError || command.error}</p>}
+        {fileError && <p role="alert" className="text-sm text-destructive">{fileError}</p>}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">{hint}</p>
@@ -221,7 +222,6 @@ export function AgencyBillingModule() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [reload, setReload] = useState(0);
   const [showImport, setShowImport] = useState(false);
-  const [notice, setNotice] = useState("");
   const [exporting, setExporting] = useState(false);
   const skipUrlWrite = useRef(true);
   const context = useLifecycleRead<Context>(endpoint, reload);
@@ -232,13 +232,13 @@ export function AgencyBillingModule() {
     ...(search.trim() ? { q: search.trim() } : {}), ...(issues ? { issues: "1" } : {}) });
   const view = useLifecycleRead<View>(agencyId && month ? endpoint + "?" + query : null, reload);
   const refresh = () => setReload(value => value + 1);
-  const reset = () => { setPage(1); setHistoryPage(1); setHistoryOpen(false); setNotice(""); };
+  const reset = () => { setPage(1); setHistoryPage(1); setHistoryOpen(false); };
   const error = context?.error || view?.error;
   const data = view?.data;
 
   async function exportCsv(action: "copy" | "download") {
     if (!agencyId || !month) return;
-    setExporting(true); setNotice("");
+    setExporting(true);
     const params = new URLSearchParams({ agencyId, month, format: "csv",
       ...(search.trim() ? { q: search.trim() } : {}), ...(issues ? { issues: "1" } : {}) });
     try {
@@ -247,7 +247,7 @@ export function AgencyBillingModule() {
       const csv = await response.text();
       if (action === "copy") {
         await copyText(csv);
-        setNotice("Billing CSV copied to clipboard.");
+        toast.success("Billing CSV copied to clipboard.");
         return;
       }
       const href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -256,9 +256,9 @@ export function AgencyBillingModule() {
       link.download = `agency-billing-${agencyId}-${month}.csv`;
       link.click();
       URL.revokeObjectURL(href);
-      setNotice("Billing CSV downloaded.");
+      toast.success("Billing CSV downloaded.");
     } catch {
-      setNotice("Could not export agency billing.");
+      toast.error("Could not export agency billing.");
     } finally {
       setExporting(false);
     }
@@ -349,7 +349,6 @@ export function AgencyBillingModule() {
       <p className="text-muted-foreground">No agencies are configured to send billing.</p>
       <Button asChild variant="outline" size="sm"><Link href="/fm/government-loans/remittances?tab=agencies">Add an agency</Link></Button>
     </div>}
-    {notice && <Notice title={notice} />}
     {data && <>
       {data.billingRevision ? <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <Metric icon={FileText} label="Agency billing" value={money(data.totals.billed)} detail={data.billingRevision.fileName} tone="sky" />
@@ -405,7 +404,9 @@ export function AgencyBillingModule() {
         </div>}
       </details>}
       {showImport && data.canImport && <BillingImport agencyId={Number(agencyId)} month={month} replacement={!!data.billingRevision}
-        close={() => setShowImport(false)} onSaved={() => { setShowImport(false); reset(); setNotice("Agency billing saved."); refresh(); }} />}
+        close={() => setShowImport(false)} onSaved={() => {
+          setShowImport(false); reset(); toast.success("Agency billing saved."); refresh();
+        }} />}
     </>}
   </section>;
 }

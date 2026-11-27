@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { MessageSquareWarning } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -44,7 +45,6 @@ function Filing({ saved }: { saved: (reference: string) => void }) {
     </div>
     <label className="block text-sm">What happened?<Textarea name="description" required maxLength={1500} /></label>
     <label className="block text-sm">Evidence (optional)<Input name="attachment" type="file" accept=".pdf,.png,.jpg,.jpeg" /></label>
-    {command.error && <p role="alert" className="text-destructive">{command.error}</p>}
     <Button disabled={command.busy || !loaded.data.loans.length}>File dispute</Button>
   </form>;
 }
@@ -105,11 +105,12 @@ function DisputeReview({ endpoint, reference, self, onSaved }: { endpoint: strin
     {!self && next && <form key={dispute.revision} className="space-y-2" onSubmit={event => {
       event.preventDefault();
       const note = new FormData(event.currentTarget).get("note");
-      void command.run(endpoint, { reference, revision: dispute.revision, status: next, note }, () => { reload(); onSaved(); });
+      void command.run(endpoint, { reference, revision: dispute.revision, status: next, note }, () => {
+        toast.success(next === "IN_PROGRESS" ? "Dispute review started." : "Dispute resolved.");
+        reload(); onSaved();
+      });
     }}>
       <label className="block text-sm">Status note<Textarea name="note" required maxLength={1000} /></label>
-      {command.error && <p role="alert" className="text-destructive">{command.error} <Button size="sm" variant="outline"
-        type="button" onClick={reload}>Reload dispute</Button></p>}
       <Button disabled={command.busy}>{next === "IN_PROGRESS" ? "Start review" : "Resolve dispute"}</Button>
     </form>}
   </div>;
@@ -150,7 +151,10 @@ export function PostingDisputesModule({ self = false, initialFiling = false }: {
       {self && <Button size="sm" variant="outline" onClick={() => setFiling(value => !value)}>{filing ? "Close form" : "Report a posting problem"}</Button>}
     </header>
 
-    {filing && <Filing saved={reference => { setSelected(reference); setFiling(false); setServerPage(1); reload(); }} />}
+    {filing && <Filing saved={reference => {
+      toast.success(`Dispute ${reference} filed.`);
+      setSelected(reference); setFiling(false); setServerPage(1); reload();
+    }} />}
 
     <div className="flex flex-wrap items-center gap-2">
       <Input className="w-full sm:max-w-xs" value={search} maxLength={120} placeholder="Employee, dispute, or loan…"

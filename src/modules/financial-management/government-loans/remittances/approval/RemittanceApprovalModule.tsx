@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Banknote, ChevronsUpDown, Clock3, Scale, SearchX } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -206,11 +207,10 @@ function ReviewDialog({ id, close, saved }: { id: string; close: () => void; sav
             {data.decision.action === "APPROVE" ? "Approved" : "Returned"} by {data.decision.actor} · {dateTime(data.decision.at)} PHT
             {data.decision.reason && <span className="block break-words">{data.decision.reason}</span>}</p>}
         </>}
-        {command.error && <p role="alert" className="text-sm text-destructive">{command.error}</p>}
       </div>
       <DialogFooter className="shrink-0 border-t p-4">
         <Button variant="outline" disabled={command.busy} onClick={close}>Close</Button>
-        {(loaded?.error || command.error) && <Button variant="outline" disabled={command.busy} onClick={() => reload(value => value + 1)}>Refresh review</Button>}
+        {loaded?.error && <Button variant="outline" disabled={command.busy} onClick={() => reload(value => value + 1)}>Refresh review</Button>}
         {pending && <>
           <Button variant="outline" disabled={command.busy || !reason.trim()} onClick={() => decide("RETURN")}>Return to preparer</Button>
           <Button disabled={command.busy || blocked || (warnings && !acknowledged)} onClick={() => decide("APPROVE")}>Approve &amp; post</Button>
@@ -233,7 +233,6 @@ export function RemittanceApprovalModule() {
   const [revision, reload] = useState(0);
   const [reviewId, review] = useState<string>();
   const [selected, select] = useState<string[]>([]);
-  const [notice, setNotice] = useState("");
   const [skips, setSkips] = useState<{ id: string; reference: string; reason: string | null }[]>([]);
   const [bulkOpen, openBulk] = useState(false);
   const skipUrlWrite = useRef(true);
@@ -329,7 +328,7 @@ export function RemittanceApprovalModule() {
       setSkips(result.items.filter(row => !row.approved).map(row => ({
         ...row, reference: selection.find(item => item.id === row.id)?.reference ?? row.id,
       })));
-      setNotice(approved + " approved · " + (result.items.length - approved) + " skipped");
+      toast.success(approved + " approved · " + (result.items.length - approved) + " skipped");
       openBulk(false);
       setPage(1);
       setHistoryPage(1);
@@ -344,7 +343,6 @@ export function RemittanceApprovalModule() {
         Check each paid remittance against its proof of payment and the amount payroll withheld, then approve it so it posts.
       </p>
     </div>
-    {notice && <p role="status" className="rounded-lg border p-3 text-sm">{notice}</p>}
     {!!skips.length && <ul className="list-inside list-disc break-words text-sm">
       {skips.map(row => <li key={row.id}>{row.reference} · {row.reason}</li>)}</ul>}
     <section aria-labelledby="remittance-queue" className="space-y-3">
@@ -506,7 +504,7 @@ export function RemittanceApprovalModule() {
         onPage={setHistoryPage} onSize={value => { setHistorySize(value); setHistoryPage(1); }} />
     </section>}
     {reviewId && <ReviewDialog key={reviewId} id={reviewId} close={() => review(undefined)} saved={message => {
-      review(undefined); setNotice(message); setSkips([]); setPage(1); setHistoryPage(1); refresh();
+      review(undefined); toast.success(message); setSkips([]); setPage(1); setHistoryPage(1); refresh();
     }} />}
     <Dialog open={bulkOpen} onOpenChange={open => { if (!command.busy) openBulk(open); }}>
       <DialogContent className="flex max-h-[90dvh] flex-col overflow-hidden sm:max-w-xl">
@@ -521,9 +519,7 @@ export function RemittanceApprovalModule() {
           </ul>
           <p className="text-sm text-muted-foreground">Selected total: <span className="font-medium text-foreground">{peso(selectionTotals.withheld)}</span> paid
             {" · "}{peso(selectionTotals.penalties ?? "0.00")} penalties</p>
-          {command.error && <p role="alert" className="text-sm text-destructive">{command.error}</p>}
-        </div>
-        <DialogFooter>
+        </div>        <DialogFooter>
           <Button variant="outline" disabled={command.busy} onClick={() => openBulk(false)}>Cancel</Button>
           <Button disabled={command.busy || !selection.length} onClick={confirmBulk}>Approve &amp; post</Button>
         </DialogFooter>

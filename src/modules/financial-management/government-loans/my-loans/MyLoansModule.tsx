@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import { Copy, FileText, HandCoins, MessageSquarePlus, Plus, SearchX, Wallet } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
-import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, Notice, StatusChip } from "../components/ui";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, StatusChip } from "../components/ui";
 import { PostingDisputesModule } from "../loans/PostingDisputesModule";
 import { useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import { registerStatusLabels } from "../loans/types";
@@ -166,7 +167,6 @@ export function MyLoansModule({ applicant }: { applicant: Pick<EmployeeChoice, "
   const [requestSummary, setRequestSummary] = useState<RequestSummary>();
   const [applySignal, setApplySignal] = useState(0);
   const [reportSignal, setReportSignal] = useState(0);
-  const [notice, setNotice] = useState("");
   const [copying, setCopying] = useState(false);
   const skipUrlWrite = useRef(true);
   const loaded = useRetainedLifecycleRead<Awaited<ReturnType<typeof listOwnLoans>>>(endpoint, refresh);
@@ -221,7 +221,6 @@ export function MyLoansModule({ applicant }: { applicant: Pick<EmployeeChoice, "
   async function copyStatement() {
     if (!loans.length || copying) return;
     setCopying(true);
-    setNotice("");
     const rows = [["Reference", "Agency", "Program", "Status", "Monthly amortization", "Paid", "Term", "Estimated balance",
       "Next deduction", "Latest deduction", "Latest remittance"], ...loans.map(loan => [
       loan.reference, loan.agency, loan.program, registerStatusLabels[loan.status], loan.amortization,
@@ -231,9 +230,9 @@ export function MyLoansModule({ applicant }: { applicant: Pick<EmployeeChoice, "
     ])];
     try {
       await copyText(rows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\r\n"));
-      setNotice("Statement copied to clipboard.");
+      toast.success("Statement copied to clipboard.");
     } catch {
-      setNotice("Could not copy the statement.");
+      toast.error("Could not copy the statement.");
     } finally {
       setCopying(false);
     }
@@ -255,7 +254,6 @@ export function MyLoansModule({ applicant }: { applicant: Pick<EmployeeChoice, "
         <Button type="button" onClick={openApply}><Plus className="size-4" />Apply for a loan</Button>
       </div>
     </div>
-    {notice && <Notice title={notice} onDismiss={() => setNotice("")} />}
     {loaded.error && <LoadError message={loaded.error} retry={() => reload(value => value + 1)} />}
     {!loaded.data && !loaded.error && <MetricCardsSkeleton count={3} />}
     {loaded.data && <>

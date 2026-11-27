@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import { CheckCircle2, Clock3, FileText, Plus, RotateCcw, Search, SearchX, X } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { EmptyState, MetricButton, MetricCard, Notice, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
+import { EmptyState, MetricButton, MetricCard, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { employeeRequestApi, staffRequestApi } from "./request-api";
 import { RequestEditor } from "./RequestEditor";
 import {
@@ -154,7 +155,6 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
   const [loaded, setLoaded] = useState<Loaded>();
   const [data, setData] = useState<RequestPage>();
   const [detail, setDetail] = useState<{ id: number; attempt: number; record?: LoanRequest; error?: string }>();
-  const [notice, setNotice] = useState("");
   const [saved, setSaved] = useState<SavedView[]>([]);
   const [saving, setSaving] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -292,7 +292,8 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
   }
 
   function showList(next?: RequestView, message = "") {
-    setSelected(null); setDetail(undefined); setAttempt(value => value + 1); setNotice(message);
+    setSelected(null); setDetail(undefined); setAttempt(value => value + 1);
+    if (message) toast.success(message);
     if (next) { setView(next); setPage(1); setFilters(initialFilters); setSort(next === "drafts" ? "updated" : "filed"); }
   }
 
@@ -315,7 +316,6 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
   const dateLabel = view === "in-progress" ? "Filed" : "Last updated";
 
   return <div className="space-y-4">
-    {notice && <Notice title={notice} onDismiss={() => setNotice("")} />}
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 className="text-lg font-semibold">{applicant ? isDrafts ? "Your unfinished requests" : "Your loan requests" : "Loan Requests"}</h2>

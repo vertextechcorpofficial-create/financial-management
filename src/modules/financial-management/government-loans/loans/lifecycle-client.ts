@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 
 export const loansApi = "/api/fm/government-loans/loans";
@@ -78,7 +79,9 @@ export function useLifecycleCommand() {
       await onSaved(result);
       task.current = null;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The action could not be saved.");
+      const message = cause instanceof Error ? cause.message : "The action could not be saved.";
+      setError(message);
+      toast.error(message);
     } finally {
       pending.current = false;
       setBusy(false);

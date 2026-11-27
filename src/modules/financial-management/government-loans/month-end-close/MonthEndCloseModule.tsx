@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, ClipboardList, Copy, Download, History, Landmark } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
-import { MetricCard, MetricCardsSkeleton, Notice, StatusChip } from "../components/ui";
+import { MetricCard, MetricCardsSkeleton, StatusChip } from "../components/ui";
 import { useLifecycleCommand, useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import { AgencyRollforward } from "./AgencyRollforward";
 import type { closeGovernmentLoanMonth, viewMonthEndClose } from "../server/month-end-close";
@@ -128,7 +129,6 @@ function CloseDialog({ current, onClose, onSaved }: { current: NonNullable<View[
         <Textarea value={reason} maxLength={1000} disabled={command.busy} onChange={event => setReason(event.target.value)} />
         <span className="text-xs text-muted-foreground">Open items are carried into {monthLabel(checklist.nextMonth)}.</span>
       </label>}
-      {command.error && <p role="alert" className="text-sm text-destructive">{command.error}</p>}
       <DialogFooter>
         <Button variant="outline" disabled={command.busy} onClick={onClose}>Cancel</Button>
         <Button variant={checklist.openItemCount ? "destructive" : "default"}
@@ -203,11 +203,9 @@ function CloseHistory({ history, selectedMonth, page, size, total, loading, onPa
 export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) {
   const [revision, reload] = useState(0);
   const [review, setReview] = useState<View["current"]>(null);
-  const [completed, setCompleted] = useState<Snapshot>();
   const [month, setMonth] = useState("");
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(10);
-  const [notice, setNotice] = useState("");
   const [exporting, setExporting] = useState(false);
   const skipUrlWrite = useRef(true);
   const params = new URLSearchParams({ page: String(page), historySize: String(size) });
@@ -261,21 +259,18 @@ export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) 
   function selectMonth(next: string) {
     setMonth(next === openMonth ? "" : next);
     setReview(null);
-    setCompleted(undefined);
-    setNotice("");
   }
 
   async function copyExport(format: "checklist-csv" | "rollforward-csv") {
     if (!displayed) return;
     setExporting(true);
-    setNotice("");
     try {
       const response = await fetch(exportUrl(format));
       if (!response.ok) throw new Error("Export failed");
       await copyText(await response.text());
-      setNotice(format === "checklist-csv" ? "Checklist CSV copied." : "Rollforward CSV copied.");
+      toast.success(format === "checklist-csv" ? "Checklist CSV copied." : "Rollforward CSV copied.");
     } catch {
-      setNotice("Could not copy the CSV.");
+      toast.error("Could not copy the CSV.");
     } finally {
       setExporting(false);
     }
@@ -326,8 +321,6 @@ export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) 
         </DropdownMenu>}
       </div>
     </div>
-    {notice && <Notice title={notice} />}
-    {completed && <Notice title={`${monthLabel(completed.month)} closed. ${monthLabel(completed.nextMonth)} is now open.`} />}
     {loaded.error && <LoadError message={loaded.error} retry={refresh} />}
     {!coverage && !loaded.error && <div className="space-y-3">
       <MetricCardsSkeleton />
@@ -388,7 +381,8 @@ export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) 
       page={coverage.historyPage} size={coverage.pageSizeHistory} total={coverage.totalHistory} loading={loaded.pending}
       onPage={setPage} onSize={value => { setSize(value); setPage(1); }} onSelect={selectMonth} />}
     {review && <CloseDialog current={review} onClose={() => setReview(null)} onSaved={snapshot => {
-      setCompleted(snapshot); setReview(null); setMonth(""); setPage(1); setNotice(""); refresh();
+      toast.success(`${monthLabel(snapshot.month)} closed. ${monthLabel(snapshot.nextMonth)} is now open.`);
+      setReview(null); setMonth(""); setPage(1); refresh();
     }} />}
   </div>;
 }
