@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ReferenceKind } from "../../admin/services/brgyAdmin";
 import { call, Field } from "../../shared/ui";
+import { RowActions } from "../../shared/RowActions";
 import { SubTabs } from "../../shared/SubTabs";
 import {
   BRGY_CODE_HELP,
@@ -25,12 +26,14 @@ interface BarangayRow {
   id: number;
   code: string;
   name: string;
+  status: string;
 }
 
 interface OfficeRow {
   id: number;
   barangay_id: number;
   name: string;
+  status: string;
 }
 
 interface CustodianRow {
@@ -38,18 +41,21 @@ interface CustodianRow {
   barangay_id: number;
   full_name: string;
   position: string | null;
+  status: string;
 }
 
 interface ClassificationRow {
   id: number;
   name: string;
   life_span_years: number | null;
+  status: string;
 }
 
 interface ItemTypeRow {
   id: number;
   name: string;
   classification_id: number;
+  status: string;
 }
 
 interface ListsPayload {
@@ -58,6 +64,7 @@ interface ListsPayload {
   custodians: CustodianRow[];
   classifications: ClassificationRow[];
   itemTypes: ItemTypeRow[];
+  usage: Record<string, number>;
 }
 
 function valueOf(values: Record<string, string>, field: string): string {
@@ -96,6 +103,33 @@ function ReferenceCard({
 
   function setEdit(id: number, field: string, value: string) {
     setEdits((prev) => ({ ...prev, [id]: { ...(prev[id] ?? {}), [field]: value } }));
+  }
+
+  async function act(row: ReferenceRow, action: "retire" | "restore" | "delete") {
+    if (action === "delete") {
+      const ok = window.confirm(
+        "Remove this " + title.toLowerCase() + " from the lists?\n\nThis cannot be undone. Only allowed while nothing points at it."
+      );
+      if (!ok) return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await call("/admin/lists", {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ kind, id: row.id, action }),
+      });
+      setNotice(
+        title +
+          (action === "retire" ? ": retired, it is hidden from new records." : action === "restore" ? ": back in the lists." : ": row removed.")
+      );
+      await onSaved();
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function save(id: number | null) {
@@ -210,9 +244,21 @@ function ReferenceCard({
                     </td>
                   ))}
                   <td className="p-2 text-right align-top">
-                    <Button size="sm" disabled={busy || !canEdit} onClick={() => void save(row.id)}>
-                      Save
-                    </Button>
+                    <div className="flex items-center justify-end gap-2">
+                      {row.status && row.status !== "active" ? (
+                        <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">retired</span>
+                      ) : null}
+                      <RowActions
+                        canEdit={canEdit}
+                        busy={busy}
+                        retired={Boolean(row.status && row.status !== "active")}
+                        usage={row.usage ?? 0}
+                        noun={title.replace(/s$/, "").toLowerCase()}
+                        onSave={() => void save(row.id)}
+                        onToggle={() => void act(row, row.status && row.status !== "active" ? "restore" : "retire")}
+                        onDelete={() => void act(row, "delete")}
+                      />
+                    </div>
                   </td>
                 </tr>
               );
@@ -268,7 +314,12 @@ export function LguAdminTab({
           { field: "code", label: "Code", kind: "text" },
           { field: "name", label: "Name", kind: "text" },
         ],
-        rows: (lists?.barangays ?? []).map((b) => ({ id: b.id, values: { code: b.code, name: b.name } })),
+        rows: (lists?.barangays ?? []).map((b) => ({
+          id: b.id,
+          values: { code: b.code, name: b.name },
+          status: b.status,
+          usage: lists?.usage?.["barangay:" + b.id] ?? 0,
+        })),
       },
       {
         kind: "office",
@@ -278,7 +329,12 @@ export function LguAdminTab({
           { field: "barangayId", label: "Barangay", kind: "select", options: barangayOptions },
           { field: "name", label: "Office", kind: "text" },
         ],
-        rows: (lists?.offices ?? []).map((o) => ({ id: o.id, values: { barangayId: String(o.barangay_id), name: o.name } })),
+        rows: (lists?.offices ?? []).map((o) => ({
+          id: o.id,
+          values: { barangayId: String(o.barangay_id), name: o.name },
+          status: o.status,
+          usage: lists?.usage?.["office:" + o.id] ?? 0,
+        })),
       },
       {
         kind: "custodian",
@@ -292,6 +348,8 @@ export function LguAdminTab({
         rows: (lists?.custodians ?? []).map((c) => ({
           id: c.id,
           values: { barangayId: String(c.barangay_id), name: c.full_name, position: c.position ?? "" },
+          status: c.status,
+          usage: lists?.usage?.["custodian:" + c.id] ?? 0,
         })),
       },
       {
@@ -305,6 +363,8 @@ export function LguAdminTab({
         rows: (lists?.classifications ?? []).map((c) => ({
           id: c.id,
           values: { name: c.name, lifeSpanYears: c.life_span_years == null ? "" : String(c.life_span_years) },
+          status: c.status,
+          usage: lists?.usage?.["classification:" + c.id] ?? 0,
         })),
       },
       {
@@ -318,6 +378,8 @@ export function LguAdminTab({
         rows: (lists?.itemTypes ?? []).map((t) => ({
           id: t.id,
           values: { name: t.name, classificationId: String(t.classification_id) },
+          status: t.status,
+          usage: lists?.usage?.["item_type:" + t.id] ?? 0,
         })),
       },
     ];

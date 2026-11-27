@@ -33,8 +33,12 @@ async function get<T>(path: string): Promise<T> {
   return (body?.data ?? null) as T;
 }
 
-async function send<T>(path: string, method: "POST" | "PATCH", payload: unknown): Promise<T> {
-  const res = await fetch(url(path), { method, headers: headers(), body: JSON.stringify(payload) });
+async function send<T>(path: string, method: "POST" | "PATCH" | "DELETE", payload: unknown): Promise<T> {
+  const res = await fetch(url(path), {
+    method,
+    headers: headers(),
+    body: method === "DELETE" ? undefined : JSON.stringify(payload),
+  });
   const body = (await res.json().catch(() => null)) as { data?: T; errors?: { message?: string }[] } | null;
   if (!res.ok) throw new Error(body?.errors?.[0]?.message ?? "Request failed with " + res.status);
   return (body?.data ?? null) as T;
@@ -180,12 +184,111 @@ export async function deactivateLguRole(id: number): Promise<{ id: number }> {
 export interface LguReferenceRow {
   id: number;
   values: Record<string, string>;
+  status?: string;
 }
 
 export interface LguReferenceData {
   classes: LguReferenceRow[];
   conditions: LguReferenceRow[];
   offices: LguReferenceRow[];
+  /** how many assets point at each row, keyed "kind:id" */
+  usage: Record<string, number>;
+}
+
+/* --------------------------------------------------------- reference rows and what depends on them
+
+   The columns are plain integers and the database enforces nothing, so the guard is here:
+   a row may be deleted only while no asset points at it. Retire is the alternative, because
+   an asset registered with this office or condition must keep reading that name. */
+
+const LGU_REFERENCE_TABLES: Record<string, string> = {
+  class: "lgu_asset_class",
+  condition: "lgu_condition",
+  office: "lgu_office",
+};
+
+const LGU_REFERENCE_LABELS: Record<string, string> = {
+  class: "class",
+  condition: "condition",
+  office: "office",
+};
+
+const LGU_DEPENDENTS: Record<string, { label: string; column: string }[]> = {
+  class: [{ label: "asset", column: "class_id" }],
+  condition: [{ label: "asset", column: "condition_id" }],
+  office: [{ label: "asset", column: "office_id" }],
+};
+
+export interface LguReferenceUsage {
+  total: number;
+  parts: { label: string; count: number }[];
+}
+
+export async function lguReferenceUsage(kind: string, id: number): Promise<LguReferenceUsage> {
+  const key = readLguKind(kind);
+  const parts = await Promise.all(
+    LGU_DEPENDENTS[key].map(async (dep) => {
+      const rows = await get<{ count?: { id?: number | string } }[]>(
+        "/items/lgu_asset?filter=" + encodeURIComponent(JSON.stringify({ [dep.column]: { _eq: id } })) + "&aggregate[count]=id"
+      ).catch(() => []);
+      return { label: dep.label, count: Number(rows?.[0]?.count?.id ?? 0) };
+    })
+  );
+  return { total: parts.reduce((sum, p) => sum + p.count, 0), parts: parts.filter((p) => p.count > 0) };
+}
+
+async function lguUsageMap(): Promise<Record<string, number>> {
+  const map: Record<string, number> = {};
+  await Promise.all(
+    Object.entries(LGU_DEPENDENTS).map(async ([kind, deps]) => {
+      for (const dep of deps) {
+        const rows = await get<Record<string, unknown>[]>(
+          "/items/lgu_asset?groupBy[]=" + dep.column + "&aggregate[count]=id&limit=-1"
+        ).catch(() => []);
+        for (const row of rows ?? []) {
+          const id = Number(row[dep.column]);
+          if (!Number.isFinite(id) || id <= 0) continue;
+          const key = kind + ":" + id;
+          const count = Number((row.count as { id?: number | string } | undefined)?.id ?? 0);
+          map[key] = (map[key] ?? 0) + count;
+        }
+      }
+    })
+  );
+  return map;
+}
+
+function readLguKind(value: string): string {
+  const key = String(value ?? "").trim();
+  if (!LGU_REFERENCE_TABLES[key]) throw new Error("Unknown list: " + (key || "(none)") + ".");
+  return key;
+}
+
+export async function setLguReferenceStatus(kind: string, id: number, status: "active" | "inactive"): Promise<void> {
+  const key = readLguKind(kind);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("A row id is required.");
+  await send("/items/" + LGU_REFERENCE_TABLES[key] + "/" + id, "PATCH", { status });
+  forget("lgu:lookups");
+  forget("lgu:disposal");
+  forget("lgu:offices");
+  forget("lgu:prefixes");
+}
+
+export async function deleteLguReference(kind: string, id: number): Promise<void> {
+  const key = readLguKind(kind);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("A row id is required.");
+  const usage = await lguReferenceUsage(key, id);
+  if (usage.total > 0) {
+    const parts = usage.parts.map((p) => p.count + " " + p.label + (p.count === 1 ? "" : "s")).join(", ");
+    throw new Error(
+      "This " + LGU_REFERENCE_LABELS[key] + " is still used by " + parts + ". Retire it instead, so those assets keep their name."
+    );
+  }
+  await send("/items/" + LGU_REFERENCE_TABLES[key] + "/" + id, "DELETE", null);
+  forget("lgu:lookups");
+  forget("lgu:disposal");
+  forget("lgu:offices");
+  forget("lgu:prefixes");
 }
 
 export async function listLguReference(): Promise<LguReferenceData> {
@@ -204,6 +307,7 @@ export async function listLguReference(): Promise<LguReferenceData> {
         default_life_months: row.default_life_months == null ? "" : String(row.default_life_months),
         depreciable: Number(row.depreciable ?? 0) === 1 ? "1" : "0",
       },
+      status: text(row.status),
     })),
     conditions: (conditions ?? []).map((row) => ({
       id: Number(row.id),
@@ -211,11 +315,14 @@ export async function listLguReference(): Promise<LguReferenceData> {
         name: text(row.name),
         is_serviceable: Number(row.is_serviceable ?? 0) === 1 ? "1" : "0",
       },
+      status: text(row.status),
     })),
     offices: (offices ?? []).map((row) => ({
       id: Number(row.id),
       values: { code: text(row.code), name: text(row.name) },
+      status: text(row.status),
     })),
+    usage: await lguUsageMap(),
   };
 }
 

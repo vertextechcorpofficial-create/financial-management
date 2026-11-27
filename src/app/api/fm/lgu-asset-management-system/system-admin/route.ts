@@ -5,6 +5,8 @@ import {
   listLguReference,
   resolveLguAdminAccess,
   saveLguReference,
+  setLguReferenceStatus,
+  deleteLguReference,
   saveLguRole,
 } from "@/modules/financial-management/lgu-asset-management-system/system-admin/services/lguAdmin";
 
@@ -44,6 +46,18 @@ export async function POST(req: Request) {
     }
     if (kind === "role-off") {
       return NextResponse.json(await deactivateLguRole(Number(body?.id ?? 0)), { status: 200 });
+    }
+    if (kind === "reference-retire" || kind === "reference-restore") {
+      await setLguReferenceStatus(
+        String(body?.list ?? ""),
+        Number(body?.id ?? 0),
+        kind === "reference-retire" ? "inactive" : "active"
+      );
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
+    if (kind === "reference-delete") {
+      await deleteLguReference(String(body?.list ?? ""), Number(body?.id ?? 0));
+      return NextResponse.json({ ok: true }, { status: 200 });
     }
 
     const saved = await saveLguReference({

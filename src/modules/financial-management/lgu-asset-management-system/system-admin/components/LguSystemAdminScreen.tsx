@@ -4,6 +4,7 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { RowActions } from "../../shared/RowActions";
 
 /**
  * The LGU asset management system's own administration. Section 2 of the guide gives the System
@@ -21,12 +22,17 @@ type Kind = "class" | "condition" | "office";
 interface Row {
   id: number;
   values: Record<string, string>;
+  /** retired rows stay for old assets but are hidden from new ones */
+  status?: string;
+  /** how many assets point at this row. Above zero, delete is refused */
+  usage?: number;
 }
 
 interface ListsPayload {
   classes: Row[];
   conditions: Row[];
   offices: Row[];
+  usage: Record<string, number>;
 }
 
 interface AccountRow {
@@ -284,6 +290,31 @@ function ListCard({
   const [fresh, setFresh] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState(false);
 
+  async function act(row: Row, action: "retire" | "restore" | "delete") {
+    if (action === "delete") {
+      const ok = window.confirm(
+        "Remove this row from the " + title.toLowerCase() + " list?\n\nThis cannot be undone. It is only allowed while no asset points at it."
+      );
+      if (!ok) return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const kindName =
+        action === "retire" ? "reference-retire" : action === "restore" ? "reference-restore" : "reference-delete";
+      await call("", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ kind: kindName, list: kind, id: row.id }) });
+      setNotice(
+        title +
+          (action === "retire" ? ": retired, it is hidden from new assets." : action === "restore" ? ": back in the lists." : ": row removed.")
+      );
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function save(id: number | null) {
     const values = id === null ? fresh : edits[id] ?? {};
     setBusy(true);
@@ -385,9 +416,21 @@ function ListCard({
                     </td>
                   ))}
                   <td className="p-2 text-right align-top">
-                    <Button size="sm" disabled={busy} onClick={() => void save(row.id)}>
-                      Save
-                    </Button>
+                    <div className="flex items-center justify-end gap-2">
+                      {row.status && row.status !== "active" ? (
+                        <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">retired</span>
+                      ) : null}
+                      <RowActions
+                        canEdit
+                        busy={busy}
+                        retired={Boolean(row.status && row.status !== "active")}
+                        usage={row.usage ?? 0}
+                        noun={title.replace(/s$/, "").toLowerCase()}
+                        onSave={() => void save(row.id)}
+                        onToggle={() => void act(row, row.status && row.status !== "active" ? "restore" : "retire")}
+                        onDelete={() => void act(row, "delete")}
+                      />
+                    </div>
                   </td>
                 </tr>
               );
@@ -432,7 +475,10 @@ export function LguSystemAdminScreen({ email }: { email: string | null }) {
         { field: "default_life_months", label: "Default life months", kind: "text" },
         { field: "depreciable", label: "Depreciable", kind: "select", options: YES_NO },
       ],
-      rows: lists?.classes ?? [],
+      rows: (lists?.classes ?? []).map((row) => ({
+        ...row,
+        usage: lists?.usage?.["class:" + row.id] ?? 0,
+      })),
     },
     {
       kind: "condition",
@@ -442,7 +488,10 @@ export function LguSystemAdminScreen({ email }: { email: string | null }) {
         { field: "name", label: "Condition", kind: "text" },
         { field: "is_serviceable", label: "Serviceable", kind: "select", options: YES_NO },
       ],
-      rows: lists?.conditions ?? [],
+      rows: (lists?.conditions ?? []).map((row) => ({
+        ...row,
+        usage: lists?.usage?.["condition:" + row.id] ?? 0,
+      })),
     },
     {
       kind: "office",
@@ -452,7 +501,10 @@ export function LguSystemAdminScreen({ email }: { email: string | null }) {
         { field: "code", label: "Code", kind: "text" },
         { field: "name", label: "Office", kind: "text" },
       ],
-      rows: lists?.offices ?? [],
+      rows: (lists?.offices ?? []).map((row) => ({
+        ...row,
+        usage: lists?.usage?.["office:" + row.id] ?? 0,
+      })),
     },
   ];
 

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import type { BrgyAsset, BrgyCondition, BrgyHistoryEntry, BrgySettings, BrgyStatus } from "../../types";
 import { BRGY_CONDITIONS, BRGY_STATUSES, projectedTotal, projectedValue } from "../../types";
-import { call, Field, money, peso, today, type Lookups } from "../../shared/ui";
+import { call, Field, money, offerable, peso, today, type Lookups } from "../../shared/ui";
 import { printAssetLabel } from "../../shared/brgyLabel";
 import { Pager } from "../../shared/Pager";
 
@@ -429,7 +429,7 @@ function AddAssetDialog({
                 }}
               >
                 <option value="">Choose one</option>
-                {lookups.classifications.map((c) => (
+                {offerable(lookups.classifications).map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
@@ -442,7 +442,7 @@ function AddAssetDialog({
                 onChange={(e) => setForm({ ...form, itemTypeId: e.target.value })}
               >
                 <option value="">Choose one</option>
-                {lookups.itemTypes
+                {offerable(lookups.itemTypes)
                   .filter((t) => !form.classificationId || String(t.classification_id) === form.classificationId)
                   .map((t) => (
                     <option key={t.id} value={t.id}>{t.name}</option>
@@ -464,7 +464,7 @@ function AddAssetDialog({
             <Field label="Office">
               <select className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm" value={form.officeId} onChange={(e) => setForm({ ...form, officeId: e.target.value })}>
                 <option value="">None</option>
-                {lookups.offices.map((o) => (
+                {offerable(lookups.offices).map((o) => (
                   <option key={o.id} value={o.id}>{o.name}</option>
                 ))}
               </select>
@@ -472,7 +472,7 @@ function AddAssetDialog({
             <Field label="Custodian">
               <select className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm" value={form.custodianId} onChange={(e) => setForm({ ...form, custodianId: e.target.value })}>
                 <option value="">Unassigned</option>
-                {lookups.custodians.map((c) => (
+                {offerable(lookups.custodians).map((c) => (
                   <option key={c.id} value={c.id}>{c.full_name}</option>
                 ))}
               </select>
@@ -636,7 +636,7 @@ function AssetDetailDialog({
               <Field label="Custodian">
                 <select className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm" value={custodianId} onChange={(e) => setCustodianId(e.target.value)}>
                   <option value="">Choose one</option>
-                  {lookups.custodians.map((c) => (
+                  {offerable(lookups.custodians).map((c) => (
                     <option key={c.id} value={c.id}>{c.full_name}</option>
                   ))}
                 </select>
@@ -644,7 +644,7 @@ function AssetDetailDialog({
               <Field label="Office">
                 <select className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm" value={officeId} onChange={(e) => setOfficeId(e.target.value)}>
                   <option value="">None</option>
-                  {lookups.offices.map((o) => (
+                  {offerable(lookups.offices).map((o) => (
                     <option key={o.id} value={o.id}>{o.name}</option>
                   ))}
                 </select>

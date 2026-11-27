@@ -79,6 +79,8 @@ export interface AdminReferenceData {
   custodians: AdminCustodian[];
   classifications: AdminClassification[];
   itemTypes: AdminItemType[];
+  /** how many records point at each row, keyed "kind:id". A non zero count blocks delete. */
+  usage: Record<string, number>;
 }
 
 /* --------------------------------------------------------------- the role table */
@@ -248,7 +250,129 @@ export async function listReferenceData(): Promise<AdminReferenceData> {
     custodians: (custodians ?? []).map(mapCustodian),
     classifications: (classifications ?? []).map(mapClassification),
     itemTypes: (itemTypes ?? []).map(mapItemType),
+    usage: await referenceUsageMap(),
   };
+}
+
+/* ------------------------------------------------- reference rows that point at each other
+
+   Nothing in the database enforces these links, the columns are plain integers, so the guard
+   has to live here: a row may only be deleted while no record points at it. Retire is the
+   answer when something does, because the old record must keep reading the name it was
+   registered with. */
+
+const REFERENCE_TABLES: Record<ReferenceKind, string> = {
+  barangay: "brgy_barangay",
+  office: "brgy_office",
+  custodian: "brgy_custodian",
+  classification: "brgy_classification",
+  item_type: "brgy_item_type",
+};
+
+const REFERENCE_LABELS: Record<ReferenceKind, string> = {
+  barangay: "barangay",
+  office: "office",
+  custodian: "custodian",
+  classification: "classification",
+  item_type: "item type",
+};
+
+/** Every (table, column) pair that can point at a given kind. */
+const DEPENDENTS: Record<ReferenceKind, { table: string; column: string; label: string }[]> = {
+  barangay: [
+    { table: "brgy_asset", column: "barangay_id", label: "asset" },
+    { table: "brgy_office", column: "barangay_id", label: "office" },
+    { table: "brgy_custodian", column: "barangay_id", label: "custodian" },
+    { table: "brgy_count", column: "barangay_id", label: "physical count" },
+  ],
+  office: [{ table: "brgy_asset", column: "office_id", label: "asset" }],
+  custodian: [{ table: "brgy_asset", column: "custodian_id", label: "asset" }],
+  classification: [
+    { table: "brgy_item_type", column: "classification_id", label: "item type" },
+    { table: "brgy_asset", column: "classification_id", label: "asset" },
+  ],
+  item_type: [{ table: "brgy_asset", column: "item_type_id", label: "asset" }],
+};
+
+async function countRows(table: string, column: string, id: number): Promise<number> {
+  const rows = await get<{ count?: { id?: number | string } }[]>(
+    "/items/" + table + "?filter=" + enc({ [column]: { _eq: id } }) + "&aggregate[count]=id"
+  ).catch(() => []);
+  return Number(rows?.[0]?.count?.id ?? 0);
+}
+
+export interface ReferenceUsage {
+  total: number;
+  parts: { label: string; count: number }[];
+}
+
+export async function referenceUsage(kind: ReferenceKind, id: number): Promise<ReferenceUsage> {
+  const parts = await Promise.all(
+    DEPENDENTS[kind].map(async (d) => ({ label: d.label, count: await countRows(d.table, d.column, id) }))
+  );
+  return { total: parts.reduce((sum, p) => sum + p.count, 0), parts: parts.filter((p) => p.count > 0) };
+}
+
+/** One lookup per dependent pair, then the counts are handed out per row. */
+async function referenceUsageMap(): Promise<Record<string, number>> {
+  const map: Record<string, number> = {};
+  const pairs: { kind: ReferenceKind; table: string; column: string; label: string }[] = [];
+  for (const kind of REFERENCE_KINDS) for (const d of DEPENDENTS[kind]) pairs.push({ kind, ...d });
+  await Promise.all(
+    pairs.map(async (p) => {
+      const rows = await get<{ [key: string]: unknown; count?: { id?: number | string } }[]>(
+        "/items/" + p.table + "?groupBy[]=" + p.column + "&aggregate[count]=id&limit=-1"
+      ).catch(() => []);
+      for (const row of rows ?? []) {
+        const id = Number(row[p.column]);
+        if (!Number.isFinite(id) || id <= 0) continue;
+        const key = p.kind + ":" + id;
+        map[key] = (map[key] ?? 0) + Number(row.count?.id ?? 0);
+      }
+    })
+  );
+  return map;
+}
+
+/** Retire keeps the row, hides it from new records, and leaves old ones readable. */
+export async function setReferenceStatus(kind: string, id: number, status: "active" | "inactive"): Promise<void> {
+  const k = readKind(kind);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("A row id is required.");
+  await patch("/items/" + REFERENCE_TABLES[k] + "/" + id, { status });
+  forget("lookups:");
+  forget("countAssets:");
+}
+
+export async function deleteReference(kind: string, id: number): Promise<void> {
+  const k = readKind(kind);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("A row id is required.");
+  const usage = await referenceUsage(k, id);
+  if (usage.total > 0) {
+    const parts = usage.parts.map((p) => p.count + " " + p.label + (p.count === 1 ? "" : "s")).join(", ");
+    throw new Error(
+      "This " + REFERENCE_LABELS[k] + " is still used by " + parts + ". Retire it instead, so those records keep their name."
+    );
+  }
+  await fetchless(
+    "/items/" + REFERENCE_TABLES[k] + "/" + id,
+    "DELETE"
+  );
+  forget("lookups:");
+  forget("countAssets:");
+}
+
+/** A delete that reports what went wrong, using the same client as the rest of the service. */
+async function fetchless(path: string, method: "DELETE"): Promise<void> {
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+  const token = process.env.DIRECTUS_STATIC_TOKEN ?? "";
+  const res = await fetch(base.replace(/\/+$/, "") + path, {
+    method,
+    headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { errors?: { message?: string }[] } | null;
+    throw new Error(body?.errors?.[0]?.message ?? "The row could not be removed.");
+  }
 }
 
 const REFERENCE_KINDS = ["barangay", "office", "custodian", "classification", "item_type"] as const;

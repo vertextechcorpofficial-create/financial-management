@@ -8,6 +8,10 @@ export const API = "/api/fm/barangay-asset-inventory-system";
 export const peso = (n: number) => "PHP " + n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** Dense tables drop the currency word, which costs four characters in every numeric column. */
 export const money = (n: number) => n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Retired rows stay in the lookups so old records keep their name, but a picker must not offer them. */
+export const offerable = <T extends { status?: string | null }>(rows: T[]): T[] =>
+  rows.filter((row) => (row.status ?? "active") === "active");
 import { officeDate } from "./dates";
 
 export { officeDate };
