@@ -12,6 +12,7 @@ import { WalletItem } from "../hooks/useSettlement";
 import { cn } from "@/lib/utils";
 import {
     findOverAllocatedInvoice,
+    formatSettlementAmount,
     findUnderAllocatedInvoice,
     getCartBalanceTotals,
     getInvoiceAppliedForSettlement,
@@ -38,7 +39,7 @@ export interface SettlementInvoiceCartTableProps {
 }
 
 export default function SettlementInvoiceCartTable({
-                                                       isPosted, cartInvoices, allocations, combinedSources,
+                                                       isPosted, cartInvoices, allocations, wallet, combinedSources,
                                                        cartTotalBalance, cartTotalAppliedSession, activeInvoiceId, setActiveInvoiceId,
                                                        removeFromCart, handleInvoiceDiscrepancy, handleAutoCalculateEWT, getInvoiceApplied
                                                    }: SettlementInvoiceCartTableProps) {
@@ -146,6 +147,8 @@ export default function SettlementInvoiceCartTable({
                         ) : filteredCartInvoices.map(inv => {
                             const appliedSession = getInvoiceApplied(inv.id);
                             const invoiceAllocations = allocations.filter(a => a.invoiceId === inv.id && a.amountApplied > 0);
+                            const overages = wallet.filter(item => item.invoiceId === inv.id && item.overageSourceId);
+                            const displayedSources = new Set([...invoiceAllocations.map(a => a.sourceTempId), ...overages.map(item => item.overageSourceId!)]);
                             const appliedAdj = invoiceAllocations.filter(a => a.allocationType === "ADJUSTMENT").reduce((sum, a) => sum + a.amountApplied, 0);
                             const appliedCredits = invoiceAllocations.filter(a => a.allocationType === "MEMO" || a.allocationType === "RETURN").reduce((sum, a) => sum + a.amountApplied, 0);
                             const hasEWTApplied = invoiceAllocations.some(a => a.allocationType === "EWT");
@@ -235,12 +238,22 @@ export default function SettlementInvoiceCartTable({
                                     <TableCell className="text-right align-top py-2 pr-4">
                                         <div className={`font-mono font-black text-xs leading-none ${appliedSession > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>{appliedSession > 0 ? `₱${appliedSession.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}` : "—"}</div>
                                         <div className="mt-1 flex flex-col gap-0.5">
-                                            {invoiceAllocations.map((alloc, idx) => (
-                                                <div key={`alloc-${inv.id}-${alloc.sourceTempId}-${idx}`} className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest flex gap-1 justify-end leading-none">
-                                                    <span>{combinedSources.find(w => w.id === alloc.sourceTempId)?.type || 'ADJ'}:</span>
-                                                    <span className="text-foreground font-mono">₱{alloc.amountApplied.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })}</span>
-                                                </div>
-                                            ))}
+                                            {Array.from(displayedSources, sourceId => {
+                                                const overage = overages.find(item => item.overageSourceId === sourceId);
+                                                const net = invoiceAllocations.filter(a => a.sourceTempId === sourceId)
+                                                    .reduce((sum, a) => sum + a.amountApplied, 0);
+                                                return (
+                                                    <React.Fragment key={sourceId}>
+                                                        <div className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest flex gap-1 justify-end leading-none">
+                                                            <span>{combinedSources.find(w => w.id === sourceId)?.type || "ADJ"}</span>
+                                                            <span className="text-foreground font-mono">₱{formatSettlementAmount(net + (overage?.originalAmount ?? 0))}</span>
+                                                        </div>
+                                                        {overage && <div className="flex justify-end gap-1 text-xs text-amber-700 dark:text-amber-400">
+                                                            <span>Overage</span><span className="font-mono">−₱{formatSettlementAmount(overage.originalAmount)}</span>
+                                                        </div>}
+                                                    </React.Fragment>
+                                                );
+                                            })}
                                         </div>
                                     </TableCell>
                                 </TableRow>

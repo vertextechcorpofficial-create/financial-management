@@ -106,6 +106,7 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
     const [editAccountOpen, setEditAccountOpen] = useState(false);
 
     const [adjOpen, setAdjOpen] = useState(false);
+    const [pendingOverage, setPendingOverage] = useState<{ invoiceId: number; sourceId: string; gross: number } | null>(null);
     const [adjCoaId, setAdjCoaId] = useState<number | "">("");
     const [adjCoaOpen, setAdjCoaOpen] = useState(false);
     const [adjFindingId, setAdjFindingId] = useState<number | "">("");
@@ -262,7 +263,8 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
             const used = tempAllocations
                 .filter(a => a.sourceTempId === sourceId)
                 .reduce((s, a) => s + a.amountApplied, 0);
-            return getSourceAllocationCapacity(baseAmt, used);
+            const overage = wallet.filter(item => item.overageSourceId === sourceId).reduce((sum, item) => sum + item.originalAmount, 0);
+            return getSourceAllocationCapacity(baseAmt, used + overage);
         };
 
         const allocateSim = (invoice: UnpaidInvoice, source: WalletItem, amount: number) => {
@@ -274,7 +276,8 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
                 .reduce((sum, allocation) => sum + allocation.amountApplied, 0);
             const finalAmount = capSettlementAllocation(
                 amount,
-                getSourceAllocationCapacity(source.originalAmount, sourceUsedElsewhere),
+                getSourceAllocationCapacity(source.originalAmount, sourceUsedElsewhere + wallet.filter(
+                    item => item.overageSourceId === source.id).reduce((sum, item) => sum + item.originalAmount, 0)),
                 getInvoiceAllocationCapacity(getInvoiceRequiredBalance(invoice), invoiceUsedElsewhere)
             );
             if (finalAmount <= SETTLEMENT_BALANCE_TOLERANCE) return;
@@ -439,8 +442,18 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
         const parsedAmount = parseSettlementAmount(adjAmount);
         const validFindingId = Number(adjFindingId);
         if (!validFindingId || validFindingId <= 0 || parsedAmount === null || parsedAmount <= 0) return toast.error("Please select a valid Ledger Account.");
+        if (adjBalanceType === 1 && !pendingOverage) return toast.error("Use the invoice’s cash or check line to record an overage.");
         setIsCreatingAdj(true);
-        await createAdjustment(validFindingId, parsedAmount, adjBalanceType, adjRemarks, adjInvoiceId);
+        if (pendingOverage) {
+            const { invoiceId, sourceId, gross } = pendingOverage;
+            if (!handleAllocate(invoiceId, sourceId, gross, { findingId: validFindingId, expectedExcess: parsedAmount })) {
+                setIsCreatingAdj(false);
+                return;
+            }
+            setPendingOverage(null);
+        } else {
+            await createAdjustment(validFindingId, parsedAmount, adjBalanceType, adjRemarks, adjInvoiceId);
+        }
         setIsCreatingAdj(false);
         setAdjOpen(false);
         setAdjCoaId(""); setAdjFindingId(""); setAdjAmount(""); setAdjRemarks(""); setAdjBalanceType(2); setAdjInvoiceId(null);
@@ -453,11 +466,23 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
         setEwtOpen(false); setGlobalEwtAmount(""); setGlobalEwtRef("");
     };
 
+    const openOverage = (invoiceId: number, sourceId: string, gross: number, excess: number) => {
+        setPendingOverage({ invoiceId, sourceId, gross });
+        setAdjInvoiceId(invoiceId); setAdjBalanceType(1); setAdjAmount(excess.toFixed(3));
+        setAdjCoaId(""); setAdjFindingId(""); setAdjRemarks("Overage"); setAdjOpen(true);
+    };
+
     const handleAutoBalance = () => {
+        setPendingOverage(null);
+        if (remainingToAllocate > 0) {
+            if (cartInvoices.length === 1) setActiveInvoiceId(cartInvoices[0].id);
+            toast.info("Select the invoice and enter the full amount on its cash or check line to record the overage.");
+            return;
+        }
         const requiredAdjustment = -remainingToAllocate;
-        setAdjAmount(Math.abs(requiredAdjustment).toFixed(3));
-        setAdjRemarks(requiredAdjustment > 0 ? "Auto-balance: Shortage / Variance" : "Auto-balance: Overage");
-        setAdjBalanceType(requiredAdjustment > 0 ? 2 : 1);
+        setAdjAmount(requiredAdjustment.toFixed(3));
+        setAdjRemarks("Auto-balance: Shortage / Variance");
+        setAdjBalanceType(2);
         setAdjCoaId(""); setAdjFindingId(""); setAdjInvoiceId(null); setAdjOpen(true);
     };
 
@@ -649,23 +674,24 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
                                                 </div>
                                             </PopoverContent>
                                         </Popover>
-                                        <Popover open={adjOpen} onOpenChange={setAdjOpen}>
-                                            <PopoverTrigger asChild><Button onClick={() => { setAdjInvoiceId(null); setAdjAmount(""); setAdjRemarks(""); setAdjBalanceType(2); setAdjCoaId(""); }} size="sm" variant="outline" className="h-5 text-[8px] px-1.5 font-black uppercase tracking-widest text-purple-600 border-purple-200 hover:bg-purple-50 gap-1"><Plus size={8} strokeWidth={3}/> Variance</Button></PopoverTrigger>
+                                        <Popover open={adjOpen} onOpenChange={open => { setAdjOpen(open); if (!open) setPendingOverage(null); }}>
+                                            <PopoverTrigger asChild><Button onClick={() => { setPendingOverage(null); setAdjInvoiceId(null); setAdjAmount(""); setAdjRemarks(""); setAdjBalanceType(2); setAdjCoaId(""); }} size="sm" variant="outline" className="h-5 text-[8px] px-1.5 font-black uppercase tracking-widest text-purple-600 border-purple-200 hover:bg-purple-50 gap-1"><Plus size={8} strokeWidth={3}/> Variance</Button></PopoverTrigger>
                                             <PopoverContent className="w-[280px] p-4 space-y-3 shadow-xl border-purple-200" align="start">
                                                 <div className="space-y-0.5 mb-2 border-b border-border/50 pb-2"><h4 className="font-black text-xs text-foreground flex items-center gap-1.5"><Wallet size={14} className="text-purple-500"/> Record Variance</h4><p className="text-[9px] font-bold text-muted-foreground leading-tight">Select whether this increases assets or decreases them.</p></div>
                                                 <div className="space-y-2">
                                                     <div className="flex flex-col gap-1">
                                                         <label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Type</label>
                                                         <div className="flex gap-1.5">
-                                                            <Button variant={adjBalanceType === 2 ? "default" : "outline"} onClick={() => setAdjBalanceType(2)} className={`h-7 w-1/2 text-[10px] font-bold ${adjBalanceType === 2 ? 'bg-purple-600 text-white' : 'text-muted-foreground'}`}>Shortage (Cr)</Button>
-                                                            <Button variant={adjBalanceType === 1 ? "default" : "outline"} onClick={() => setAdjBalanceType(1)} className={`h-7 w-1/2 text-[10px] font-bold ${adjBalanceType === 1 ? 'bg-red-600 text-white' : 'text-muted-foreground'}`}>Overage (Dr)</Button>
+                                                            <Button disabled={Boolean(pendingOverage)} variant={adjBalanceType === 2 ? "default" : "outline"} onClick={() => setAdjBalanceType(2)} className={`h-7 w-1/2 text-[10px] font-bold ${adjBalanceType === 2 ? 'bg-purple-600 text-white' : 'text-muted-foreground'}`}>Shortage (Cr)</Button>
+                                                            <Button disabled={!pendingOverage} variant={adjBalanceType === 1 ? "default" : "outline"} onClick={() => setAdjBalanceType(1)} className={`h-7 w-1/2 text-[10px] font-bold ${adjBalanceType === 1 ? 'bg-red-600 text-white' : 'text-muted-foreground'}`}>Overage (Dr)</Button>
                                                         </div>
                                                     </div>
-                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Category</label><Popover open={adjCoaOpen} onOpenChange={setAdjCoaOpen}><PopoverTrigger asChild><Button variant="outline" role="combobox" className={cn("w-full h-7 justify-between text-xs font-bold bg-background", !adjCoaId && "text-muted-foreground border-dashed border-primary/50")}><span className="truncate flex items-center gap-1.5"><Layers size={12}/>{adjCoaId ? uniqueCategories.find((c) => c.id === adjCoaId)?.title : "Select..."}</span><ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50"/></Button></PopoverTrigger><PopoverContent className="w-[260px] p-0" align="start"><Command><CommandInput placeholder="Search..." className="text-xs h-7"/><CommandList className="max-h-[200px] overflow-y-auto" onWheelCapture={(e) => e.stopPropagation()}><CommandEmpty>No categories found.</CommandEmpty><CommandGroup>{uniqueCategories.map((coa) => ( <CommandItem key={coa.id} value={coa.title} onSelect={() => { setAdjCoaId(coa.id); setAdjFindingId(""); setAdjCoaOpen(false); }} className="text-[11px] cursor-pointer py-1"><Check className={cn("mr-1.5 h-3 w-3 text-primary", adjCoaId === coa.id ? "opacity-100" : "opacity-0")}/>{coa.title}</CommandItem> ))}</CommandGroup></CommandList></Command></PopoverContent></Popover></div>
-                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Reason</label><Popover open={adjAccountOpen} onOpenChange={setAdjAccountOpen}><PopoverTrigger asChild><Button variant="outline" role="combobox" disabled={!adjCoaId} className={cn("w-full h-7 justify-between text-xs font-bold bg-background", !adjFindingId && "text-muted-foreground border-dashed border-primary/50")}><span className="truncate pl-5">{adjFindingId ? filteredFindings.find((f) => f.id === adjFindingId)?.findingName : "Select reason..."}</span><ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50"/></Button></PopoverTrigger><PopoverContent className="w-[260px] p-0" align="start"><Command><CommandInput placeholder="Search reason..." className="text-xs h-7"/><CommandList className="max-h-[250px] overflow-y-auto" onWheelCapture={(e) => e.stopPropagation()}><CommandEmpty>No findings under this category.</CommandEmpty><CommandGroup>{filteredFindings.map((f) => ( <CommandItem key={f.id} value={f.findingName} onSelect={() => { setAdjFindingId(f.id); setAdjAccountOpen(false); }} className="text-[11px] cursor-pointer py-1"><Check className={cn("mr-1.5 h-3 w-3 text-primary", adjFindingId === f.id ? "opacity-100" : "opacity-0")}/>{f.findingName}</CommandItem> ))}</CommandGroup></CommandList></Command></PopoverContent></Popover></div>
-                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Amount (₱)</label><Input type="number" step={SETTLEMENT_STEP} placeholder="0.000" value={adjAmount} onChange={(e) => setAdjAmount(e.target.value)} className="h-7 text-xs"/></div>
-                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Remarks</label><Input placeholder="Reason for variance" value={adjRemarks} onChange={(e) => setAdjRemarks(e.target.value)} className="h-7 text-xs"/></div>
-                                                    <Button className="w-full mt-1 h-7 text-[9px] font-black uppercase tracking-widest bg-purple-600 hover:bg-purple-700 text-white" disabled={!adjFindingId || (parseSettlementAmount(adjAmount) ?? 0) <= 0 || isCreatingAdj} onClick={handleCreateAdjustment}>{isCreatingAdj ? <Loader2 size={12} className="animate-spin"/> : "Inject into Pouch"}</Button>
+                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Category</label><Popover open={adjCoaOpen} onOpenChange={setAdjCoaOpen}><PopoverTrigger asChild><Button variant="outline" role="combobox" aria-label="Variance category" className={cn("w-full h-7 justify-between text-xs font-bold bg-background", !adjCoaId && "text-muted-foreground border-dashed border-primary/50")}><span className="truncate flex items-center gap-1.5"><Layers size={12}/>{adjCoaId ? uniqueCategories.find((c) => c.id === adjCoaId)?.title : "Select..."}</span><ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50"/></Button></PopoverTrigger><PopoverContent className="w-[260px] p-0" align="start"><Command><CommandInput placeholder="Search..." className="text-xs h-7"/><CommandList className="max-h-[200px] overflow-y-auto" onWheelCapture={(e) => e.stopPropagation()}><CommandEmpty>No categories found.</CommandEmpty><CommandGroup>{uniqueCategories.map((coa) => ( <CommandItem key={coa.id} value={coa.title} onSelect={() => { setAdjCoaId(coa.id); setAdjFindingId(""); setAdjCoaOpen(false); }} className="text-[11px] cursor-pointer py-1"><Check className={cn("mr-1.5 h-3 w-3 text-primary", adjCoaId === coa.id ? "opacity-100" : "opacity-0")}/>{coa.title}</CommandItem> ))}</CommandGroup></CommandList></Command></PopoverContent></Popover></div>
+                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Reason</label><Popover open={adjAccountOpen} onOpenChange={setAdjAccountOpen}><PopoverTrigger asChild><Button variant="outline" role="combobox" aria-label="Variance reason" disabled={!adjCoaId} className={cn("w-full h-7 justify-between text-xs font-bold bg-background", !adjFindingId && "text-muted-foreground border-dashed border-primary/50")}><span className="truncate pl-5">{adjFindingId ? filteredFindings.find((f) => f.id === adjFindingId)?.findingName : "Select reason..."}</span><ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50"/></Button></PopoverTrigger><PopoverContent className="w-[260px] p-0" align="start"><Command><CommandInput placeholder="Search reason..." className="text-xs h-7"/><CommandList className="max-h-[250px] overflow-y-auto" onWheelCapture={(e) => e.stopPropagation()}><CommandEmpty>No findings under this category.</CommandEmpty><CommandGroup>{filteredFindings.map((f) => ( <CommandItem key={f.id} value={f.findingName} onSelect={() => { setAdjFindingId(f.id); setAdjAccountOpen(false); }} className="text-[11px] cursor-pointer py-1"><Check className={cn("mr-1.5 h-3 w-3 text-primary", adjFindingId === f.id ? "opacity-100" : "opacity-0")}/>{f.findingName}</CommandItem> ))}</CommandGroup></CommandList></Command></PopoverContent></Popover></div>
+                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Amount (₱)</label><Input type="number" step={SETTLEMENT_STEP} placeholder="0.000" readOnly={Boolean(pendingOverage)} value={adjAmount} onChange={(e) => setAdjAmount(e.target.value)} className="h-7 text-xs"/></div>
+                                                    {pendingOverage ? <p className="text-xs">Invoice {cartInvoices.find(invoice => invoice.id === pendingOverage.invoiceId)?.invoiceNo}</p> :
+                                                        <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Remarks</label><Input placeholder="Reason for variance" value={adjRemarks} onChange={(e) => setAdjRemarks(e.target.value)} className="h-7 text-xs"/></div>}
+                                                    <Button className="w-full mt-1 h-7 text-[9px] font-black uppercase tracking-widest bg-purple-600 hover:bg-purple-700 text-white" disabled={!adjFindingId || (parseSettlementAmount(adjAmount) ?? 0) <= 0 || isCreatingAdj} onClick={handleCreateAdjustment}>{isCreatingAdj ? <Loader2 size={12} className="animate-spin"/> : pendingOverage ? "Confirm overage" : "Inject into Pouch"}</Button>
                                                 </div>
                                             </PopoverContent>
                                         </Popover>
@@ -860,6 +886,8 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
                 {/* RIGHT PANEL: NEW ALLOCATION SIDE PANEL (col-span-3) */}
                 <div className="col-span-1 lg:col-span-3 bg-card rounded-xl border border-border shadow-sm overflow-hidden lg:h-full">
                     <AllocationSidePanel
+                        isPosted={isPosted}
+                        onOverage={openOverage}
                         activeInvoiceId={activeInvoiceId}
                         cartInvoices={cartInvoices}
                         wallet={wallet}

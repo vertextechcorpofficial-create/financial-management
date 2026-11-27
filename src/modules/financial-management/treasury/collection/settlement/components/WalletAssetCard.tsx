@@ -160,12 +160,12 @@ export default function WalletAssetCard({
                     <Badge variant={badgeColor} className={`text-[7px] uppercase px-1 py-0 h-3.5 leading-none ${item.type === 'ADJUSTMENT' && item.balanceTypeId === 2 ? 'border-purple-200 text-purple-700 bg-purple-50' : (item.type === 'EWT' ? 'border-teal-200 text-teal-700 bg-teal-50' : '')}`}>{item.type}</Badge>
                     {!isPosted && (item.type === "ADJUSTMENT" || item.type === "EWT") && (
                         <div className="flex items-center ml-0.5 border-l border-border/50 pl-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => {
+                            {!item.overageSourceId && <button onClick={() => {
                                 setEditingId(item.id); setEditAmt(item.originalAmount.toString()); setEditRef(item.customerName || "");
                                 const matchedFinding = findings?.find((f) => f.id === item.findingId || f.findingName === item.label);
                                 const cId = matchedFinding?.chartOfAccount?.coaId || matchedFinding?.chartOfAccount?.id;
                                 setEditCoaId(cId || ""); setEditFId(matchedFinding?.id || item.findingId || ""); setEditBalType(item.balanceTypeId || 2);
-                            }} className="text-muted-foreground hover:text-blue-500 transition-colors p-0.5" title="Edit Item"><Edit2 size={10}/></button>
+                            }} className="text-muted-foreground hover:text-blue-500 transition-colors p-0.5" title="Edit Item"><Edit2 size={10}/></button>}
                             <button onClick={() => deleteWalletItem(item.id, item.type)} className="text-muted-foreground hover:text-destructive transition-colors p-0.5" title="Remove Item"><Trash2 size={10}/></button>
                         </div>
                     )}
