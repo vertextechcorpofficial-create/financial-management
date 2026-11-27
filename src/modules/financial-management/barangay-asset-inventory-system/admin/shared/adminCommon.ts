@@ -39,6 +39,10 @@ export interface ReferenceColumn {
 export interface ReferenceRow {
   id: number;
   values: Record<string, string>;
+  /** active rows are offered in the dropdowns, retired ones are kept for old records */
+  status?: string;
+  /** how many records point at this row. Above zero, delete is refused and retire is offered */
+  usage?: number;
 }
 
 export interface ListSpec {
