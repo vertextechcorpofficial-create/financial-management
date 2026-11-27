@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useState, type ComponentType } from "react";
 import { BadgeCheck, CheckCircle2, Plus, RotateCcw, Search, SearchX, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
@@ -17,12 +18,15 @@ import { agencyOptions, requestDocumentUrl } from "../requests/request-api";
 import { applicationPageSizes, requestStatusLabels, type AgencyChoice, type EmployeeChoice } from "../requests/types";
 import { getEnrollment, importBatches, listEnrollments } from "./api";
 import { EnrollmentDetails } from "./EnrollmentDetails";
-import { EnrollmentEditor } from "./EnrollmentEditor";
 import { EnrollmentEvidenceEditor } from "./EnrollmentEvidenceEditor";
 import { LoanImportDialog, LoanImportHistoryDialog } from "./LoanImportsDialog";
 import type { EnrollmentImportBatch } from "./import-types";
 import { deductionMonthLabel } from "./rules";
 import { enrollmentSorts, type EnrollmentDetail, type EnrollmentListItem, type EnrollmentPage, type EnrollmentSort } from "./types";
+
+const EnrollmentEditor = dynamic(() => import("./EnrollmentEditor").then(module => module.EnrollmentEditor), {
+  ssr: false, loading: () => null,
+});
 
 type Filters = { q: string; agency: string; status: string };
 type Direction = "asc" | "desc";
