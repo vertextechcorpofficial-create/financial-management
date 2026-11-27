@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 
 import { PageShell } from "@/modules/financial-management/management-analytics/analytics-overview/components/PageShell";
 import { OverviewModule } from "@/modules/financial-management/management-analytics/analytics-overview/components/OverviewModule";
 import { PAGE_SIZE } from "@/modules/financial-management/management-analytics/analytics-overview/constants";
 import { loadOverview } from "@/modules/financial-management/management-analytics/analytics-overview/services/overview.service";
-import { AnalyticsShell } from "@/modules/financial-management/management-analytics/shared/AnalyticsShell";
-import { ReadFailure } from "@/modules/financial-management/management-analytics/shared/BoardKit";
+import { AnalyticsShell } from "@/modules/financial-management/management-analytics/analytics-overview/components/AnalyticsShell";
+import { ReadFailure } from "@/modules/financial-management/management-analytics/analytics-overview/components/BoardKit";
+import { MA_FILTERS_COOKIE } from "@/modules/financial-management/management-analytics/analytics-overview/components/analytics-screens";
 import type { OverviewPayload } from "@/modules/financial-management/management-analytics/analytics-overview/types";
 
 export const runtime = "nodejs";
@@ -17,13 +19,29 @@ interface PageProps {
   searchParams: Promise<{ company?: string; period?: string; page?: string; size?: string; status?: string }>;
 }
 
+async function readServerFilters(): Promise<{ company?: string; period?: string }> {
+  try {
+    const cookieStore = await cookies();
+    const raw = cookieStore.get(MA_FILTERS_COOKIE)?.value;
+    if (!raw) return {};
+    const parsed = JSON.parse(decodeURIComponent(raw)) as { company?: string; period?: string };
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export default async function Page({ searchParams }: PageProps) {
   const params = await searchParams;
+  const saved = await readServerFilters();
 
   let payload: OverviewPayload | null = null;
   let failure: string | null = null;
   try {
-    payload = await loadOverview({ company: params.company, asOf: params.period });
+    payload = await loadOverview({
+      company: params.company ?? saved.company,
+      asOf: params.period ?? saved.period,
+    });
   } catch (error) {
     failure = error instanceof Error ? error.message : "The overview read failed without a message.";
   }
@@ -38,7 +56,6 @@ export default async function Page({ searchParams }: PageProps) {
     );
   }
 
-  const page = Number(params.page ?? "1");
   const size = Number(params.size ?? String(PAGE_SIZE));
 
   return (
@@ -46,11 +63,9 @@ export default async function Page({ searchParams }: PageProps) {
       <AnalyticsShell>
         <OverviewModule
           payload={payload}
-          page={Number.isFinite(page) && page > 0 ? page : 1}
           pageSize={Number.isFinite(size) && size > 0 ? size : PAGE_SIZE}
           basePath="/fm/management-analytics/analytics-overview"
           status={params.status}
-          company={params.company}
         />
       </AnalyticsShell>
     </PageShell>

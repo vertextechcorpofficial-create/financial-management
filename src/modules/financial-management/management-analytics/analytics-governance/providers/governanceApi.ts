@@ -41,7 +41,16 @@ export async function savePolicy(key: string, value: string): Promise<void> {
   if (!response.ok) throw new Error(await readError(response));
 }
 
-export async function raiseChange(input: { summary: string; kpiId: number | null }): Promise<void> {
+export async function updateCompany(id: number, input: { name: string; currency: string }): Promise<void> {
+  const response = await fetch(`${BASE}/company/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+}
+
+export async function raiseChange(input: { summary: string; kpiId: number | null; changeType?: string | null }): Promise<void> {
   const response = await fetch(`${BASE}/change`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

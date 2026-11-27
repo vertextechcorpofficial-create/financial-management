@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { PageShell } from "@/modules/financial-management/management-analytics/analytics-cadence/components/PageShell";
 import { CadenceModule } from "@/modules/financial-management/management-analytics/analytics-cadence/components/CadenceModule";
-import { AnalyticsShell } from "@/modules/financial-management/management-analytics/shared/AnalyticsShell";
+import { AnalyticsShell } from "@/modules/financial-management/management-analytics/analytics-cadence/components/AnalyticsShell";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

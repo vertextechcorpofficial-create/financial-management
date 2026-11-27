@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 interface Body {
   summary?: string;
   kpiId?: number | null;
+  changeType?: string | null;
 }
 
 export async function POST(request: Request) {
@@ -14,7 +15,11 @@ export async function POST(request: Request) {
     const body = (await request.json()) as Body;
     const kpiId = body.kpiId === null || body.kpiId === undefined ? null : Number(body.kpiId);
     const result = await raiseChange(
-      { summary: String(body.summary ?? ""), kpiId: Number.isFinite(kpiId) && kpiId !== null ? kpiId : null },
+      {
+        summary: String(body.summary ?? ""),
+        kpiId: Number.isFinite(kpiId) && kpiId !== null ? kpiId : null,
+        changeType: body.changeType ?? null,
+      },
       await currentUserId(),
     );
     return ok(result);

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { asBoolean, asNumber, asNumberOrNull, asString, createItem, getItem, listItems, updateItem } from "./directus";
-import { DEFAULT_POLICY, statusOf } from "./engine";
+import { DEFAULT_POLICY, forecast, statusOf } from "./engine";
 import { phtStamp, phtToday } from "../pht";
 import type {
   CompanyRow,
@@ -12,12 +12,39 @@ import type {
   KpiRow,
   PeriodPoint,
   Policy,
+  ProvisionalWatchRow,
   StatusCode,
   VarianceScanResult,
 } from "../types";
 
 const MONTHS = 24;
 const OPEN_STATUSES = ["OPEN", "MONITORING", "ESCALATED", "RECURRENCE"];
+const ERP_LIVE_KEYS = new Set([
+  "dist.opex",
+  "dist.ncr",
+  "dist.capa",
+  "dist.abs",
+  "dist.tardy",
+  "dist.ot",
+  "dist.fill",
+  "dist.otif",
+  "dist.pick",
+  "dist.freight",
+]);
+
+async function resolveMen2Name(): Promise<string> {
+  try {
+    const res = await listItems<Record<string, unknown>>("company_list", {
+      fields: ["company_name"],
+      filter: { company_code: { _eq: "MEN2" }, status: { _eq: "ACTIVE" } },
+      limit: 1,
+    });
+    const name = res.rows[0] ? asString(res.rows[0].company_name) : "";
+    return name || "MEN2";
+  } catch {
+    return "MEN2";
+  }
+}
 
 interface SettingAll {
   setting_key: string;
@@ -95,11 +122,20 @@ function mapReading(row: Record<string, unknown>): ExceptionReadingRow {
   };
 }
 
+function parseOwnerFromMemo(rawMemo: string | null): { owner: string | null; body: string | null } {
+  if (!rawMemo) return { owner: null, body: null };
+  const match = /^\[Owner:\s*([^\]]+)\]\s*(?:\r?\n)?([\s\S]*)$/i.exec(rawMemo);
+  if (!match) return { owner: null, body: rawMemo };
+  return { owner: match[1].trim() || null, body: match[2].trim() || null };
+}
+
 function mapException(
   row: Record<string, unknown>,
   company?: CompanyRow,
   kpi?: KpiRow,
 ): ExceptionListRow {
+  const rawMemo = row.memo ? asString(row.memo) : null;
+  const parsedMemo = parseOwnerFromMemo(rawMemo);
   return {
     id: asNumber(row.id),
     company_id: asNumber(row.company_id),
@@ -111,7 +147,7 @@ function mapException(
     owner_user_id: asNumberOrNull(row.owner_user_id),
     memo_due_date: row.memo_due_date ? asString(row.memo_due_date) : null,
     memo_at: row.memo_at ? asString(row.memo_at) : null,
-    memo: row.memo ? asString(row.memo) : null,
+    memo: parsedMemo.body ?? rawMemo,
     memo_by: asNumberOrNull(row.memo_by),
     escalated_level: asNumber(row.escalated_level),
     escalated_at: row.escalated_at ? asString(row.escalated_at) : null,
@@ -127,6 +163,9 @@ function mapException(
     kpiName: kpi?.name ?? "",
     unit: kpi?.unit ?? null,
     dp: kpi?.dp ?? 1,
+    ownerPosition: parsedMemo.owner ?? kpi?.owner_position ?? null,
+    suggestedOwner: kpi?.owner_position ?? null,
+    sourceCodes: kpi?.source_codes ?? null,
   };
 }
 
@@ -181,7 +220,7 @@ async function loadHolidays(): Promise<Set<string>> {
 }
 
 async function loadBase(): Promise<{ companies: CompanyRow[]; kpis: KpiRow[]; policy: Policy }> {
-  const [companyRows, kpiRows, settingRows] = await Promise.all([
+  const [companyRows, kpiRows, settingRows, men2Name] = await Promise.all([
     listItems<Record<string, unknown>>("ma_company", {
       fields: ["id", "code", "name", "kind", "parent_code", "industry", "currency", "fx_to_php", "revenue_weight", "headcount", "sort", "is_active"],
       sort: ["sort", "code"],
@@ -194,10 +233,19 @@ async function loadBase(): Promise<{ companies: CompanyRow[]; kpis: KpiRow[]; po
       limit: 400,
     }),
     listItems<Record<string, unknown>>("ma_setting", { fields: ["setting_key", "value"], limit: 50 }),
+    resolveMen2Name(),
   ]);
+  const companies = companyRows.rows
+    .map(mapCompany)
+    .filter((row) => row.is_active && row.code === "dist")
+    .map((row) => ({ ...row, name: men2Name, industry: "Distribution" }));
+  const distCompany = companies[0] ?? null;
+  const kpis = kpiRows.rows
+    .map(mapKpi)
+    .filter((kpi) => ERP_LIVE_KEYS.has(kpi.kpi_key) && (!distCompany || kpi.company_id === distCompany.id));
   return {
-    companies: companyRows.rows.map(mapCompany),
-    kpis: kpiRows.rows.map(mapKpi),
+    companies,
+    kpis,
     policy: loadPolicy(
       settingRows.rows.map((row) => ({ setting_key: asString(row.setting_key), value: asString(row.value) })),
     ),
@@ -212,7 +260,9 @@ export async function loadRegister(params: {
   page?: number;
   size?: number;
 }): Promise<ExceptionBoard> {
-  const [{ companies, kpis, policy }, exceptionRows] = await Promise.all([
+  const asOfMonth = phtToday().slice(0, 7);
+  const watchPeriods = lastPeriods(asOfMonth, 14);
+  const [{ companies, kpis, policy }, exceptionRows, actualRows, targetRows] = await Promise.all([
     loadBase(),
     listItems<Record<string, unknown>>("ma_exception", {
       fields: [
@@ -223,12 +273,20 @@ export async function loadRegister(params: {
       sort: ["-period_end", "-deviation"],
       limit: 800,
     }),
+    listItems<Record<string, unknown>>("ma_kpi_actual", {
+      fields: ["kpi_id", "period", "value"],
+      filter: { period: { _in: watchPeriods }, source_code: { _eq: "ERP" } },
+      limit: 5000,
+    }).catch(() => ({ rows: [] as Record<string, unknown>[] })),
+    listItems<Record<string, unknown>>("ma_kpi_target", {
+      fields: ["kpi_id", "period", "target"],
+      filter: { period: { _in: watchPeriods } },
+      limit: 5000,
+    }).catch(() => ({ rows: [] as Record<string, unknown>[] })),
   ]);
 
   const companyById = new Map(companies.map((row) => [row.id, row]));
   const kpiById = new Map(kpis.map((row) => [row.id, row]));
-  // An unknown code used to filter to nothing and read as "no exceptions", which is the same
-  // answer a healthy company gives. Name the value and the codes that do exist instead.
   if (params.company && params.company !== "ALL" && !companies.some((row) => row.code === params.company)) {
     const error = new Error(
       `Unknown company "${params.company}". Known codes: ${companies.map((row) => row.code).join(", ")}.`,
@@ -237,9 +295,75 @@ export async function loadRegister(params: {
     throw error;
   }
   const today = phtToday();
-  let rows = exceptionRows.rows.map((row) =>
-    mapException(row, companyById.get(asNumber(row.company_id)), kpiById.get(asNumber(row.kpi_id))),
-  );
+  let rows = exceptionRows.rows
+    .filter((row) => kpiById.has(asNumber(row.kpi_id)) && companyById.has(asNumber(row.company_id)))
+    .map((row) => mapException(row, companyById.get(asNumber(row.company_id)), kpiById.get(asNumber(row.kpi_id))));
+
+  // Build position options per company + Holdings escalation positions
+  const holdingsPositions = ["Group Executive Committee", "Group CFO", "VP Operations", "Company General Manager"];
+  const positionsByCompany: Record<string, string[]> = {};
+  for (const co of companies) {
+    const pos = new Set<string>();
+    for (const k of kpis) {
+      if (k.company_id === co.id && k.owner_position) pos.add(k.owner_position);
+    }
+    for (const hp of holdingsPositions) pos.add(hp);
+    positionsByCompany[co.code] = Array.from(pos);
+  }
+
+  // Real provisional / watch / high-forecast-risk scan from KPI series (never regex on exception.reason)
+  const actualByKpi = new Map<number, Map<string, number>>();
+  for (const row of actualRows.rows) {
+    const id = asNumber(row.kpi_id);
+    if (!actualByKpi.has(id)) actualByKpi.set(id, new Map());
+    actualByKpi.get(id)!.set(asString(row.period), asNumber(row.value));
+  }
+  const targetByKpi = new Map<number, Map<string, number>>();
+  for (const row of targetRows.rows) {
+    const id = asNumber(row.kpi_id);
+    if (!targetByKpi.has(id)) targetByKpi.set(id, new Map());
+    targetByKpi.get(id)!.set(asString(row.period), asNumber(row.target));
+  }
+
+  const provisional: ProvisionalWatchRow[] = [];
+  for (const kpi of kpis) {
+    const co = companyById.get(kpi.company_id);
+    if (!co) continue;
+    if (params.company && params.company !== "ALL" && co.code !== params.company) continue;
+    const pts: PeriodPoint[] = watchPeriods.map((p) => ({
+      period: p,
+      actual: actualByKpi.get(kpi.id)?.get(p) ?? null,
+      target: targetByKpi.get(kpi.id)?.get(p) ?? null,
+    }));
+    const idx = pts.findLastIndex((p) => p.actual !== null);
+    if (idx < 0) continue;
+    const st = statusOf(kpi, pts, idx, policy);
+    const fc = forecast(pts, kpi, 1);
+    const probPct = fc.breachProbability !== null ? Math.round(fc.breachProbability * 100) : null;
+    if (st.code === "PROVISIONAL" || st.code === "WATCH" || (st.code === "ON_TRACK" && (probPct ?? 0) >= 60)) {
+      const confirmsIf =
+        st.code === "PROVISIONAL"
+          ? `Another period over ${kpi.threshold ?? 0}${kpi.rule_type === "PCT" ? "%" : ""} confirms breach`
+          : st.code === "WATCH"
+            ? "Crossing limit enters confirmation run"
+            : "Forecast risk ≥ 60% next period";
+      provisional.push({
+        kpiId: kpi.id,
+        companyCode: co.code,
+        companyName: co.name,
+        kpiKey: kpi.kpi_key,
+        kpiName: kpi.name,
+        period: pts[idx].period,
+        statusCode: st.code === "PROVISIONAL" ? "PROVISIONAL" : st.code === "WATCH" ? "WATCH" : "FORECAST_RISK",
+        varianceText: st.deviation?.text ?? "—",
+        reason: st.run?.reason ?? st.label,
+        confirmsIf,
+        breachProbPct: probPct,
+        sourceCodes: kpi.source_codes,
+      });
+    }
+  }
+  provisional.sort((a, b) => (b.breachProbPct ?? 0) - (a.breachProbPct ?? 0));
 
   const counts: Record<string, number> = {};
   for (const row of rows) counts[row.status] = (counts[row.status] ?? 0) + 1;
@@ -283,6 +407,8 @@ export async function loadRegister(params: {
     page,
     size,
     rows: rows.slice((page - 1) * size, (page - 1) * size + size),
+    provisional: provisional.slice(0, 20),
+    positionsByCompany,
     policy,
   };
 }
@@ -330,7 +456,7 @@ export async function scanPeriod(params: {
     loadHolidays(),
     listItems<Record<string, unknown>>("ma_kpi_actual", {
       fields: ["kpi_id", "period", "value"],
-      filter: { period: { _in: periods } },
+      filter: { period: { _in: periods }, source_code: { _eq: "ERP" } },
       limit: 6000,
     }),
     listItems<Record<string, unknown>>("ma_kpi_target", {
@@ -429,12 +555,33 @@ export async function scanPeriod(params: {
   return { period: asOf, scanned: kpis.length, created, skipped, touched };
 }
 
-export async function fileMemo(id: number, memo: string, actorId: number | null): Promise<ExceptionDetail> {
+export async function fileMemo(
+  id: number,
+  memo: string,
+  actorId: number | null,
+  ownerPosition?: string | null,
+): Promise<ExceptionDetail> {
+  const formattedMemo = ownerPosition?.trim() ? `[Owner: ${ownerPosition.trim()}]\n${memo.trim()}` : memo.trim();
   await updateItem("ma_exception", id, {
-    memo,
+    memo: formattedMemo,
     memo_by: actorId,
     memo_at: phtStamp(),
     status: "MONITORING",
+    updated_at: phtStamp(),
+    updated_by: actorId,
+  });
+  return loadDetail(id);
+}
+
+export async function reopenException(
+  id: number,
+  note: string | null,
+  actorId: number | null,
+): Promise<ExceptionDetail> {
+  await updateItem("ma_exception", id, {
+    status: "MONITORING",
+    closed_at: null,
+    close_note: note?.trim() ? `Reopened: ${note.trim()}` : "Reopened for further monitoring",
     updated_at: phtStamp(),
     updated_by: actorId,
   });

@@ -2,32 +2,44 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-import type { Forecast } from "../analytics-overview/services/engine";
-import { formatNumber } from "../analytics-overview/services/engine";
-import type { PeriodPoint } from "../analytics-overview/types";
+export interface ChartPoint {
+  period: string;
+  actual: number | null;
+  target: number | null;
+}
 
-/**
- * The chart language for the analytics boards: plain SVG and CSS-sized divs, no library.
- * Every figure is `tabular-nums`; every colour is a semantic token class so the theme carries.
- */
+export interface ChartForecast {
+  enoughHistory: boolean;
+  points: number[];
+  band80: number[];
+  band95: number[];
+}
+
+function fmtNum(value: number, dp = 1): string {
+  if (!Number.isFinite(value)) return "—";
+  return value.toLocaleString("en-PH", {
+    minimumFractionDigits: dp,
+    maximumFractionDigits: dp,
+  });
+}
 
 export type Tone = "success" | "warning" | "danger" | "info" | "primary" | "muted";
 
 export const TONE_TEXT: Record<Tone, string> = {
-  success: "text-success",
-  warning: "text-warning",
-  danger: "text-destructive",
-  info: "text-info",
-  primary: "text-primary",
+  success: "text-emerald-700 dark:text-emerald-400",
+  warning: "text-amber-700 dark:text-amber-400",
+  danger: "text-rose-700 dark:text-rose-400",
+  info: "text-sky-700 dark:text-sky-400",
+  primary: "text-teal-700 dark:text-teal-400",
   muted: "text-muted-foreground",
 };
 
 export const TONE_FILL: Record<Tone, string> = {
-  success: "bg-success",
-  warning: "bg-warning",
-  danger: "bg-destructive",
-  info: "bg-info",
-  primary: "bg-primary",
+  success: "bg-emerald-600 dark:bg-emerald-500",
+  warning: "bg-amber-600 dark:bg-amber-500",
+  danger: "bg-rose-600 dark:bg-rose-500",
+  info: "bg-sky-600 dark:bg-sky-500",
+  primary: "bg-teal-700 dark:bg-teal-500",
   muted: "bg-muted-foreground",
 };
 
@@ -44,8 +56,12 @@ export function Legend({ items }: { items: Array<{ label: string; className: str
         <span key={item.label} className="flex items-center gap-1.5">
           <span
             aria-hidden
-            className={cn("inline-block h-0.5 w-3.5", item.className, item.dashed && "opacity-70")}
-            style={item.dashed ? { backgroundImage: "repeating-linear-gradient(to right, currentColor 0 3px, transparent 3px 6px)" } : undefined}
+            className={cn("inline-block h-0.5 w-3.5", item.className, item.dashed && "opacity-75")}
+            style={
+              item.dashed
+                ? { backgroundImage: "repeating-linear-gradient(to right, currentColor 0 3px, transparent 3px 6px)" }
+                : undefined
+            }
           />
           {item.label}
         </span>
@@ -54,10 +70,10 @@ export function Legend({ items }: { items: Array<{ label: string; className: str
   );
 }
 
-/** Twelve-month trend with a target line: the tile's miniature. */
-export function Sparkline({ points, tone = "primary" }: { points: PeriodPoint[]; tone?: Tone }) {
+/** Twelve-month trend with target line: the KPI tile's miniature sparkline. */
+export function Sparkline({ points, tone = "primary" }: { points: ChartPoint[]; tone?: Tone }) {
   const series = points.slice(-12).filter((point) => point.actual !== null);
-  if (series.length < 2) return <span className="text-[11px] text-muted-foreground">Not enough history</span>;
+  if (series.length < 2) return <span className="font-mono text-[11px] text-muted-foreground">—</span>;
 
   const values = series.map((point) => point.actual as number);
   const targets = series.map((point) => point.target).filter((value): value is number => value !== null);
@@ -75,25 +91,23 @@ export function Sparkline({ points, tone = "primary" }: { points: PeriodPoint[];
     <svg viewBox={`0 0 ${width} ${height}`} className="h-[34px] w-[120px] overflow-visible" aria-hidden>
       {targets.length > 0 ? (
         <path
-          d={series.map((point, index) => `${index === 0 ? "M" : "L"}${x(index).toFixed(1)} ${y(point.target ?? values[index]).toFixed(1)}`).join(" ")}
+          d={series
+            .map((point, index) => `${index === 0 ? "M" : "L"}${x(index).toFixed(1)} ${y(point.target ?? values[index]).toFixed(1)}`)
+            .join(" ")}
           fill="none"
           stroke="currentColor"
           strokeWidth={1}
           strokeDasharray="3 2"
-          className="text-muted-foreground/60"
+          className="text-muted-foreground/55"
         />
       ) : null}
-      <path d={path} fill="none" stroke="currentColor" strokeWidth={1.6} className={TONE_TEXT[tone]} />
-      <circle cx={x(values.length - 1)} cy={y(values[values.length - 1])} r={2.4} fill="currentColor" className={TONE_TEXT[tone]} />
+      <path d={path} fill="none" stroke="currentColor" strokeWidth={1.7} className={TONE_TEXT[tone]} />
+      <circle cx={x(values.length - 1)} cy={y(values[values.length - 1])} r={2.5} fill="currentColor" className={TONE_TEXT[tone]} />
     </svg>
   );
 }
 
-/**
- * Full trend: tolerance band, target, actual, and the three-month forecast with its ranges.
- * `bandPct` is the tolerance as a fraction of target. Pass it only when the rule is a percent.
- * of target, otherwise the band would claim a tolerance the KPI does not have.
- */
+/** Full trend chart with tolerance band, target dashed rule, actual line, and 3-month forecast cone. */
 export function TrendChart({
   points,
   dp = 1,
@@ -102,12 +116,12 @@ export function TrendChart({
   bandPct,
   forecast,
 }: {
-  points: PeriodPoint[];
+  points: ChartPoint[];
   dp?: number;
   height?: number;
   tone?: Tone;
   bandPct?: number;
-  forecast?: Forecast | null;
+  forecast?: ChartForecast | null;
 }) {
   const history = points.filter((point) => point.actual !== null || point.target !== null).slice(-18);
   if (history.length < 2) {
@@ -116,8 +130,8 @@ export function TrendChart({
 
   const forward = forecast?.enoughHistory ? forecast.points : [];
   const width = 600;
-  const left = 46;
-  const right = 26;
+  const left = 52;
+  const right = 24;
   const top = 12;
   const bottom = 26;
   const plotWidth = width - left - right;
@@ -151,16 +165,26 @@ export function TrendChart({
       .filter(Boolean)
       .join(" ");
 
-  const actualPath = line(history.map((point) => point.actual), 0);
-  const targetPath = line(history.map((point) => point.target), 0);
-  const forecastPath = forward.length > 0
-    ? line([history[history.length - 1]?.actual ?? null, ...forward], history.length - 1)
-    : "";
+  const actualPath = line(
+    history.map((point) => point.actual),
+    0,
+  );
+  const targetPath = line(
+    history.map((point) => point.target),
+    0,
+  );
+  const forecastPath =
+    forward.length > 0 ? line([history[history.length - 1]?.actual ?? null, ...forward], history.length - 1) : "";
 
   const band = bandPct
     ? (() => {
-        const upper = history.map((point, index) => (point.target === null ? null : `${x(index).toFixed(1)} ${y(point.target * (1 + bandPct)).toFixed(1)}`)).filter(Boolean);
-        const lower = history.map((point, index) => (point.target === null ? null : `${x(index).toFixed(1)} ${y(point.target * (1 - bandPct)).toFixed(1)}`)).filter(Boolean).reverse();
+        const upper = history
+          .map((point, index) => (point.target === null ? null : `${x(index).toFixed(1)} ${y(point.target * (1 + bandPct)).toFixed(1)}`))
+          .filter(Boolean);
+        const lower = history
+          .map((point, index) => (point.target === null ? null : `${x(index).toFixed(1)} ${y(point.target * (1 - bandPct)).toFixed(1)}`))
+          .filter(Boolean)
+          .reverse();
         return upper.length > 1 && lower.length > 1 ? `${upper.join(" L")} L${lower.join(" L")} Z` : "";
       })()
     : "";
@@ -188,35 +212,35 @@ export function TrendChart({
           return (
             <g key={index}>
               <line x1={left} x2={width - right} y1={gy} y2={gy} stroke="currentColor" strokeWidth={0.5} className="text-border" />
-              <text x={left - 6} y={gy + 3} textAnchor="end" fontSize={9} fill="currentColor" className="text-muted-foreground tabular-nums">
-                {formatNumber(value, dp)}
+              <text x={left - 6} y={gy + 3} textAnchor="end" fontSize={9} fill="currentColor" className="font-mono text-muted-foreground tabular-nums">
+                {fmtNum(value, dp)}
               </text>
             </g>
           );
         })}
 
-        {band ? <path d={band} fill="currentColor" className="text-primary opacity-[0.08]" /> : null}
-        {cone95 ? <path d={cone95} fill="currentColor" className="text-warning opacity-[0.10]" /> : null}
-        {cone80 ? <path d={cone80} fill="currentColor" className="text-warning opacity-[0.18]" /> : null}
+        {band ? <path d={band} fill="currentColor" className="text-teal-700/10 dark:text-teal-400/10" /> : null}
+        {cone95 ? <path d={cone95} fill="currentColor" className="text-amber-600/10 dark:text-amber-400/10" /> : null}
+        {cone80 ? <path d={cone80} fill="currentColor" className="text-amber-600/20 dark:text-amber-400/20" /> : null}
 
         {targetPath ? (
-          <path d={targetPath} fill="none" stroke="currentColor" strokeWidth={1.1} strokeDasharray="5 4" className="text-primary opacity-80" />
+          <path d={targetPath} fill="none" stroke="currentColor" strokeWidth={1.1} strokeDasharray="5 4" className="text-teal-700/80 dark:text-teal-400/80" />
         ) : null}
         {actualPath ? <path d={actualPath} fill="none" stroke="currentColor" strokeWidth={2} className="text-foreground" /> : null}
         {forecastPath ? (
-          <path d={forecastPath} fill="none" stroke="currentColor" strokeWidth={1.8} strokeDasharray="4 3" className="text-warning" />
+          <path d={forecastPath} fill="none" stroke="currentColor" strokeWidth={1.8} strokeDasharray="4 3" className="text-amber-600 dark:text-amber-400" />
         ) : null}
 
         {history.map((point, index) =>
           point.actual === null ? null : (
             <circle key={point.period} cx={x(index)} cy={y(point.actual)} r={2.6} fill="currentColor" className={TONE_TEXT[index === history.length - 1 ? tone : "muted"]}>
-              <title>{`${shortMonth(point.period)}: ${formatNumber(point.actual, dp)}${point.target !== null ? ` · target ${formatNumber(point.target, dp)}` : ""}`}</title>
+              <title>{`${shortMonth(point.period)}: ${fmtNum(point.actual, dp)}${point.target !== null ? ` · target ${fmtNum(point.target, dp)}` : ""}`}</title>
             </circle>
           ),
         )}
         {forward.map((value, index) => (
-          <circle key={`f${index}`} cx={x(history.length + index)} cy={y(value)} r={2.2} fill="none" stroke="currentColor" strokeWidth={1.4} className="text-warning">
-            <title>{`Forecast +${index + 1}: ${formatNumber(value, dp)}`}</title>
+          <circle key={`f${index}`} cx={x(history.length + index)} cy={y(value)} r={2.2} fill="none" stroke="currentColor" strokeWidth={1.4} className="text-amber-600 dark:text-amber-400">
+            <title>{`Forecast +${index + 1}: ${fmtNum(value, dp)}`}</title>
           </circle>
         ))}
 
@@ -229,7 +253,7 @@ export function TrendChart({
         )}
         {forward.map((_, index) =>
           index === forward.length - 1 ? (
-            <text key={`fl${index}`} x={x(history.length + index)} y={height - 8} textAnchor="middle" fontSize={9} fill="currentColor" className="text-warning">
+            <text key={`fl${index}`} x={x(history.length + index)} y={height - 8} textAnchor="middle" fontSize={9} fill="currentColor" className="text-amber-600 dark:text-amber-400">
               {`+${index + 1}`}
             </text>
           ) : null,
@@ -238,17 +262,17 @@ export function TrendChart({
       <Legend
         items={[
           { label: "Reading", className: "bg-foreground" },
-          ...(targetPath ? [{ label: "Target", className: "bg-primary", dashed: true }] : []),
-          ...(band ? [{ label: "Tolerance", className: "bg-primary/20" }] : []),
-          ...(forecastPath ? [{ label: "Forecast", className: "bg-warning", dashed: true }] : []),
-          ...(forecast?.band95.length ? [{ label: "80-95% range", className: "bg-warning/30" }] : []),
+          ...(targetPath ? [{ label: "Target", className: "bg-teal-700 dark:bg-teal-400", dashed: true }] : []),
+          ...(band ? [{ label: "Tolerance", className: "bg-teal-700/25 dark:bg-teal-400/25" }] : []),
+          ...(forecastPath ? [{ label: "Forecast", className: "bg-amber-600 dark:bg-amber-400", dashed: true }] : []),
+          ...(forecast?.band95.length ? [{ label: "80-95% range", className: "bg-amber-600/30 dark:bg-amber-400/30" }] : []),
         ]}
       />
     </div>
   );
 }
 
-/** Horizontal bars with the label and figure in fixed columns: the bridge rows. */
+/** Horizontal bars with label and right-aligned tabular figure. */
 export function BarList({
   rows,
   dp = 1,
@@ -266,7 +290,7 @@ export function BarList({
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       {rows.map((row) => (
-        <div key={row.label} className="grid grid-cols-[minmax(72px,1.1fr)_minmax(0,1fr)_auto] items-center gap-2 text-xs sm:grid-cols-[minmax(96px,150px)_minmax(0,1fr)_84px]">
+        <div key={row.label} className="grid grid-cols-[minmax(72px,1.1fr)_minmax(0,1fr)_auto] items-center gap-2 text-xs sm:grid-cols-[minmax(96px,150px)_minmax(0,1fr)_96px]">
           <span className={cn("truncate", row.emphasis ? "font-semibold text-foreground" : "text-muted-foreground")} title={row.label}>
             {row.label}
           </span>
@@ -276,8 +300,8 @@ export function BarList({
               style={{ width: `${Math.max(1.5, (Math.abs(row.value) / max) * 100)}%` }}
             />
           </span>
-          <span className={cn("text-right tabular-nums", row.emphasis ? "font-semibold" : "text-muted-foreground")}>
-            {formatNumber(row.value, dp)}
+          <span className={cn("text-right font-mono tabular-nums", row.emphasis ? "font-semibold text-foreground" : "text-muted-foreground")}>
+            {fmtNum(row.value, dp)}
             {unit ? <span className="ml-0.5 text-[11px] text-muted-foreground">{unit}</span> : null}
             {row.note ? <span className="ml-1 text-[11px] text-muted-foreground">{row.note}</span> : null}
           </span>
@@ -287,32 +311,43 @@ export function BarList({
   );
 }
 
-/** Vertical columns: a consolidation or EBITDA bridge, one column per step with a total. */
+/** Vertical bridge columns with optional scale-break indicator (`⫽`) on total bars. */
 export function BridgeBars({
   steps,
   dp = 1,
   unit,
+  showBreak = false,
 }: {
   steps: Array<{ label: string; value: number; tone?: Tone; total?: boolean }>;
   dp?: number;
   unit?: string;
+  showBreak?: boolean;
 }) {
   if (steps.length === 0) return null;
   const max = Math.max(...steps.map((step) => Math.abs(step.value)), 1e-9);
 
   return (
-    <div className="flex h-[176px] items-stretch gap-1.5 pt-1">
+    <div className="flex h-[182px] items-stretch gap-1.5 pt-1">
       {steps.map((step) => (
         <div key={step.label} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1">
-          <span className="text-[11px] tabular-nums text-muted-foreground">
-            {formatNumber(step.value, dp)}
+          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            {fmtNum(step.value, dp)}
             {unit ?? ""}
           </span>
           <span
-            className={cn("w-full max-w-14 rounded-t-sm", TONE_FILL[step.tone ?? "primary"], !step.total && "opacity-80")}
+            className={cn("relative w-full max-w-14 rounded-t-sm", TONE_FILL[step.tone ?? "primary"], !step.total && "opacity-80")}
             style={{ height: `${Math.max(2, (Math.abs(step.value) / max) * 108)}px` }}
-            title={`${step.label}: ${formatNumber(step.value, dp)}${unit ?? ""}`}
-          />
+            title={`${step.label}: ${fmtNum(step.value, dp)}${unit ?? ""}`}
+          >
+            {showBreak && step.total ? (
+              <span
+                aria-hidden
+                className="absolute inset-x-0 bottom-2 text-center font-mono text-[9px] font-bold leading-none text-background/90"
+              >
+                ⫽
+              </span>
+            ) : null}
+          </span>
           <span className="h-7 text-center text-[11px] leading-tight text-muted-foreground">{step.label}</span>
         </div>
       ))}
@@ -320,7 +355,6 @@ export function BridgeBars({
   );
 }
 
-/** One track split into proportional segments, with a legend: the status mix. */
 export function StackBar({
   segments,
   height = 8,
@@ -331,7 +365,7 @@ export function StackBar({
   legend?: boolean;
 }) {
   const total = segments.reduce((sum, segment) => sum + segment.value, 0);
-  if (total <= 0) return <span className="text-[11px] text-muted-foreground">No readings</span>;
+  if (total <= 0) return <span className="font-mono text-[11px] text-muted-foreground">—</span>;
 
   return (
     <div className="space-y-1.5">
@@ -339,7 +373,10 @@ export function StackBar({
         className="flex w-full overflow-hidden rounded-sm bg-muted"
         style={{ height }}
         role="img"
-        aria-label={segments.filter((segment) => segment.value > 0).map((segment) => `${segment.label} ${segment.value}`).join(", ")}
+        aria-label={segments
+          .filter((segment) => segment.value > 0)
+          .map((segment) => `${segment.label} ${segment.value}`)
+          .join(", ")}
       >
         {segments.map((segment) =>
           segment.value === 0 ? null : (
@@ -366,7 +403,6 @@ export function StackBar({
   );
 }
 
-/** A single measure filling a track, e.g. a health score or a coverage ratio. */
 export function Meter({ value, tone = "primary", height = 6 }: { value: number; tone?: Tone; height?: number }) {
   return (
     <span className="block w-full overflow-hidden rounded-sm bg-muted" style={{ height }}>
@@ -375,12 +411,11 @@ export function Meter({ value, tone = "primary", height = 6 }: { value: number; 
   );
 }
 
-/** Grouped cell for a heat table: the tone carries the status, the figure carries the magnitude. */
 export function HeatCell({ tone, children, strong }: { tone: Tone; children?: ReactNode; strong?: boolean }) {
   return (
     <span
       className={cn(
-        "inline-flex h-full w-full items-center justify-center rounded-sm px-1 py-1 text-[11px] tabular-nums",
+        "inline-flex h-full w-full items-center justify-center rounded-sm px-1.5 py-1 font-mono text-[11px] tabular-nums",
         TONE_TEXT[tone],
         strong ? "bg-muted font-semibold" : "bg-muted/50",
       )}

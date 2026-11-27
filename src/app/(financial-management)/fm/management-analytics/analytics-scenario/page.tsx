@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { PageShell } from "@/modules/financial-management/management-analytics/analytics-scenario/components/PageShell";
 import { ScenarioModule } from "@/modules/financial-management/management-analytics/analytics-scenario/components/ScenarioModule";
-import { AnalyticsShell } from "@/modules/financial-management/management-analytics/shared/AnalyticsShell";
+import { AnalyticsShell } from "@/modules/financial-management/management-analytics/analytics-scenario/components/AnalyticsShell";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

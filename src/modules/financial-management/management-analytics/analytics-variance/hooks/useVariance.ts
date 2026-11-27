@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { closeException, fetchBoard, fileMemo, fetchDetail, recordReading, scan, type BoardQuery } from "../providers/varianceApi";
+import {
+  closeException,
+  escalate,
+  fetchBoard,
+  fetchDetail,
+  fileMemo,
+  recordReading,
+  reopenException,
+  scan,
+  type BoardQuery,
+} from "../providers/varianceApi";
 import { DEFAULT_POLICY } from "../services/engine";
 import type { ExceptionBoard, ExceptionDetail } from "../types";
 
@@ -148,10 +158,10 @@ export function useVariance(initialSize = 10) {
     }
   };
 
-  const saveMemo = async (id: number, memo: string) => {
+  const saveMemo = async (id: number, memo: string, ownerPosition?: string | null) => {
     setSaving(true);
     try {
-      setDetail(await fileMemo(id, memo));
+      setDetail(await fileMemo(id, memo, ownerPosition));
       await load({ ...filters, page, size });
     } finally {
       setSaving(false);
@@ -168,11 +178,32 @@ export function useVariance(initialSize = 10) {
     }
   };
 
+  const reopen = async (id: number, note?: string) => {
+    setSaving(true);
+    try {
+      setDetail(await reopenException(id, note));
+      await load({ ...filters, page, size });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const addReading = async (id: number, period: string, value: number) => {
     setSaving(true);
     try {
       setDetail(await recordReading(id, period, value));
       await load({ ...filters, page, size });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runEscalate = async () => {
+    setSaving(true);
+    try {
+      const result = await escalate(board.asOf || undefined);
+      await load({ ...filters, page, size });
+      return result;
     } finally {
       setSaving(false);
     }
@@ -198,6 +229,8 @@ export function useVariance(initialSize = 10) {
     runScan,
     saveMemo,
     close,
+    reopen,
     addReading,
+    runEscalate,
   };
 }

@@ -13,6 +13,7 @@ const bodySchema = z.object({
   title: z.string().trim().min(3, "Say what will be done.").max(200),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-12-05.").nullish(),
   notes: z.string().max(2000).nullish(),
+  ownerPosition: z.string().trim().max(120).nullish(),
 });
 
 export async function POST(request: Request) {
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
         title: body.title,
         dueDate: body.dueDate ?? null,
         notes: body.notes ?? null,
+        ownerPosition: body.ownerPosition ?? null,
       },
       actorId,
     );

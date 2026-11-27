@@ -10,6 +10,7 @@ import {
   fetchGovernance,
   raiseChange,
   savePolicy,
+  updateCompany,
 } from "../providers/governanceApi";
 import type { GovernancePayload } from "../types";
 
@@ -68,9 +69,11 @@ export function useGovernance() {
       run(() => createAssignment(input), "Access granted."),
     removeAssignment: (id: number) => run(() => deleteAssignment(id), "Access removed."),
     setPolicy: (key: string, value: string) => run(() => savePolicy(key, value), "Policy saved."),
+    saveCompany: (id: number, input: { name: string; currency: string }) =>
+      run(() => updateCompany(id, input), "Company record updated."),
     decide: (id: number, status: "APPROVED" | "REJECTED", note: string) =>
       run(() => decideChange(id, status, note), status === "APPROVED" ? "Change approved." : "Change rejected."),
-    raise: (input: { summary: string; kpiId: number | null }) =>
+    raise: (input: { summary: string; kpiId: number | null; changeType?: string | null }) =>
       run(() => raiseChange(input), "Change raised for sign-off."),
   };
 }

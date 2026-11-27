@@ -33,7 +33,15 @@ export async function setAlertState(id: number, state: AlertState): Promise<{ id
   return read(response, "The alert could not be updated.");
 }
 
-export async function setAlertPolicy(id: number, body: { isEnabled?: boolean; channel?: string }): Promise<{ id: number }> {
+export async function markAllAlertsRead(): Promise<{ updated: number }> {
+  const response = await fetch("/api/fm/management-analytics/alerts/read-all", { method: "POST" });
+  return read(response, "Unread alerts could not be marked read.");
+}
+
+export async function setAlertPolicy(
+  id: number,
+  body: { isEnabled?: boolean; channel?: string; leadDays?: number; recipients?: string | null },
+): Promise<{ id: number }> {
   const response = await fetch(`/api/fm/management-analytics/alerts/policy/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

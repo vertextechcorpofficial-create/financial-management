@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asBoolean, asNumber, asNumberOrNull, asString, createItem, getItem, listItems, updateItem } from "./directus";
+import { asBoolean, asNumber, asNumberOrNull, asString, createItem, deleteItem, getItem, listItems, updateItem } from "./directus";
 import { phtStamp, phtToday } from "../pht";
 import type {
   AgendaItem,
@@ -13,6 +13,32 @@ import type {
 } from "../types";
 
 const OPEN_STATUSES = ["OPEN", "MONITORING", "ESCALATED", "RECURRENCE"];
+const ERP_LIVE_KEYS = new Set([
+  "dist.opex",
+  "dist.ncr",
+  "dist.capa",
+  "dist.abs",
+  "dist.tardy",
+  "dist.ot",
+  "dist.fill",
+  "dist.otif",
+  "dist.pick",
+  "dist.freight",
+]);
+
+async function resolveMen2Name(): Promise<string> {
+  try {
+    const res = await listItems<Record<string, unknown>>("company_list", {
+      fields: ["company_name"],
+      filter: { company_code: { _eq: "MEN2" }, status: { _eq: "ACTIVE" } },
+      limit: 1,
+    });
+    const name = res.rows[0] ? asString(res.rows[0].company_name) : "";
+    return name || "MEN2";
+  } catch {
+    return "MEN2";
+  }
+}
 
 function mapCompany(row: Record<string, unknown>): CompanyRow {
   return {
@@ -64,7 +90,24 @@ function mapItem(row: Record<string, unknown>): AgendaItem {
   };
 }
 
+function packActionNotes(ownerPosition: string | null | undefined, notes: string | null | undefined): string | null {
+  const pos = (ownerPosition ?? "").trim();
+  const body = (notes ?? "").trim();
+  if (!pos) return body || null;
+  return `[Owner: ${pos}]${body ? `\n${body}` : ""}`;
+}
+
+function unpackActionNotes(raw: unknown): { ownerPosition: string | null; notes: string | null } {
+  const text = raw ? asString(raw) : "";
+  if (!text) return { ownerPosition: null, notes: null };
+  const match = text.match(/^\[Owner:\s*([^\]]+)\](?:\r?\n([\s\S]*))?$/);
+  if (!match) return { ownerPosition: null, notes: text };
+  const body = (match[2] ?? "").trim();
+  return { ownerPosition: match[1].trim() || null, notes: body || null };
+}
+
 function mapAction(row: Record<string, unknown>): ActionRow {
+  const parsedNotes = unpackActionNotes(row.notes);
   return {
     id: asNumber(row.id),
     exception_id: asNumberOrNull(row.exception_id),
@@ -72,9 +115,10 @@ function mapAction(row: Record<string, unknown>): ActionRow {
     review_id: asNumberOrNull(row.review_id),
     title: asString(row.title),
     owner_user_id: asNumberOrNull(row.owner_user_id),
+    ownerPosition: parsedNotes.ownerPosition,
     due_date: row.due_date ? asString(row.due_date).slice(0, 10) : null,
     status: asString(row.status),
-    notes: row.notes ? asString(row.notes) : null,
+    notes: parsedNotes.notes,
     done_at: row.done_at ? asString(row.done_at) : null,
   };
 }
@@ -143,11 +187,14 @@ function mapException(row: Record<string, unknown>, kpi?: KpiRow): ExceptionList
     kpiName: kpi?.name ?? "",
     unit: kpi?.unit ?? null,
     dp: kpi?.dp ?? 1,
+    polarity: kpi?.polarity ?? undefined,
+    ownerPosition: kpi?.owner_position ?? null,
+    sourceCodes: kpi?.source_codes ?? null,
   };
 }
 
 async function loadContext() {
-  const [companyRows, kpiRows, exceptionRows, sourceRows] = await Promise.all([
+  const [companyRows, kpiRows, exceptionRows, sourceRows, men2Name] = await Promise.all([
     listItems<Record<string, unknown>>("ma_company", {
       fields: ["id", "code", "name", "kind", "parent_code", "industry", "currency", "fx_to_php", "revenue_weight", "headcount", "sort", "is_active"],
       sort: ["sort", "code"],
@@ -169,37 +216,54 @@ async function loadContext() {
       fields: ["id", "code", "name", "state", "last_sync_at", "sla_minutes"],
       limit: 50,
     }),
+    resolveMen2Name(),
   ]);
 
-  const kpis = kpiRows.rows.map((row) => ({
-    id: asNumber(row.id),
-    kpi_key: asString(row.kpi_key),
-    name: asString(row.name),
-    unit: row.unit ? asString(row.unit) : null,
-    dp: asNumber(row.dp),
-    company_id: asNumber(row.company_id),
-  })) as Array<Pick<KpiRow, "id" | "kpi_key" | "name" | "unit" | "dp" | "company_id">>;
+  const companies = companyRows.rows
+    .map(mapCompany)
+    .filter((row) => row.is_active && row.code === "dist")
+    .map((row) => ({ ...row, name: men2Name, industry: "Distribution" }));
+  const distCompany = companies[0] ?? null;
+
+  const kpis = kpiRows.rows
+    .map((row) => ({
+      id: asNumber(row.id),
+      kpi_key: asString(row.kpi_key),
+      name: asString(row.name),
+      unit: row.unit ? asString(row.unit) : null,
+      polarity: asString(row.polarity),
+      dp: asNumber(row.dp),
+      company_id: asNumber(row.company_id),
+      owner_position: row.owner_position ? asString(row.owner_position) : null,
+      source_codes: row.source_codes ? asString(row.source_codes) : null,
+    }))
+    .filter((kpi) => ERP_LIVE_KEYS.has(kpi.kpi_key) && (!distCompany || kpi.company_id === distCompany.id)) as Array<
+    Pick<KpiRow, "id" | "kpi_key" | "name" | "unit" | "polarity" | "dp" | "company_id" | "owner_position" | "source_codes">
+  >;
 
   const byId = new Map(kpis.map((kpi) => [kpi.id, kpi as KpiRow]));
-  const companies = companyRows.rows.map(mapCompany);
   const companyById = new Map(companies.map((row) => [row.id, row]));
-  const exceptions = exceptionRows.rows.map((row) => {
-    const mapped = mapException(row, byId.get(asNumber(row.kpi_id)));
-    const company = companyById.get(asNumber(row.company_id));
-    mapped.companyCode = company?.code ?? "";
-    mapped.companyName = company?.name ?? "";
-    return mapped;
-  });
+  const exceptions = exceptionRows.rows
+    .filter((row) => byId.has(asNumber(row.kpi_id)) && companyById.has(asNumber(row.company_id)))
+    .map((row) => {
+      const mapped = mapException(row, byId.get(asNumber(row.kpi_id)));
+      const company = companyById.get(asNumber(row.company_id));
+      mapped.companyCode = company?.code ?? "";
+      mapped.companyName = company?.name ?? men2Name;
+      return mapped;
+    });
   return {
     companies,
     exceptions,
-    sources: sourceRows.rows.map((row) => ({
-      code: asString(row.code),
-      name: asString(row.name),
-      state: asString(row.state),
-      last_sync_at: row.last_sync_at ? asString(row.last_sync_at) : null,
-      sla_minutes: asNumber(row.sla_minutes),
-    })),
+    sources: sourceRows.rows
+      .filter((row) => asString(row.code).toUpperCase() === "ERP")
+      .map((row) => ({
+        code: asString(row.code),
+        name: asString(row.name),
+        state: asString(row.state),
+        last_sync_at: row.last_sync_at ? asString(row.last_sync_at) : null,
+        sla_minutes: asNumber(row.sla_minutes),
+      })),
   };
 }
 
@@ -262,7 +326,7 @@ export function planAgenda(
 export async function loadReview(params: { period?: string; company?: string }): Promise<ReviewDetail> {
   const period = params.period && /^\d{4}-\d{2}$/.test(params.period) ? params.period : phtToday().slice(0, 7);
   const { companies, exceptions, sources } = await loadContext();
-  const company = companies.find((row) => row.code === params.company) ?? companies.find((row) => row.kind === "GROUP") ?? null;
+  const company = companies.find((row) => row.code === params.company) ?? companies[0] ?? null;
   const companyId = company?.id ?? 0;
 
   const reviewRows = await listItems<Record<string, unknown>>("ma_review", {
@@ -300,7 +364,7 @@ export async function loadReview(params: { period?: string; company?: string }):
   const staleness = sources.map((row) => {
     const last = row.last_sync_at ? new Date(row.last_sync_at).getTime() : null;
     const stale = row.state === "CONNECTED" && last !== null ? Date.now() - last > row.sla_minutes * 60_000 : row.state === "MANUAL" ? true : false;
-    return { code: row.code, name: row.name, stale };
+    return { code: row.code, name: row.name, state: row.state, last_sync_at: row.last_sync_at, sla_minutes: row.sla_minutes, stale };
   });
 
   return {
@@ -312,6 +376,13 @@ export async function loadReview(params: { period?: string; company?: string }):
     actions: namedActions,
     planned: review ? [] : planAgenda(scoped.filter((row) => OPEN_STATUSES.includes(row.status)), staleness),
     exceptions: scoped.filter((row) => OPEN_STATUSES.includes(row.status)),
+    staleSources: staleness.filter((row) => row.stale).map((row) => ({
+      code: row.code,
+      name: row.name,
+      state: row.state,
+      last_sync_at: row.last_sync_at,
+      sla_minutes: row.sla_minutes,
+    })),
   };
 }
 
@@ -359,10 +430,10 @@ export async function openReview(
 
 export async function updateReview(
   id: number,
-  patch: { attendees?: string | null; minutes?: string | null; status?: string; chairUserId?: number | null },
+  patch: { attendees?: string | null; minutes?: string | null; status?: string; chairUserId?: number | null; refreshAgenda?: boolean },
   actorId: number | null,
 ): Promise<ReviewDetail> {
-  const row = await getItem<Record<string, unknown>>("ma_review", id, ["id", "period", "company_id"]);
+  const row = await getItem<Record<string, unknown>>("ma_review", id, ["id", "period", "company_id", "status"]);
   if (!row) throw new Error("That review does not exist.");
   const payload: Record<string, unknown> = { updated_at: phtStamp(), updated_by: actorId };
   if (patch.attendees !== undefined) payload.attendees = patch.attendees;
@@ -373,7 +444,56 @@ export async function updateReview(
     if (patch.status === "FINAL") payload.held_at = phtStamp();
   }
   await updateItem("ma_review", id, payload);
-  const company = (await loadContext()).companies.find((item) => item.id === asNumber(row.company_id));
+
+  const ctx = await loadContext();
+  const company = ctx.companies.find((item) => item.id === asNumber(row.company_id)) ?? null;
+  const effectiveStatus = patch.status ?? asString(row.status);
+  if (patch.refreshAgenda && effectiveStatus === "DRAFT") {
+    const existingRows = (
+      await listItems<Record<string, unknown>>("ma_review_item", {
+        fields: ["id", "sort", "kind", "ref_type", "ref_id"],
+        filter: { review_id: { _eq: id } },
+        sort: ["sort"],
+        limit: 200,
+      })
+    ).rows.map((r) => ({
+      sort: asNumber(r.sort),
+      kind: asString(r.kind),
+      ref_type: r.ref_type ? asString(r.ref_type) : "",
+      ref_id: asNumberOrNull(r.ref_id) ?? "",
+    }));
+    const existingKeys = new Set(existingRows.map((r) => `${r.kind}:${r.ref_type}:${r.ref_id}`));
+    let nextSort = existingRows.reduce((max, r) => Math.max(max, r.sort), 0) + 1;
+
+    const scoped = ctx.exceptions.filter((item) => company === null || company.kind === "GROUP" || item.company_id === company.id);
+    const staleness = ctx.sources.map((src) => {
+      const last = src.last_sync_at ? new Date(src.last_sync_at).getTime() : null;
+      const stale = src.state === "CONNECTED" && last !== null ? Date.now() - last > src.sla_minutes * 60_000 : src.state === "MANUAL";
+      return { code: src.code, name: src.name, stale };
+    });
+    const candidates = planAgenda(scoped.filter((item) => OPEN_STATUSES.includes(item.status)), staleness);
+    for (const item of candidates) {
+      const key = `${item.kind}:${item.ref_type ?? ""}:${item.ref_id ?? ""}`;
+      if (existingKeys.has(key)) continue;
+      existingKeys.add(key);
+      await createItem("ma_review_item", {
+        review_id: id,
+        sort: nextSort++,
+        kind: item.kind,
+        ref_type: item.ref_type,
+        ref_id: item.ref_id,
+        title: item.title,
+        minutes_alloc: item.minutes_alloc,
+        notes: null,
+        decision: null,
+        created_at: phtStamp(),
+        created_by: actorId,
+        updated_at: phtStamp(),
+        updated_by: actorId,
+      });
+    }
+  }
+
   return loadReview({ period: asString(row.period), company: company?.code });
 }
 
@@ -391,7 +511,7 @@ export async function updateItemRow(
 }
 
 export async function createAction(
-  params: { reviewId?: number | null; exceptionId?: number | null; companyCode?: string; title: string; dueDate?: string | null; notes?: string | null },
+  params: { reviewId?: number | null; exceptionId?: number | null; companyCode?: string; title: string; dueDate?: string | null; notes?: string | null; ownerPosition?: string | null },
   actorId: number | null,
 ): Promise<ActionRow> {
   const { companies } = await loadContext();
@@ -404,7 +524,7 @@ export async function createAction(
     owner_user_id: actorId,
     due_date: params.dueDate ?? null,
     status: "OPEN",
-    notes: params.notes ?? null,
+    notes: packActionNotes(params.ownerPosition, params.notes),
     created_at: phtStamp(),
     created_by: actorId,
     updated_at: phtStamp(),
@@ -423,4 +543,8 @@ export async function completeAction(id: number, actorId: number | null): Promis
     updated_by: actorId,
   });
   return mapAction(updated);
+}
+
+export async function deleteAction(id: number): Promise<void> {
+  await deleteItem("ma_action", id);
 }

@@ -254,16 +254,55 @@ export interface RhythmRow {
   tone: Tone;
 }
 
+export interface CadenceScorecardItem {
+  id: number;
+  kpiKey: string;
+  name: string;
+  companyCode: string;
+  companyName: string;
+  unit: string | null;
+  dp: number;
+  sourceCodes: string | null;
+  actual: number | null;
+  target: number | null;
+  priorActual: number | null;
+  yoyActual: number | null;
+  ytdActual: number | null;
+  statusCode: StatusCode;
+  statusLabel: string;
+  varianceText: string;
+}
+
+export interface CadenceExceptionItem {
+  id: number;
+  companyCode: string;
+  companyName: string;
+  kpiName: string;
+  status: string;
+  relativePct: number;
+  memoDueDate: string | null;
+  memo: string | null;
+}
+
+export interface HeatmapDetailCell {
+  status: StatusCode;
+  varianceText: string;
+  actualText: string;
+}
+
 export interface CadencePayload {
   period: string;
   periods: string[];
   nearestPeriod: string | null;
   rows: CadenceRow[];
+  scorecard?: CadenceScorecardItem[];
+  openExceptions?: CadenceExceptionItem[];
   rhythms: RhythmRow[];
   /** Companies down, core measures across: one status per cell, NO_DATA where the month has no reading. */
   heatmap: {
     keys: Array<{ key: string; name: string }>;
     rows: Array<{ code: string; name: string; cells: StatusCode[] }>;
+    details?: Array<{ code: string; cells: HeatmapDetailCell[] }>;
   };
   totals: {
     health: number | null;

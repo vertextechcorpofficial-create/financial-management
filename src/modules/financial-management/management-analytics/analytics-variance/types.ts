@@ -122,6 +122,24 @@ export interface ExceptionListRow extends ExceptionRow {
   kpiName: string;
   unit: string | null;
   dp: number;
+  ownerPosition?: string | null;
+  suggestedOwner?: string | null;
+  sourceCodes?: string | null;
+}
+
+export interface ProvisionalWatchRow {
+  kpiId: number;
+  companyCode: string;
+  companyName: string;
+  kpiKey: string;
+  kpiName: string;
+  period: string;
+  statusCode: "PROVISIONAL" | "WATCH" | "FORECAST_RISK";
+  varianceText: string;
+  reason: string;
+  confirmsIf: string;
+  breachProbPct: number | null;
+  sourceCodes: string | null;
 }
 
 export interface ExceptionReadingRow {
@@ -150,6 +168,8 @@ export interface ExceptionBoard {
   page: number;
   size: number;
   rows: ExceptionListRow[];
+  provisional?: ProvisionalWatchRow[];
+  positionsByCompany?: Record<string, string[]>;
   /** The rule in force, so the board can state it without guessing. */
   policy: Policy;
 }

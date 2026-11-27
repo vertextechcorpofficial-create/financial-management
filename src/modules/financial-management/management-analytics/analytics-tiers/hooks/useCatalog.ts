@@ -109,6 +109,7 @@ export function useCatalog() {
 
   return {
     rows: data?.rows ?? [],
+    allOptions: data?.allOptions ?? [],
     total: data?.total ?? 0,
     counts: data?.counts ?? { CORE: 0, WORKFORCE: 0, INDUSTRY: 0, HOLDINGS: 0 },
     companies: data?.companies ?? [],

@@ -68,14 +68,14 @@ export function useData(initialPeriod?: string) {
     async (code: string) => {
       setSaving(true);
       try {
-        const result = await refreshSource(code);
-        await load(data?.period);
+        const result = await refreshSource(code, data?.period || initialPeriod);
+        await load(data?.period || initialPeriod);
         return result;
       } finally {
         setSaving(false);
       }
     },
-    [data?.period, load],
+    [data?.period, initialPeriod, load],
   );
 
   return {

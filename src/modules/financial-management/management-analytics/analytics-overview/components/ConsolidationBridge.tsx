@@ -1,24 +1,38 @@
-import { formatNumber } from "@/lib/utils";
-import { BridgeBars, type Tone } from "../../shared/Charts";
-import { Callout, Panel, PanelHead, SectionHeading } from "../../shared/BoardKit";
+"use client";
+
+import { useSearchParams } from "next/navigation";
+
+import { CURRENCY_PARAM, FX_PHP_PER_USD, type CurrencyCode } from "./analytics-screens";
+import { Callout, Panel, PanelHead, SectionHeading } from "./BoardKit";
+import { BridgeBars, type Tone } from "./Charts";
+import { formatNumber } from "../services/engine";
 import type { BridgeEntity, OverviewBridge } from "../types";
 
 const CURRENCY = new Intl.NumberFormat("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** ₱M a year, the unit the baselines are stored in, the same format the planner screen uses. */
-function money(value: number): string {
-  return `${value < 0 ? "−" : ""}₱${CURRENCY.format(Math.abs(value))}M`;
+function money(value: number, currency: CurrencyCode): string {
+  const scaled = currency === "USD" ? value / FX_PHP_PER_USD : value;
+  const sym = currency === "USD" ? "$" : "₱";
+  return `${scaled < 0 ? "−" : ""}${sym}${CURRENCY.format(Math.abs(scaled))}M`;
 }
 
-function EntityRow({ entity }: { entity: BridgeEntity }) {
+function scaleMoney(value: number, currency: CurrencyCode): number {
+  return currency === "USD" ? value / FX_PHP_PER_USD : value;
+}
+
+function EntityRow({ entity, currency }: { entity: BridgeEntity; currency: CurrencyCode }) {
   return (
     <tr className="border-t border-border/60 align-top">
       <td className="py-2 pr-3">
         <span className="block font-medium">{entity.name}</span>
-        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{entity.code}</span>
+        <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{entity.code}</span>
       </td>
-      <td className="py-2 pr-3 text-right tabular-nums">{entity.revenue === null ? <span className="text-muted-foreground">not reported</span> : money(entity.revenue)}</td>
-      <td className="py-2 pr-3 text-right tabular-nums">{entity.ebitda === null ? <span className="text-muted-foreground">not reported</span> : money(entity.ebitda)}</td>
+      <td className="py-2 pr-3 text-right font-mono tabular-nums">
+        {entity.revenue === null ? <span className="text-muted-foreground">—</span> : money(entity.revenue, currency)}
+      </td>
+      <td className="py-2 pr-3 text-right font-mono tabular-nums">
+        {entity.ebitda === null ? <span className="text-muted-foreground">—</span> : money(entity.ebitda, currency)}
+      </td>
       <td className="py-2 text-[11px] leading-snug text-muted-foreground">{entity.basis}</td>
     </tr>
   );
@@ -30,14 +44,16 @@ function TotalRow({
   note,
   accent,
   column = "revenue",
+  currency,
 }: {
   label: string;
   value: number;
   note?: string;
   accent?: boolean;
   column?: "revenue" | "ebitda";
+  currency: CurrencyCode;
 }) {
-  const cell = <td className="py-2 pr-3 text-right tabular-nums">{money(value)}</td>;
+  const cell = <td className="py-2 pr-3 text-right font-mono tabular-nums">{money(value, currency)}</td>;
   return (
     <tr className="border-t border-border/60">
       <td className="py-2 pr-3">
@@ -51,45 +67,53 @@ function TotalRow({
   );
 }
 
-/**
- * The reference's consolidation bridge: one column per company, the eliminations that turn the
- * company sum into the consolidated figure, then the Holdings charge that turns the entity EBITDA
- * sum into the group's. Every number here is derived from settings and the month's readings, and
- * the card says so, because the module stores no reported group profit and loss.
- */
 export function ConsolidationBridge({ bridge }: { bridge: OverviewBridge }) {
+  const search = useSearchParams();
+  const currency = (search.get(CURRENCY_PARAM) === "USD" ? "USD" : "PHP") as CurrencyCode;
+
   const reportedRows = bridge.entities.filter((entity) => entity.revenue !== null);
   const steps = [
-    ...reportedRows.map((entity) => ({ label: entity.code, value: entity.revenue ?? 0, tone: "info" as Tone })),
-    { label: "Gross", value: bridge.gross, tone: "primary" as Tone, total: true },
-    { label: "Eliminated", value: -bridge.eliminations, tone: "muted" as Tone },
-    { label: "Consolidated", value: bridge.consolidated, tone: "primary" as Tone, total: true },
+    ...reportedRows.map((entity) => ({
+      label: entity.code.toUpperCase(),
+      value: scaleMoney(entity.revenue ?? 0, currency),
+      tone: "info" as Tone,
+    })),
+    { label: "Gross", value: scaleMoney(bridge.gross, currency), tone: "primary" as Tone, total: true },
+    { label: "Eliminated", value: scaleMoney(-bridge.eliminations, currency), tone: "muted" as Tone },
+    { label: "Consolidated", value: scaleMoney(bridge.consolidated, currency), tone: "primary" as Tone, total: true },
   ];
   const eliminShare = bridge.gross > 0 ? (bridge.eliminations / bridge.gross) * 100 : null;
   const gapOver = bridge.gap !== null && bridge.gap.value > bridge.gap.ceiling;
+  const sym = currency === "USD" ? "$" : "₱";
 
   return (
     <>
       <SectionHeading
-        title="Consolidation bridge"
-        description={`Revenue per company at baseline, EBITDA from the ${bridge.asOf} readings, reconciled to the group.`}
-        right={<span className="text-[11px] text-muted-foreground">{`${bridge.reported} of ${bridge.total} reporting`}</span>}
+        title={`Consolidation bridge — revenue, ${bridge.asOf}`}
+        description="Intercompany sales are eliminated so internal trade is not counted twice."
+        right={
+          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            {`${bridge.reported} of ${bridge.total} reporting`}
+            {currency === "USD" ? ` · ₱${FX_PHP_PER_USD} = $1` : ""}
+          </span>
+        }
       />
-      <Panel>
+      <Panel className="p-4">
         <PanelHead
-          title="Revenue build to consolidated"
-          description="Intercompany sales are eliminated so internal trade is not counted twice."
+          title="Revenue & EBITDA build to consolidated"
+          description="Annual company baselines reconciled through eliminations and Holdings charge."
           count={`${bridge.entities.length} entities`}
+          className="-mx-4 -mt-4 mb-4"
         />
         <div className="overflow-x-auto">
           <div className="min-w-[560px]">
-            <BridgeBars steps={steps} dp={0} unit="M" />
+            <BridgeBars steps={steps} dp={0} unit="M" showBreak />
           </div>
         </div>
         <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
           {eliminShare === null
             ? "No company reported a baseline this month, so there is nothing to consolidate."
-            : `Eliminations take ${formatNumber(eliminShare, "en-PH", 1)}% of the ₱${formatNumber(bridge.gross, "en-PH", 0)}M gross. Revenue is the annual baseline each company is budgeted on, not a month of billings.`}
+            : `Eliminations take ${formatNumber(eliminShare, 1)}% of ${sym}${formatNumber(scaleMoney(bridge.gross, currency), 0)}M gross revenue. Revenue reflects the annual company baseline; EBITDA reflects ${bridge.asOf} readings.`}
         </p>
 
         <div className="mt-3 hidden overflow-x-auto md:block">
@@ -104,20 +128,41 @@ export function ConsolidationBridge({ bridge }: { bridge: OverviewBridge }) {
             </thead>
             <tbody>
               {bridge.entities.map((entity) => (
-                <EntityRow key={entity.code} entity={entity} />
+                <EntityRow key={entity.code} entity={entity} currency={currency} />
               ))}
             </tbody>
             <tfoot>
-              <TotalRow label="Sum of reported companies" value={bridge.gross} note={`${bridge.entities.length - reportedRows.length === 0 ? "all operating companies reported" : `${bridge.entities.length - reportedRows.length} not reported`}`} />
-              <TotalRow label="Less intercompany sales" value={-bridge.eliminations} note="Eliminated so internal trade is not counted twice" />
-              <TotalRow label="Consolidated revenue" value={bridge.consolidated} accent />
-              <TotalRow label="Less Holdings fee" value={-bridge.holdingsFee} note="One percent of consolidated revenue" column="ebitda" />
+              <TotalRow
+                label="Sum of reported companies"
+                value={bridge.gross}
+                note={
+                  bridge.entities.length - reportedRows.length === 0
+                    ? "All operating companies reported"
+                    : `${bridge.entities.length - reportedRows.length} not reported`
+                }
+                currency={currency}
+              />
+              <TotalRow
+                label="Less intercompany sales"
+                value={-bridge.eliminations}
+                note="Eliminated so internal trade is not counted twice"
+                currency={currency}
+              />
+              <TotalRow label="Consolidated revenue" value={bridge.consolidated} accent currency={currency} />
+              <TotalRow
+                label="Less Holdings fee"
+                value={-bridge.holdingsFee}
+                note="One percent of consolidated revenue"
+                column="ebitda"
+                currency={currency}
+              />
               <TotalRow
                 label="Group EBITDA"
                 value={bridge.groupEbitda}
-                note={`Entity EBITDA sums to ${money(bridge.ebitdaSum)} before the charge`}
+                note={`Entity EBITDA sums to ${money(bridge.ebitdaSum, currency)} before the charge`}
                 accent
                 column="ebitda"
+                currency={currency}
               />
             </tfoot>
           </table>
@@ -128,30 +173,22 @@ export function ConsolidationBridge({ bridge }: { bridge: OverviewBridge }) {
             <li key={entity.code} className="rounded-md border border-border/60 p-3">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-medium">{entity.name}</span>
-                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{entity.code}</span>
+                <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{entity.code}</span>
               </div>
               <dl className="mt-1.5 grid grid-cols-2 gap-x-3 text-[12px]">
                 <dt className="text-muted-foreground">Revenue / year</dt>
-                <dd className="text-right tabular-nums">{entity.revenue === null ? "not reported" : money(entity.revenue)}</dd>
+                <dd className="text-right font-mono tabular-nums">
+                  {entity.revenue === null ? "—" : money(entity.revenue, currency)}
+                </dd>
                 <dt className="text-muted-foreground">EBITDA / year</dt>
-                <dd className="text-right tabular-nums">{entity.ebitda === null ? "not reported" : money(entity.ebitda)}</dd>
+                <dd className="text-right font-mono tabular-nums">
+                  {entity.ebitda === null ? "—" : money(entity.ebitda, currency)}
+                </dd>
               </dl>
               <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{entity.basis}</p>
             </li>
           ))}
-          <li className="rounded-md border border-border/60 p-3 text-[12px]">
-            <dl className="grid grid-cols-2 gap-x-3">
-              <dt className="text-muted-foreground">Consolidated revenue</dt>
-              <dd className="text-right tabular-nums">{money(bridge.consolidated)}</dd>
-              <dt className="text-muted-foreground">Group EBITDA</dt>
-              <dd className="text-right tabular-nums">{money(bridge.groupEbitda)}</dd>
-            </dl>
-          </li>
         </ul>
-
-        <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
-          The group line is derived from the company rows above, not read from a reported consolidated statement: this module stores no group profit and loss, so the bridge reconciles to its own arithmetic rather than to a filed total.
-        </p>
 
         {bridge.gap ? (
           <div className="mt-3">
@@ -159,7 +196,7 @@ export function ConsolidationBridge({ bridge }: { bridge: OverviewBridge }) {
               tone={gapOver ? "warning" : "info"}
               title={gapOver ? "Intercompany imbalance is over its ceiling" : "Intercompany imbalance is within its ceiling"}
             >
-              {`₱${formatNumber(bridge.gap.value, "en-PH", 2)}M at ${bridge.gap.period} against a ₱${formatNumber(bridge.gap.ceiling, "en-PH", 2)}M ceiling: ${gapOver ? `over by ₱${formatNumber(bridge.gap.value - bridge.gap.ceiling, "en-PH", 2)}M, which is the part of the bridge that does not tie` : `₱${formatNumber(bridge.gap.ceiling - bridge.gap.value, "en-PH", 2)}M of headroom`}.`}
+              {`${money(bridge.gap.value, currency)} at ${bridge.gap.period} against a ${money(bridge.gap.ceiling, currency)} ceiling.`}
             </Callout>
           </div>
         ) : null}

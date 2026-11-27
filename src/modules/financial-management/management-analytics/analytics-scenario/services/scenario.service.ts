@@ -1,127 +1,98 @@
 import { listItems, createItem, deleteItem, updateItem, asNumber, asString, asBoolean } from "./directus";
 import { phtStamp } from "../pht";
 import { computeScenario, zeroLevers } from "./model";
-import type { BaselineRow, CompanyKind, Levers, ScenarioPayload, ScenarioRow } from "../types";
+import type { BaselineRow, Levers, ScenarioPayload, ScenarioRow } from "../types";
 
 type Row = Record<string, unknown>;
 
 const COMPANY_FIELDS = ["id", "code", "name", "kind", "sort"];
-const SETTING_FIELDS = ["setting_key", "value"];
 const KPI_FIELDS = ["id", "kpi_key", "tier", "unit"];
-const ACTUAL_FIELDS = ["kpi_id", "period", "value"];
 const SCENARIO_FIELDS = ["id", "name", "base_period", "fx_pct", "levers", "note", "is_active", "created_at", "created_by"];
-const KPI_SLUGS = ["cm", "ccc", "opex"];
-const DEFAULT_IMPORT: Record<string, number> = { dist: 0.35, mfg: 0.45, sw: 0.05, mech: 0.4, con: 0.2 };
-const DEFAULT_USD: Record<string, number> = { dist: 0.1, mfg: 0.6, sw: 0.4, mech: 0.5, con: 0.05 };
 
 const num = (value: unknown, fallback = 0) => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   return asNumber(value, fallback);
 };
 
-function settingNumber(settings: Map<string, string>, key: string, fallback: number): number {
-  const raw = settings.get(key);
-  if (raw === undefined || raw === "") return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-/** Latest reading of one KPI for one company code, from the stored actuals. */
-function latestActual(
-  readings: Map<string, { period: string; value: number }>,
-  code: string,
-  slug: string,
-): { period: string; value: number } | null {
-  return readings.get(`${code}.${slug}`) ?? null;
+async function resolveMen2Name(): Promise<string> {
+  try {
+    const res = await listItems<Row>("company_list", {
+      fields: ["company_name"],
+      filter: { company_code: { _eq: "MEN2" }, status: { _eq: "ACTIVE" } },
+      limit: 1,
+    });
+    const name = res.rows[0] ? asString(res.rows[0].company_name) : "";
+    return name || "MEN2";
+  } catch {
+    return "MEN2";
+  }
 }
 
 export async function loadScenario(): Promise<ScenarioPayload> {
   const notices: string[] = [];
 
-  const [companyResult, settingResult, kpiResult] = await Promise.all([
+  const [companyResult, kpiResult, men2Name, saved] = await Promise.all([
     listItems<Row>("ma_company", { fields: COMPANY_FIELDS, sort: "sort", limit: 50 }),
-    listItems<Row>("ma_setting", { fields: SETTING_FIELDS, limit: 200 }),
     listItems<Row>("ma_kpi", { fields: KPI_FIELDS, limit: 200 }),
+    resolveMen2Name(),
+    listItems<Row>("ma_scenario", { fields: SCENARIO_FIELDS, sort: "-created_at", limit: 50 }),
   ]);
 
-  const settings = new Map<string, string>();
-  for (const row of settingResult.rows) {
-    settings.set(asString(row.setting_key), asString(row.value));
-  }
+  const distCompany = companyResult.rows.find((r) => asString(r.code) === "dist");
+  const distId = distCompany ? num(distCompany.id) : null;
 
-  const kpiById = new Map<number, { key: string }>();
-  for (const row of kpiResult.rows) {
-    const id = num(row.id);
-    if (id > 0) kpiById.set(id, { key: asString(row.kpi_key) });
-  }
+  const opexKpiIds = kpiResult.rows
+    .filter((row) => asString(row.kpi_key) === "dist.opex" && (distId === null || num(row.company_id) === distId))
+    .map((row) => num(row.id))
+    .filter((id) => id > 0);
 
-  const readings = new Map<string, { period: string; value: number }>();
-  if (kpiById.size > 0) {
-    const actuals = await listItems<Row>("ma_kpi_actual", { fields: ACTUAL_FIELDS, limit: 20000 });
-    for (const row of actuals.rows) {
-      const kpi = kpiById.get(num(row.kpi_id));
-      if (!kpi) continue;
-      const slug = kpi.key.split(".").slice(1).join(".");
-      if (!KPI_SLUGS.includes(slug)) continue;
-      const period = asString(row.period);
-      const current = readings.get(kpi.key);
-      if (!current || period > current.period) {
-        readings.set(kpi.key, { period, value: num(row.value) });
-      }
-    }
-  }
-
-  const baselines: BaselineRow[] = [];
-  for (const row of companyResult.rows) {
-    const code = asString(row.code);
-    const kind = asString(row.kind) as CompanyKind;
-    if (kind === "GROUP") continue;
-
-    const revenueSetting = `baseline_revenue_${code}`;
-    const revenue = settingNumber(settings, revenueSetting, 0);
-    if (revenue <= 0) {
-      notices.push(`No revenue baseline for ${asString(row.name)}. Set ${revenueSetting} in Access and Governance before the planner can size it.`);
-    }
-
-    const cm = latestActual(readings, code, "cm");
-    const ccc = latestActual(readings, code, "ccc");
-    const opex = latestActual(readings, code, "opex");
-
-    if (!cm || !ccc || !opex) {
-      notices.push(`${asString(row.name)} is missing a margin, cycle or cost reading, so its run-rate falls back to zero.`);
-    }
-
-    baselines.push({
-      code,
-      name: asString(row.name),
-      kind,
-      revenue,
-      cmPct: cm?.value ?? 0,
-      fixed: (opex?.value ?? 0) * 12,
-      cccDays: ccc?.value ?? 0,
-      importShare: settingNumber(settings, `baseline_import_${code}`, DEFAULT_IMPORT[code] ?? 0.2),
-      usdShare: settingNumber(settings, `baseline_usd_${code}`, DEFAULT_USD[code] ?? 0.1),
-      revenueBasis: revenue > 0 ? `Setting ${revenueSetting}` : "Not set",
-      kpiBasis: [cm && `margin ${cm.period}`, ccc && `cycle ${ccc.period}`, opex && `cost ${opex.period}`]
-        .filter(Boolean)
-        .join(" · "),
+  let latestOpexMonthly: number | null = null;
+  let latestOpexPeriod: string | null = null;
+  if (opexKpiIds.length > 0) {
+    const actuals = await listItems<Row>("ma_kpi_actual", {
+      fields: ["kpi_id", "period", "value"],
+      filter: { kpi_id: { _in: opexKpiIds }, source_code: { _eq: "ERP" } },
+      sort: "-period",
+      limit: 10,
     });
+    const newest = actuals.rows[0];
+    if (newest) {
+      latestOpexMonthly = num(newest.value);
+      latestOpexPeriod = asString(newest.period);
+    }
   }
 
-  const saved = await listItems<Row>("ma_scenario", { fields: SCENARIO_FIELDS, sort: "-created_at", limit: 50 });
+  // Per MANAGEMENT ANALYTICS API.md §8, Revenue, Contribution Margin, Cash Conversion Cycle,
+  // and non-MEN2 entities are not exposed by ERP_SERVER yet. Do not invent baseline revenue/CM numbers.
+  const baselines: BaselineRow[] = distCompany
+    ? [
+        {
+          code: "dist",
+          name: men2Name,
+          kind: "OPERATING",
+          revenue: 0,
+          cmPct: 0,
+          fixed: latestOpexMonthly !== null ? latestOpexMonthly * 12 : 0,
+          cccDays: 0,
+          importShare: 0,
+          usdShare: 0,
+          revenueBasis: "Not returned by ERP API yet",
+          kpiBasis: latestOpexPeriod ? `dist.opex ${latestOpexPeriod} (ERP)` : "No ERP opex synced yet",
+        },
+      ]
+    : [];
+
+  notices.push(
+    "ERP_SERVER currently exposes the 8 operational & opex KPIs for MEN2 only. Revenue, Contribution Margin, and Cash Conversion Cycle endpoints are pending (MANAGEMENT ANALYTICS API.md §8).",
+  );
+
   const scenarios = saved.rows.map(mapScenario);
-  const active = scenarios.find((row) => row.is_active);
-  const levers = active ? parseLevers(active.levers, baselines) : zeroLevers(baselines);
-  const fxPct = active ? active.fx_pct : 0;
-
-  if (scenarios.length === 0) {
-    notices.push("No scenario is saved yet. The planner is showing the run-rate, before any lever moves.");
-  }
+  const levers = zeroLevers(baselines);
 
   return {
     companies: baselines,
     levers,
-    result: computeScenario(baselines, levers, fxPct),
+    result: computeScenario(baselines, levers, 0),
     scenarios,
     notices,
   };

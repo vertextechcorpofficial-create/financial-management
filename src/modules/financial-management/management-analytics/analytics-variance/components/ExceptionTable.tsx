@@ -3,14 +3,14 @@
 import { ChevronRight } from "lucide-react";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ErpTags } from "./BoardKit";
 import { StatusBadge } from "./StatusBadge";
-
+import { displayDay } from "./dates";
 import { EXCEPTION_STATUS_LABEL, EXCEPTION_STATUS_TONE } from "../constants";
 import { magnitudeText } from "../services/engine";
-import { displayDay } from "@/modules/financial-management/management-analytics/shared/dates";
 import type { ExceptionListRow } from "../types";
 
-const COLUMNS = 7;
+const COLUMNS = 8;
 
 export function formatDeviation(row: ExceptionListRow): string {
   const body = magnitudeText(row.deviation, row.unit, row.dp);
@@ -22,10 +22,13 @@ export function runLabel(row: ExceptionListRow): string {
 }
 
 function memoCell(row: ExceptionListRow) {
-  if (!row.memo_due_date) return <span className="text-muted-foreground">not set</span>;
-  const overdue = ["OPEN", "MONITORING"].includes(row.status) && row.memo_due_date < new Date().toISOString().slice(0, 10);
+  if (!row.memo_due_date) return <span className="text-muted-foreground">—</span>;
+  const overdue = ["OPEN", "MONITORING", "ESCALATED"].includes(row.status) && row.memo_due_date < new Date().toISOString().slice(0, 10);
   return (
-    <span className={overdue ? "text-destructive" : undefined} title={overdue ? "The memo deadline has passed." : undefined}>
+    <span
+      className={overdue ? "font-medium text-rose-700 dark:text-rose-400" : undefined}
+      title={overdue ? "Memo deadline has passed" : undefined}
+    >
       {displayDay(row.memo_due_date)}
     </span>
   );
@@ -60,17 +63,18 @@ export function ExceptionTable({
 
   return (
     <>
-      <div className="hidden overflow-x-auto min-[1300px]:block">
-        <Table className="min-w-[980px] border-separate border-spacing-0 [&_td]:py-3 [&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th]:py-2.5 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4">
+      <div className="hidden overflow-x-auto md:block">
+        <Table className="min-w-[960px] border-separate border-spacing-0 [&_td]:py-3 [&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th]:py-2.5 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4">
           <TableHeader>
             <TableRow>
               <TableHead>KPI</TableHead>
               <TableHead>Company</TableHead>
+              <TableHead>Owner position</TableHead>
               <TableHead>Periods</TableHead>
-              <TableHead>Deviation</TableHead>
+              <TableHead className="text-right">Deviation</TableHead>
               <TableHead>State</TableHead>
               <TableHead>Memo due</TableHead>
-              <TableHead className="w-[56px] text-right">
+              <TableHead className="w-[44px] text-right">
                 <span className="sr-only">Open</span>
               </TableHead>
             </TableRow>
@@ -92,20 +96,26 @@ export function ExceptionTable({
                 }}
               >
                 <TableCell>
-                  <div className="max-w-[260px] truncate text-sm font-medium" title={`${row.kpiName} · ${row.kpiKey}`}>
-                    {row.kpiName}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="max-w-[240px] truncate text-sm font-medium" title={`${row.kpiName} · ${row.kpiKey}`}>
+                      {row.kpiName}
+                    </span>
+                    <ErpTags kpiKey={row.kpiKey} sourceCodes={row.sourceCodes} compact />
                   </div>
-                  <div className="text-xs text-muted-foreground">{row.reason ?? row.kpiKey}</div>
+                  <div className="mt-0.5 max-w-[280px] truncate text-xs text-muted-foreground">{row.reason ?? row.kpiKey}</div>
                 </TableCell>
-                <TableCell className="text-sm">{row.companyCode}</TableCell>
+                <TableCell className="font-mono text-xs uppercase">{row.companyCode}</TableCell>
+                <TableCell className="max-w-[160px] truncate text-xs text-muted-foreground">
+                  {row.ownerPosition ?? "—"}
+                </TableCell>
                 <TableCell className="whitespace-nowrap font-mono text-xs tabular-nums">{runLabel(row)}</TableCell>
-                <TableCell className="whitespace-nowrap text-sm tabular-nums">{formatDeviation(row)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right font-mono text-sm tabular-nums">{formatDeviation(row)}</TableCell>
                 <TableCell>
                   <StatusBadge tone={EXCEPTION_STATUS_TONE[row.status] ?? "neutral"} title={row.status}>
                     {EXCEPTION_STATUS_LABEL[row.status] ?? row.status}
                   </StatusBadge>
                 </TableCell>
-                <TableCell className="whitespace-nowrap text-sm tabular-nums">{memoCell(row)}</TableCell>
+                <TableCell className="whitespace-nowrap font-mono text-xs tabular-nums">{memoCell(row)}</TableCell>
                 <TableCell className="text-right">
                   <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" aria-hidden />
                 </TableCell>
@@ -115,7 +125,7 @@ export function ExceptionTable({
         </Table>
       </div>
 
-      <ul className="divide-y divide-border min-[1300px]:hidden">
+      <ul className="divide-y divide-border md:hidden">
         {rows.map((row) => (
           <li key={row.id}>
             <button
@@ -127,14 +137,16 @@ export function ExceptionTable({
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium" title={row.kpiName}>{row.kpiName}</span>
                   <span className="block text-xs text-muted-foreground">
-                    {row.companyCode} · {runLabel(row)}
+                    {row.companyCode} · {row.ownerPosition ?? "Unassigned"} · {runLabel(row)}
                   </span>
                 </span>
-                <StatusBadge tone={EXCEPTION_STATUS_TONE[row.status] ?? "neutral"}>{EXCEPTION_STATUS_LABEL[row.status] ?? row.status}</StatusBadge>
+                <StatusBadge tone={EXCEPTION_STATUS_TONE[row.status] ?? "neutral"}>
+                  {EXCEPTION_STATUS_LABEL[row.status] ?? row.status}
+                </StatusBadge>
               </div>
               <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                <span className="tabular-nums">{formatDeviation(row)}</span>
-                <span>Memo due {row.memo_due_date ? displayDay(row.memo_due_date) : "not set"}</span>
+                <span className="font-mono tabular-nums">{formatDeviation(row)}</span>
+                <span className="font-mono">Due {row.memo_due_date ? displayDay(row.memo_due_date) : "—"}</span>
               </div>
             </button>
           </li>

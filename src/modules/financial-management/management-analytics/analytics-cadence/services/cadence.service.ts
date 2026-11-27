@@ -1,10 +1,50 @@
 import "server-only";
 
 import { asNumber, asNumberOrNull, asString, listItems } from "./directus";
-import { DEFAULT_POLICY, forecast, healthScore, statusOf } from "./engine";
-import type { CadencePayload, CadenceRow, KpiRow, PeriodPoint, Policy, RhythmRow, Rollup, StatusCode } from "../types";
+import { DEFAULT_POLICY, forecast, formatValue, healthScore, statusOf } from "./engine";
+import { STATUS_META } from "../constants";
+import type {
+  CadenceExceptionItem,
+  CadencePayload,
+  CadenceRow,
+  CadenceScorecardItem,
+  HeatmapDetailCell,
+  KpiRow,
+  PeriodPoint,
+  Policy,
+  RhythmRow,
+  Rollup,
+  StatusCode,
+} from "../types";
 
 type Json = Record<string, unknown>;
+
+const ERP_LIVE_KEYS = new Set([
+  "dist.opex",
+  "dist.ncr",
+  "dist.capa",
+  "dist.abs",
+  "dist.tardy",
+  "dist.ot",
+  "dist.fill",
+  "dist.otif",
+  "dist.pick",
+  "dist.freight",
+]);
+
+async function resolveMen2Name(): Promise<string> {
+  try {
+    const res = await listItems<Json>("company_list", {
+      fields: ["company_name"],
+      filter: { company_code: { _eq: "MEN2" }, status: { _eq: "ACTIVE" } },
+      limit: 1,
+    });
+    const name = res.rows[0] ? asString(res.rows[0].company_name) : "";
+    return name || "MEN2";
+  } catch {
+    return "MEN2";
+  }
+}
 
 const KPI_FIELDS = [
   "id",
@@ -85,25 +125,40 @@ async function loadPolicy(): Promise<Policy> {  const rows = await listItems<Jso
 }
 
 export async function loadCadence(requested?: string): Promise<CadencePayload> {
-  const [companyRows, kpiRows, readingRows, targetRows, exceptionRows, sourceRows, policy] =
+  const [companyRows, kpiRows, readingRows, targetRows, exceptionRows, sourceRows, policy, men2Name] =
     await Promise.all([
       listItems<Json>("ma_company", { fields: ["id", "code", "name", "kind"], sort: "sort", limit: 50 }),
       listItems<Json>("ma_kpi", { fields: KPI_FIELDS, limit: 2000 }),
-      listItems<Json>("ma_kpi_actual", { fields: ["kpi_id", "period", "value"], sort: "period", limit: 20000 }),
+      listItems<Json>("ma_kpi_actual", { fields: ["kpi_id", "period", "value"], filter: { source_code: { _eq: "ERP" } }, sort: "period", limit: 20000 }),
       listItems<Json>("ma_kpi_target", { fields: ["kpi_id", "period", "target"], limit: 20000 }),
       listItems<Json>("ma_exception", {
-        fields: ["company_id", "status", "memo_due_date"],
+        fields: ["id", "company_id", "kpi_id", "status", "memo_due_date", "memo", "relative_pct"],
         limit: 2000,
       }),
       listItems<Json>("ma_source", {
         fields: ["code", "name", "cadence", "steward", "state", "last_sync_at", "sla_minutes"],
+        filter: { code: { _eq: "ERP" } },
         sort: "code",
         limit: 50,
       }),
       loadPolicy(),
+      resolveMen2Name(),
     ]);
 
-  const kpis = kpiRows.rows.map(mapKpi).filter((row) => row.is_active);
+  const codes = new Map<number, { code: string; name: string; kind: string }>();
+  for (const row of companyRows.rows) {
+    if (asString(row.code) === "dist") {
+      codes.set(asNumber(row.id), {
+        code: asString(row.code),
+        name: men2Name,
+        kind: asString(row.kind),
+      });
+    }
+  }
+
+  const kpis = kpiRows.rows
+    .map(mapKpi)
+    .filter((row) => row.is_active && ERP_LIVE_KEYS.has(row.kpi_key) && (codes.size === 0 || codes.has(row.company_id)));
 
   const targets = new Map<string, number>();
   for (const row of targetRows.rows) {
@@ -111,8 +166,6 @@ export async function loadCadence(requested?: string): Promise<CadencePayload> {
   }
 
   const periods = [...new Set(readingRows.rows.map((row) => asString(row.period)))].sort();
-  // An empty month is answered as the month that was asked for. Swapping in the newest month
-  // silently makes the reader read a different month than the one in the toolbar.
   const wanted = requested && /^\d{4}-(0[1-9]|1[0-2])$/.test(requested) ? requested : null;
   const period = wanted ?? periods.at(-1) ?? "";
   const nearestPeriod = wanted && !periods.includes(wanted) ? nearestMonth(periods, wanted) : null;
@@ -131,30 +184,35 @@ export async function loadCadence(requested?: string): Promise<CadencePayload> {
   }
   for (const list of series.values()) list.sort((a, b) => a.period.localeCompare(b.period));
 
-  // The weekly card's forecast line, over the series already read: a measure is at risk when the
-  // model gives a breach better than even-ish odds in the next month (the reference's 60% cut).
   const forecastRisk = kpis.filter((kpi) => {
     const result = forecast(series.get(kpi.id) ?? [], kpi, 1);
     return result.breachProbability !== null && result.breachProbability > 0.6;
   }).length;
 
-  const codes = new Map<number, { code: string; name: string; kind: string }>();
-  for (const row of companyRows.rows) {
-    codes.set(asNumber(row.id), {
-      code: asString(row.code),
-      name: asString(row.name),
-      kind: asString(row.kind),
-    });
-  }
-
   const openExceptions = new Map<number, number>();
   const overdueMemos = new Map<number, number>();
+  const kpiById = new Map(kpis.map((k) => [k.id, k]));
+  const openExceptionList: CadenceExceptionItem[] = [];
   const today = new Date().toISOString().slice(0, 10);
   for (const row of exceptionRows.rows) {
     const status = asString(row.status);
     const companyId = asNumber(row.company_id);
+    const kpiId = asNumber(row.kpi_id);
+    if (!kpiById.has(kpiId) || !codes.has(companyId)) continue;
     if (["OPEN", "MONITORING", "ESCALATED", "RECURRENCE"].includes(status)) {
       openExceptions.set(companyId, (openExceptions.get(companyId) ?? 0) + 1);
+      const co = codes.get(companyId);
+      const kpi = kpiById.get(kpiId);
+      openExceptionList.push({
+        id: asNumber(row.id),
+        companyCode: co?.code ?? "",
+        companyName: co?.name ?? "",
+        kpiName: kpi?.name ?? `KPI #${kpiId}`,
+        status,
+        relativePct: asNumber(row.relative_pct),
+        memoDueDate: asString(row.memo_due_date) ? asString(row.memo_due_date).slice(0, 10) : null,
+        memo: asString(row.memo) || null,
+      });
     }
     const due = asString(row.memo_due_date);
     if (due && due < today && ["OPEN", "ESCALATED"].includes(status)) {
@@ -162,9 +220,50 @@ export async function loadCadence(requested?: string): Promise<CadencePayload> {
     }
   }
 
+  const [selYear, selMonth] = period ? period.split("-").map(Number) : [0, 0];
+  const priorPeriod =
+    selYear && selMonth
+      ? selMonth === 1
+        ? `${selYear - 1}-12`
+        : `${selYear}-${String(selMonth - 1).padStart(2, "0")}`
+      : "";
+  const yoyPeriod = selYear && selMonth ? `${selYear - 1}-${String(selMonth).padStart(2, "0")}` : "";
+
+  const scorecard: CadenceScorecardItem[] = [];
+  for (const kpi of [...kpis].sort((a, b) => a.company_id - b.company_id || a.sort - b.sort)) {
+    const co = codes.get(kpi.company_id);
+    const points = series.get(kpi.id) ?? [];
+    const index = points.findIndex((point) => point.period === period);
+    const st = index >= 0 ? statusOf(kpi, points, index, policy) : { code: "NO_DATA" as StatusCode, label: STATUS_META.NO_DATA.label, memoRequired: false, deviation: null, run: null };
+    const pt = index >= 0 ? points[index] : null;
+    const priorPt = priorPeriod ? points.find((p) => p.period === priorPeriod) : null;
+    const yoyPt = yoyPeriod ? points.find((p) => p.period === yoyPeriod) : null;
+    const ytdPts = period
+      ? points.filter((p) => p.period.startsWith(`${period.slice(0, 4)}-`) && p.period <= period && p.actual !== null)
+      : [];
+    const ytdActual =
+      ytdPts.length > 0 ? ytdPts.reduce((sum, p) => sum + (p.actual ?? 0), 0) / ytdPts.length : null;
+    scorecard.push({
+      id: kpi.id,
+      kpiKey: kpi.kpi_key,
+      name: kpi.name,
+      companyCode: co?.code ?? "",
+      companyName: co?.name ?? "",
+      unit: kpi.unit,
+      dp: kpi.dp,
+      sourceCodes: kpi.source_codes,
+      actual: pt?.actual ?? null,
+      target: pt?.target ?? null,
+      priorActual: priorPt?.actual ?? null,
+      yoyActual: yoyPt?.actual ?? null,
+      ytdActual,
+      statusCode: st.code,
+      statusLabel: st.label,
+      varianceText: st.deviation?.text ?? "—",
+    });
+  }
+
   const rows: CadenceRow[] = [];
-  // Every company with measures is listed, group included: dropping the group's six measures made
-  // the per-row counts add up to 87 while the screen claimed 93 read.
   for (const [companyId, info] of codes) {
     const own = kpis.filter((kpi) => kpi.company_id === companyId);
     const statuses = own
@@ -198,37 +297,44 @@ export async function loadCadence(requested?: string): Promise<CadencePayload> {
     (series.get(kpi.id) ?? []).some((point) => point.period === period),
   ).length;
 
-  // The monthly heatmap: companies down, core measures across, using the same status vocabulary the
-  // company rows and the pack already use. A measure with no reading for the month is NO_DATA, not
-  // on track, so an empty cell can never look healthy.
   const coreKpis = kpis.filter((kpi) => kpi.tier === "CORE");
   const heatKeys: Array<{ key: string; name: string }> = [];
   const seenKeys = new Set<string>();
-  // Keyed by measure name, not by kpi_key: every company carries its own key for the same core
-  // measure, so keying by kpi_key turned the grid into a diagonal of 36 one-company columns.
   for (const kpi of [...coreKpis].sort((a, b) => a.sort - b.sort)) {
     if (!kpi.name || seenKeys.has(kpi.name)) continue;
     seenKeys.add(kpi.name);
     heatKeys.push({ key: kpi.name, name: kpi.name });
   }
+  const heatmapDetails: Array<{ code: string; cells: HeatmapDetailCell[] }> = [];
   const heatmap = Array.from(codes.entries())
     .flatMap(([companyId, info]) => {
       const ownCore = coreKpis.filter((kpi) => kpi.company_id === companyId);
       if (ownCore.length === 0 || heatKeys.length === 0) return [];
       const own = new Map(ownCore.map((kpi) => [kpi.name, kpi]));
-      return [
-        {
-          code: info.code,
-          name: info.name,
-          cells: heatKeys.map<StatusCode>((column) => {
-            const kpi = own.get(column.key);
-            if (!kpi) return "NO_DATA";
-            const points = series.get(kpi.id) ?? [];
-            const index = points.findIndex((point) => point.period === period);
-            return index < 0 ? "NO_DATA" : statusOf(kpi, points, index, policy).code;
-          }),
-        },
-      ];
+      const detailCells: HeatmapDetailCell[] = [];
+      const cells = heatKeys.map<StatusCode>((column) => {
+        const kpi = own.get(column.key);
+        if (!kpi) {
+          detailCells.push({ status: "NO_DATA", varianceText: "—", actualText: "—" });
+          return "NO_DATA";
+        }
+        const points = series.get(kpi.id) ?? [];
+        const index = points.findIndex((point) => point.period === period);
+        if (index < 0) {
+          detailCells.push({ status: "NO_DATA", varianceText: "—", actualText: "—" });
+          return "NO_DATA";
+        }
+        const evaluated = statusOf(kpi, points, index, policy);
+        const pt = points[index];
+        detailCells.push({
+          status: evaluated.code,
+          varianceText: evaluated.deviation?.text ?? "—",
+          actualText: pt?.actual != null ? formatValue(pt.actual, kpi) : "—",
+        });
+        return evaluated.code;
+      });
+      heatmapDetails.push({ code: info.code, cells: detailCells });
+      return [{ code: info.code, name: info.name, cells }];
     });
 
   const sources = sourceRows.rows.map((row) => {
@@ -292,8 +398,10 @@ export async function loadCadence(requested?: string): Promise<CadencePayload> {
     periods,
     nearestPeriod,
     rows,
+    scorecard,
+    openExceptions: openExceptionList,
     rhythms,
-    heatmap: { keys: heatKeys, rows: heatmap },
+    heatmap: { keys: heatKeys, rows: heatmap, details: heatmapDetails },
     totals: {
       health,
       exceptionsOpen: totalOpen,

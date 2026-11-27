@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, CalendarCheck, Check, Copy, Download, Pause, Play, Plus } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ArrowRight, CalendarCheck, Check, Copy, Download, Pause, Play, Plus, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +13,11 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { BoardHeader, MicroLabel, Panel, Stat } from "@/modules/financial-management/management-analytics/shared/BoardKit";
-import { TrendChart } from "@/modules/financial-management/management-analytics/shared/Charts";
-import { displayDay } from "@/modules/financial-management/management-analytics/shared/dates";
+import { BoardHeader, ErpTags, MicroLabel, Panel, Stat } from "./BoardKit";
+import { TrendChart } from "./Charts";
+import { ErpFormulaPanel } from "./ErpFormulaPanel";
+import { PERIOD_PARAM } from "./analytics-screens";
+import { displayDay } from "./dates";
 import type { PeriodPoint } from "../types";
 
 import { DateField } from "./DateField";
@@ -24,7 +27,7 @@ import { StatusBadge } from "./StatusBadge";
 import { toneClass } from "../constants";
 import { useReview } from "../hooks/useReview";
 import { phtToday } from "../pht";
-import type { ActionRow, ExceptionListRow, ReviewDetail } from "../types";
+import type { ActionRow, ExceptionListRow, ReviewDetail, StaleSourceSummary } from "../types";
 
 const KIND_LABEL: Record<string, string> = {
   ESCALATED: "Escalated",
@@ -70,12 +73,28 @@ function writeUrl(period: string, company: string) {
   window.history.replaceState(null, "", query ? `?${query}` : window.location.pathname);
 }
 
+function defaultActionDueDate(): string {
+  const [y, m, d] = phtToday().split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + 10));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
+function isUnfavorableException(exception: ExceptionListRow): boolean {
+  const pol = (exception.polarity ?? "").toUpperCase();
+  const dir = (exception.direction ?? "").toUpperCase();
+  if (pol === "LOWER" || pol === "LOW") return dir === "UP" || dir === "UNFAVORABLE";
+  if (pol === "HIGHER" || pol === "HIGH") return dir === "DOWN" || dir === "UNFAVORABLE";
+  return true;
+}
+
 function formatTimer(sec: number): string {
   const s = Math.max(0, Math.round(sec));
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
 function ownerLabel(action: ActionRow): string {
+  if (action.ownerPosition && action.ownerName) return `${action.ownerPosition} (${action.ownerName})`;
+  if (action.ownerPosition) return action.ownerPosition;
   if (action.ownerName) return action.ownerName;
   return action.owner_user_id ? "Assigned" : "Unassigned";
 }
@@ -133,9 +152,11 @@ type KpiPreview = {
 };
 
 function ActiveItemWorkspace({
+  period,
   item,
   exception,
   monitoringExceptions,
+  staleSources,
   actions,
   meetingOpen,
   frozen,
@@ -145,10 +166,13 @@ function ActiveItemWorkspace({
   onMarkNext,
   onAddAction,
   onCloseAction,
+  onDeleteAction,
 }: {
+  period: string;
   item: UnifiedAgendaItem;
   exception: ExceptionListRow | null;
   monitoringExceptions: ExceptionListRow[];
+  staleSources: StaleSourceSummary[];
   actions: ActionRow[];
   meetingOpen: boolean;
   frozen: boolean;
@@ -156,13 +180,15 @@ function ActiveItemWorkspace({
   onStartMeeting: () => Promise<void>;
   onSaveItem: (id: number, patch: { notes?: string; decision?: string }) => Promise<void>;
   onMarkNext: (id: number, patch: { notes?: string; decision?: string }) => Promise<void>;
-  onAddAction: (payload: { title: string; dueDate?: string; exceptionId?: number }) => Promise<void>;
+  onAddAction: (payload: { title: string; dueDate?: string; exceptionId?: number; ownerPosition?: string }) => Promise<void>;
   onCloseAction: (id: number) => Promise<void>;
+  onDeleteAction: (id: number) => Promise<void>;
 }) {
   const [notes, setNotes] = useState(item.notes ?? "");
   const [decision, setDecision] = useState(item.decision ?? "");
   const [actionTitle, setActionTitle] = useState("");
-  const [actionDue, setActionDue] = useState("");
+  const [actionOwnerPos, setActionOwnerPos] = useState(exception?.ownerPosition ?? "");
+  const [actionDue, setActionDue] = useState(defaultActionDueDate);
   const [kpiPreview, setKpiPreview] = useState<KpiPreview | null>(null);
   const today = phtToday();
 
@@ -216,9 +242,12 @@ function ActiveItemWorkspace({
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             {exception ? (
-              <Badge variant="secondary" className="font-mono text-[11px]">
-                {exception.companyCode} · {exception.companyName}
-              </Badge>
+              <>
+                <Badge variant="secondary" className="font-mono text-[11px]">
+                  {exception.companyCode} · {exception.companyName}
+                </Badge>
+                <ErpTags kpiKey={exception.kpiKey} sourceCodes={exception.sourceCodes} />
+              </>
             ) : null}
             <span className="font-mono text-xs text-muted-foreground">{item.minutes_alloc} min allocated</span>
           </div>
@@ -254,7 +283,7 @@ function ActiveItemWorkspace({
               <Stat
                 label="Variance"
                 value={varText ?? "—"}
-                tone={exception.direction === "UNFAVORABLE" ? "danger" : "info"}
+                tone={isUnfavorableException(exception) ? "danger" : "info"}
               />
             </div>
             <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
@@ -285,11 +314,13 @@ function ActiveItemWorkspace({
               <TrendChart
                 points={activePreview.points}
                 dp={activePreview.dp}
-                tone={exception.direction === "UNFAVORABLE" ? "danger" : "primary"}
+                tone={isUnfavorableException(exception) ? "danger" : "primary"}
                 bandPct={activePreview.bandPct}
               />
             </div>
           ) : null}
+
+          <ErpFormulaPanel kpiKey={exception.kpiKey} period={period} sourceCodes={exception.sourceCodes} />
 
           <div className="grid gap-3 rounded-lg border border-border/60 bg-muted/15 p-3 sm:grid-cols-2">
             <div>
@@ -312,10 +343,12 @@ function ActiveItemWorkspace({
             </div>
           </div>
         </div>
-      ) : item.kind === "MONITORING" && monitoringExceptions.length > 0 ? (
+      ) : (item.kind === "MONITORING" || item.kind === "EARLY") && monitoringExceptions.length > 0 ? (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            Owner and memo filed; waiting for consecutive in-tolerance readings to close. Quick status check only.
+            {item.kind === "EARLY"
+              ? "Early warnings: monitoring deviations or watch items that need confirmation before breaching."
+              : "Owner and memo filed; waiting for consecutive in-tolerance readings to close."}
           </p>
           <div className="overflow-x-auto rounded-lg border border-border/60">
             <Table>
@@ -342,6 +375,66 @@ function ActiveItemWorkspace({
               </TableBody>
             </Table>
           </div>
+        </div>
+      ) : item.kind === "DATA" ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Feeds past their freshness window during {period}. Confirm whether numbers on this agenda remain provisional.
+            </p>
+            <Link
+              href={`/fm/management-analytics/analytics-data?period=${encodeURIComponent(period)}`}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Open Data &amp; Feeds →
+            </Link>
+          </div>
+          {staleSources.length === 0 ? (
+            <p className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
+              All monitored feeds are currently within their freshness limits.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border/60">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Source</TableHead>
+                    <TableHead>State</TableHead>
+                    <TableHead>Last sync</TableHead>
+                    <TableHead className="text-right">SLA</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {staleSources.map((src) => (
+                    <TableRow key={src.code}>
+                      <TableCell className="text-xs font-medium">
+                        <span className="font-mono">{src.code}</span> · {src.name}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{src.state}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        {src.last_sync_at ? displayDay(src.last_sync_at.slice(0, 10)) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                        {src.sla_minutes} min
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
+      ) : item.kind === "SIGN_OFF" ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/15 px-3.5 py-3 text-xs">
+          <span className="text-muted-foreground">
+            Pending governance or threshold changes queued for executive sign-off before the close lock.
+          </span>
+          <Link
+            href="/fm/management-analytics/analytics-governance"
+            className="font-medium text-primary hover:underline"
+          >
+            Open Governance &amp; Sign-offs →
+          </Link>
         </div>
       ) : null}
 
@@ -399,6 +492,7 @@ function ActiveItemWorkspace({
                       <TableHead>Action</TableHead>
                       <TableHead>Owner</TableHead>
                       <TableHead>Due</TableHead>
+                      {!frozen ? <TableHead className="w-9" /> : null}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -426,6 +520,24 @@ function ActiveItemWorkspace({
                           <TableCell className={cn("font-mono text-xs tabular-nums", late && "font-medium text-destructive")}>
                             {act.due_date ? displayDay(act.due_date) : "—"}
                           </TableCell>
+                          {!frozen ? (
+                            <TableCell className="text-right">
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                disabled={isSaving}
+                                aria-label={`Delete action ${act.title}`}
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={async () => {
+                                  await onDeleteAction(act.id);
+                                  toast.success("Action item removed");
+                                }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </TableCell>
+                          ) : null}
                         </TableRow>
                       );
                     })}
@@ -435,12 +547,19 @@ function ActiveItemWorkspace({
             )}
 
             {!frozen ? (
-              <div className="grid gap-2 pt-1 sm:grid-cols-[minmax(0,1fr)_150px_auto]">
+              <div className="grid gap-2 pt-1 sm:grid-cols-[minmax(0,1fr)_165px_145px_auto]">
                 <Input
                   value={actionTitle}
                   onChange={(event) => setActionTitle(event.target.value)}
                   placeholder="New action, e.g. Re-baseline schedule with site lead"
                   aria-label="New action"
+                  className="h-9 text-sm"
+                />
+                <Input
+                  value={actionOwnerPos}
+                  onChange={(event) => setActionOwnerPos(event.target.value)}
+                  placeholder="Owner position"
+                  aria-label="Owner position"
                   className="h-9 text-sm"
                 />
                 <DateField
@@ -459,9 +578,10 @@ function ActiveItemWorkspace({
                       title: actionTitle.trim(),
                       dueDate: actionDue || undefined,
                       exceptionId: exception?.id,
+                      ownerPosition: actionOwnerPos.trim() || undefined,
                     });
                     setActionTitle("");
-                    setActionDue("");
+                    setActionDue(defaultActionDueDate());
                     toast.success("Action item added");
                   }}
                 >
@@ -524,12 +644,10 @@ function ActiveItemWorkspace({
 }
 
 export function ReviewModule() {
-  const [period, setPeriodState] = useState(readUrlPeriod);
+  const searchParams = useSearchParams();
+  const urlPeriod = searchParams.get(PERIOD_PARAM);
+  const period = urlPeriod && MONTH.test(urlPeriod) ? urlPeriod : readUrlPeriod();
   const [company, setCompanyState] = useState(readUrlCompany);
-  const setPeriod = (next: string) => {
-    setPeriodState(next);
-    writeUrl(next, company);
-  };
   const setCompany = (next: string) => {
     setCompanyState(next);
     writeUrl(period, next);
@@ -684,15 +802,6 @@ export function ReviewModule() {
         subtitle="Meeting mode. The agenda is built from open exceptions (most severe first), provisional breaches, forecast risks and standing items. Record decisions and action items with an owner and due date as you go; minutes are generated at the end."
         right={
           <div className="flex flex-wrap items-center gap-2">
-            <Input
-              value={period}
-              aria-invalid={!review.validPeriod}
-              onChange={(event) => setPeriod(event.target.value)}
-              placeholder="2026-11"
-              aria-label="Review month"
-              title="Review month"
-              className="h-9 w-[118px] font-mono"
-            />
             <OptionCombobox
               value={company}
               onChange={setCompany}
@@ -769,9 +878,25 @@ export function ReviewModule() {
 
             <div className="flex flex-wrap items-center gap-1.5">
               {frozen ? (
-                <StatusBadge tone="success">
-                  Final {detail.review?.held_at ? `· ${displayDay(detail.review.held_at)}` : ""}
-                </StatusBadge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge tone="success">
+                    Final {detail.review?.held_at ? `· ${displayDay(detail.review.held_at)}` : ""}
+                  </StatusBadge>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    disabled={review.isSaving}
+                    onClick={async () => {
+                      await review.saveMeeting({ status: "DRAFT" });
+                      toast.success("Meeting reopened for edits");
+                    }}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Reopen
+                  </Button>
+                </div>
               ) : timerRunning ? (
                 <>
                   <Button
@@ -783,6 +908,20 @@ export function ReviewModule() {
                   >
                     <Pause className="h-3.5 w-3.5" />
                     Pause
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    disabled={review.isSaving}
+                    onClick={async () => {
+                      await review.saveMeeting({ refreshAgenda: true });
+                      toast.success("Agenda refreshed with new open exceptions");
+                    }}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Refresh agenda
                   </Button>
                   <Button
                     type="button"
@@ -808,17 +947,33 @@ export function ReviewModule() {
                     {elapsedSec > 0 ? "Resume" : "Start meeting"}
                   </Button>
                   {meetingOpen ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5"
-                      disabled={review.isSaving}
-                      onClick={() => void handleEndMeeting()}
-                    >
-                      <CalendarCheck className="h-3.5 w-3.5" />
-                      End meeting
-                    </Button>
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={review.isSaving}
+                        onClick={async () => {
+                          await review.saveMeeting({ refreshAgenda: true });
+                          toast.success("Agenda refreshed with new open exceptions");
+                        }}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Refresh agenda
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={review.isSaving}
+                        onClick={() => void handleEndMeeting()}
+                      >
+                        <CalendarCheck className="h-3.5 w-3.5" />
+                        End meeting
+                      </Button>
+                    </>
                   ) : null}
                 </>
               )}
@@ -909,9 +1064,11 @@ export function ReviewModule() {
               {activeItem ? (
                 <ActiveItemWorkspace
                   key={`${activeItem.key}-${activeItem.notes ?? ""}-${activeItem.decision ?? ""}`}
+                  period={detail.period}
                   item={activeItem}
                   exception={activeItem.ref_id ? exceptionById.get(activeItem.ref_id) ?? null : null}
                   monitoringExceptions={monitoringExceptions}
+                  staleSources={detail.staleSources ?? []}
                   actions={detail.actions}
                   meetingOpen={meetingOpen}
                   frozen={frozen}
@@ -921,6 +1078,7 @@ export function ReviewModule() {
                   onMarkNext={handleMarkNext}
                   onAddAction={review.addAction}
                   onCloseAction={review.closeAction}
+                  onDeleteAction={review.removeAction}
                 />
               ) : (
                 <Panel className="p-6 text-center text-sm text-muted-foreground">
@@ -953,12 +1111,13 @@ export function ReviewModule() {
                     <TableHead>Owner</TableHead>
                     <TableHead>Due</TableHead>
                     <TableHead className="text-right">Status</TableHead>
+                    {!frozen ? <TableHead className="w-9" /> : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {detail.actions.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="py-6 text-center text-xs text-muted-foreground">
+                      <TableCell colSpan={frozen ? 6 : 7} className="py-6 text-center text-xs text-muted-foreground">
                         No action items yet. Add them during a review.
                       </TableCell>
                     </TableRow>
@@ -995,6 +1154,24 @@ export function ReviewModule() {
                               {done ? "Done" : late ? "Overdue" : "Open"}
                             </StatusBadge>
                           </TableCell>
+                          {!frozen ? (
+                            <TableCell className="text-right">
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                disabled={review.isSaving}
+                                aria-label={`Delete action ${action.title}`}
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={async () => {
+                                  await review.removeAction(action.id);
+                                  toast.success("Action item removed");
+                                }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </TableCell>
+                          ) : null}
                         </TableRow>
                       );
                     })

@@ -1,6 +1,7 @@
+import { cookies } from "next/headers";
+import { COOKIE_NAME } from "@/lib/auth-utils";
 import { listItems } from "./directus";
 import { asBoolean, asNumber, asNumberOrNull, asString } from "./directus";
-import { buildBridge } from "./bridge";
 import { DEFAULT_POLICY, healthScore, statusOf } from "./engine";
 import { phtToday } from "../pht";
 import type {
@@ -16,6 +17,77 @@ import type {
 } from "../types";
 
 const MONTHS = 24;
+const DEFAULT_ERP_BASE = "http://goatedcodoer:8076";
+const ERP_LIVE_KEYS = new Set([
+  "dist.opex",
+  "dist.ncr",
+  "dist.capa",
+  "dist.abs",
+  "dist.tardy",
+  "dist.ot",
+  "dist.fill",
+  "dist.otif",
+  "dist.pick",
+  "dist.freight",
+]);
+
+interface LiveErpReading {
+  kpiKey: string;
+  period: string;
+  value: number | null;
+  basis?: string;
+}
+
+interface ActiveCompanyInfo {
+  code: string;
+  name: string;
+  springboot: string;
+}
+
+async function loadActiveCompaniesFromDirectory(): Promise<ActiveCompanyInfo[]> {
+  const fallbackBase = (process.env.SPRING_API_BASE_URL || DEFAULT_ERP_BASE).trim().replace(/\/+$/, "");
+  try {
+    const res = await listItems<Record<string, unknown>>("company_list", {
+      fields: ["company_code", "company_name", "springboot"],
+      filter: { status: { _eq: "ACTIVE" } },
+      sort: ["company_code"],
+      limit: 50,
+    });
+    const list = res.rows
+      .map((row) => ({
+        code: asString(row.company_code).trim(),
+        name: asString(row.company_name).trim() || asString(row.company_code).trim(),
+        springboot: asString(row.springboot).trim().replace(/\/+$/, ""),
+      }))
+      .filter((row) => row.code.length > 0);
+    if (list.length > 0) return list;
+  } catch {
+    // Fallback below if company_list cannot be read
+  }
+  return [{ code: "MEN2", name: "MEN2", springboot: fallbackBase }];
+}
+
+async function fetchLiveErpReadings(period: string, springboot: string): Promise<LiveErpReading[] | null> {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (!token) return null;
+    const res = await fetch(`${springboot}/api/management-analytics/kpi-readings?period=${encodeURIComponent(period)}`, {
+      method: "GET",
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as {
+      success?: boolean;
+      data?: { readings?: LiveErpReading[] };
+    } | null;
+    return body?.success ? (body.data?.readings ?? []) : null;
+  } catch {
+    return null;
+  }
+}
 
 interface SettingAll {
   setting_key: string;
@@ -116,27 +188,111 @@ export async function loadOverview(params: { company?: string; asOf?: string }):
   const asOf = params.asOf && /^\d{4}-\d{2}$/.test(params.asOf) ? params.asOf : phtToday().slice(0, 7);
   const periods = lastPeriods(asOf, MONTHS);
 
-  const [companyRows, kpiRows, settingRows, sourceRows, exceptionRows] = await Promise.all([
+  const [companyRows, kpiRows, settingRows, sourceRows, exceptionRows, activeDirectory] = await Promise.all([
     listItems<Record<string, unknown>>("ma_company", { fields: ["id", "code", "name", "kind", "parent_code", "industry", "currency", "fx_to_php", "revenue_weight", "headcount", "sort", "is_active"], sort: ["sort", "code"], limit: 100 }),
     listItems<Record<string, unknown>>("ma_kpi", { fields: ["id", "kpi_key", "name", "domain", "tier", "company_id", "unit", "polarity", "rule_type", "threshold", "watch_band", "dp", "rollup", "owner_position", "source_codes", "definition", "sort", "is_active"], filter: { is_active: { _eq: true } }, sort: ["tier", "sort", "kpi_key"], limit: 400 }),
     listItems<Record<string, unknown>>("ma_setting", { fields: ["setting_key", "value"], limit: 100 }),
     listItems<Record<string, unknown>>("ma_source", { fields: ["code", "name", "state", "last_sync_at", "sla_minutes"], sort: "code", limit: 100 }),
     listItems<Record<string, unknown>>("ma_exception", { fields: ["id", "company_id", "kpi_id", "period_start", "period_end", "status", "reason", "owner_user_id", "memo_due_date", "memo_at", "escalated_level", "direction", "deviation", "relative_pct", "memo"], filter: { status: { _in: ["OPEN", "MONITORING", "ESCALATED", "RECURRENCE"] } }, sort: ["-period_start"], limit: 200 }),
+    loadActiveCompaniesFromDirectory(),
   ]);
 
-  const companies = companyRows.rows.map(mapCompany).filter((row) => row.is_active);
-  const kpis = kpiRows.rows.map(mapKpi);
+  const maCompanies = companyRows.rows.map(mapCompany);
+  const distTemplate = maCompanies.find((row) => row.code === "dist") ?? maCompanies[0];
+
+  // Build real company list directly from Directus `company_list` (no invented mock entities).
+  const companies: CompanyRow[] = activeDirectory.map((dir, idx) => {
+    const isMen2 = dir.code.toUpperCase() === "MEN2";
+    const matchedMa =
+      maCompanies.find((c) => c.code.toUpperCase() === dir.code.toUpperCase()) ??
+      (isMen2 ? distTemplate : undefined);
+    return {
+      id: matchedMa?.id ?? 1000 + idx,
+      code: dir.code,
+      name: dir.name,
+      kind: "OPERATING",
+      parent_code: null,
+      industry: isMen2 ? "Distribution" : (matchedMa?.industry ?? "Operating Entity"),
+      currency: matchedMa?.currency ?? "PHP",
+      fx_to_php: matchedMa?.fx_to_php ?? 1,
+      revenue_weight: matchedMa?.revenue_weight ?? null,
+      headcount: matchedMa?.headcount ?? 0,
+      sort: isMen2 ? 0 : idx + 1,
+      is_active: true,
+    };
+  });
+
+  const requestedCode = (params.company ?? "").trim().toUpperCase();
+  const isGroupView = !requestedCode || requestedCode === "ALL";
+  const selectedCompany = isGroupView
+    ? null
+    : (companies.find((c) => c.code.toUpperCase() === requestedCode) ??
+      companies.find((c) => c.code.toUpperCase() === "MEN2") ??
+      companies[0] ??
+      null);
+
+  const men2Dir =
+    activeDirectory.find((d) => d.code.toUpperCase() === "MEN2") ??
+    activeDirectory[0];
+  const selectedDir = isGroupView
+    ? men2Dir
+    : (activeDirectory.find((d) => d.code.toUpperCase() === (selectedCompany?.code.toUpperCase() ?? "")) ??
+      men2Dir);
+  const isMen2Scope = isGroupView || (selectedCompany?.code.toUpperCase() ?? "") === "MEN2";
+
+  const company = selectedCompany;
+  const kpis = isMen2Scope
+    ? kpiRows.rows
+        .map(mapKpi)
+        .filter((kpi) => ERP_LIVE_KEYS.has(kpi.kpi_key) && (!distTemplate || kpi.company_id === distTemplate.id))
+    : kpiRows.rows
+        .map(mapKpi)
+        .filter((kpi) => company && kpi.company_id === company.id && ERP_LIVE_KEYS.has(kpi.kpi_key));
+  const liveKpiIds = kpis.map((k) => k.id);
   const policy = loadPolicy(settingRows.rows.map((row) => ({ setting_key: asString(row.setting_key), value: asString(row.value) })));
 
-  const [targetRows, actualRows] = await Promise.all([
-    listItems<Record<string, unknown>>("ma_kpi_target", { fields: ["kpi_id", "period", "target"], filter: { period: { _in: periods } }, limit: 6000 }),
-    listItems<Record<string, unknown>>("ma_kpi_actual", { fields: ["kpi_id", "period", "value", "basis"], filter: { period: { _in: periods } }, limit: 6000 }),
+  const [targetRows, actualRows, liveErpReadings] = await Promise.all([
+    liveKpiIds.length > 0
+      ? listItems<Record<string, unknown>>("ma_kpi_target", {
+          fields: ["kpi_id", "period", "target"],
+          filter: { period: { _in: periods }, kpi_id: { _in: liveKpiIds } },
+          limit: 6000,
+        })
+      : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+    liveKpiIds.length > 0
+      ? listItems<Record<string, unknown>>("ma_kpi_actual", {
+          fields: ["kpi_id", "period", "value", "basis"],
+          filter: { period: { _in: periods }, source_code: { _eq: "ERP" }, kpi_id: { _in: liveKpiIds } },
+          limit: 6000,
+        })
+      : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+    selectedDir?.springboot ? fetchLiveErpReadings(asOf, selectedDir.springboot) : Promise.resolve(null),
   ]);
 
   const targets = new Map<string, number>();
   for (const row of targetRows.rows) targets.set(`${asNumber(row.kpi_id)}|${asString(row.period)}`, asNumber(row.target));
   const actuals = new Map<string, { value: number; basis: string }>();
-  for (const row of actualRows.rows) actuals.set(`${asNumber(row.kpi_id)}|${asString(row.period)}`, { value: asNumber(row.value), basis: asString(row.basis) || "ACTUAL" });
+  for (const row of actualRows.rows) {
+    actuals.set(`${asNumber(row.kpi_id)}|${asString(row.period)}`, {
+      value: asNumber(row.value),
+      basis: asString(row.basis) || "ACTUAL",
+    });
+  }
+
+  // Overlay live ERP API readings for `asOf` so the screen always matches ERP_SERVER directly
+  if (liveErpReadings) {
+    const kpiByKey = new Map(kpis.map((k) => [k.kpi_key, k]));
+    for (const reading of liveErpReadings) {
+      const kpi = kpiByKey.get(reading.kpiKey);
+      if (!kpi) continue;
+      const cellKey = `${kpi.id}|${asOf}`;
+      if (typeof reading.value === "number" && Number.isFinite(reading.value)) {
+        actuals.set(cellKey, { value: reading.value, basis: reading.basis || "ACTUAL" });
+      } else {
+        actuals.delete(cellKey);
+      }
+    }
+  }
 
   const seriesFor = (kpi: KpiRow): PeriodPoint[] =>
     periods.map((period) => ({
@@ -145,133 +301,94 @@ export async function loadOverview(params: { company?: string; asOf?: string }):
       actual: actuals.get(`${kpi.id}|${period}`)?.value ?? null,
     }));
 
-  const indexOfLatestReading = (points: PeriodPoint[]): number => {
+  const indexOfPeriod = (points: PeriodPoint[]): number => {
+    const exact = points.findIndex((p) => p.period === asOf);
+    if (exact >= 0) return exact;
     for (let i = points.length - 1; i >= 0; i -= 1) if (points[i].actual !== null) return i;
     return points.length - 1;
   };
 
   const statusFor = (kpi: KpiRow): { status: KpiStatus; points: PeriodPoint[]; index: number } => {
     const points = seriesFor(kpi);
-    const index = indexOfLatestReading(points);
+    const index = indexOfPeriod(points);
     return { status: statusOf(kpi, points, index, policy), points, index };
   };
 
-  const selectedCode = params.company ?? "grp";
-  const company = companies.find((row) => row.code === selectedCode) ?? companies.find((row) => row.code === "grp") ?? companies[0] ?? null;
-
-  const scopedKpis = company
-    ? kpis.filter((kpi) => kpi.company_id === company.id || kpi.company_id === 0)
-    : kpis;
-
-  const rows: OverviewRow[] = scopedKpis
+  const rows: OverviewRow[] = kpis
     .map((kpi) => {
       const { status, points, index } = statusFor(kpi);
       const point = points[index];
-      const latestTarget = points.reduce<number | null>((found, p) => (p.target !== null ? p.target : found), null);
+      const latestTarget = point?.target ?? points.reduce<number | null>((found, p) => (p.target !== null ? p.target : found), null);
       return {
         kpi,
         status,
         actual: point?.actual ?? null,
-        target: point?.target ?? latestTarget,
-        period: point?.period ?? null,
+        target: latestTarget,
+        period: point?.period ?? asOf,
         stale: point ? point.actual !== null && point.period < periods[periods.length - 1] : false,
         missingActual: point?.actual === null || point?.actual === undefined,
-        missingTarget: point?.target === null || point?.target === undefined,
+        missingTarget: latestTarget === null || latestTarget === undefined,
         points,
       };
     })
-    .sort((a, b) => {
-      const tier = ["CORE", "WORKFORCE", "INDUSTRY", "HOLDINGS"];
-      const byTier = tier.indexOf(a.kpi.tier) - tier.indexOf(b.kpi.tier);
-      return byTier !== 0 ? byTier : a.kpi.sort - b.kpi.sort || a.kpi.kpi_key.localeCompare(b.kpi.kpi_key);
-    });
+    .sort((a, b) => a.kpi.sort - b.kpi.sort || a.kpi.kpi_key.localeCompare(b.kpi.kpi_key));
 
   const counts: Record<StatusCode, number> = { ON_TRACK: 0, WATCH: 0, PROVISIONAL: 0, CONFIRMED: 0, FAVORABLE: 0, NO_DATA: 0 };
   for (const row of rows) counts[row.status.code] += 1;
   const health = healthScore(rows.map((row) => row.status));
 
-  const coreKpis = kpis.filter((kpi) => kpi.tier === "CORE" && kpi.company_id !== 0);
-  const coreSlugs = Array.from(new Set(coreKpis.map((kpi) => kpi.kpi_key.split(".").slice(1).join("."))));
-  const operating = companies.filter((row) => row.kind === "OPERATING");
-  const heat = coreSlugs.map((slug) => {
-    const sample = coreKpis.find((kpi) => kpi.kpi_key.endsWith(`.${slug}`));
-    return {
-      kpiKey: slug,
-      kpiName: sample?.name ?? slug,
-      cells: operating.map((row) => {
-        const kpi = coreKpis.find((candidate) => candidate.company_id === row.id && candidate.kpi_key.endsWith(`.${slug}`));
-        if (!kpi) {
-          return { code: row.code, status: "NO_DATA" as StatusCode, varianceText: null, unfavorable: false, confirmed: false };
-        }
-        const computed = statusFor(kpi).status;
-        return {
-          code: row.code,
-          status: computed.code,
-          varianceText: computed.deviation?.text ?? null,
-          unfavorable: computed.deviation?.unfavorable ?? false,
-          confirmed: computed.code === "CONFIRMED",
-        };
-      }),
-    };
-  });
-
-  const allExceptionsMapped = exceptionRows.rows.map(mapException);
-  const companyScorecard = companies
-    .filter((entry) => entry.kind !== "GROUP")
-    .map((entry) => {
-      const entityKpis = kpis.filter((kpi) => kpi.company_id === entry.id);
-      const statuses = entityKpis.map((kpi) => ({ kpi, status: statusFor(kpi).status }));
-      const worst = statuses
-        .filter((s) => s.status.code === "CONFIRMED" && s.status.deviation)
-        .sort((a, b) => (b.status.deviation?.ratio ?? 0) - (a.status.deviation?.ratio ?? 0))[0];
-      const entityEsc = allExceptionsMapped.filter(
-        (ex) => ex.company_id === entry.id && ex.status === "ESCALATED",
-      ).length;
-      return {
-        id: entry.id,
-        code: entry.code,
-        name: entry.name,
-        industry: entry.industry ?? (entry.kind === "HOLDINGS" ? "Parent company" : "Operating"),
-        revenueWeight: entry.revenue_weight,
-        health: healthScore(statuses.map((s) => s.status)),
-        onTrack: statuses.filter((s) => s.status.code === "ON_TRACK" || s.status.code === "FAVORABLE").length,
-        watch: statuses.filter((s) => s.status.code === "WATCH" || s.status.code === "PROVISIONAL").length,
-        breach: statuses.filter((s) => s.status.code === "CONFIRMED").length,
-        escalated: entityEsc,
-        topIssue: worst
-          ? { kpiName: worst.kpi.name, varianceText: worst.status.deviation?.text ?? "" }
-          : null,
-      };
-    });
-
   const kpiById = new Map(kpis.map((kpi) => [kpi.id, kpi]));
-  const companyById = new Map(companies.map((row) => [row.id, row]));
   const exceptions = exceptionRows.rows
-    .map((row) => {
-      const mapped = mapException(row);
+    .map(mapException)
+    .filter((row) => kpiById.has(row.kpi_id) && (!company || row.company_id === company.id))
+    .map((mapped) => {
       const kpi = kpiById.get(mapped.kpi_id);
       return {
         ...mapped,
         kpiName: kpi?.name ?? `KPI ${mapped.kpi_id}`,
-        companyName: companyById.get(mapped.company_id)?.code ?? String(mapped.company_id),
+        companyName: company?.name ?? selectedDir?.name ?? "MEN2",
       };
-    })
-    .filter((row) => !company || company.id === 0 || row.company_id === company.id);
+    });
 
-  // The bridge consolidates the operating companies, so it only means anything on the group view.
-  const settings = new Map(settingRows.rows.map((row) => [asString(row.setting_key), asString(row.value)]));
-  const bridge =
-    company && company.kind === "GROUP"
-      ? buildBridge({ asOf, companies, kpis, settings, actuals })
-      : null;
+  const companyScorecard = company
+    ? [
+        {
+          id: company.id,
+          code: company.code,
+          name: company.name,
+          industry: "Distribution",
+          revenueWeight: company.revenue_weight,
+          health,
+          onTrack: counts.ON_TRACK + counts.FAVORABLE,
+          watch: counts.WATCH + counts.PROVISIONAL,
+          breach: counts.CONFIRMED,
+          escalated: exceptions.filter((ex) => ex.status === "ESCALATED").length,
+          topIssue: null,
+        },
+      ]
+    : [];
 
   const now = Date.now();
-  const sources = sourceRows.rows.map((row) => {
-    const lastSync = row.last_sync_at ? asString(row.last_sync_at) : null;
-    const sla = asNumber(row.sla_minutes) || 1440;
-    const stale = row.state === "CONNECTED" ? !lastSync || now - new Date(lastSync).getTime() > sla * 60_000 : false;
-    return { code: asString(row.code), name: asString(row.name), state: asString(row.state), last_sync_at: lastSync, sla_minutes: sla, stale };
-  });
+  const sources = sourceRows.rows
+    .filter((row) => asString(row.code).toUpperCase() === "ERP")
+    .map((row) => {
+      const lastSync = row.last_sync_at ? asString(row.last_sync_at) : null;
+      const sla = asNumber(row.sla_minutes) || 1440;
+      const stale = row.state === "CONNECTED" ? !lastSync || now - new Date(lastSync).getTime() > sla * 60_000 : false;
+      return { code: asString(row.code), name: asString(row.name), state: asString(row.state), last_sync_at: lastSync, sla_minutes: sla, stale };
+    });
 
-  return { asOf, companies, company, rows, health, counts, exceptions, companyScorecard, heat, sources, bridge };
+  return {
+    asOf,
+    companies,
+    company,
+    rows,
+    health,
+    counts,
+    exceptions,
+    companyScorecard,
+    heat: [],
+    sources,
+    bridge: null,
+  };
 }

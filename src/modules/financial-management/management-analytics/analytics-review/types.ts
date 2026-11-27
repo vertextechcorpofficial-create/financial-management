@@ -122,6 +122,9 @@ export interface ExceptionListRow extends ExceptionRow {
   kpiName: string;
   unit: string | null;
   dp: number;
+  polarity?: string;
+  ownerPosition?: string | null;
+  sourceCodes?: string | null;
 }
 
 export interface ExceptionReadingRow {
@@ -217,10 +220,19 @@ export interface ActionRow {
   owner_user_id: number | null;
   /** Resolved from the platform user directory; null when the id has no readable name. */
   ownerName?: string | null;
+  ownerPosition?: string | null;
   due_date: string | null;
   status: string;
   notes: string | null;
   done_at: string | null;
+}
+
+export interface StaleSourceSummary {
+  code: string;
+  name: string;
+  state: string;
+  last_sync_at: string | null;
+  sla_minutes: number;
 }
 
 export interface ReviewDetail {
@@ -233,4 +245,5 @@ export interface ReviewDetail {
   /** Agenda the meeting would get if it were opened now (empty once a review exists). */
   planned: Array<Omit<AgendaItem, "id" | "review_id">>;
   exceptions: ExceptionListRow[];
+  staleSources?: StaleSourceSummary[];
 }

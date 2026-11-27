@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchAlerts, generateAlerts, saveVariancePolicy, setAlertPolicy, setAlertState } from "../providers/alertsApi";
+import {
+  fetchAlerts,
+  generateAlerts,
+  markAllAlertsRead,
+  saveVariancePolicy,
+  setAlertPolicy,
+  setAlertState,
+} from "../providers/alertsApi";
 import type { AlertState, AlertsPayload, Policy } from "../types";
 
 /** The filter a shared link names, so a copied alerts link shows what it says. */
@@ -110,7 +117,11 @@ export function useAlerts() {
     reload: () => load(state, type, page, size),
     generate: () => run(generateAlerts),
     mark: (id: number, next: AlertState) => run(() => setAlertState(id, next)),
-    togglePolicy: (id: number, isEnabled: boolean) => run(() => setAlertPolicy(id, { isEnabled })),
+    markAllRead: () => run(markAllAlertsRead),
+    updatePolicyRule: (
+      id: number,
+      patch: { isEnabled?: boolean; channel?: string; leadDays?: number; recipients?: string | null },
+    ) => run(() => setAlertPolicy(id, patch)),
     applyPolicy: (policy: Policy) => run(() => saveVariancePolicy(policy)),
   };
 }

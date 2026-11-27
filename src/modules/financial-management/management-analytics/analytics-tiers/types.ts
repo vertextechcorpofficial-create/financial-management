@@ -209,8 +209,17 @@ export interface CatalogCounts {
   HOLDINGS: number;
 }
 
+export interface CatalogOption {
+  id: number;
+  kpiKey: string;
+  name: string;
+  companyCode: string;
+  companyName: string;
+}
+
 export interface CatalogPayload {
   rows: CatalogRow[];
+  allOptions?: CatalogOption[];
   total: number;
   counts: CatalogCounts;
   companies: Array<{ id: number; code: string; name: string }>;

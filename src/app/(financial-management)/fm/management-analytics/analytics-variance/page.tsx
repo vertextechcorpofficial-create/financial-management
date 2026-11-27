@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { PageShell } from "@/modules/financial-management/management-analytics/analytics-variance/components/PageShell";
 import { VarianceModule } from "@/modules/financial-management/management-analytics/analytics-variance/components/VarianceModule";
-import { AnalyticsShell } from "@/modules/financial-management/management-analytics/shared/AnalyticsShell";
+import { AnalyticsShell } from "@/modules/financial-management/management-analytics/analytics-variance/components/AnalyticsShell";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

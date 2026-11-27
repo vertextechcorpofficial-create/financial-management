@@ -12,7 +12,10 @@ import {
 } from "@/components/ui/dialog";
 import { DOMAIN_LABEL, STATUS_META, TIER_LABEL, toneClass, type Tone } from "../constants";
 import { formatValue, ruleText, signedMagnitude } from "../services/engine";
-import { TrendChart, type Tone as ChartTone } from "@/modules/financial-management/management-analytics/shared/Charts";
+import { phtToday } from "../pht";
+import { TrendChart, type Tone as ChartTone } from "./Charts";
+import { ErpTags } from "./BoardKit";
+import { ErpFormulaPanel } from "./ErpFormulaPanel";
 import type { CatalogDetail } from "../types";
 import { StatusBadge } from "./StatusBadge";
 
@@ -76,10 +79,13 @@ export function KpiDetailDialog({
         <DialogHeader className="space-y-2 border-b px-6 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <DialogTitle className="truncate text-base">{row.kpi.name}</DialogTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <DialogTitle className="truncate text-base">{row.kpi.name}</DialogTitle>
+                <ErpTags kpiKey={row.kpi.kpi_key} sourceCodes={row.kpi.source_codes} />
+              </div>
               <DialogDescription className="mt-1 text-xs">
                 {row.companyName} · {TIER_LABEL[row.kpi.tier] ?? row.kpi.tier} · {DOMAIN_LABEL[row.kpi.domain] ?? row.kpi.domain} ·{" "}
-                {row.period ?? "no readings"}
+                {row.period ?? "—"}
               </DialogDescription>
             </div>
             <StatusBadge tone={meta.tone} title={status.label}>
@@ -95,7 +101,7 @@ export function KpiDetailDialog({
             <Tile label="Rule" value={ruleText(row.kpi)} />
             <Tile
               label="Next three months"
-              value={forecast ? formatValue(forecast.points.at(-1) ?? 0, row.kpi) : "no forecast"}
+              value={forecast ? formatValue(forecast.points.at(-1) ?? 0, row.kpi) : "—"}
               tone={forecast?.breachProbability !== null && forecast?.breachProbability !== undefined && forecast.breachProbability >= 0.5 ? "danger" : undefined}
             />
           </div>
@@ -122,17 +128,23 @@ export function KpiDetailDialog({
             </div>
           </section>
 
+          <ErpFormulaPanel
+            kpiKey={row.kpi.kpi_key}
+            period={row.period ?? phtToday().slice(0, 7)}
+            sourceCodes={row.kpi.source_codes}
+          />
+
           <div className="grid gap-4 md:grid-cols-2">
             <Group title="Rule">
-              <Row label="Measure" value={row.kpi.definition ?? "No definition recorded."} />
+              <Row label="Measure" value={row.kpi.definition ?? "—"} />
               <Row label="Rule" value={ruleText(row.kpi)} />
               <Row label="Direction" value={row.kpi.polarity === "HIGH" ? "Higher is better" : "Lower is better"} />
               <Row label="Precision" value={`${row.kpi.dp} decimal${row.kpi.dp === 1 ? "" : "s"}`} />
               <Row label="Roll-up" value={row.kpi.rollup} />
             </Group>
             <Group title="Ownership">
-              <Row label="Owner position" value={row.kpi.owner_position ?? "unassigned"} />
-              <Row label="Sources" value={row.kpi.source_codes ?? "none declared"} />
+              <Row label="Owner position" value={row.kpi.owner_position ?? "Unassigned"} />
+              <Row label="Sources" value={row.kpi.source_codes ?? "—"} />
               <Row label="Key" value={row.kpi.kpi_key} />
               <Row label="Memo required" value={row.memoRequired ? "Yes" : "No"} />
             </Group>
@@ -159,17 +171,17 @@ export function KpiDetailDialog({
                     <tr key={point.period} className="border-b border-border/40 last:border-0">
                       <td className="px-4 py-2 tabular-nums">{point.period}</td>
                       <td className="px-4 py-2 text-right tabular-nums">
-                        {point.actual === null ? "no reading" : formatValue(point.actual, row.kpi)}
+                        {point.actual === null ? "—" : formatValue(point.actual, row.kpi)}
                       </td>
                       <td className="px-4 py-2 text-right tabular-nums">
-                        {point.target === null ? "no target" : formatValue(point.target, row.kpi)}
+                        {point.target === null ? "—" : formatValue(point.target, row.kpi)}
                       </td>
                       <td
                         className={`px-4 py-2 text-right tabular-nums ${
                           difference === null ? "" : Math.abs(difference) < 1e-9 ? "text-muted-foreground" : ""
                         }`}
                       >
-                        {difference === null ? "not comparable" : signedMagnitude(difference, row.kpi.unit, row.kpi.dp)}
+                        {difference === null ? "—" : signedMagnitude(difference, row.kpi.unit, row.kpi.dp)}
                       </td>
                     </tr>
                   );

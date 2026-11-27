@@ -5,13 +5,15 @@ import { Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Callout, MicroLabel, Panel, Stat } from "@/modules/financial-management/management-analytics/shared/BoardKit";
-import { TrendChart, type Tone } from "@/modules/financial-management/management-analytics/shared/Charts";
+import { Callout, ErpTags, MicroLabel, Panel, Stat } from "./BoardKit";
+import { TrendChart, type Tone } from "./Charts";
+import { ErpFormulaPanel } from "./ErpFormulaPanel";
 
 import { DOMAIN_LABEL, STATUS_META } from "../constants";
 import { fetchCatalogDetail } from "../providers/catalogApi";
 import { deviation, formatNumber, formatValue, ruleText } from "../services/engine";
-import type { CatalogDetail, CatalogRow } from "../types";
+import { phtToday } from "../pht";
+import type { CatalogDetail, CatalogOption, CatalogRow } from "../types";
 import { OptionCombobox } from "./OptionCombobox";
 import { StatusBadge } from "./StatusBadge";
 
@@ -70,14 +72,20 @@ const TONE: Record<string, Tone> = {
   NO_DATA: "muted",
 };
 
-export function AnalyticsTaxonomyPanel({ rows }: { rows: CatalogRow[] }) {
+export function AnalyticsTaxonomyPanel({
+  rows,
+  allOptions = [],
+}: {
+  rows: CatalogRow[];
+  allOptions?: CatalogOption[];
+}) {
   const [tierIdx, setTierIdx] = useState(0);
   const [selectedKpiId, setSelectedKpiId] = useState<string>("");
   const [detail, setDetail] = useState<CatalogDetail | null>(null);
   const [loadedKpiId, setLoadedKpiId] = useState<string>("");
   const [recoveryPct, setRecoveryPct] = useState(50);
 
-  const activeKpiId = selectedKpiId || (rows[0] ? String(rows[0].kpi.id) : "");
+  const activeKpiId = selectedKpiId || (allOptions[0] ? String(allOptions[0].id) : rows[0] ? String(rows[0].kpi.id) : "");
   const loading = Boolean(activeKpiId) && loadedKpiId !== activeKpiId;
 
   useEffect(() => {
@@ -101,15 +109,20 @@ export function AnalyticsTaxonomyPanel({ rows }: { rows: CatalogRow[] }) {
     };
   }, [activeKpiId]);
 
-  const kpiOptions = useMemo(
-    () =>
-      rows.map((r) => ({
-        value: String(r.kpi.id),
-        label: `${r.companyCode || "GRP"} · ${r.kpi.name}`,
-        searchText: `${r.companyCode ?? ""} ${r.companyName ?? ""} ${r.kpi.name} ${r.kpi.kpi_key}`,
-      })),
-    [rows],
-  );
+  const kpiOptions = useMemo(() => {
+    if (allOptions.length > 0) {
+      return allOptions.map((r) => ({
+        value: String(r.id),
+        label: `${r.companyCode || "GRP"} · ${r.name}`,
+        searchText: `${r.companyCode} ${r.companyName} ${r.name} ${r.kpiKey}`,
+      }));
+    }
+    return rows.map((r) => ({
+      value: String(r.kpi.id),
+      label: `${r.companyCode || "GRP"} · ${r.kpi.name}`,
+      searchText: `${r.companyCode ?? ""} ${r.companyName ?? ""} ${r.kpi.name} ${r.kpi.kpi_key}`,
+    }));
+  }, [allOptions, rows]);
 
   const tier = MATURITY_TIERS[tierIdx];
   const kpi = detail?.row.kpi ?? null;
@@ -170,11 +183,12 @@ export function AnalyticsTaxonomyPanel({ rows }: { rows: CatalogRow[] }) {
 
       <Panel className="p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
-          <div>
+          <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold">
               Tier {tierIdx + 1} · {tier.name} —{" "}
               <span className="font-normal text-muted-foreground">{tier.question}</span>
             </h2>
+            {kpi ? <ErpTags kpiKey={kpi.kpi_key} sourceCodes={kpi.source_codes} compact /> : null}
           </div>
           <div className="w-full sm:w-[280px]">
             <OptionCombobox
@@ -279,18 +293,23 @@ export function AnalyticsTaxonomyPanel({ rows }: { rows: CatalogRow[] }) {
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="rounded-lg border border-border/60 p-3">
-                    <MicroLabel>Domain & Ownership</MicroLabel>
+                    <MicroLabel>Domain &amp; Ownership</MicroLabel>
                     <p className="mt-1 font-medium">{DOMAIN_LABEL[kpi.domain] ?? kpi.domain}</p>
                     <p className="mt-0.5 text-muted-foreground">Owner: {kpi.owner_position ?? "Unassigned"}</p>
                   </div>
                   <div className="rounded-lg border border-border/60 p-3">
-                    <MicroLabel>Threshold & Run Status</MicroLabel>
+                    <MicroLabel>Threshold &amp; Run Status</MicroLabel>
                     <p className="mt-1 font-mono">{ruleText(kpi)}</p>
                     <p className="mt-0.5 text-muted-foreground">
                       {detail.status.run ? detail.status.run.reason : "Currently within policy tolerance"}
                     </p>
                   </div>
                 </div>
+                <ErpFormulaPanel
+                  kpiKey={kpi.kpi_key}
+                  period={latest?.period ?? phtToday().slice(0, 7)}
+                  sourceCodes={kpi.source_codes}
+                />
                 {kpi.domain === "WORKFORCE" ? (
                   <Callout tone="info" title="Data Privacy Act (RA 10173)">
                     WorkSync attendance records are aggregated to unit and company level to protect employee personal data.

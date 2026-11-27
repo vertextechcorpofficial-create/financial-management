@@ -49,11 +49,11 @@ export async function scan(period: string, company: string): Promise<VarianceSca
   return read<VarianceScanResult>(response, "The scan could not be completed.");
 }
 
-export async function fileMemo(id: number, memo: string): Promise<ExceptionDetail> {
+export async function fileMemo(id: number, memo: string, ownerPosition?: string | null): Promise<ExceptionDetail> {
   const response = await fetch(`${BASE}/${id}/memo`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ memo }),
+    body: JSON.stringify({ memo, ...(ownerPosition ? { ownerPosition } : {}) }),
   });
   return read<ExceptionDetail>(response, "The memo could not be filed.");
 }
@@ -65,6 +65,15 @@ export async function closeException(id: number, note: string): Promise<Exceptio
     body: JSON.stringify({ note }),
   });
   return read<ExceptionDetail>(response, "The exception could not be closed.");
+}
+
+export async function reopenException(id: number, note?: string): Promise<ExceptionDetail> {
+  const response = await fetch(`${BASE}/${id}/reopen`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(note ? { note } : {}),
+  });
+  return read<ExceptionDetail>(response, "The exception could not be reopened.");
 }
 
 export async function recordReading(id: number, period: string, value: number): Promise<ExceptionDetail> {

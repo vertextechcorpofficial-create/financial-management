@@ -28,18 +28,20 @@ export function Waterfall({
   scenario,
   dp = 2,
   unit = "₱M",
+  showBreak = true,
 }: {
   steps: Array<{ label: string; value: number; tone: Tone }>;
   runRate: number;
   scenario: number;
   dp?: number;
   unit?: string;
+  showBreak?: boolean;
 }) {
+  const sym = unit.startsWith("$") ? "$" : "₱";
   const floats = React.useMemo(
     () =>
       steps.map((step, index) => {
         // Steps chain from the run rate, not from zero: a bar for +13 must sit between 210 and 223.
-        // Chaining from zero would draw every company above the same baseline and say nothing.
         const start = runRate + steps.slice(0, index).reduce((sum, prior) => sum + prior.value, 0);
         return { ...step, start, end: start + step.value };
       }),
@@ -53,10 +55,9 @@ export function Waterfall({
   const high = Math.max(...edges);
   const span = high - low || 1;
   const at = (value: number) => ((value - low) / span) * 100;
+  const truncatedFloor = showBreak && low > 0.01;
 
   const rows: Array<{ label: string; from: number; to: number; tone: Tone; value: number }> = [
-    // The two totals start at the axis floor and run to their outturn, so a reader can see where
-    // the chained bars begin and what they add up to.
     { label: "Run rate", from: low, to: runRate, tone: "muted", value: runRate },
     ...floats.map((row) => ({
       label: row.label,
@@ -78,37 +79,51 @@ export function Waterfall({
           <div key={`${row.label}-${index}`} className="flex items-center gap-3">
             <span
               className={cn(
-                "w-[76px] shrink-0 truncate text-[11px]",
+                "w-[78px] shrink-0 truncate text-[11px]",
                 total ? "font-medium text-foreground" : "text-muted-foreground",
               )}
               title={row.label}
             >
               {row.label}
             </span>
-            <div className="relative h-4 min-w-0 flex-1 rounded-sm bg-muted/40">
+            <div className="relative h-4 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted/40">
               <span
                 aria-hidden
                 className="absolute inset-y-0 w-px bg-border"
                 style={{ left: `${at(runRate)}%` }}
               />
               <span
-                className={cn("absolute inset-y-0 rounded-sm", FILL[row.tone], total && "bg-foreground/70")}
-                style={{ left: `${left}%`, width: `${Math.max(width, 0.6)}%` }}
+                className={cn(
+                  "absolute inset-y-0 rounded-sm",
+                  FILL[row.tone],
+                  row.label === "Run rate" && "bg-slate-400/75 dark:bg-slate-500/75",
+                  row.label === "Scenario" && "bg-teal-700 dark:bg-teal-400",
+                )}
+                style={{ left: `${left}%`, width: `${Math.max(width, 0.8)}%` }}
               />
+              {total && truncatedFloor ? (
+                <span
+                  aria-hidden
+                  title={`Scale starts at ${sym}${number(low, dp)}M`}
+                  className="pointer-events-none absolute inset-y-0 left-1.5 flex items-center text-[10px] font-bold leading-none text-background/90 select-none"
+                >
+                  ⫽
+                </span>
+              ) : null}
             </div>
-            <span className="w-[74px] shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
+            <span className="w-[78px] shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
               {total ? number(row.value, dp) : signed(row.value, dp)}
             </span>
           </div>
         );
       })}
-      <p className="pt-1 text-[11px] text-muted-foreground">
-        Values in {unit}, each bar floating from where the previous one ended. The vertical line is the
-        run rate of {number(runRate, dp)}M. A bar to its left gives EBITDA back.
+      <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
+        Values in {unit}, each bar floating from where the previous one ended. The vertical rule marks the{" "}
+        {sym}{number(runRate, dp)}M run-rate{truncatedFloor ? `; ⫽ marks an axis floor of ${sym}${number(low, dp)}M` : ""}.
       </p>
       {unclosed ? (
         <p className="text-[11px] text-warning">
-          {`The steps end at ₱${number(end, dp)}M against a scenario total of ₱${number(scenario, dp)}M: ₱${number(
+          {`The steps end at ${sym}${number(end, dp)}M against a scenario total of ${sym}${number(scenario, dp)}M: ${sym}${number(
             Math.abs(scenario - end),
             dp,
           )}M is unaccounted for, so read the table rather than this chart.`}

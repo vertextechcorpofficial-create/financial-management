@@ -18,6 +18,33 @@ import type {
 
 type Json = Record<string, unknown>;
 
+const ERP_LIVE_KEYS = new Set([
+  "dist.opex",
+  "dist.ncr",
+  "dist.capa",
+  "dist.abs",
+  "dist.tardy",
+  "dist.ot",
+  "dist.fill",
+  "dist.otif",
+  "dist.pick",
+  "dist.freight",
+]);
+
+async function resolveMen2Name(): Promise<string> {
+  try {
+    const res = await listItems<Json>("company_list", {
+      fields: ["company_name"],
+      filter: { company_code: { _eq: "MEN2" }, status: { _eq: "ACTIVE" } },
+      limit: 1,
+    });
+    const name = res.rows[0] ? asString(res.rows[0].company_name) : "";
+    return name || "MEN2";
+  } catch {
+    return "MEN2";
+  }
+}
+
 const KPI_FIELDS = [
   "id",
   "kpi_key",
@@ -111,19 +138,30 @@ export async function loadPolicy(): Promise<Policy> {
 }
 
 export async function loadAlerts(params: { state?: string; type?: string; page?: number; size?: number } = {}): Promise<AlertsPayload> {
-  const [alertRows, policyRows, companyRows, kpiRows] = await Promise.all([
+  const [alertRows, policyRows, companyRows, kpiRows, men2Name] = await Promise.all([
     listItems<Json>("ma_alert", { fields: ["*"], sort: "-created_at", limit: 500 }),
     listItems<Json>("ma_alert_policy", { fields: ["*"], sort: "type", limit: 50 }),
     listItems<Json>("ma_company", { fields: ["id", "code"], limit: 50 }),
-    listItems<Json>("ma_kpi", { fields: ["id", "name"], limit: 2000 }),
+    listItems<Json>("ma_kpi", { fields: ["id", "kpi_key", "name"], limit: 2000 }),
+    resolveMen2Name(),
   ]);
 
   const companyCodes = new Map<number, string>();
-  for (const row of companyRows.rows) companyCodes.set(asNumber(row.id), asString(row.code));
+  for (const row of companyRows.rows) {
+    if (asString(row.code) === "dist") companyCodes.set(asNumber(row.id), men2Name);
+  }
   const kpiNames = new Map<number, string>();
-  for (const row of kpiRows.rows) kpiNames.set(asNumber(row.id), asString(row.name));
+  for (const row of kpiRows.rows) {
+    if (ERP_LIVE_KEYS.has(asString(row.kpi_key))) kpiNames.set(asNumber(row.id), asString(row.name));
+  }
 
-  const all = alertRows.rows.map((row) => mapAlert(row, companyCodes, kpiNames));
+  const all = alertRows.rows
+    .map((row) => mapAlert(row, companyCodes, kpiNames))
+    .filter((row) => {
+      if (row.kpi_id !== null && !kpiNames.has(row.kpi_id)) return false;
+      if (row.company_id !== null && !companyCodes.has(row.company_id)) return false;
+      return true;
+    });
   const counts = {
     unread: all.filter((row) => row.state === "UNREAD").length,
     read: all.filter((row) => row.state === "READ").length,
@@ -181,19 +219,20 @@ export async function generateAlerts(actorId: number | null) {
     await Promise.all([
       loadPolicy(),
       listItems<Json>("ma_kpi", { fields: KPI_FIELDS, limit: 2000 }),
-      listItems<Json>("ma_kpi_actual", { fields: ["kpi_id", "period", "value"], sort: "period", limit: 20000 }),
+      listItems<Json>("ma_kpi_actual", { fields: ["kpi_id", "period", "value"], filter: { source_code: { _eq: "ERP" } }, sort: "period", limit: 20000 }),
       listItems<Json>("ma_kpi_target", { fields: ["kpi_id", "period", "target"], limit: 20000 }),
       listItems<Json>("ma_exception", {
         fields: ["id", "company_id", "kpi_id", "status", "period_end", "escalated_level", "memo_due_date"],
         limit: 2000,
       }),
-      listItems<Json>("ma_source", { fields: ["code", "name", "steward", "state", "last_sync_at", "sla_minutes"], limit: 50 }),
+      listItems<Json>("ma_source", { fields: ["code", "name", "steward", "state", "last_sync_at", "sla_minutes"], filter: { code: { _eq: "ERP" } }, limit: 50 }),
       listItems<Json>("ma_change_request", { fields: ["id", "summary", "status"], limit: 200 }),
       listItems<Json>("ma_alert", { fields: ["dedupe_key"], limit: 5000 }),
     ]);
 
   const seen = new Set(existing.rows.map((row) => asString(row.dedupe_key)));
-  const kpis = kpiRows.rows.map(mapKpi).filter((row) => row.is_active);
+  const kpis = kpiRows.rows.map(mapKpi).filter((row) => row.is_active && ERP_LIVE_KEYS.has(row.kpi_key));
+  const liveKpiIds = new Set(kpis.map((k) => k.id));
   const targets = new Map<string, number>();
   for (const row of targetRows.rows) {
     targets.set(`${asNumber(row.kpi_id)}|${asString(row.period)}`, asNumber(row.target));
@@ -256,6 +295,7 @@ export async function generateAlerts(actorId: number | null) {
   }
 
   for (const row of exceptionRows.rows) {
+    if (!liveKpiIds.has(asNumber(row.kpi_id))) continue;
     const level = asNumber(row.escalated_level);
     if (level >= 1) {
       drafts.push({
@@ -377,10 +417,33 @@ export async function setAlertState(id: number, state: AlertState, actorId: numb
   return { id, state };
 }
 
-export async function setAlertPolicy(id: number, body: { isEnabled?: boolean; channel?: string }, actorId: number | null) {
+export async function markAllAlertsRead(actorId: number | null) {
+  const { rows } = await listItems<Json>("ma_alert", {
+    fields: ["id"],
+    filter: { state: { _eq: "UNREAD" } },
+    limit: 500,
+  });
+  const now = new Date().toISOString().slice(0, 19);
+  for (const row of rows) {
+    await updateItem<Json>("ma_alert", asNumber(row.id), {
+      state: "READ",
+      updated_at: now,
+      updated_by: actorId,
+    });
+  }
+  return { updated: rows.length };
+}
+
+export async function setAlertPolicy(
+  id: number,
+  body: { isEnabled?: boolean; channel?: string; leadDays?: number; recipients?: string | null },
+  actorId: number | null,
+) {
   const payload: Json = { updated_at: new Date().toISOString().slice(0, 19), updated_by: actorId };
   if (typeof body.isEnabled === "boolean") payload.is_enabled = body.isEnabled;
   if (body.channel) payload.channel = body.channel;
+  if (typeof body.leadDays === "number" && Number.isFinite(body.leadDays)) payload.lead_days = body.leadDays;
+  if (body.recipients !== undefined) payload.recipients = body.recipients;
   await updateItem<Json>("ma_alert_policy", id, payload);
   return { id };
 }

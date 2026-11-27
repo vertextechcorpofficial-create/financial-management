@@ -30,7 +30,7 @@ export async function openMeeting(period: string, company: string): Promise<Revi
 
 export async function patchReview(
   id: number,
-  patch: { attendees?: string; minutes?: string; status?: "DRAFT" | "FINAL" },
+  patch: { attendees?: string; minutes?: string; status?: "DRAFT" | "FINAL"; refreshAgenda?: boolean },
 ): Promise<ReviewDetail> {
   const response = await fetch(`${BASE}/${id}`, {
     method: "PATCH",
@@ -59,6 +59,7 @@ export async function addAction(payload: {
   title: string;
   dueDate?: string;
   notes?: string;
+  ownerPosition?: string;
 }) {
   const response = await fetch(`${BASE}/action`, {
     method: "POST",
@@ -71,4 +72,9 @@ export async function addAction(payload: {
 export async function closeAction(id: number) {
   const response = await fetch(`${BASE}/action/${id}`, { method: "PATCH" });
   return read(response, "The action could not be closed.");
+}
+
+export async function deleteAction(id: number) {
+  const response = await fetch(`${BASE}/action/${id}`, { method: "DELETE" });
+  return read(response, "The action could not be deleted.");
 }

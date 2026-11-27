@@ -294,6 +294,24 @@ export interface ChangeRequestRow {
   note: string | null;
 }
 
+export interface GovernanceKpiRuleRow {
+  id: number;
+  label: string;
+  kpiKey: string;
+  name: string;
+  domain: string;
+  tier: string;
+  companyCode: string;
+  companyName: string;
+  unit: string | null;
+  polarity: string;
+  ruleType: string;
+  threshold: number | null;
+  watchBand: number | null;
+  ownerPosition: string | null;
+  sourceCodes: string | null;
+}
+
 export interface GovernancePayload {
   roles: RoleRow[];
   assignments: AssignmentRow[];
@@ -301,11 +319,8 @@ export interface GovernancePayload {
   policies: PolicyRow[];
   changes: ChangeRequestRow[];
   users: Array<{ id: number; name: string; email: string }>;
-  /** Measures a change of method can name; the summary carries the rest. */
-  kpis: KpiOptionRow[];
+  /** Measures a change of method can name, plus catalog & threshold rules. */
+  kpis: GovernanceKpiRuleRow[];
 }
 
-export interface KpiOptionRow {
-  id: number;
-  label: string;
-}
+export type KpiOptionRow = GovernanceKpiRuleRow;

@@ -70,15 +70,19 @@ export interface SourceRefreshResult {
   code: string;
   name: string;
   readings: number;
+  saved?: number;
+  skipped?: number;
   latestPeriod: string | null;
   previousLastSync: string | null;
   lastSyncAt: string;
   fresh: boolean;
 }
 
-export async function refreshSource(code: string): Promise<SourceRefreshResult> {
+export async function refreshSource(code: string, period?: string): Promise<SourceRefreshResult> {
   const response = await fetch(`/api/fm/management-analytics/data/sources/${encodeURIComponent(code)}/refresh`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(period ? { period } : {}),
   });
   const body = (await response.json()) as { success: boolean; data?: SourceRefreshResult; error?: string };
   if (!response.ok || !body.success || !body.data) {

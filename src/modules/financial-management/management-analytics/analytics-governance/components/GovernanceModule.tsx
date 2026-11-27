@@ -1,30 +1,52 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
+import { Pencil, Plus, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
-import { BoardHeader, Panel, PanelHead, Stat } from "@/modules/financial-management/management-analytics/shared/BoardKit";
-import { BarList } from "@/modules/financial-management/management-analytics/shared/Charts";
+import { BoardHeader, Callout, ErpTags, Panel, PanelHead } from "./BoardKit";
+import { ErpOrgRosterPanel } from "./ErpOrgRosterPanel";
 import { useGovernance } from "../hooks/useGovernance";
 import { OptionCombobox } from "./OptionCombobox";
 import { Notice } from "./Notice";
 import { StatusBadge } from "./StatusBadge";
 import { TablePager, pageSlice } from "./TablePager";
 import { phtDisplayStamp } from "../pht";
-import type { AssignmentRow, ChangeRequestRow, GovernancePayload, OrgCompanyRow, RoleRow } from "../types";
+import type {
+  AssignmentRow,
+  ChangeRequestRow,
+  GovernanceKpiRuleRow,
+  GovernancePayload,
+  OrgCompanyRow,
+  RoleRow,
+} from "../types";
 
 const PAGE_SIZE = 10;
 
-/** A stored setting reads as a sentence, not as a column name. */
+const ROLE_CAPABILITIES: Record<string, { detailAccess: string; canSignOff: boolean }> = {
+  EXEC: { detailAccess: "Aggregated only", canSignOff: true },
+  GROUP_EXEC: { detailAccess: "Aggregated only", canSignOff: true },
+  CFO: { detailAccess: "Full drill-down", canSignOff: true },
+  ADMIN: { detailAccess: "Full drill-down", canSignOff: true },
+  CONTROLLER: { detailAccess: "Full drill-down", canSignOff: true },
+};
+
+function resolveRoleCapability(role: RoleRow) {
+  const byCode = ROLE_CAPABILITIES[role.code.toUpperCase()];
+  if (byCode) return byCode;
+  if (role.scope === "GROUP") return { detailAccess: "Aggregated + cross-unit", canSignOff: true };
+  return { detailAccess: "Full company drill-down", canSignOff: false };
+}
+
 function settingLabel(label: string): string {
-  return label.replace(", PHP M a year", " \u00b7 \u20b1M a year").replace(/, /g, " \u00b7 ");
+  return label.replace(", PHP M a year", " · ₱M a year").replace(/, /g, " · ");
 }
 
 function SettingRows({
@@ -46,7 +68,6 @@ function SettingRows({
       {rows.map((row) => {
         const current = draft[row.key] ?? row.value;
         const dirty = current !== row.value;
-        const isSwitch = row.value === "on" || row.value === "off";
         return (
           <div key={row.key} className="flex flex-wrap items-center justify-between gap-3 py-3">
             <div className="min-w-0 flex-1">
@@ -54,32 +75,17 @@ function SettingRows({
               {shared ? null : <p className="text-xs text-muted-foreground">{row.note ?? row.key}</p>}
             </div>
             <div className="flex items-center gap-2">
-              {isSwitch ? (
-                <Switch
-                  checked={current === "on"}
-                  disabled={busy}
-                  aria-label={settingLabel(row.label)}
-                  onCheckedChange={(checked) => {
-                    const next = checked ? "on" : "off";
-                    setDraft((prev) => ({ ...prev, [row.key]: next }));
-                    onSave(row.key, next);
-                  }}
-                />
-              ) : (
-                <>
-                  <Input
-                    className="h-9 w-[140px] tabular-nums"
-                    value={current}
-                    aria-label={settingLabel(row.label)}
-                    onChange={(event) =>
-                      setDraft((prev) => ({ ...prev, [row.key]: event.target.value }))
-                    }
-                  />
-                  <Button variant="outline" size="sm" className="h-9" disabled={!dirty || busy} onClick={() => onSave(row.key, current)}>
-                    Save
-                  </Button>
-                </>
-              )}
+              <Input
+                className="h-9 w-[140px] font-mono tabular-nums"
+                value={current}
+                aria-label={settingLabel(row.label)}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, [row.key]: event.target.value }))
+                }
+              />
+              <Button variant="outline" size="sm" className="h-9" disabled={!dirty || busy} onClick={() => onSave(row.key, current)}>
+                Save
+              </Button>
             </div>
           </div>
         );
@@ -89,26 +95,25 @@ function SettingRows({
   );
 }
 
-function PolicyCard({ data, onSave, busy }: { data: GovernancePayload; busy: boolean; onSave: (key: string, value: string) => void }) {
+function BaselinesPanel({ data, onSave, busy }: { data: GovernancePayload; busy: boolean; onSave: (key: string, value: string) => void }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const baselines = data.policies.filter((row) => row.key.startsWith("baseline_"));
-  const policy = data.policies.filter((row) => !row.key.startsWith("baseline_"));
 
   return (
     <div className="space-y-4">
-      <Panel>
-        <PanelHead
-          title="Variance policy"
-          description="These values decide how a reading becomes an exception."
-          count={policy.length}
-        />
-        <SettingRows rows={policy} draft={draft} setDraft={setDraft} busy={busy} onSave={onSave} />
-      </Panel>
+      <Callout tone="info" title="Variance & notification rules live on Alerts & Policy">
+        To edit confirmation windows, sustained-breach rules, spike overrides, memo deadlines, or channel delivery,
+        open{" "}
+        <Link href="/fm/management-analytics/analytics-alerts?tab=policy" className="font-medium underline">
+          Alerts &amp; Policy → Policy &amp; Delivery
+        </Link>
+        . Changes logged there automatically enter the Governance Sign-off audit trail.
+      </Callout>
 
       <Panel>
         <PanelHead
-          title="Scenario baselines"
-          description="The planner reads these until the ERP feed is mapped to measures."
+          title="Scenario Baselines"
+          description="Annual revenue, imported COGS share, and USD share assumptions used by Scenario Planner."
           count={baselines.length}
         />
         <SettingRows rows={baselines} draft={draft} setDraft={setDraft} busy={busy} onSave={onSave} />
@@ -193,9 +198,58 @@ function GrantDialog({
         </div>
         <DialogFooter className="border-t border-border bg-muted/20 px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button onClick={submit} disabled={busy || missing.length > 0} title={missing.length > 0 ? `Still to choose: ${missing.join(", ")}.` : undefined}>
-            Grant access
-          </Button>
+          <Button onClick={submit} disabled={busy || missing.length > 0}>Grant access</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditCompanyDialog({
+  row,
+  open,
+  onOpenChange,
+  onSubmit,
+  busy,
+}: {
+  row: OrgCompanyRow | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (id: number, input: { name: string; currency: string }) => Promise<boolean>;
+  busy: boolean;
+}) {
+  const [name, setName] = useState(row?.name ?? "");
+  const [currency, setCurrency] = useState(row?.currency ?? "PHP");
+
+  if (!row) return null;
+
+  const valid = name.trim().length >= 2 && /^[A-Za-z]{3}$/.test(currency.trim());
+  const save = async () => {
+    if (!valid) return;
+    const ok = await onSubmit(row.id, { name: name.trim(), currency: currency.trim().toUpperCase() });
+    if (ok) onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[460px]">
+        <DialogHeader className="space-y-1 border-b border-border px-6 py-4">
+          <DialogTitle className="text-base font-semibold">Edit Company Registry · {row.code}</DialogTitle>
+          <p className="text-xs text-muted-foreground">Updates display name and reporting currency across roll-ups.</p>
+        </DialogHeader>
+        <div className="space-y-4 px-6 py-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Company name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Reporting currency (ISO 3-letter)</label>
+            <Input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} maxLength={3} className="h-9 w-28 font-mono uppercase" />
+          </div>
+        </div>
+        <DialogFooter className="border-t bg-muted/20 px-6 py-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
+          <Button disabled={busy || !valid} onClick={() => void save()}>Save company</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -223,14 +277,10 @@ function RemoveAccessDialog({
           <p className="text-xs text-muted-foreground">The grant is deleted; the person keeps their other roles.</p>
         </DialogHeader>
         <div className="space-y-2 px-6 py-4 text-sm">
-          <p>
-            {row ? `${row.name} loses ${row.roleName} for ${row.companyLabel}.` : null}
-          </p>
+          <p>{row ? `${row.name} loses ${row.roleName} for ${row.companyLabel}.` : null}</p>
         </div>
         <DialogFooter className="border-t bg-muted/20 px-6 py-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
-            Cancel
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
           <Button variant="destructive" disabled={busy || !row} onClick={() => row && void onConfirm(row.id)}>
             Remove access
           </Button>
@@ -240,27 +290,38 @@ function RemoveAccessDialog({
   );
 }
 
+const CHANGE_TYPES = [
+  { value: "Threshold adjustment", label: "Threshold adjustment" },
+  { value: "Target change", label: "Target change" },
+  { value: "Formula / source mapping", label: "Formula / source mapping" },
+  { value: "Owner position transfer", label: "Owner position transfer" },
+  { value: "Policy exception", label: "Policy exception" },
+];
+
 function RaiseChangeDialog({
   data,
+  initialKpiId,
   open,
   onOpenChange,
   onSubmit,
   busy,
 }: {
   data: GovernancePayload;
+  initialKpiId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (input: { summary: string; kpiId: number | null }) => Promise<boolean>;
+  onSubmit: (input: { summary: string; kpiId: number | null; changeType?: string | null }) => Promise<boolean>;
   busy: boolean;
 }) {
-  const [kpiId, setKpiId] = useState("");
+  const [kpiId, setKpiId] = useState(initialKpiId ?? "");
+  const [changeType, setChangeType] = useState("Threshold adjustment");
   const [summary, setSummary] = useState("");
 
   const missing = summary.trim().length < 10 ? "what changes, in at least a sentence" : "";
 
   const submit = async () => {
     if (missing) return;
-    const ok = await onSubmit({ summary: summary.trim(), kpiId: kpiId ? Number(kpiId) : null });
+    const ok = await onSubmit({ summary: summary.trim(), kpiId: kpiId ? Number(kpiId) : null, changeType });
     if (ok) {
       setSummary("");
       setKpiId("");
@@ -276,6 +337,17 @@ function RaiseChangeDialog({
           <p className="text-xs text-muted-foreground">A change of method is approved before it takes effect, and the decision is kept.</p>
         </DialogHeader>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Change type</label>
+            <Select value={changeType} onValueChange={setChangeType}>
+              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {CHANGE_TYPES.map((ct) => (
+                  <SelectItem key={ct.value} value={ct.value}>{ct.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Measure</label>
             <OptionCombobox
@@ -293,18 +365,16 @@ function RaiseChangeDialog({
               value={summary}
               onChange={(event) => setSummary(event.target.value)}
               rows={4}
-              maxLength={500}
-              placeholder="Raise the freight threshold from 8% to 9%; the lanes renegotiated the contracts."
+              maxLength={450}
+              placeholder="Raise the freight threshold from 8% to 9%; the lanes renegotiated contracts."
               aria-invalid={summary.length > 0 && Boolean(missing)}
             />
-            <p className="text-[11px] text-muted-foreground">{summary.trim().length}/500 characters</p>
+            <p className="text-[11px] text-muted-foreground">{summary.trim().length}/450 characters</p>
           </div>
         </div>
         <DialogFooter className="border-t bg-muted/20 px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <span className="inline-flex" title={missing ? `Still to do: ${missing}.` : undefined}>
-            <Button disabled={busy || Boolean(missing)} onClick={() => void submit()}>Raise a change</Button>
-          </span>
+          <Button disabled={busy || Boolean(missing)} onClick={() => void submit()}>Raise a change</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -331,7 +401,9 @@ function DecisionDialog({
       <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[550px]">
         <DialogHeader className="space-y-1 border-b border-border px-6 py-4">
           <DialogTitle className="text-base font-semibold">{row?.summary ?? "Decide a change"}</DialogTitle>
-          <p className="text-xs text-muted-foreground">{row ? `${row.entity}${row.entityId != null ? ` #${row.entityId}` : ""} · requested ${row.requestedAt ? phtDisplayStamp(row.requestedAt) : "earlier"}` : null}</p>
+          <p className="text-xs text-muted-foreground">
+            {row ? `${row.entity}${row.entityId != null ? ` #${row.entityId}` : ""} · requested ${row.requestedAt ? phtDisplayStamp(row.requestedAt) : "—"}` : null}
+          </p>
         </DialogHeader>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
           <div className="space-y-1.5">
@@ -341,10 +413,10 @@ function DecisionDialog({
         </div>
         <DialogFooter className="border-t border-border bg-muted/20 px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button variant="outline" disabled={busy || !row || missing.length > 0} title={missing.length > 0 ? "A reason is required." : undefined} onClick={() => row && void onDecide(row.id, "REJECTED", note).then((ok) => ok && onOpenChange(false))}>
+          <Button variant="outline" disabled={busy || !row || missing.length > 0} onClick={() => row && void onDecide(row.id, "REJECTED", note).then((ok) => ok && onOpenChange(false))}>
             Reject
           </Button>
-          <Button disabled={busy || !row || missing.length > 0} title={missing.length > 0 ? "A reason is required." : undefined} onClick={() => row && void onDecide(row.id, "APPROVED", note).then((ok) => ok && onOpenChange(false))}>
+          <Button disabled={busy || !row || missing.length > 0} onClick={() => row && void onDecide(row.id, "APPROVED", note).then((ok) => ok && onOpenChange(false))}>
             Approve
           </Button>
         </DialogFooter>
@@ -353,7 +425,6 @@ function DecisionDialog({
   );
 }
 
-/** A role's grants read as companies with their domains, not as one chip per pair. */
 function companyLine(role: RoleRow, companies: OrgCompanyRow[]): string {
   const codes = [...new Set(role.grants.map((grant) => grant.companyCode))];
   if (codes.length === 0) return "No company yet";
@@ -363,16 +434,14 @@ function companyLine(role: RoleRow, companies: OrgCompanyRow[]): string {
   return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
 }
 
-/** The reference's access matrix: one row per role, one column per domain the grants carry. */
 function AccessMatrix({ roles, companies }: { roles: RoleRow[]; companies: OrgCompanyRow[] }) {
   const domains = [...new Set(roles.flatMap((role) => role.grants.map((grant) => grant.domain)))].sort();
   if (roles.length === 0) {
     return <p className="px-4 py-8 text-center text-sm text-muted-foreground">No role is defined yet.</p>;
   }
   return (
-    <>
-      <div className="hidden min-[980px]:block overflow-x-auto">
-      <table className="w-full min-w-[980px] text-sm">
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[820px] text-sm">
         <thead>
           <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
             <th className="px-4 py-2.5 font-medium">Role</th>
@@ -382,19 +451,21 @@ function AccessMatrix({ roles, companies }: { roles: RoleRow[]; companies: OrgCo
                 {domain}
               </th>
             ))}
-            <th className="whitespace-nowrap px-3 py-2.5 text-center font-medium">Transaction detail</th>
-            <th className="whitespace-nowrap px-3 py-2.5 text-center font-medium">Sign off changes</th>
+            <th className="whitespace-nowrap px-3 py-2.5 text-center font-medium">Detail access</th>
+            <th className="whitespace-nowrap px-3 py-2.5 text-center font-medium">Sign-off</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border/50">
           {roles.map((role) => {
             const held = new Set(role.grants.map((grant) => grant.domain));
-            const isExec = /exec/i.test(role.name);
+            const cap = resolveRoleCapability(role);
             return (
               <tr key={role.id} className="hover:bg-muted/30">
                 <td className="px-4 py-2.5">
                   <p className="font-medium">{role.name}</p>
-                  <p className="mt-0.5 text-xs uppercase tracking-wide text-muted-foreground">{role.scope}</p>
+                  <p className="mt-0.5 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {role.code} · {role.scope}
+                  </p>
                 </td>
                 <td className="px-4 py-2.5 text-xs text-muted-foreground">{companyLine(role, companies)}</td>
                 {domains.map((domain) => (
@@ -402,53 +473,32 @@ function AccessMatrix({ roles, companies }: { roles: RoleRow[]; companies: OrgCo
                     {held.has(domain) ? (
                       <StatusBadge tone="success">Visible</StatusBadge>
                     ) : (
-                      <span className="text-xs text-muted-foreground">Hidden</span>
+                      <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </td>
                 ))}
-                <td className="px-3 py-2.5 text-center text-xs text-muted-foreground">
-                  {isExec ? "Aggregated only" : "✓ Drill-down"}
-                </td>
+                <td className="px-3 py-2.5 text-center text-xs text-muted-foreground">{cap.detailAccess}</td>
                 <td className="px-3 py-2.5 text-center text-xs font-medium">
-                  {isExec ? "✓" : "—"}
+                  {cap.canSignOff ? <StatusBadge tone="info">Approver</StatusBadge> : "—"}
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      </div>
-
-      <ul className="divide-y divide-border min-[980px]:hidden">
-        {roles.map((role) => {
-          const visible = [...new Set(role.grants.map((grant) => grant.domain))];
-          return (
-            <li key={role.id} className="px-4 py-3">
-              <p className="text-sm font-medium">{role.name}</p>
-              <p className="mt-0.5 text-xs uppercase tracking-wide text-muted-foreground">{role.scope}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{companyLine(role, companies)}</p>
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {visible.length === 0 ? (
-                  <span className="text-xs text-muted-foreground">No domain visible</span>
-                ) : (
-                  visible.map((domain) => (
-                    <span key={domain} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                      {domain}
-                    </span>
-                  ))
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </>
+    </div>
   );
 }
 
-const TAB_VALUES = ["access", "organisation", "policy", "changes"] as const;
+function formatRule(rule: GovernanceKpiRuleRow): string {
+  if (rule.ruleType === "PCT" && rule.threshold !== null) return `±${rule.threshold}% band`;
+  if (rule.ruleType === "MAX" && rule.threshold !== null) return `≤ ${rule.threshold}${rule.unit ? ` ${rule.unit}` : ""}`;
+  if (rule.ruleType === "MIN" && rule.threshold !== null) return `≥ ${rule.threshold}${rule.unit ? ` ${rule.unit}` : ""}`;
+  return rule.ruleType;
+}
 
-/** The tab a shared link names, when it names one we have. */
+const TAB_VALUES = ["access", "organisation", "kpi-rules", "policy", "changes"] as const;
+
 function readTab(): string {
   if (typeof window === "undefined") return "access";
   const wanted = new URLSearchParams(window.location.search).get("tab");
@@ -463,7 +513,6 @@ function writeTab(tab: string) {
   window.history.replaceState(null, "", query ? `${window.location.pathname}?${query}` : window.location.pathname);
 }
 
-/** Rows per page is a reader preference, so it survives a reload (QA.md 11). */
 const SIZE_KEY = "fm.management-analytics.governance.rows";
 
 function readStoredSize(fallback: number): number {
@@ -485,18 +534,48 @@ export function GovernanceModule() {
     setTab(next);
     writeTab(next);
   }
+
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => readStoredSize(PAGE_SIZE));
   const [grantOpen, setGrantOpen] = useState(false);
+  const [editingCompany, setEditingCompany] = useState<OrgCompanyRow | null>(null);
   const [deciding, setDeciding] = useState<ChangeRequestRow | null>(null);
   const [raising, setRaising] = useState(false);
+  const [raiseKpiId, setRaiseKpiId] = useState<string>("");
   const [removing, setRemoving] = useState<AssignmentRow | null>(null);
+
+  const [kpiSearch, setKpiSearch] = useState("");
+  const [kpiCompany, setKpiCompany] = useState("ALL");
 
   const data = governance.data;
   const assignments = useMemo(() => data?.assignments ?? [], [data]);
   const changes = data?.changes ?? [];
   const visibleAssignments = useMemo(() => pageSlice(assignments, page, pageSize), [assignments, page, pageSize]);
   const pendingChanges = changes.filter((row) => row.status === "PENDING");
+
+  const filteredKpis = useMemo(() => {
+    const q = kpiSearch.trim().toLowerCase();
+    return (data?.kpis ?? []).filter((row) => {
+      if (kpiCompany !== "ALL" && row.companyCode !== kpiCompany) return false;
+      if (!q) return true;
+      return `${row.kpiKey} ${row.name} ${row.ownerPosition ?? ""} ${row.companyCode}`.toLowerCase().includes(q);
+    });
+  }, [data?.kpis, kpiCompany, kpiSearch]);
+
+  const positionsByCompany = useMemo(() => {
+    const map = new Map<string, { companyCode: string; companyName: string; positions: Map<string, number> }>();
+    for (const kpi of data?.kpis ?? []) {
+      const entry = map.get(kpi.companyCode) ?? {
+        companyCode: kpi.companyCode,
+        companyName: kpi.companyName,
+        positions: new Map<string, number>(),
+      };
+      const pos = kpi.ownerPosition?.trim() || "Unassigned";
+      entry.positions.set(pos, (entry.positions.get(pos) ?? 0) + 1);
+      map.set(kpi.companyCode, entry);
+    }
+    return [...map.values()].sort((a, b) => a.companyCode.localeCompare(b.companyCode));
+  }, [data?.kpis]);
 
   if (governance.error) {
     return (
@@ -509,319 +588,378 @@ export function GovernanceModule() {
   return (
     <div className="space-y-4">
       <BoardHeader
-        title="Access and Governance"
-        subtitle="Who may see which company and measure, the organisation behind the roll-ups, and the policy in force."
+        eyebrow="Management Analytics · Controls & Directory"
+        title="Access & Governance"
+        subtitle="Role access matrix, operating entities and accountability positions, KPI threshold catalog, scenario baselines, and formal change sign-off."
         meta={
           <>
             <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium tabular-nums text-muted-foreground">
-              {(data?.roles.length ?? 0)} roles
+              {data?.roles.length ?? 0} roles · {assignments.length} grants
             </span>
             <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium tabular-nums text-muted-foreground">
-              {assignments.length} grant{assignments.length === 1 ? "" : "s"}
+              {data?.companies.length ?? 0} entities
+            </span>
+            <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium tabular-nums text-muted-foreground">
+              {pendingChanges.length} pending sign-off
             </span>
           </>
         }
       />
 
-      {data ? (
-        <Panel className="grid gap-4 p-4">
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Stat
-              label="People with access"
-              value={String(assignments.length)}
-              note={`${new Set(assignments.map((row) => row.userId)).size} distinct people`}
-            />
-            <Stat
-              label="Roles in force"
-              value={String(data.roles.length)}
-              note={`${data.roles.filter((role) => role.scope === "GROUP").length} group-wide`}
-            />
-            <Stat
-              label="Entities"
-              value={String(data.companies.length)}
-              note={`${data.companies.filter((row) => row.isActive).length} active`}
-            />
-            <Stat
-              label="Changes pending"
-              value={String(pendingChanges.length)}
-              tone={pendingChanges.length > 0 ? "warning" : undefined}
-              note={`${changes.length} raised in total`}
-            />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">Grants carried by each role</p>
-            <div className="mt-2">
-              <BarList
-                rows={data.roles.map((role) => ({
-                  label: role.name,
-                  value: role.grants.length,
-                  tone: role.scope === "GROUP" ? ("primary" as const) : ("muted" as const),
-                }))}
-                dp={0}
-                unit=" grants"
-              />
-            </div>
-          </div>
-        </Panel>
-      ) : null}
+      <ErpOrgRosterPanel />
 
       {!data && governance.isLoading ? (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="border-b border-border px-4 py-3">
-            <div className="h-4 w-40 animate-pulse rounded bg-muted" />
-          </div>
-          <div className="space-y-3 p-4">
+        <Panel className="p-6">
+          <div className="space-y-3">
             {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="h-10 w-full animate-pulse rounded-md bg-muted" />
+              <div key={index} className="h-9 w-full animate-pulse rounded-md bg-muted" />
             ))}
           </div>
-        </div>
-      ) : null}
+        </Panel>
+      ) : (
+        <Tabs value={tab} onValueChange={changeTab} className="space-y-4">
+          <TabsList className="flex h-auto flex-wrap justify-start gap-1">
+            <TabsTrigger value="access">Roles &amp; Access</TabsTrigger>
+            <TabsTrigger value="organisation">Organisation</TabsTrigger>
+            <TabsTrigger value="kpi-rules">KPI Catalog &amp; Rules</TabsTrigger>
+            <TabsTrigger value="policy">Baselines &amp; Policy</TabsTrigger>
+            <TabsTrigger value="changes">
+              Changes &amp; Sign-off{pendingChanges.length > 0 ? ` (${pendingChanges.length})` : ""}
+            </TabsTrigger>
+          </TabsList>
 
-      {/* Nothing is shown until the read returns, so an empty tab cannot be mistaken for a real answer. */}
-      {data || !governance.isLoading ? (
-      <Tabs value={tab} onValueChange={changeTab} className="space-y-4">
-        <TabsList>
-          <TabsTrigger className="min-h-11 md:min-h-0" value="access">Roles and access</TabsTrigger>
-          <TabsTrigger className="min-h-11 md:min-h-0" value="organisation">Organisation</TabsTrigger>
-          <TabsTrigger className="min-h-11 md:min-h-0" value="policy">Policy</TabsTrigger>
-          <TabsTrigger className="min-h-11 md:min-h-0" value="changes">Changes</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="access" className="space-y-4">
-          <Panel>
-            <PanelHead
-              title="Access grants"
-              description="A role carries the domains; the grant fixes the company."
-              count={assignments.length}
-              right={
-                <Button size="sm" className="h-8" onClick={() => setGrantOpen(true)} disabled={!data || data.users.length === 0}>
-                  Grant access
-                </Button>
-              }
-            />
-            <div className="hidden overflow-x-auto min-[1300px]:block">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead>
-                  <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
-                    <th className="px-4 py-2.5 font-medium">Person</th>
-                    <th className="px-4 py-2.5 font-medium">Role</th>
-                    <th className="px-4 py-2.5 font-medium">Company</th>
-                    <th className="px-4 py-2.5 text-right font-medium"><span className="sr-only">Remove</span></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {visibleAssignments.map((row) => (
-                    <tr key={row.id} className="hover:bg-muted/30">
-                      <td className="px-4 py-2.5">
-                        <p className="truncate font-medium" title={row.name}>{row.name}</p>
-                        <p className="truncate mt-0.5 text-xs text-muted-foreground" title={row.email}>{row.email}</p>
-                      </td>
-                      <td className="px-4 py-2.5">{row.roleName}</td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{row.companyLabel}</td>
-                      <td className="px-4 py-2.5 text-right">
-                        <Button variant="ghost" size="sm" className="h-8 text-xs text-destructive hover:text-destructive" onClick={() => setRemoving(row)}>
-                          Remove
-                        </Button>
-                      </td>
+          {/* 1. Roles & Access */}
+          <TabsContent value="access" className="space-y-4">
+            <Panel>
+              <PanelHead
+                title="Access grants"
+                description="Role determines domain visibility; assignment fixes company scope."
+                count={assignments.length}
+                right={
+                  <Button size="sm" className="h-8 gap-1.5" onClick={() => setGrantOpen(true)} disabled={!data || data.users.length === 0}>
+                    <Plus className="h-3.5 w-3.5" /> Grant access
+                  </Button>
+                }
+              />
+              <div className="hidden overflow-x-auto border-t border-border/60 md:block">
+                <table className="w-full min-w-[680px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
+                      <th className="px-4 py-2.5 font-medium">Person</th>
+                      <th className="px-4 py-2.5 font-medium">Role</th>
+                      <th className="px-4 py-2.5 font-medium">Company</th>
+                      <th className="px-4 py-2.5 text-right font-medium"><span className="sr-only">Remove</span></th>
                     </tr>
-                  ))}
-                  {visibleAssignments.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        No access has been granted yet. Grant a role to a person to let them see a company.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-            <ul className="divide-y divide-border min-[1300px]:hidden">
-              {visibleAssignments.map((row) => (
-                <li key={row.id} className="space-y-1.5 px-4 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium" title={row.name}>{row.name}</p>
-                      <p className="truncate text-xs text-muted-foreground" title={row.email}>{row.email}</p>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {visibleAssignments.map((row) => (
+                      <tr key={row.id} className="hover:bg-muted/30">
+                        <td className="px-4 py-2.5">
+                          <p className="truncate font-medium">{row.name}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{row.email}</p>
+                        </td>
+                        <td className="px-4 py-2.5">{row.roleName}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{row.companyLabel}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          <Button variant="ghost" size="sm" className="h-8 text-xs text-destructive hover:text-destructive" onClick={() => setRemoving(row)}>
+                            Remove
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {visibleAssignments.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                          No access grants yet.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              <ul className="divide-y divide-border border-t border-border/60 md:hidden">
+                {visibleAssignments.map((row) => (
+                  <li key={row.id} className="space-y-1 px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium">{row.name}</p>
+                        <p className="text-xs text-muted-foreground">{row.roleName} · {row.companyLabel}</p>
+                      </div>
+                      <Button variant="ghost" size="sm" className="h-8 text-xs text-destructive" onClick={() => setRemoving(row)}>
+                        Remove
+                      </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 shrink-0 text-xs text-destructive hover:text-destructive"
-                      onClick={() => setRemoving(row)}
-                    >
-                      Remove
-                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <TablePager
+                page={page}
+                pageCount={Math.max(1, Math.ceil(assignments.length / pageSize))}
+                total={assignments.length}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={(size) => { storeSize(size); setPageSize(size); setPage(1); }}
+                className="border-t border-border/50 px-4 py-3"
+              />
+            </Panel>
+
+            <Panel>
+              <PanelHead
+                title="Role Capabilities & Domain Matrix"
+                description="Explicit capabilities by role code and scope."
+                count={data?.roles.length ?? 0}
+              />
+              <AccessMatrix roles={data?.roles ?? []} companies={data?.companies ?? []} />
+            </Panel>
+          </TabsContent>
+
+          {/* 2. Organisation (Editable Company Registry + Positions per Company) */}
+          <TabsContent value="organisation" className="space-y-4">
+            <Panel>
+              <PanelHead
+                title="Company Registry"
+                description="Operating and holding entities included in consolidation roll-ups."
+                count={`${data?.companies.length ?? 0} entities`}
+              />
+              <div className="overflow-x-auto border-t border-border/60">
+                <table className="w-full min-w-[740px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
+                      <th className="px-4 py-2.5 font-medium">Company</th>
+                      <th className="px-4 py-2.5 font-medium">Kind</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Rev. weight</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Headcount</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Units</th>
+                      <th className="px-4 py-2.5 font-medium">ERP link</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Edit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {(data?.companies ?? []).map((row) => (
+                      <tr key={row.id} className="hover:bg-muted/30">
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium">{row.name}</p>
+                          <p className="mt-0.5 font-mono text-xs text-muted-foreground">{row.code} · {row.currency}</p>
+                        </td>
+                        <td className="px-4 py-2.5 text-xs capitalize text-muted-foreground">{row.kind.toLowerCase()}</td>
+                        <td className="px-4 py-2.5 text-right font-mono tabular-nums">{row.revenueWeight}%</td>
+                        <td className="px-4 py-2.5 text-right font-mono tabular-nums">{row.headcount}</td>
+                        <td className="px-4 py-2.5 text-right font-mono tabular-nums">{row.units}</td>
+                        <td className="px-4 py-2.5 text-xs text-muted-foreground">{row.erpCompanyId ? `ERP #${row.erpCompanyId}` : "—"}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 gap-1 text-xs"
+                            onClick={() => setEditingCompany(row)}
+                          >
+                            <Pencil className="h-3 w-3" /> Edit
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+
+            <Panel>
+              <PanelHead
+                title="Positions per Company"
+                description="Accountable KPI owner positions mapped per entity."
+                count={`${positionsByCompany.length} entities`}
+              />
+              <div className="grid gap-3 border-t border-border/60 p-4 sm:grid-cols-2 lg:grid-cols-3">
+                {positionsByCompany.map((group) => (
+                  <div key={group.companyCode} className="rounded-lg border border-border/60 bg-muted/15 p-3">
+                    <div className="flex items-baseline justify-between gap-2 border-b border-border/50 pb-2">
+                      <span className="text-sm font-semibold">{group.companyName}</span>
+                      <span className="font-mono text-xs text-muted-foreground">{group.companyCode}</span>
+                    </div>
+                    <ul className="mt-2 space-y-1 text-xs">
+                      {[...group.positions.entries()].map(([pos, count]) => (
+                        <li key={pos} className="flex items-center justify-between gap-2">
+                          <span className="truncate text-muted-foreground">{pos}</span>
+                          <span className="font-mono tabular-nums text-foreground">{count} KPI{count === 1 ? "" : "s"}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {row.roleName} · {row.companyLabel}
-                  </p>
-                </li>
-              ))}
-              {visibleAssignments.length === 0 ? (
-                <li className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  No access has been granted yet. Grant a role to a person to let them see a company.
-                </li>
-              ) : null}
-            </ul>
-            <TablePager
-              page={page}
-              pageCount={Math.max(1, Math.ceil(assignments.length / pageSize))}
-              total={assignments.length}
-              pageSize={pageSize}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => { storeSize(size); setPageSize(size); setPage(1); }}
-              className="border-t border-border/50 px-4 py-3"
-            />
-          </Panel>
+                ))}
+              </div>
+            </Panel>
+          </TabsContent>
 
-          <Panel>
-            <PanelHead
-              title="Roles and what they reach"
-              description="Group roles span every company; company roles stop at their own."
-              count={(data?.roles ?? []).length}
-            />
-            <AccessMatrix roles={data?.roles ?? []} companies={data?.companies ?? []} />
-            <p className="border-t border-border/50 px-4 py-2.5 text-xs text-muted-foreground">
-              A domain is visible when any grant of that role carries it, for one company or for all of them.
-            </p>
-          </Panel>
-        </TabsContent>
-
-        <TabsContent value="organisation" className="space-y-4">
-          <Panel>
-            <PanelHead
-              title="Companies"
-              description="The roll-up adds these, minus intercompany sales."
-              count={`${data?.companies.length ?? 0} entities`}
-            />
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-sm">
-                <thead>
-                  <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
-                    <th className="px-4 py-2.5 font-medium">Company</th>
-                    <th className="px-4 py-2.5 font-medium">Kind</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Revenue weight</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Headcount</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Units</th>
-                    <th className="px-4 py-2.5 font-medium">ERP link</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {(data?.companies ?? []).map((row) => (
-                    <tr key={row.id} className="hover:bg-muted/30">
-                      <td className="px-4 py-2.5">
-                        <p className="font-medium">{row.name}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">{row.code} · {row.currency}</p>
-                      </td>
-                      <td className="px-4 py-2.5 capitalize text-muted-foreground">{row.kind.toLowerCase()}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">{row.revenueWeight}%</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">{row.headcount}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">{row.units}</td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{row.erpCompanyId ? `ERP ${row.erpCompanyId}` : "Not linked"}</td>
+          {/* 3. KPI Catalog & Threshold Rules */}
+          <TabsContent value="kpi-rules" className="space-y-4">
+            <Panel>
+              <PanelHead
+                title="KPI Catalog & Threshold Rules"
+                description="Active KPI definitions, thresholds, and owner positions. Raise a governance change request for any threshold or formula edit."
+                count={`${filteredKpis.length} measures`}
+              />
+              <div className="flex flex-wrap items-center gap-2 border-t border-border/60 px-4 py-3">
+                <div className="relative w-full sm:w-[260px]">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={kpiSearch}
+                    onChange={(e) => setKpiSearch(e.target.value)}
+                    placeholder="Filter key, KPI name, or owner"
+                    className="h-9 pl-8 text-xs"
+                  />
+                </div>
+                <Select value={kpiCompany} onValueChange={setKpiCompany}>
+                  <SelectTrigger className="h-9 w-[190px] text-xs"><SelectValue placeholder="Every company" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Every company</SelectItem>
+                    {(data?.companies ?? []).map((c) => (
+                      <SelectItem key={c.code} value={c.code}>{c.code} · {c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="overflow-x-auto border-t border-border/60">
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">KPI</th>
+                      <th className="px-4 py-2 font-medium">Company</th>
+                      <th className="px-4 py-2 font-medium">Domain</th>
+                      <th className="px-4 py-2 font-medium">Threshold Rule</th>
+                      <th className="px-4 py-2 font-medium">Owner Position</th>
+                      <th className="px-4 py-2 text-right font-medium">Governance</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-        </TabsContent>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {filteredKpis.map((rule) => (
+                      <tr key={rule.id} className="hover:bg-muted/20">
+                        <td className="px-4 py-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-medium">{rule.name}</span>
+                            <ErpTags kpiKey={rule.kpiKey} sourceCodes={rule.sourceCodes} compact />
+                          </div>
+                          <p className="font-mono text-[11px] text-muted-foreground">{rule.kpiKey}</p>
+                        </td>
+                        <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{rule.companyCode}</td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground">{rule.domain}</td>
+                        <td className="px-4 py-2 font-mono text-xs">
+                          {formatRule(rule)} · {rule.polarity === "HIGH" ? "Higher ↑" : "Lower ↓"}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground">{rule.ownerPosition ?? "—"}</td>
+                        <td className="px-4 py-2 text-right">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={() => {
+                              setRaiseKpiId(String(rule.id));
+                              setRaising(true);
+                            }}
+                          >
+                            Raise change
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          </TabsContent>
 
-        <TabsContent value="policy" className="space-y-4">
-          {data ? <PolicyCard data={data} busy={governance.isSaving} onSave={(key, value) => void governance.setPolicy(key, value)} /> : null}
-        </TabsContent>
+          {/* 4. Baselines & Policy */}
+          <TabsContent value="policy" className="space-y-4">
+            {data ? <BaselinesPanel data={data} busy={governance.isSaving} onSave={(key, value) => void governance.setPolicy(key, value)} /> : null}
+          </TabsContent>
 
-        <TabsContent value="changes" className="space-y-4">
-          <Panel>
-            <PanelHead
-              title="Changes raised for sign-off"
-              description="Every method change is recorded here before it takes effect."
-              count={`${pendingChanges.length} pending`}
-              right={
-                <Button size="sm" className="h-8 text-xs" onClick={() => setRaising(true)} disabled={!data || governance.isSaving}>
-                  Raise a change
-                </Button>
-              }
-            />
-            <div className="hidden overflow-x-auto min-[1300px]:block">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead>
-                  <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
-                    <th className="px-4 py-2.5 font-medium">#</th>
-                    <th className="px-4 py-2.5 font-medium">Change</th>
-                    <th className="px-4 py-2.5 font-medium">Requested</th>
-                    <th className="px-4 py-2.5 font-medium">Status</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Decision</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {changes.map((row) => (
-                    <tr key={row.id} className="hover:bg-muted/30">
-                      <td className="px-4 py-2.5 font-mono text-xs tabular-nums text-muted-foreground">{row.id}</td>
-                      <td className="px-4 py-2.5">
-                        <p className="font-medium">{row.summary}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">{row.entity}{row.entityId != null ? ` #${row.entityId}` : ""}{row.note ? ` · ${row.note}` : ""}</p>
-                      </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{row.requestedAt ? phtDisplayStamp(row.requestedAt) : "not recorded"}</td>
-                      <td className="px-4 py-2.5">
-                        <StatusBadge tone={row.status === "APPROVED" ? "success" : row.status === "REJECTED" ? "danger" : "warning"}>
-                          {row.status === "APPROVED" ? "Approved" : row.status === "REJECTED" ? "Rejected" : "Pending"}
-                        </StatusBadge>
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        {row.status === "PENDING" ? (
-                          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setDeciding(row)}>Decide</Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">{row.decidedAt ? phtDisplayStamp(row.decidedAt) : "not decided"}</span>
-                        )}
-                      </td>
+          {/* 5. Changes & Sign-off */}
+          <TabsContent value="changes" className="space-y-4">
+            <Panel>
+              <PanelHead
+                title="Changes raised for sign-off"
+                description="Method, threshold, and policy changes recorded with executive decision audit."
+                count={`${pendingChanges.length} pending`}
+                right={
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={() => {
+                      setRaiseKpiId("");
+                      setRaising(true);
+                    }}
+                    disabled={!data || governance.isSaving}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Raise a change
+                  </Button>
+                }
+              />
+              <div className="hidden overflow-x-auto border-t border-border/60 md:block">
+                <table className="w-full min-w-[680px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
+                      <th className="px-4 py-2.5 font-medium">#</th>
+                      <th className="px-4 py-2.5 font-medium">Change</th>
+                      <th className="px-4 py-2.5 font-medium">Requested</th>
+                      <th className="px-4 py-2.5 font-medium">Status</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Decision</th>
                     </tr>
-                  ))}
-                  {changes.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        No change has been raised. Method changes appear here for sign-off.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-            <ul className="divide-y divide-border/50 min-[1300px]:hidden">
-              {changes.map((row) => (
-                <li key={row.id} className="space-y-2 px-4 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="min-w-0 text-sm font-medium">{row.summary}</p>
-                    <StatusBadge tone={row.status === "APPROVED" ? "success" : row.status === "REJECTED" ? "danger" : "warning"}>
-                      {row.status === "APPROVED" ? "Approved" : row.status === "REJECTED" ? "Rejected" : "Pending"}
-                    </StatusBadge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    #{row.id} · {row.entity}{row.entityId != null ? ` #${row.entityId}` : ""}
-                    {row.requestedAt ? ` · raised ${phtDisplayStamp(row.requestedAt)}` : ""}
-                  </p>
-                  {row.note ? <p className="text-xs text-muted-foreground">{row.note}</p> : null}
-                  {row.status === "PENDING" ? (
-                    <Button size="sm" variant="outline" className="h-9 w-full text-xs" onClick={() => setDeciding(row)}>
-                      Decide
-                    </Button>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {row.decidedAt ? `Decided ${phtDisplayStamp(row.decidedAt)}` : "No decision recorded"}
-                    </p>
-                  )}
-                </li>
-              ))}
-              {changes.length === 0 ? (
-                <li className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  No change has been raised. Method changes appear here for sign-off.
-                </li>
-              ) : null}
-            </ul>
-          </Panel>
-        </TabsContent>
-      </Tabs>
-      ) : null}
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {changes.map((row) => (
+                      <tr key={row.id} className="hover:bg-muted/30">
+                        <td className="px-4 py-2.5 font-mono text-xs tabular-nums text-muted-foreground">{row.id}</td>
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium">{row.summary}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {row.entity}{row.entityId != null ? ` #${row.entityId}` : ""}{row.note ? ` · ${row.note}` : ""}
+                          </p>
+                        </td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{row.requestedAt ? phtDisplayStamp(row.requestedAt) : "—"}</td>
+                        <td className="px-4 py-2.5">
+                          <StatusBadge tone={row.status === "APPROVED" ? "success" : row.status === "REJECTED" ? "danger" : "warning"}>
+                            {row.status === "APPROVED" ? "Approved" : row.status === "REJECTED" ? "Rejected" : "Pending"}
+                          </StatusBadge>
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {row.status === "PENDING" ? (
+                            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setDeciding(row)}>Decide</Button>
+                          ) : (
+                            <span className="font-mono text-xs text-muted-foreground">{row.decidedAt ? phtDisplayStamp(row.decidedAt) : "—"}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {changes.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                          No changes raised yet.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              <ul className="divide-y divide-border/50 border-t border-border/60 md:hidden">
+                {changes.map((row) => (
+                  <li key={row.id} className="space-y-2 px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium">{row.summary}</p>
+                      <StatusBadge tone={row.status === "APPROVED" ? "success" : row.status === "REJECTED" ? "danger" : "warning"}>
+                        {row.status === "APPROVED" ? "Approved" : row.status === "REJECTED" ? "Rejected" : "Pending"}
+                      </StatusBadge>
+                    </div>
+                    {row.status === "PENDING" ? (
+                      <Button size="sm" variant="outline" className="h-8 w-full text-xs" onClick={() => setDeciding(row)}>Decide</Button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          </TabsContent>
+        </Tabs>
+      )}
 
       {data ? (
         <GrantDialog
@@ -832,9 +970,19 @@ export function GovernanceModule() {
           busy={governance.isSaving}
         />
       ) : null}
+      <EditCompanyDialog
+        key={editingCompany?.id ?? "none"}
+        row={editingCompany}
+        open={editingCompany !== null}
+        onOpenChange={(open) => { if (!open) setEditingCompany(null); }}
+        onSubmit={governance.saveCompany}
+        busy={governance.isSaving}
+      />
       {data ? (
         <RaiseChangeDialog
+          key={`${raiseKpiId}-${raising}`}
           data={data}
+          initialKpiId={raiseKpiId}
           open={raising}
           onOpenChange={setRaising}
           onSubmit={governance.raise}

@@ -6,6 +6,33 @@ import type { CoverageRow, DataPayload, GateResult, ReadingBody, RunRow, SourceR
 
 type Json = Record<string, unknown>;
 
+const ERP_LIVE_KEYS = new Set([
+  "dist.opex",
+  "dist.ncr",
+  "dist.capa",
+  "dist.abs",
+  "dist.tardy",
+  "dist.ot",
+  "dist.fill",
+  "dist.otif",
+  "dist.pick",
+  "dist.freight",
+]);
+
+async function resolveMen2Name(): Promise<string> {
+  try {
+    const res = await listItems<Json>("company_list", {
+      fields: ["company_name"],
+      filter: { company_code: { _eq: "MEN2" }, status: { _eq: "ACTIVE" } },
+      limit: 1,
+    });
+    const name = res.rows[0] ? asString(res.rows[0].company_name) : "";
+    return name || "MEN2";
+  } catch {
+    return "MEN2";
+  }
+}
+
 const KPI_FIELDS = [
   "id",
   "kpi_key",
@@ -78,11 +105,15 @@ function nearestMonth(periods: string[], wanted: string): string | null {
 
 /** Gaps in the month: which measures have no reading, and where the data is dirty. */
 async function buildCoverage(period: string, kpis: Json[], companies: Set<number>): Promise<CoverageRow> {
-  const readings = await listItems<Json>("ma_kpi_actual", {
-    fields: ["id", "kpi_id", "period", "basis"],
-    filter: { period: { _eq: period } },
-    limit: 5000,
-  });
+  const kpiIds = kpis.map((row) => asNumber(row.id)).filter((id) => id > 0);
+  const readings =
+    kpiIds.length > 0
+      ? await listItems<Json>("ma_kpi_actual", {
+          fields: ["id", "kpi_id", "period", "basis"],
+          filter: { period: { _eq: period }, source_code: { _eq: "ERP" }, kpi_id: { _in: kpiIds } },
+          limit: 5000,
+        })
+      : { rows: [] as Json[] };
 
   const seen = new Map<number, number>();
   let provisional = 0;
@@ -169,40 +200,42 @@ function computeGates(coverage: CoverageRow): GateResult[] {
 }
 
 export async function loadData(requested?: string): Promise<DataPayload> {
-  const [sourceRows, kpiRows, companyRows, readingPeriods, runRows, readingsBySource] = await Promise.all([
+  const [sourceRows, kpiRows, companyRows, readingPeriods, runRows, readingsBySource, men2Name] = await Promise.all([
     listItems<Json>("ma_source", { fields: SOURCE_FIELDS, sort: "code", limit: 100 }),
     listItems<Json>("ma_kpi", { fields: KPI_FIELDS, filter: { is_active: { _eq: true } }, sort: ["tier", "company_id", "sort"], limit: 400 }),
     listItems<Json>("ma_company", { fields: ["id", "code", "name", "sort"], sort: "sort", limit: 50 }),
-    // 5000 newest rows, not 2000: at 2000 the scan lost the oldest month entirely, so the board
-    // claimed 2025-02 was the first month that had readings. Ceiling: >5000 rows of history
-    // silently drops whole oldest months from the list.
-    listItems<Json>("ma_kpi_actual", { fields: ["period"], sort: "-period", limit: 5000 }),
+    listItems<Json>("ma_kpi_actual", { fields: ["period"], filter: { source_code: { _eq: "ERP" } }, sort: "-period", limit: 5000 }),
     listItems<Json>("ma_run_log", { fields: ["*"], sort: "-run_at", limit: 12 }),
     countReadingsBySource(),
+    resolveMen2Name(),
   ]);
 
+  const filteredCompanies = companyRows.rows
+    .filter((row) => asString(row.code) === "dist")
+    .map((row) => ({ id: asNumber(row.id), code: asString(row.code), name: men2Name }));
+  const companies = new Map(filteredCompanies.map((row) => [row.id, { code: row.code, name: row.name }]));
+
+  const liveKpiRows = kpiRows.rows.filter(
+    (row) => ERP_LIVE_KEYS.has(asString(row.kpi_key)) && (companies.size === 0 || companies.has(asNumber(row.company_id))),
+  );
+
   const periods = Array.from(new Set(readingPeriods.rows.map((row) => asString(row.period)).filter(Boolean))).sort();
-  // An empty month is answered as the month that was asked for: silently swapping in the newest
-  // month leaves the reader reading someone else's figures without being told.
   const wanted = requested && /^\d{4}-(0[1-9]|1[0-2])$/.test(requested) ? requested : null;
   const period = wanted ?? periods.at(-1) ?? monthOf(new Date().toISOString());
   const nearestPeriod = wanted && !periods.includes(wanted) ? nearestMonth(periods, wanted) : null;
 
-  const companies = new Map(companyRows.rows.map((row) => [asNumber(row.id), { code: asString(row.code), name: asString(row.name) }]));
-  const coverage = await buildCoverage(period, kpiRows.rows, new Set(companies.keys()));
-  const byId = new Map(kpiRows.rows.map((row) => [asNumber(row.id), row]));
+  const coverage = await buildCoverage(period, liveKpiRows, new Set(companies.keys()));
+  const byId = new Map(liveKpiRows.map((row) => [asNumber(row.id), row]));
   coverage.missingKpis = coverage.missingKpis.map((row) => {
     const kpi = Array.from(byId.values()).find((item) => asString(item.kpi_key) === row.kpi_key);
     const company = kpi ? companies.get(asNumber(kpi.company_id)) : undefined;
-    return { ...row, companyCode: company?.code ?? "unassigned" };
+    return { ...row, companyCode: company?.code ?? "dist" };
   });
 
-  // The reference's Feeds column: what each source carries for the month on screen, read off the
-  // readings that month already returned rather than a second mapping table.
   const feeds = new Map<string, { kpis: Set<number>; companies: Set<number> }>();
   const periodReadings = await listItems<Json>("ma_kpi_actual", {
     fields: ["source_code", "kpi_id"],
-    filter: { period: { _eq: period } },
+    filter: { period: { _eq: period }, source_code: { _eq: "ERP" } },
     limit: 5000,
   });
   for (const row of periodReadings.rows) {
@@ -220,11 +253,13 @@ export async function loadData(requested?: string): Promise<DataPayload> {
     period,
     periods: periods.slice(-24).reverse(),
     nearestPeriod,
-    sources: sourceRows.rows.map((row) => {
-      const code = asString(row.code);
-      const fed = feeds.get(code);
-      return mapSource(row, readingsBySource.get(code) ?? 0, { kpis: fed?.kpis.size ?? 0, companies: fed?.companies.size ?? 0 });
-    }),
+    sources: sourceRows.rows
+      .filter((row) => asString(row.code).toUpperCase() === "ERP")
+      .map((row) => {
+        const code = asString(row.code);
+        const fed = feeds.get(code);
+        return mapSource(row, readingsBySource.get(code) ?? 0, { kpis: fed?.kpis.size ?? 0, companies: fed?.companies.size ?? 0 });
+      }),
     coverage,
     gates: computeGates(coverage),
     runs: runRows.rows.map<RunRow>((row) => ({
@@ -238,8 +273,8 @@ export async function loadData(requested?: string): Promise<DataPayload> {
       detail: row.detail === null ? null : asString(row.detail),
       run_at: row.run_at === null ? null : asString(row.run_at),
     })),
-    companies: companyRows.rows.map((row) => ({ id: asNumber(row.id), code: asString(row.code), name: asString(row.name) })),
-    kpis: kpiRows.rows.map((row) => ({
+    companies: filteredCompanies,
+    kpis: liveKpiRows.map((row) => ({
       id: asNumber(row.id),
       kpi_key: asString(row.kpi_key),
       name: asString(row.name),
@@ -318,20 +353,142 @@ export interface SourceRefresh {
   code: string;
   name: string;
   readings: number;
+  saved?: number;
+  skipped?: number;
   latestPeriod: string | null;
   previousLastSync: string | null;
   lastSyncAt: string;
   fresh: boolean;
 }
 
+interface ErpReadingItem {
+  kpiKey?: string;
+  period?: string;
+  value?: number | null;
+  basis?: string;
+  sourceCode?: string;
+}
+
+async function resolveErpBaseUrl(): Promise<string> {
+  try {
+    const { rows } = await listItems<Json>("company_list", {
+      fields: ["company_code", "springboot"],
+      filter: { _and: [{ company_code: { _eq: "MEN2" } }, { status: { _eq: "ACTIVE" } }] },
+      limit: 1,
+    });
+    const springboot = asString(rows[0]?.springboot).replace(/\/+$/, "");
+    if (springboot) return springboot;
+  } catch {
+    // Fall back to env/dummy host when company_list is not directly exposed.
+  }
+  return (process.env.SPRING_API_BASE_URL || "http://goatedcodoer:8076").trim().replace(/\/+$/, "");
+}
+
+async function pullFromErp(
+  sourceId: number,
+  sourceName: string,
+  sla: number,
+  previousLastSync: string | null,
+  period: string,
+  bearerToken: string,
+  actorId: number | null,
+): Promise<SourceRefresh> {
+  const baseUrl = await resolveErpBaseUrl();
+  const upstream = await fetch(
+    `${baseUrl}/api/management-analytics/kpi-readings?period=${encodeURIComponent(period)}`,
+    {
+      method: "GET",
+      headers: { Accept: "application/json", Authorization: `Bearer ${bearerToken}` },
+      signal: AbortSignal.timeout(12_000),
+      cache: "no-store",
+    },
+  );
+  const payload = (await upstream.json().catch(() => null)) as {
+    success?: boolean;
+    error?: string;
+    data?: { period?: string; readings?: ErpReadingItem[] };
+  } | null;
+
+  if (!upstream.ok || !payload?.success || !payload.data) {
+    throw Object.assign(
+      new Error(payload?.error || `ERP_SERVER returned ${upstream.status} for ${period}.`),
+      { name: "ConflictError" },
+    );
+  }
+
+  const catalog = await listItems<Json>("ma_kpi", {
+    fields: ["id", "kpi_key"],
+    filter: { is_active: { _eq: true } },
+    limit: 500,
+  });
+  const idByKey = new Map(catalog.rows.map((row) => [asString(row.kpi_key), asNumber(row.id)]));
+
+  let saved = 0;
+  let skipped = 0;
+  for (const reading of payload.data.readings ?? []) {
+    const key = asString(reading.kpiKey);
+    const kpiId = idByKey.get(key);
+    if (!kpiId || reading.value === null || typeof reading.value !== "number" || !Number.isFinite(reading.value)) {
+      skipped += 1;
+      continue;
+    }
+    await saveReading(
+      {
+        kpiId,
+        period: asString(reading.period) || period,
+        value: reading.value,
+        basis: reading.basis === "PROVISIONAL" ? "PROVISIONAL" : "ACTUAL",
+        sourceCode: "ERP",
+        note: "From ERP, assumed formula",
+      },
+      actorId,
+    );
+    saved += 1;
+  }
+
+  const now = phtStamp();
+  const detail = `Pulled ${sourceName} for ${period}: ${saved} saved, ${skipped} skipped.`;
+  await updateItem<Json>("ma_source", sourceId, { last_sync_at: now, updated_at: now, updated_by: actorId });
+  const run = await createItem<Json>("ma_run_log", {
+    kind: "REFRESH",
+    source_id: sourceId,
+    gate: null,
+    period,
+    status: "PASS",
+    rows_ok: saved,
+    rows_failed: skipped,
+    detail,
+    run_at: now,
+    run_by: actorId,
+    created_at: now,
+    created_by: actorId,
+    updated_at: now,
+    updated_by: actorId,
+  });
+
+  return {
+    code: "ERP",
+    name: sourceName,
+    readings: saved,
+    saved,
+    skipped,
+    latestPeriod: period,
+    previousLastSync,
+    lastSyncAt: asString(run.run_at) || now,
+    fresh: sla > 0,
+  };
+}
+
 /**
- * A re-pull re-reads the rows carrying one source code and stamps that read.
- *
- * No upstream connector exists in this build, so the readings are the only store a source has:
- * reading them again is what "re-pull" can honestly mean here. A feed with no rows behind it is
- * refused instead of stamped, because a fresh badge over no data is a lie the board cannot show.
+ * Re-pulls a feed: for `ERP`, calls ERP_SERVER's live kpi-readings endpoint with the user's
+ * session token and upserts readings into `ma_kpi_actual`. Other feeds without a live adapter
+ * re-verify stored rows and refuse empty sources rather than stamping over missing data.
  */
-export async function refreshSource(code: string, actorId: number | null): Promise<SourceRefresh> {
+export async function refreshSource(
+  code: string,
+  actorId: number | null,
+  options: { period?: string; bearerToken?: string | null } = {},
+): Promise<SourceRefresh> {
   const wanted = code.trim().toUpperCase();
   const found = await listItems<Json>("ma_source", {
     fields: SOURCE_FIELDS,
@@ -344,6 +501,24 @@ export async function refreshSource(code: string, actorId: number | null): Promi
   }
 
   const name = asString(source.name);
+  const sourceId = asNumber(source.id);
+  const previousLastSync = source.last_sync_at === null ? null : asString(source.last_sync_at);
+  const sla = asNumber(source.sla_minutes);
+
+  if (wanted === "ERP") {
+    const period =
+      options.period && /^\d{4}-(0[1-9]|1[0-2])$/.test(options.period)
+        ? options.period
+        : phtStamp().slice(0, 7);
+    if (!options.bearerToken) {
+      throw Object.assign(
+        new Error("Sign in to pull live ERP KPI readings (X-Service-Token is not accepted)."),
+        { name: "ConflictError" },
+      );
+    }
+    return pullFromErp(sourceId, name, sla, previousLastSync, period, options.bearerToken, actorId);
+  }
+
   const readings = await listItems<Json>("ma_kpi_actual", {
     fields: ["id", "period"],
     filter: { source_code: { _eq: wanted } },
@@ -358,11 +533,8 @@ export async function refreshSource(code: string, actorId: number | null): Promi
   }
 
   const now = phtStamp();
-  const sourceId = asNumber(source.id);
   const latestPeriod = asString(readings.rows[0].period) || null;
-  const previousLastSync = source.last_sync_at === null ? null : asString(source.last_sync_at);
   const detail = `Re-read ${name}: ${readings.total} reading(s), newest for ${latestPeriod ?? "no month"}.`;
-  const sla = asNumber(source.sla_minutes);
 
   await updateItem<Json>("ma_source", sourceId, { last_sync_at: now, updated_at: now, updated_by: actorId });
   const run = await createItem<Json>("ma_run_log", {

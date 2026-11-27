@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { addAction, closeAction, fetchReview, openMeeting, patchItem, patchReview } from "../providers/reviewApi";
+import { addAction, closeAction, deleteAction, fetchReview, openMeeting, patchItem, patchReview } from "../providers/reviewApi";
 import type { ReviewDetail } from "../types";
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -56,7 +56,7 @@ export function useReview(period: string, company: string) {
     error,
     reload: load,
     open: () => run(() => openMeeting(period, company)),
-    saveMeeting: (patch: { attendees?: string; minutes?: string; status?: "DRAFT" | "FINAL" }) =>
+    saveMeeting: (patch: { attendees?: string; minutes?: string; status?: "DRAFT" | "FINAL"; refreshAgenda?: boolean }) =>
       run(async () => {
         if (!detail?.review) throw new Error("Open the meeting first.");
         return patchReview(detail.review.id, patch);
@@ -65,13 +65,17 @@ export function useReview(period: string, company: string) {
       await patchItem(id, patch);
       return fetchReview(period, company);
     }),
-    addAction: (payload: { title: string; dueDate?: string; notes?: string; exceptionId?: number }) =>
+    addAction: (payload: { title: string; dueDate?: string; notes?: string; exceptionId?: number; ownerPosition?: string }) =>
       run(async () => {
         await addAction({ ...payload, reviewId: detail?.review?.id, companyCode: detail?.company?.code });
         return fetchReview(period, company);
       }),
     closeAction: (id: number) => run(async () => {
       await closeAction(id);
+      return fetchReview(period, company);
+    }),
+    removeAction: (id: number) => run(async () => {
+      await deleteAction(id);
       return fetchReview(period, company);
     }),
   };

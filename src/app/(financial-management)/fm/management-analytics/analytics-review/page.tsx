@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { PageShell } from "@/modules/financial-management/management-analytics/analytics-review/components/PageShell";
 import { ReviewModule } from "@/modules/financial-management/management-analytics/analytics-review/components/ReviewModule";
-import { AnalyticsShell } from "@/modules/financial-management/management-analytics/shared/AnalyticsShell";
+import { AnalyticsShell } from "@/modules/financial-management/management-analytics/analytics-review/components/AnalyticsShell";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

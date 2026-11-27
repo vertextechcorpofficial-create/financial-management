@@ -16,6 +16,32 @@ import type {
 
 const HISTORY = 24;
 const SETTING_KEYS = ["seasonal_targets", "sustained_rule", "confirm_periods", "spike_multiple"];
+const ERP_LIVE_KEYS = new Set([
+  "dist.opex",
+  "dist.ncr",
+  "dist.capa",
+  "dist.abs",
+  "dist.tardy",
+  "dist.ot",
+  "dist.fill",
+  "dist.otif",
+  "dist.pick",
+  "dist.freight",
+]);
+
+async function resolveMen2Name(): Promise<string> {
+  try {
+    const res = await listItems<Json>("company_list", {
+      fields: ["company_name"],
+      filter: { company_code: { _eq: "MEN2" }, status: { _eq: "ACTIVE" } },
+      limit: 1,
+    });
+    const name = res.rows[0] ? asString(res.rows[0].company_name) : "";
+    return name || "MEN2";
+  } catch {
+    return "MEN2";
+  }
+}
 
 type Json = Record<string, unknown>;
 
@@ -79,7 +105,7 @@ async function buildRows(kpis: Json[], companies: Map<number, CompanyRow>, polic
   const [actuals, targets] = await Promise.all([
     listItems<Json>("ma_kpi_actual", {
       fields: ["kpi_id", "period", "value"],
-      filter: { kpi_id: { _in: kpiIds } },
+      filter: { kpi_id: { _in: kpiIds }, source_code: { _eq: "ERP" } },
       sort: ["kpi_id", "period"],
       limit: 20000,
     }),
@@ -124,8 +150,8 @@ async function buildRows(kpis: Json[], companies: Map<number, CompanyRow>, polic
       companyName: company?.name ?? "Unknown company",
       period: point?.period ?? null,
       actual: point?.actual ?? null,
-      actualText: point?.actual === null || point?.actual === undefined ? "no reading" : formatValue(point.actual, kpi),
-      targetText: point?.target === null || point?.target === undefined ? "no target" : formatValue(point.target, kpi),
+      actualText: point?.actual === null || point?.actual === undefined ? "—" : formatValue(point.actual, kpi),
+      targetText: point?.target === null || point?.target === undefined ? "—" : formatValue(point.target, kpi),
       rule: ruleText(kpi),
       statusCode: status.code,
       statusLabel: status.label,
@@ -174,7 +200,7 @@ export async function loadCatalog(query: CatalogQuery): Promise<CatalogPayload> 
   const page = Math.max(1, Math.trunc(query.page ?? 1));
   const size = Math.min(100, Math.max(5, Math.trunc(query.size ?? 20)));
 
-  const [companyRows, kpiRows, policy] = await Promise.all([
+  const [companyRows, kpiRows, policy, men2Name] = await Promise.all([
     listItems<Json>("ma_company", { fields: ["*"], sort: "sort", limit: 50 }),
     listItems<Json>("ma_kpi", {
       fields: ["*"],
@@ -183,10 +209,18 @@ export async function loadCatalog(query: CatalogQuery): Promise<CatalogPayload> 
       limit: 400,
     }),
     loadPolicy(),
+    resolveMen2Name(),
   ]);
 
-  const companies = new Map(companyRows.rows.map((row) => mapCompany(row)).map((company) => [company.id, company]));
-  const rows = await buildRows(kpiRows.rows, companies, policy);
+  const mappedCompanies = companyRows.rows
+    .map((row) => mapCompany(row))
+    .filter((company) => company.is_active && company.code === "dist")
+    .map((company) => ({ ...company, name: men2Name, industry: "Distribution" }));
+  const companies = new Map(mappedCompanies.map((company) => [company.id, company]));
+  const liveKpiRows = kpiRows.rows.filter(
+    (row) => ERP_LIVE_KEYS.has(asString(row.kpi_key)) && (companies.size === 0 || companies.has(asNumber(row.company_id))),
+  );
+  const rows = await buildRows(liveKpiRows, companies, policy);
 
   const counts: CatalogCounts = { CORE: 0, WORKFORCE: 0, INDUSTRY: 0, HOLDINGS: 0 };
   for (const row of rows) counts[row.kpi.tier] += 1;
@@ -226,14 +260,36 @@ export async function loadCatalog(query: CatalogQuery): Promise<CatalogPayload> 
     .sort()
     .at(-1) ?? null;
 
+  const scopedWithoutTier = rows
+    .filter((row) => (domain === "ALL" ? true : same(row.kpi.domain, domain)))
+    .filter((row) => (companyCode === "ALL" ? true : row.companyCode.toUpperCase() === companyCode))
+    .filter((row) =>
+      needle.length === 0
+        ? true
+        : `${row.kpi.name} ${row.kpi.kpi_key} ${row.kpi.definition ?? ""} ${row.kpi.owner_position ?? ""}`
+            .toLowerCase()
+            .includes(needle),
+    )
+    .sort(
+      (a, b) =>
+        TIER_ORDER.indexOf(a.kpi.tier) - TIER_ORDER.indexOf(b.kpi.tier) ||
+        a.companyCode.localeCompare(b.companyCode) ||
+        a.kpi.sort - b.kpi.sort ||
+        a.kpi.name.localeCompare(b.kpi.name),
+    );
+
   return {
     rows: filtered.slice(start, start + size),
+    allOptions: scopedWithoutTier.map((row) => ({
+      id: row.kpi.id,
+      kpiKey: row.kpi.kpi_key,
+      name: row.kpi.name,
+      companyCode: row.companyCode,
+      companyName: row.companyName,
+    })),
     total: filtered.length,
     counts,
-    companies: companyRows.rows
-      .map((row) => mapCompany(row))
-      .filter((company) => company.kind === "OPERATING" || company.kind === "HOLDINGS" || company.kind === "GROUP")
-      .map((company) => ({ id: company.id, code: company.code, name: company.name })),
+    companies: mappedCompanies.map((company) => ({ id: company.id, code: company.code, name: company.name })),
     domains,
     period,
     page,
@@ -245,16 +301,23 @@ export async function loadCatalogDetail(kpiId: number): Promise<CatalogDetail | 
   const raw = await listItems<Json>("ma_kpi", { fields: ["*"], filter: { id: { _eq: kpiId } }, limit: 1 });
   if (raw.rows.length === 0) return null;
 
-  const companyRows = await listItems<Json>("ma_company", { fields: ["*"], sort: "sort", limit: 50 });
-  const companies = new Map(companyRows.rows.map((row) => mapCompany(row)).map((company) => [company.id, company]));
-  const policy = await loadPolicy();
+  const [companyRows, men2Name, policy] = await Promise.all([
+    listItems<Json>("ma_company", { fields: ["*"], sort: "sort", limit: 50 }),
+    resolveMen2Name(),
+    loadPolicy(),
+  ]);
+  const mappedCompanies = companyRows.rows
+    .map((row) => mapCompany(row))
+    .filter((company) => company.code === "dist")
+    .map((company) => ({ ...company, name: men2Name, industry: "Distribution" }));
+  const companies = new Map(mappedCompanies.map((company) => [company.id, company]));
   const [row] = await buildRows(raw.rows, companies, policy);
   if (!row) return null;
 
   const [actuals, targets] = await Promise.all([
     listItems<Json>("ma_kpi_actual", {
       fields: ["period", "value"],
-      filter: { kpi_id: { _eq: kpiId } },
+      filter: { kpi_id: { _eq: kpiId }, source_code: { _eq: "ERP" } },
       sort: "period",
       limit: HISTORY,
     }),

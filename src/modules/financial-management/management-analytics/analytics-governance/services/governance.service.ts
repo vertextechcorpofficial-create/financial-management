@@ -6,9 +6,9 @@ import { phtStamp } from "../pht";
 import type {
   AssignmentRow,
   ChangeRequestRow,
+  GovernanceKpiRuleRow,
   GrantDomain,
   GovernancePayload,
-  KpiOptionRow,
   OrgCompanyRow,
   PolicyRow,
   RoleRow,
@@ -23,8 +23,41 @@ const num = (value: unknown): number => {
 
 const str = (value: unknown): string => (typeof value === "string" ? value : value === null || value === undefined ? "" : String(value));
 
+const ERP_LIVE_KEYS = new Set([
+  "dist.opex",
+  "dist.ncr",
+  "dist.capa",
+  "dist.abs",
+  "dist.tardy",
+  "dist.ot",
+  "dist.fill",
+  "dist.otif",
+  "dist.pick",
+  "dist.freight",
+]);
+
+async function resolveMen2Info(): Promise<{ id: number | null; name: string }> {
+  try {
+    const res = await listItems<Row>("company_list", {
+      fields: ["company_id", "company_name"],
+      filter: { company_code: { _eq: "MEN2" }, status: { _eq: "ACTIVE" } },
+      limit: 1,
+    });
+    const row = res.rows[0];
+    if (row) {
+      return {
+        id: row.company_id !== null && row.company_id !== undefined ? num(row.company_id) : null,
+        name: str(row.company_name) || "MEN2",
+      };
+    }
+  } catch {
+    // Fallback if company_list cannot be read
+  }
+  return { id: null, name: "MEN2" };
+}
+
 export async function loadGovernance(): Promise<GovernancePayload> {
-  const [companiesRes, rolesRes, grantsRes, assignmentsRes, settingsRes, changesRes, usersRes, unitsRes, kpisRes] = await Promise.all([
+  const [companiesRes, rolesRes, grantsRes, assignmentsRes, settingsRes, changesRes, usersRes, unitsRes, kpisRes, men2] = await Promise.all([
     listItems<Row>("ma_company", { fields: ["id", "code", "name", "kind", "currency", "revenue_weight", "headcount", "erp_company_id", "is_active"], sort: "sort", limit: 100 }),
     listItems<Row>("ma_role", { fields: ["id", "code", "name", "scope", "description"], sort: "id", limit: 50 }),
     listItems<Row>("ma_role_grant", { fields: ["id", "role_id", "company_id", "domain"], limit: 500 }),
@@ -33,11 +66,17 @@ export async function loadGovernance(): Promise<GovernancePayload> {
     listItems<Row>("ma_change_request", { fields: ["id", "entity", "entity_id", "summary", "status", "created_at", "requested_by", "decided_at", "note"], sort: "-id", limit: 100 }),
     listItems<Row>("user", { fields: ["user_id", "user_fname", "user_lname", "user_email"], sort: "user_lname", limit: 400 }),
     listItems<Row>("ma_unit", { fields: ["id", "company_id"], limit: 500 }),
-    listItems<Row>("ma_kpi", { fields: ["id", "kpi_key", "name"], sort: "kpi_key", limit: 500 }),
+    listItems<Row>("ma_kpi", {
+      fields: ["id", "kpi_key", "name", "domain", "tier", "company_id", "unit", "polarity", "rule_type", "threshold", "watch_band", "owner_position", "source_codes", "is_active"],
+      sort: "kpi_key",
+      limit: 500,
+    }),
+    resolveMen2Info(),
   ]);
 
+  const distCompanies = companiesRes.rows.filter((row) => str(row.code) === "dist");
   const companies = new Map<number, { code: string; name: string }>();
-  for (const row of companiesRes.rows) companies.set(num(row.id), { code: str(row.code), name: str(row.name) });
+  for (const row of distCompanies) companies.set(num(row.id), { code: str(row.code), name: men2.name });
 
   const unitsPerCompany = new Map<number, number>();
   for (const unit of unitsRes.rows) {
@@ -110,20 +149,45 @@ export async function loadGovernance(): Promise<GovernancePayload> {
     note: row.note === null ? null : str(row.note),
   }));
 
-  const kpiOptions: KpiOptionRow[] = kpisRes.rows.map((row) => ({
-    id: num(row.id),
-    label: `${str(row.kpi_key)} · ${str(row.name)}`,
-  }));
+  const kpiOptions: GovernanceKpiRuleRow[] = kpisRes.rows
+    .filter(
+      (row) =>
+        ERP_LIVE_KEYS.has(str(row.kpi_key)) &&
+        (row.is_active === undefined || row.is_active === true || row.is_active === 1 || row.is_active === "1"),
+    )
+    .map((row) => {
+      const companyId = num(row.company_id);
+      const co = companies.get(companyId);
+      const key = str(row.kpi_key);
+      const name = str(row.name);
+      return {
+        id: num(row.id),
+        label: `${key} · ${name}`,
+        kpiKey: key,
+        name,
+        domain: str(row.domain),
+        tier: str(row.tier),
+        companyCode: co?.code ?? "dist",
+        companyName: co?.name ?? men2.name,
+        unit: row.unit ? str(row.unit) : null,
+        polarity: str(row.polarity),
+        ruleType: str(row.rule_type),
+        threshold: row.threshold === null || row.threshold === undefined ? null : num(row.threshold),
+        watchBand: row.watch_band === null || row.watch_band === undefined ? null : num(row.watch_band),
+        ownerPosition: row.owner_position ? str(row.owner_position) : null,
+        sourceCodes: row.source_codes ? str(row.source_codes) : null,
+      };
+    });
 
-  const orgCompanies: OrgCompanyRow[] = companiesRes.rows.map((row) => ({
+  const orgCompanies: OrgCompanyRow[] = distCompanies.map((row) => ({
     id: num(row.id),
     code: str(row.code),
-    name: str(row.name),
+    name: men2.name,
     kind: str(row.kind),
     currency: str(row.currency),
     revenueWeight: num(row.revenue_weight),
     headcount: num(row.headcount),
-    erpCompanyId: row.erp_company_id === null ? null : num(row.erp_company_id),
+    erpCompanyId: men2.id ?? (row.erp_company_id === null ? null : num(row.erp_company_id)),
     isActive: Boolean(row.is_active),
     units: unitsPerCompany.get(num(row.id)) ?? 0,
   }));
@@ -172,10 +236,32 @@ export async function savePolicy(key: string, value: string, actorId: number | n
   return { key, value };
 }
 
+export async function updateCompany(
+  id: number,
+  input: { name: string; currency: string },
+  actorId: number | null,
+) {
+  const name = input.name.trim();
+  const currency = input.currency.trim().toUpperCase();
+  if (name.length < 2) throw new ValidationError("Company name must be at least 2 characters.");
+  if (!/^[A-Z]{3}$/.test(currency)) throw new ValidationError("Currency must be a 3-letter ISO code (e.g. PHP, USD).");
+  const { rows } = await listItems<Row>("ma_company", { fields: ["id"], filter: { id: { _eq: id } }, limit: 1 });
+  if (rows.length === 0) throw new NotFoundError("That company record no longer exists.");
+  await updateItem("ma_company", id, {
+    name,
+    currency,
+    updated_at: phtStamp(),
+    updated_by: actorId,
+  });
+  return { id, name, currency };
+}
+
 /** A change of method has to be on the board before it takes effect, so it is raised here. */
-export async function raiseChange(input: { summary: string; kpiId: number | null }, actorId: number | null) {
-  const summary = input.summary.trim();
-  if (summary.length < 10) throw new ValidationError("Say what changes, in at least a sentence.");
+export async function raiseChange(input: { summary: string; kpiId: number | null; changeType?: string | null }, actorId: number | null) {
+  const raw = input.summary.trim();
+  const prefix = input.changeType?.trim() ? `[${input.changeType.trim()}] ` : "";
+  const summary = prefix && !raw.startsWith("[") ? `${prefix}${raw}` : raw;
+  if (raw.length < 10) throw new ValidationError("Say what changes, in at least a sentence.");
   if (summary.length > 500) throw new ValidationError("Keep the summary under 500 characters.");
   const now = phtStamp();
   const created = await createItem<Row>("ma_change_request", {
