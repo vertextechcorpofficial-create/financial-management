@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ReferenceKind } from "../../admin/services/brgyAdmin";
 import { call, Field } from "../../shared/ui";
+import { RowActions } from "../../shared/RowActions";
 import { SubTabs } from "../../shared/SubTabs";
 import {
   BRGY_CODE_HELP,
@@ -243,34 +244,20 @@ function ReferenceCard({
                     </td>
                   ))}
                   <td className="p-2 text-right align-top">
-                    <div className="flex flex-wrap items-center justify-end gap-1">
+                    <div className="flex items-center justify-end gap-2">
                       {row.status && row.status !== "active" ? (
                         <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">retired</span>
                       ) : null}
-                      <Button size="sm" disabled={busy || !canEdit} onClick={() => void save(row.id)}>
-                        Save
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || !canEdit}
-                        onClick={() => void act(row, row.status && row.status !== "active" ? "restore" : "retire")}
-                      >
-                        {row.status && row.status !== "active" ? "Restore" : "Retire"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy || !canEdit || (row.usage ?? 0) > 0}
-                        title={
-                          (row.usage ?? 0) > 0
-                            ? "Still used by " + row.usage + " record(s). Retire it instead."
-                            : "Nothing points at this row, so it can be removed"
-                        }
-                        onClick={() => void act(row, "delete")}
-                      >
-                        Delete{(row.usage ?? 0) > 0 ? " (" + row.usage + ")" : ""}
-                      </Button>
+                      <RowActions
+                        canEdit={canEdit}
+                        busy={busy}
+                        retired={Boolean(row.status && row.status !== "active")}
+                        usage={row.usage ?? 0}
+                        noun={title.replace(/s$/, "").toLowerCase()}
+                        onSave={() => void save(row.id)}
+                        onToggle={() => void act(row, row.status && row.status !== "active" ? "restore" : "retire")}
+                        onDelete={() => void act(row, "delete")}
+                      />
                     </div>
                   </td>
                 </tr>
