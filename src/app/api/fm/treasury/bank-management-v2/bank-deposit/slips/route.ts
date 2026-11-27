@@ -29,6 +29,7 @@ const CreateSlipSchema = z.object({
   slipNo: z.string().trim().min(1, "Slip or validation number is required.").max(40),
   remarks: z.string().trim().max(500).nullish().transform((value) => value ?? null),
   cashIds: z.array(z.coerce.number().int().positive()).default([]),
+  overageDetailIds: z.array(z.coerce.number().int().positive()).default([]),
   checkIds: z.array(z.coerce.number().int().positive()).default([]),
 });
 
