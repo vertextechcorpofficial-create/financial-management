@@ -1,0 +1,4781 @@
+{
+  "v": 1,
+  "seq": 83,
+  "savedAt": "",
+  "sample": true,
+  "policy": {
+    "docVersion": "1.0",
+    "effectiveDate": "2026-01-01",
+    "owner": "Portfolio owner",
+    "cadence": "Semi-Annual",
+    "currency": "PHP",
+    "reserveMonths": 6,
+    "monthlyExpenses": 80000,
+    "debtThreshold": 8,
+    "liquidityMonths": 12,
+    "liquidityNeed": 200000,
+    "lumpThreshold": 300000,
+    "tranches": 6,
+    "giveMode": "income",
+    "givePct": 10,
+    "netIncome": 5000000,
+    "gainsPct": 10,
+    "giveFixed": 200000,
+    "focusAreas": "Education, Healthcare, Local Community Development, Environmental Conservation",
+    "savingsTarget": 800000,
+    "reviewMonth": 10,
+    "costMethod": "specific",
+    "sttRate": 0.1,
+    "sttRateOld": 0.6,
+    "divFwt": 0,
+    "intFwt": 20,
+    "cgtUnlisted": 15,
+    "donorRate": 6,
+    "donorExempt": 250000,
+    "deductCap": 5,
+    "itemizes": "yes",
+    "taxableIncome": 4000000,
+    "marginalRate": 25,
+    "dstIssue": 0.75,
+    "dstIssueOld": 1,
+    "divWhtInd": 10,
+    "divWhtNr": 25,
+    "dstTransfer": 0.75,
+    "dayCount": 365,
+    "fyStart": 1,
+    "brokerRate": 0.25,
+    "brokerMin": 20,
+    "vatRate": 12,
+    "pseFee": 0.005,
+    "sccpFee": 0.01
+  },
+  "classes": [
+    {
+      "id": "dom",
+      "name": "Domestic Equities",
+      "target": 50,
+      "band": 5,
+      "vehicles": "Index funds / ETFs / Direct equities"
+    },
+    {
+      "id": "intl",
+      "name": "International Equities",
+      "target": 20,
+      "band": 5,
+      "vehicles": "Global / Developed / Emerging ETFs"
+    },
+    {
+      "id": "fi",
+      "name": "Fixed Income & Bonds",
+      "target": 20,
+      "band": 4,
+      "vehicles": "Government / Corporate bonds"
+    },
+    {
+      "id": "cash",
+      "name": "Cash & Equivalents",
+      "target": 5,
+      "band": 2,
+      "vehicles": "High-yield savings / Money market / T-Bills"
+    },
+    {
+      "id": "alt",
+      "name": "Alternatives / Real Assets",
+      "target": 5,
+      "band": 2,
+      "vehicles": "REITs / Commodities / Private holdings"
+    }
+  ],
+  "securities": {
+    "PHEQ": {
+      "sym": "PHEQ",
+      "name": "PSEi Index ETF",
+      "cls": "dom",
+      "taxClass": "listed",
+      "price": 135,
+      "priceDate": "2026-11-17"
+    },
+    "GLEQ": {
+      "sym": "GLEQ",
+      "name": "Global Equity Feeder Fund (UITF)",
+      "cls": "intl",
+      "taxClass": "fund",
+      "price": 33.5,
+      "priceDate": "2026-11-17"
+    },
+    "RTB": {
+      "sym": "RTB",
+      "name": "Retail Treasury Bonds",
+      "cls": "fi",
+      "taxClass": "govsec",
+      "price": 101.2,
+      "priceDate": "2026-11-17"
+    },
+    "MMF": {
+      "sym": "MMF",
+      "name": "Peso Money Market Fund (UITF)",
+      "cls": "cash",
+      "taxClass": "fund",
+      "price": 104.5,
+      "priceDate": "2026-11-17"
+    },
+    "REIT": {
+      "sym": "REIT",
+      "name": "Philippine REIT",
+      "cls": "alt",
+      "taxClass": "listed",
+      "price": 32,
+      "priceDate": "2026-11-17"
+    }
+  },
+  "lots": [
+    {
+      "id": "0hk3ihg5",
+      "seq": 6,
+      "sym": "PHEQ",
+      "acctType": "Taxable",
+      "date": "2025-01-08",
+      "qty": 14000,
+      "cost": 1404130,
+      "openQty": 13000,
+      "txnId": "8imo9ifj"
+    },
+    {
+      "id": "8tot7qd9",
+      "seq": 7,
+      "sym": "GLEQ",
+      "acctType": "Taxable",
+      "date": "2025-01-08",
+      "qty": 16000,
+      "cost": 480000,
+      "openQty": 16000,
+      "txnId": "anlbo3pm"
+    },
+    {
+      "id": "6is9kupu",
+      "seq": 8,
+      "sym": "RTB",
+      "acctType": "Taxable",
+      "date": "2025-01-08",
+      "qty": 4500,
+      "cost": 450000,
+      "openQty": 4500,
+      "txnId": "6ogkxrre"
+    },
+    {
+      "id": "v51dslxx",
+      "seq": 9,
+      "sym": "MMF",
+      "acctType": "Taxable",
+      "date": "2025-01-08",
+      "qty": 1100,
+      "cost": 110000,
+      "openQty": 1100,
+      "txnId": "wpo9t4zf"
+    },
+    {
+      "id": "pw56oxm1",
+      "seq": 10,
+      "sym": "REIT",
+      "acctType": "Taxable",
+      "date": "2025-01-08",
+      "qty": 4000,
+      "cost": 120354,
+      "openQty": 3500,
+      "txnId": "c1296ulp"
+    },
+    {
+      "id": "ewzq1s1z",
+      "seq": 34,
+      "sym": "PHEQ",
+      "acctType": "Taxable",
+      "date": "2026-01-20",
+      "qty": 1000,
+      "cost": 105309.75,
+      "openQty": 1000,
+      "txnId": "n5tcd2na"
+    },
+    {
+      "id": "407617bx",
+      "seq": 36,
+      "sym": "RTB",
+      "acctType": "PERA",
+      "date": "2026-02-03",
+      "qty": 1000,
+      "cost": 101000,
+      "openQty": 1000,
+      "txnId": "1btyulp4"
+    },
+    {
+      "id": "06p2r3ej",
+      "seq": 48,
+      "sym": "GLEQ",
+      "acctType": "Taxable",
+      "date": "2026-04-10",
+      "qty": 3000,
+      "cost": 96000,
+      "openQty": 1000,
+      "txnId": "q31448wb"
+    },
+    {
+      "id": "xv6sd9qk",
+      "seq": 49,
+      "sym": "RTB",
+      "acctType": "Taxable",
+      "date": "2026-04-10",
+      "qty": 1200,
+      "cost": 120600,
+      "openQty": 1200,
+      "txnId": "0ffnfj03"
+    },
+    {
+      "id": "iyxbjbrc",
+      "seq": 62,
+      "sym": "PHEQ",
+      "acctType": "Taxable",
+      "date": "2026-07-08",
+      "qty": 800,
+      "cost": 88259.6,
+      "openQty": 800,
+      "txnId": "lligvm0j"
+    },
+    {
+      "id": "3k3hhp46",
+      "seq": 72,
+      "sym": "REIT",
+      "acctType": "Taxable",
+      "date": "2026-09-15",
+      "qty": 1500,
+      "cost": 46637.18,
+      "openQty": 1500,
+      "txnId": "zo3b7a6f"
+    }
+  ],
+  "txns": [
+    {
+      "date": "2025-01-06",
+      "type": "subscribe",
+      "memo": "Subscription — Andrea Santos, 3,000,000 shares @ ₱1.00; paid ₱2,000,000.00",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "shares": 3000000,
+        "price": 1,
+        "amount": 3000000,
+        "paid": 2000000,
+        "dst": 30000,
+        "dstRate": 1,
+        "taxId": "yo7sxnfz",
+        "taxDue": "2025-02-05",
+        "taxForm": "BIR Form 2000 (DST on original issue of shares)"
+      },
+      "lines": [
+        {
+          "acct": "3020",
+          "dr": 3000000,
+          "cr": 0,
+          "tag": "zwq8mxwi"
+        },
+        {
+          "acct": "3010",
+          "dr": 0,
+          "cr": 3000000,
+          "tag": "zwq8mxwi"
+        },
+        {
+          "acct": "1000",
+          "dr": 2000000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 2000000,
+          "tag": "zwq8mxwi"
+        },
+        {
+          "acct": "3800",
+          "dr": 30000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "2200",
+          "dr": 0,
+          "cr": 30000,
+          "tag": "yo7sxnfz"
+        }
+      ],
+      "id": "km3on1wa",
+      "no": 1,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-01-06",
+      "type": "subscribe",
+      "memo": "Subscription — Benjamin Reyes, 1,500,000 shares @ ₱1.00; paid ₱1,000,000.00",
+      "data": {
+        "subId": "mdc62izu",
+        "holderId": "i3bz0vov",
+        "shares": 1500000,
+        "price": 1,
+        "amount": 1500000,
+        "paid": 1000000,
+        "dst": 15000,
+        "dstRate": 1,
+        "taxId": "psx8o7u2",
+        "taxDue": "2025-02-05",
+        "taxForm": "BIR Form 2000 (DST on original issue of shares)"
+      },
+      "lines": [
+        {
+          "acct": "3020",
+          "dr": 1500000,
+          "cr": 0,
+          "tag": "mdc62izu"
+        },
+        {
+          "acct": "3010",
+          "dr": 0,
+          "cr": 1500000,
+          "tag": "mdc62izu"
+        },
+        {
+          "acct": "1000",
+          "dr": 1000000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 1000000,
+          "tag": "mdc62izu"
+        },
+        {
+          "acct": "3800",
+          "dr": 15000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "2200",
+          "dr": 0,
+          "cr": 15000,
+          "tag": "psx8o7u2"
+        }
+      ],
+      "id": "97difbn2",
+      "no": 2,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-01-06",
+      "type": "subscribe",
+      "memo": "Subscription — Alon Ventures Corp., 500,000 shares @ ₱1.00; paid ₱500,000.00",
+      "data": {
+        "subId": "14i4q5g2",
+        "holderId": "ydnsngxp",
+        "shares": 500000,
+        "price": 1,
+        "amount": 500000,
+        "paid": 500000,
+        "dst": 5000,
+        "dstRate": 1,
+        "taxId": "bqurer0h",
+        "taxDue": "2025-02-05",
+        "taxForm": "BIR Form 2000 (DST on original issue of shares)"
+      },
+      "lines": [
+        {
+          "acct": "3020",
+          "dr": 500000,
+          "cr": 0,
+          "tag": "14i4q5g2"
+        },
+        {
+          "acct": "3010",
+          "dr": 0,
+          "cr": 500000,
+          "tag": "14i4q5g2"
+        },
+        {
+          "acct": "1000",
+          "dr": 500000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 500000,
+          "tag": "14i4q5g2"
+        },
+        {
+          "acct": "3800",
+          "dr": 5000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "2200",
+          "dr": 0,
+          "cr": 5000,
+          "tag": "bqurer0h"
+        }
+      ],
+      "id": "szygrlew",
+      "no": 3,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-01-06",
+      "type": "transfer",
+      "memo": "Transfer to Cash — Emergency & Operating Reserve — Six-month reserve",
+      "lines": [
+        {
+          "acct": "1010",
+          "dr": 480000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 480000,
+          "tag": ""
+        }
+      ],
+      "id": "uyig1qp9",
+      "no": 4,
+      "created": "2026-11-20T00:00:00.000Z",
+      "data": {}
+    },
+    {
+      "date": "2025-01-06",
+      "type": "debt",
+      "memo": "New borrowing — Bank term loan @ 9.5%",
+      "data": {
+        "debtId": "ku9vdjbq"
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 600000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "2000",
+          "dr": 0,
+          "cr": 600000,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "79624bjd",
+      "no": 5,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-01-08",
+      "type": "buy",
+      "memo": "Buy 14,000 PHEQ @ 100 (Taxable) + costs ₱4,130.00 — Lump-sum tranche",
+      "data": {
+        "sym": "PHEQ",
+        "qty": 14000,
+        "price": 100,
+        "gross": 1400000,
+        "fees": {
+          "comm": 3500,
+          "vat": 420,
+          "pse": 70,
+          "sccp": 140,
+          "total": 4130
+        },
+        "acctType": "Taxable",
+        "source": "Lump-sum tranche",
+        "lotId": "0hk3ihg5"
+      },
+      "lines": [
+        {
+          "acct": "1100",
+          "dr": 1404130,
+          "cr": 0,
+          "tag": "PHEQ"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 1404130,
+          "tag": ""
+        }
+      ],
+      "id": "8imo9ifj",
+      "no": 6,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-01-08",
+      "type": "buy",
+      "memo": "Buy 16,000 GLEQ @ 30 (Taxable) — Lump-sum tranche",
+      "data": {
+        "sym": "GLEQ",
+        "qty": 16000,
+        "price": 30,
+        "gross": 480000,
+        "fees": {
+          "comm": 0,
+          "vat": 0,
+          "pse": 0,
+          "sccp": 0,
+          "total": 0
+        },
+        "acctType": "Taxable",
+        "source": "Lump-sum tranche",
+        "lotId": "8tot7qd9"
+      },
+      "lines": [
+        {
+          "acct": "1110",
+          "dr": 480000,
+          "cr": 0,
+          "tag": "GLEQ"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 480000,
+          "tag": ""
+        }
+      ],
+      "id": "anlbo3pm",
+      "no": 7,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-01-08",
+      "type": "buy",
+      "memo": "Buy 4,500 RTB @ 100 (Taxable) — Lump-sum tranche",
+      "data": {
+        "sym": "RTB",
+        "qty": 4500,
+        "price": 100,
+        "gross": 450000,
+        "fees": {
+          "comm": 0,
+          "vat": 0,
+          "pse": 0,
+          "sccp": 0,
+          "total": 0
+        },
+        "acctType": "Taxable",
+        "source": "Lump-sum tranche",
+        "lotId": "6is9kupu"
+      },
+      "lines": [
+        {
+          "acct": "1120",
+          "dr": 450000,
+          "cr": 0,
+          "tag": "RTB"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 450000,
+          "tag": ""
+        }
+      ],
+      "id": "6ogkxrre",
+      "no": 8,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-01-08",
+      "type": "buy",
+      "memo": "Buy 1,100 MMF @ 100 (Taxable) — Lump-sum tranche",
+      "data": {
+        "sym": "MMF",
+        "qty": 1100,
+        "price": 100,
+        "gross": 110000,
+        "fees": {
+          "comm": 0,
+          "vat": 0,
+          "pse": 0,
+          "sccp": 0,
+          "total": 0
+        },
+        "acctType": "Taxable",
+        "source": "Lump-sum tranche",
+        "lotId": "v51dslxx"
+      },
+      "lines": [
+        {
+          "acct": "1130",
+          "dr": 110000,
+          "cr": 0,
+          "tag": "MMF"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 110000,
+          "tag": ""
+        }
+      ],
+      "id": "wpo9t4zf",
+      "no": 9,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-01-08",
+      "type": "buy",
+      "memo": "Buy 4,000 REIT @ 30 (Taxable) + costs ₱354.00 — Lump-sum tranche",
+      "data": {
+        "sym": "REIT",
+        "qty": 4000,
+        "price": 30,
+        "gross": 120000,
+        "fees": {
+          "comm": 300,
+          "vat": 36,
+          "pse": 6,
+          "sccp": 12,
+          "total": 354
+        },
+        "acctType": "Taxable",
+        "source": "Lump-sum tranche",
+        "lotId": "pw56oxm1"
+      },
+      "lines": [
+        {
+          "acct": "1140",
+          "dr": 120354,
+          "cr": 0,
+          "tag": "REIT"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 120354,
+          "tag": ""
+        }
+      ],
+      "id": "c1296ulp",
+      "no": 10,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-01-20",
+      "type": "issue",
+      "memo": "Stock certificate 001 issued — Alon Ventures Corp., 500,000 shares",
+      "data": {
+        "subId": "14i4q5g2",
+        "certNo": "001"
+      },
+      "lines": [
+        {
+          "acct": "3010",
+          "dr": 500000,
+          "cr": 0,
+          "tag": "14i4q5g2"
+        },
+        {
+          "acct": "3000",
+          "dr": 0,
+          "cr": 500000,
+          "tag": "14i4q5g2"
+        }
+      ],
+      "id": "rtnjg4z5",
+      "no": 11,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-01-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱4,060.27)",
+      "data": {
+        "period": "2025-01",
+        "debtId": "ku9vdjbq",
+        "earned": 4060.27,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 4060.27,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 4060.27,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "axubi7qg",
+      "no": 12,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-02-04",
+      "type": "taxpay",
+      "memo": "Tax payment — BIR Form 2000 (DST on original issue of shares) · BIR Form 2000 · DST on original issue",
+      "data": {
+        "taxId": "yo7sxnfz",
+        "form": "BIR Form 2000 (DST on original issue of shares)",
+        "ref": "BIR Form 2000 · DST on original issue"
+      },
+      "lines": [
+        {
+          "acct": "2200",
+          "dr": 30000,
+          "cr": 0,
+          "tag": "yo7sxnfz"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 30000,
+          "tag": ""
+        }
+      ],
+      "id": "q8v7vnr0",
+      "no": 13,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-02-04",
+      "type": "taxpay",
+      "memo": "Tax payment — BIR Form 2000 (DST on original issue of shares) · BIR Form 2000 · DST on original issue",
+      "data": {
+        "taxId": "psx8o7u2",
+        "form": "BIR Form 2000 (DST on original issue of shares)",
+        "ref": "BIR Form 2000 · DST on original issue"
+      },
+      "lines": [
+        {
+          "acct": "2200",
+          "dr": 15000,
+          "cr": 0,
+          "tag": "psx8o7u2"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 15000,
+          "tag": ""
+        }
+      ],
+      "id": "t2wz9m83",
+      "no": 14,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-02-04",
+      "type": "taxpay",
+      "memo": "Tax payment — BIR Form 2000 (DST on original issue of shares) · BIR Form 2000 · DST on original issue",
+      "data": {
+        "taxId": "bqurer0h",
+        "form": "BIR Form 2000 (DST on original issue of shares)",
+        "ref": "BIR Form 2000 · DST on original issue"
+      },
+      "lines": [
+        {
+          "acct": "2200",
+          "dr": 5000,
+          "cr": 0,
+          "tag": "bqurer0h"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 5000,
+          "tag": ""
+        }
+      ],
+      "id": "wpaa39s1",
+      "no": 15,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-02-28",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱4,372.60)",
+      "data": {
+        "period": "2025-02",
+        "debtId": "ku9vdjbq",
+        "earned": 4372.6,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 4372.6,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 4372.6,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "o79z5mri",
+      "no": 16,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-03-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱4,841.10)",
+      "data": {
+        "period": "2025-03",
+        "debtId": "ku9vdjbq",
+        "earned": 4841.1,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 4841.1,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 4841.1,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "zll3vvij",
+      "no": 17,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-04-15",
+      "type": "debtpay",
+      "memo": "Loan payment — Bank term loan (principal ₱50,000.00, interest ₱15,616.44)",
+      "data": {
+        "debtId": "ku9vdjbq",
+        "principal": 50000,
+        "interest": 15616.44
+      },
+      "lines": [
+        {
+          "acct": "2000",
+          "dr": 50000,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 13273.97,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "5200",
+          "dr": 2342.47,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 65616.44,
+          "tag": ""
+        }
+      ],
+      "id": "yi4rsx7t",
+      "no": 18,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-04-30",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱4,476.71, less ₱2,342.47 already expensed)",
+      "data": {
+        "period": "2025-04",
+        "debtId": "ku9vdjbq",
+        "earned": 4476.71,
+        "already": 2342.47
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 2134.24,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 2134.24,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "acms30dc",
+      "no": 19,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-05-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱4,437.67)",
+      "data": {
+        "period": "2025-05",
+        "debtId": "ku9vdjbq",
+        "earned": 4437.67,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 4437.67,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 4437.67,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "9x0u5hdh",
+      "no": 20,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-06-30",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱4,294.52)",
+      "data": {
+        "period": "2025-06",
+        "debtId": "ku9vdjbq",
+        "earned": 4294.52,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 4294.52,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 4294.52,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "3t7skeb0",
+      "no": 21,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-07-15",
+      "type": "debtpay",
+      "memo": "Loan payment — Bank term loan (principal ₱50,000.00, interest ₱13,013.69)",
+      "data": {
+        "debtId": "ku9vdjbq",
+        "principal": 50000,
+        "interest": 13013.69
+      },
+      "lines": [
+        {
+          "acct": "2000",
+          "dr": 50000,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 10866.43,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "5200",
+          "dr": 2147.26,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 63013.69,
+          "tag": ""
+        }
+      ],
+      "id": "0i91j1nb",
+      "no": 22,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-07-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱4,216.44, less ₱2,147.26 already expensed)",
+      "data": {
+        "period": "2025-07",
+        "debtId": "ku9vdjbq",
+        "earned": 4216.44,
+        "already": 2147.26
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 2069.18,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 2069.18,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "8r1bw8v7",
+      "no": 23,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-08-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱4,034.25)",
+      "data": {
+        "period": "2025-08",
+        "debtId": "ku9vdjbq",
+        "earned": 4034.25,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 4034.25,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 4034.25,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "r03kg2ku",
+      "no": 24,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-09-30",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱3,904.11)",
+      "data": {
+        "period": "2025-09",
+        "debtId": "ku9vdjbq",
+        "earned": 3904.11,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 3904.11,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 3904.11,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "a0usj2sd",
+      "no": 25,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-10-15",
+      "type": "debtpay",
+      "memo": "Loan payment — Bank term loan (principal ₱50,000.00, interest ₱11,959.59)",
+      "data": {
+        "debtId": "ku9vdjbq",
+        "principal": 50000,
+        "interest": 11959.59
+      },
+      "lines": [
+        {
+          "acct": "2000",
+          "dr": 50000,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 10007.54,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "5200",
+          "dr": 1952.05,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 61959.59,
+          "tag": ""
+        }
+      ],
+      "id": "v0os6fns",
+      "no": 26,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-10-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱3,813.01, less ₱1,952.05 already expensed)",
+      "data": {
+        "period": "2025-10",
+        "debtId": "ku9vdjbq",
+        "earned": 3813.01,
+        "already": 1952.05
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 1860.96,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 1860.96,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "dcte1onp",
+      "no": 27,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-11-30",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱3,513.70)",
+      "data": {
+        "period": "2025-11",
+        "debtId": "ku9vdjbq",
+        "earned": 3513.7,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 3513.7,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 3513.7,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "imecdxyu",
+      "no": 28,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-12-05",
+      "type": "accrue",
+      "memo": "Dividend declared — PHEQ · payable 2025-12-22",
+      "data": {
+        "kind": "Dividend",
+        "sym": "PHEQ",
+        "recId": "b4y50v55",
+        "payDate": "2025-12-22",
+        "gross": 30000
+      },
+      "lines": [
+        {
+          "acct": "1200",
+          "dr": 30000,
+          "cr": 0,
+          "tag": "b4y50v55"
+        },
+        {
+          "acct": "4000",
+          "dr": 0,
+          "cr": 30000,
+          "tag": "PHEQ"
+        }
+      ],
+      "id": "i1z3bt3r",
+      "no": 29,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-12-22",
+      "type": "receive",
+      "memo": "Dividend received — PHEQ · 0% final tax withheld",
+      "data": {
+        "kind": "Dividend",
+        "sym": "PHEQ",
+        "gross": 30000,
+        "fwt": 0,
+        "net": 30000,
+        "rate": 0,
+        "recId": "b4y50v55"
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 30000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "1200",
+          "dr": 0,
+          "cr": 30000,
+          "tag": "b4y50v55"
+        }
+      ],
+      "id": "2hhohj9z",
+      "no": 30,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-12-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱3,630.82)",
+      "data": {
+        "period": "2025-12",
+        "debtId": "ku9vdjbq",
+        "earned": 3630.82,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 3630.82,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 3630.82,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "nus4f6yl",
+      "no": 31,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-01-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "rdyw2vbd",
+      "no": 32,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-01-15",
+      "type": "debtpay",
+      "memo": "Loan payment — Bank term loan (principal ₱50,000.00, interest ₱10,762.33)",
+      "data": {
+        "debtId": "ku9vdjbq",
+        "principal": 50000,
+        "interest": 10762.33
+      },
+      "lines": [
+        {
+          "acct": "2000",
+          "dr": 50000,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 9005.48,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "5200",
+          "dr": 1756.85,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 60762.33,
+          "tag": ""
+        }
+      ],
+      "id": "ek3q7ys6",
+      "no": 33,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-01-20",
+      "type": "buy",
+      "memo": "Buy 1,000 PHEQ @ 105 (Taxable) + costs ₱309.75 — Routine contribution (DCA)",
+      "data": {
+        "sym": "PHEQ",
+        "qty": 1000,
+        "price": 105,
+        "gross": 105000,
+        "fees": {
+          "comm": 262.5,
+          "vat": 31.5,
+          "pse": 5.25,
+          "sccp": 10.5,
+          "total": 309.75
+        },
+        "acctType": "Taxable",
+        "source": "Routine contribution (DCA)",
+        "lotId": "ewzq1s1z"
+      },
+      "lines": [
+        {
+          "acct": "1100",
+          "dr": 105309.75,
+          "cr": 0,
+          "tag": "PHEQ"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 105309.75,
+          "tag": ""
+        }
+      ],
+      "id": "n5tcd2na",
+      "no": 34,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-01-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱3,409.59, less ₱1,756.85 already expensed)",
+      "data": {
+        "period": "2026-01",
+        "debtId": "ku9vdjbq",
+        "earned": 3409.59,
+        "already": 1756.85
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 1652.74,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 1652.74,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "e2v6wf9p",
+      "no": 35,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-02-03",
+      "type": "buy",
+      "memo": "Buy 1,000 RTB @ 101 (PERA) — Routine contribution (DCA)",
+      "data": {
+        "sym": "RTB",
+        "qty": 1000,
+        "price": 101,
+        "gross": 101000,
+        "fees": {
+          "comm": 0,
+          "vat": 0,
+          "pse": 0,
+          "sccp": 0,
+          "total": 0
+        },
+        "acctType": "PERA",
+        "source": "Routine contribution (DCA)",
+        "lotId": "407617bx"
+      },
+      "lines": [
+        {
+          "acct": "1120",
+          "dr": 101000,
+          "cr": 0,
+          "tag": "RTB"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 101000,
+          "tag": ""
+        }
+      ],
+      "id": "1btyulp4",
+      "no": 36,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-02-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "68nq0u2p",
+      "no": 37,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-02-16",
+      "type": "subcollect",
+      "memo": "Subscription payment — Benjamin Reyes (1,500,000 shares)",
+      "data": {
+        "subId": "mdc62izu",
+        "holderId": "i3bz0vov",
+        "amount": 500000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 500000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 500000,
+          "tag": "mdc62izu"
+        }
+      ],
+      "id": "9jiwi58b",
+      "no": 38,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-02-20",
+      "type": "issue",
+      "memo": "Stock certificate 002 issued — Benjamin Reyes, 1,500,000 shares",
+      "data": {
+        "subId": "mdc62izu",
+        "certNo": "002"
+      },
+      "lines": [
+        {
+          "acct": "3010",
+          "dr": 1500000,
+          "cr": 0,
+          "tag": "mdc62izu"
+        },
+        {
+          "acct": "3000",
+          "dr": 0,
+          "cr": 1500000,
+          "tag": "mdc62izu"
+        }
+      ],
+      "id": "mu6sa4b5",
+      "no": 39,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-02-28",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱2,915.07)",
+      "data": {
+        "period": "2026-02",
+        "debtId": "ku9vdjbq",
+        "earned": 2915.07,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 2915.07,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 2915.07,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "aqm5szfa",
+      "no": 40,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-03-02",
+      "type": "subscribe",
+      "memo": "Subscription — Carla Mendoza, 200,000 shares @ ₱2.00 (premium ₱200,000.00); paid ₱400,000.00",
+      "data": {
+        "subId": "6dhslzxy",
+        "holderId": "7cry88lg",
+        "shares": 200000,
+        "price": 2,
+        "amount": 400000,
+        "paid": 400000,
+        "dst": 1500,
+        "dstRate": 0.75,
+        "taxId": "jrfc8fs1",
+        "taxDue": "2026-04-05",
+        "taxForm": "BIR Form 2000 (DST on original issue of shares)"
+      },
+      "lines": [
+        {
+          "acct": "3020",
+          "dr": 400000,
+          "cr": 0,
+          "tag": "6dhslzxy"
+        },
+        {
+          "acct": "3010",
+          "dr": 0,
+          "cr": 200000,
+          "tag": "6dhslzxy"
+        },
+        {
+          "acct": "3100",
+          "dr": 0,
+          "cr": 200000,
+          "tag": "6dhslzxy"
+        },
+        {
+          "acct": "1000",
+          "dr": 400000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 400000,
+          "tag": "6dhslzxy"
+        },
+        {
+          "acct": "3100",
+          "dr": 1500,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "2200",
+          "dr": 0,
+          "cr": 1500,
+          "tag": "jrfc8fs1"
+        }
+      ],
+      "id": "f2cg3dli",
+      "no": 41,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-03-02",
+      "type": "issue",
+      "memo": "Stock certificate 003 issued — Carla Mendoza, 200,000 shares",
+      "data": {
+        "subId": "6dhslzxy",
+        "certNo": "003"
+      },
+      "lines": [
+        {
+          "acct": "3010",
+          "dr": 200000,
+          "cr": 0,
+          "tag": "6dhslzxy"
+        },
+        {
+          "acct": "3000",
+          "dr": 0,
+          "cr": 200000,
+          "tag": "6dhslzxy"
+        }
+      ],
+      "id": "3jt29nc1",
+      "no": 42,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-03-03",
+      "type": "transfer",
+      "memo": "Transfer to Cash — Short-Term Liquidity & Giving Reserve — Planned giving and known expenses",
+      "lines": [
+        {
+          "acct": "1020",
+          "dr": 150000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 150000,
+          "tag": ""
+        }
+      ],
+      "id": "r0orwt7w",
+      "no": 43,
+      "created": "2026-11-20T00:00:00.000Z",
+      "data": {}
+    },
+    {
+      "date": "2026-03-10",
+      "type": "donation",
+      "memo": "Cash / electronic transfer to Riverbend Literacy Foundation",
+      "data": {
+        "charityId": "bxpw1ezt",
+        "vehicle": "Cash",
+        "dafAsset": "",
+        "donee": "accredited",
+        "exempt": true,
+        "receipt": {
+          "cert": true,
+          "f1800": false,
+          "deed": false,
+          "ref": "BIR 2322 · RLF-2026-0142"
+        },
+        "amount": 30000,
+        "cashAcct": "1020",
+        "deductBasis": 30000,
+        "taxYear": "2026"
+      },
+      "lines": [
+        {
+          "acct": "5000",
+          "dr": 30000,
+          "cr": 0,
+          "tag": "bxpw1ezt"
+        },
+        {
+          "acct": "1020",
+          "dr": 0,
+          "cr": 30000,
+          "tag": ""
+        }
+      ],
+      "id": "vthkwfrd",
+      "no": 44,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-03-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "ql0rnd45",
+      "no": 45,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-03-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱3,227.40)",
+      "data": {
+        "period": "2026-03",
+        "debtId": "ku9vdjbq",
+        "earned": 3227.4,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 3227.4,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 3227.4,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "1u3tu2o6",
+      "no": 46,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-04-03",
+      "type": "taxpay",
+      "memo": "Tax payment — BIR Form 2000 (DST on original issue of shares) · BIR Form 2000 · DST on original issue",
+      "data": {
+        "taxId": "jrfc8fs1",
+        "form": "BIR Form 2000 (DST on original issue of shares)",
+        "ref": "BIR Form 2000 · DST on original issue"
+      },
+      "lines": [
+        {
+          "acct": "2200",
+          "dr": 1500,
+          "cr": 0,
+          "tag": "jrfc8fs1"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 1500,
+          "tag": ""
+        }
+      ],
+      "id": "b5mc2my6",
+      "no": 47,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-04-10",
+      "type": "buy",
+      "memo": "Buy 3,000 GLEQ @ 32 (Taxable) — Lump-sum tranche",
+      "data": {
+        "sym": "GLEQ",
+        "qty": 3000,
+        "price": 32,
+        "gross": 96000,
+        "fees": {
+          "comm": 0,
+          "vat": 0,
+          "pse": 0,
+          "sccp": 0,
+          "total": 0
+        },
+        "acctType": "Taxable",
+        "source": "Lump-sum tranche",
+        "lotId": "06p2r3ej"
+      },
+      "lines": [
+        {
+          "acct": "1110",
+          "dr": 96000,
+          "cr": 0,
+          "tag": "GLEQ"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 96000,
+          "tag": ""
+        }
+      ],
+      "id": "q31448wb",
+      "no": 48,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-04-10",
+      "type": "buy",
+      "memo": "Buy 1,200 RTB @ 100.5 (Taxable) — Lump-sum tranche",
+      "data": {
+        "sym": "RTB",
+        "qty": 1200,
+        "price": 100.5,
+        "gross": 120600,
+        "fees": {
+          "comm": 0,
+          "vat": 0,
+          "pse": 0,
+          "sccp": 0,
+          "total": 0
+        },
+        "acctType": "Taxable",
+        "source": "Lump-sum tranche",
+        "lotId": "xv6sd9qk"
+      },
+      "lines": [
+        {
+          "acct": "1120",
+          "dr": 120600,
+          "cr": 0,
+          "tag": "RTB"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 120600,
+          "tag": ""
+        }
+      ],
+      "id": "0ffnfj03",
+      "no": 49,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-04-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "0p6l5aix",
+      "no": 50,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-04-15",
+      "type": "debtpay",
+      "memo": "Loan payment — Bank term loan (principal ₱50,000.00, interest ₱9,356.85)",
+      "data": {
+        "debtId": "ku9vdjbq",
+        "principal": 50000,
+        "interest": 9356.85
+      },
+      "lines": [
+        {
+          "acct": "2000",
+          "dr": 50000,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 7795.21,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "5200",
+          "dr": 1561.64,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 59356.85,
+          "tag": ""
+        }
+      ],
+      "id": "5827ejf0",
+      "no": 51,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-04-30",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱2,915.07, less ₱1,561.64 already expensed)",
+      "data": {
+        "period": "2026-04",
+        "debtId": "ku9vdjbq",
+        "earned": 2915.07,
+        "already": 1561.64
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 1353.43,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 1353.43,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "ssrc0p7n",
+      "no": 52,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-05-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "xgy5wu25",
+      "no": 53,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-05-20",
+      "type": "sell",
+      "memo": "Sell 2,000 GLEQ @ 33 (Taxable, specific lots) — Fund liquidity reserve",
+      "data": {
+        "sym": "GLEQ",
+        "qty": 2000,
+        "price": 33,
+        "acctType": "Taxable",
+        "proceeds": 66000,
+        "fees": {
+          "comm": 0,
+          "vat": 0,
+          "pse": 0,
+          "sccp": 0,
+          "total": 0
+        },
+        "netProceeds": 66000,
+        "cost": 64000,
+        "gain": 2000,
+        "consumed": [
+          {
+            "lotId": "06p2r3ej",
+            "qty": 2000,
+            "cost": 64000,
+            "acq": "2026-04-10",
+            "lt": false
+          }
+        ],
+        "method": "specific",
+        "taxClass": "fund",
+        "stt": 0,
+        "sttRate": 0,
+        "cgt": 0,
+        "cumNet": 0,
+        "taxYear": "2026",
+        "taxId": "",
+        "taxDue": "",
+        "taxForm": ""
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 66000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "1110",
+          "dr": 0,
+          "cr": 64000,
+          "tag": "GLEQ"
+        },
+        {
+          "acct": "4100",
+          "dr": 0,
+          "cr": 2000,
+          "tag": "GLEQ"
+        }
+      ],
+      "id": "dejty2av",
+      "no": 54,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-05-20",
+      "type": "sell",
+      "memo": "Sell 500 REIT @ 31.5 (Taxable, specific lots) — Trim alternatives",
+      "data": {
+        "sym": "REIT",
+        "qty": 500,
+        "price": 31.5,
+        "acctType": "Taxable",
+        "proceeds": 15750,
+        "fees": {
+          "comm": 39.38,
+          "vat": 4.73,
+          "pse": 0.79,
+          "sccp": 1.58,
+          "total": 46.48
+        },
+        "netProceeds": 15687.77,
+        "cost": 15044.25,
+        "gain": 659.27,
+        "consumed": [
+          {
+            "lotId": "pw56oxm1",
+            "qty": 500,
+            "cost": 15044.25,
+            "acq": "2025-01-08",
+            "lt": true
+          }
+        ],
+        "method": "specific",
+        "taxClass": "listed",
+        "stt": 15.75,
+        "sttRate": 0.1,
+        "cgt": 0,
+        "cumNet": 0,
+        "taxYear": "2026",
+        "taxId": "",
+        "taxDue": "",
+        "taxForm": ""
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 15687.77,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "5310",
+          "dr": 15.75,
+          "cr": 0,
+          "tag": "REIT"
+        },
+        {
+          "acct": "1140",
+          "dr": 0,
+          "cr": 15044.25,
+          "tag": "REIT"
+        },
+        {
+          "acct": "4100",
+          "dr": 0,
+          "cr": 659.27,
+          "tag": "REIT"
+        }
+      ],
+      "id": "7wuk5g73",
+      "no": 55,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-05-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱2,823.97)",
+      "data": {
+        "period": "2026-05",
+        "debtId": "ku9vdjbq",
+        "earned": 2823.97,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 2823.97,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 2823.97,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "ivnqy8dh",
+      "no": 56,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-06-10",
+      "type": "accrue",
+      "memo": "Dividend declared — PHEQ · payable 2026-06-30",
+      "data": {
+        "kind": "Dividend",
+        "sym": "PHEQ",
+        "recId": "5v0qqz7n",
+        "payDate": "2026-06-30",
+        "gross": 36000
+      },
+      "lines": [
+        {
+          "acct": "1200",
+          "dr": 36000,
+          "cr": 0,
+          "tag": "5v0qqz7n"
+        },
+        {
+          "acct": "4000",
+          "dr": 0,
+          "cr": 36000,
+          "tag": "PHEQ"
+        }
+      ],
+      "id": "ssogb54o",
+      "no": 57,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-06-15",
+      "type": "donation",
+      "memo": "Contribution to a pooled giving fund or foundation to Evergreen Charitable Foundation",
+      "data": {
+        "charityId": "us4kit20",
+        "vehicle": "DAF",
+        "dafAsset": "Cash",
+        "donee": "accredited",
+        "exempt": true,
+        "receipt": {
+          "cert": true,
+          "f1800": false,
+          "deed": false,
+          "ref": "BIR 2322 · ECF-88213"
+        },
+        "amount": 60000,
+        "cashAcct": "1000",
+        "deductBasis": 60000,
+        "taxYear": "2026"
+      },
+      "lines": [
+        {
+          "acct": "5000",
+          "dr": 60000,
+          "cr": 0,
+          "tag": "us4kit20"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 60000,
+          "tag": ""
+        }
+      ],
+      "id": "5ghspsvm",
+      "no": 58,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-06-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "wy4qdm5y",
+      "no": 59,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-06-30",
+      "type": "receive",
+      "memo": "Dividend received — PHEQ · 0% final tax withheld",
+      "data": {
+        "kind": "Dividend",
+        "sym": "PHEQ",
+        "gross": 36000,
+        "fwt": 0,
+        "net": 36000,
+        "rate": 0,
+        "recId": "5v0qqz7n"
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 36000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "1200",
+          "dr": 0,
+          "cr": 36000,
+          "tag": "5v0qqz7n"
+        }
+      ],
+      "id": "ye6cayr8",
+      "no": 60,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-06-30",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱2,732.88)",
+      "data": {
+        "period": "2026-06",
+        "debtId": "ku9vdjbq",
+        "earned": 2732.88,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 2732.88,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 2732.88,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "uw97pig6",
+      "no": 61,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-07-08",
+      "type": "buy",
+      "memo": "Buy 800 PHEQ @ 110 (Taxable) + costs ₱259.60 — Routine contribution (DCA)",
+      "data": {
+        "sym": "PHEQ",
+        "qty": 800,
+        "price": 110,
+        "gross": 88000,
+        "fees": {
+          "comm": 220,
+          "vat": 26.4,
+          "pse": 4.4,
+          "sccp": 8.8,
+          "total": 259.6
+        },
+        "acctType": "Taxable",
+        "source": "Routine contribution (DCA)",
+        "lotId": "iyxbjbrc"
+      },
+      "lines": [
+        {
+          "acct": "1100",
+          "dr": 88259.6,
+          "cr": 0,
+          "tag": "PHEQ"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 88259.6,
+          "tag": ""
+        }
+      ],
+      "id": "lligvm0j",
+      "no": 62,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-07-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "l7y5buy9",
+      "no": 63,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-07-15",
+      "type": "debtpay",
+      "memo": "Loan payment — Bank term loan (principal ₱50,000.00, interest ₱8,276.72)",
+      "data": {
+        "debtId": "ku9vdjbq",
+        "principal": 50000,
+        "interest": 8276.72
+      },
+      "lines": [
+        {
+          "acct": "2000",
+          "dr": 50000,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 6910.28,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "5200",
+          "dr": 1366.44,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 58276.72,
+          "tag": ""
+        }
+      ],
+      "id": "xd86s1v1",
+      "no": 64,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-07-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱2,602.74, less ₱1,366.44 already expensed)",
+      "data": {
+        "period": "2026-07",
+        "debtId": "ku9vdjbq",
+        "earned": 2602.74,
+        "already": 1366.44
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 1236.3,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 1236.3,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "kob7rdr9",
+      "no": 65,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-08-12",
+      "type": "expaccrue",
+      "memo": "Advisory fee, first half · accrued, unpaid",
+      "data": {
+        "payId": "0m71b7yk",
+        "desc": "Advisory fee, first half"
+      },
+      "lines": [
+        {
+          "acct": "5100",
+          "dr": 4500,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "2110",
+          "dr": 0,
+          "cr": 4500,
+          "tag": "0m71b7yk"
+        }
+      ],
+      "id": "3i9pe4qx",
+      "no": 66,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-08-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "b49ia7mi",
+      "no": 67,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-08-20",
+      "type": "donation",
+      "memo": "Cash / electronic transfer to San Isidro Community Feeding Program",
+      "data": {
+        "charityId": "en942xgb",
+        "vehicle": "Cash",
+        "dafAsset": "",
+        "donee": "nonaccredited",
+        "exempt": false,
+        "receipt": {
+          "cert": false,
+          "f1800": true,
+          "deed": false,
+          "ref": "Form 1800 filed 2026-09-10 · OR 0045"
+        },
+        "amount": 270000,
+        "cashAcct": "1000",
+        "deductBasis": 270000,
+        "donorTax": 1200,
+        "taxId": "q7x3rt1h",
+        "taxDue": "2026-09-19",
+        "taxForm": "BIR Form 1800 (donor's tax return)",
+        "taxYear": "2026"
+      },
+      "lines": [
+        {
+          "acct": "5000",
+          "dr": 270000,
+          "cr": 0,
+          "tag": "en942xgb"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 270000,
+          "tag": ""
+        },
+        {
+          "acct": "5330",
+          "dr": 1200,
+          "cr": 0,
+          "tag": "en942xgb"
+        },
+        {
+          "acct": "2200",
+          "dr": 0,
+          "cr": 1200,
+          "tag": "q7x3rt1h"
+        }
+      ],
+      "id": "qgn3ogau",
+      "no": 68,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-08-31",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱2,420.55)",
+      "data": {
+        "period": "2026-08",
+        "debtId": "ku9vdjbq",
+        "earned": 2420.55,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 2420.55,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 2420.55,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "2txj0nl7",
+      "no": 69,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-09-05",
+      "type": "exppay",
+      "memo": "Payment of accrued expense — Advisory fee, first half",
+      "data": {
+        "payId": "0m71b7yk"
+      },
+      "lines": [
+        {
+          "acct": "2110",
+          "dr": 4500,
+          "cr": 0,
+          "tag": "0m71b7yk"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 4500,
+          "tag": ""
+        }
+      ],
+      "id": "c3nv8wt7",
+      "no": 70,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-09-15",
+      "type": "taxpay",
+      "memo": "Tax payment — BIR Form 1800 (donor's tax return) · eBIRForms 1800 · bank ref 66120",
+      "data": {
+        "taxId": "q7x3rt1h",
+        "form": "BIR Form 1800 (donor's tax return)",
+        "ref": "eBIRForms 1800 · bank ref 66120"
+      },
+      "lines": [
+        {
+          "acct": "2200",
+          "dr": 1200,
+          "cr": 0,
+          "tag": "q7x3rt1h"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 1200,
+          "tag": ""
+        }
+      ],
+      "id": "hwfenss6",
+      "no": 71,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-09-15",
+      "type": "buy",
+      "memo": "Buy 1,500 REIT @ 31 (Taxable) + costs ₱137.18 — Rebalancing",
+      "data": {
+        "sym": "REIT",
+        "qty": 1500,
+        "price": 31,
+        "gross": 46500,
+        "fees": {
+          "comm": 116.25,
+          "vat": 13.95,
+          "pse": 2.33,
+          "sccp": 4.65,
+          "total": 137.18
+        },
+        "acctType": "Taxable",
+        "source": "Rebalancing",
+        "lotId": "3k3hhp46"
+      },
+      "lines": [
+        {
+          "acct": "1140",
+          "dr": 46637.18,
+          "cr": 0,
+          "tag": "REIT"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 46637.18,
+          "tag": ""
+        }
+      ],
+      "id": "zo3b7a6f",
+      "no": 72,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-09-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "4psrz09d",
+      "no": 73,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-09-20",
+      "type": "accrue",
+      "memo": "Dividend declared — REIT · payable 2026-10-15",
+      "data": {
+        "kind": "Dividend",
+        "sym": "REIT",
+        "recId": "0k1h2det",
+        "payDate": "2026-10-15",
+        "gross": 9000
+      },
+      "lines": [
+        {
+          "acct": "1200",
+          "dr": 9000,
+          "cr": 0,
+          "tag": "0k1h2det"
+        },
+        {
+          "acct": "4000",
+          "dr": 0,
+          "cr": 9000,
+          "tag": "REIT"
+        }
+      ],
+      "id": "xtfvj8ov",
+      "no": 74,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-09-30",
+      "type": "accrue",
+      "memo": "Interest earned, not yet received — RTB · payable 2026-10-02",
+      "data": {
+        "kind": "Interest",
+        "sym": "RTB",
+        "recId": "j8irs13z",
+        "payDate": "2026-10-02",
+        "gross": 11000
+      },
+      "lines": [
+        {
+          "acct": "1210",
+          "dr": 11000,
+          "cr": 0,
+          "tag": "j8irs13z"
+        },
+        {
+          "acct": "4010",
+          "dr": 0,
+          "cr": 11000,
+          "tag": "RTB"
+        }
+      ],
+      "id": "3e3c3wn2",
+      "no": 75,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-09-30",
+      "type": "accrual",
+      "memo": "Month-end interest accrual — Bank term loan (daily balances × 9.5% ÷ 365; earned ₱2,342.47)",
+      "data": {
+        "period": "2026-09",
+        "debtId": "ku9vdjbq",
+        "earned": 2342.47,
+        "already": 0
+      },
+      "lines": [
+        {
+          "acct": "5200",
+          "dr": 2342.47,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 0,
+          "cr": 2342.47,
+          "tag": "ku9vdjbq"
+        }
+      ],
+      "id": "nu08np4h",
+      "no": 76,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-10-02",
+      "type": "receive",
+      "memo": "Interest received — RTB · 20% final tax withheld",
+      "data": {
+        "kind": "Interest",
+        "sym": "RTB",
+        "gross": 11000,
+        "fwt": 2200,
+        "net": 8800,
+        "rate": 20,
+        "recId": "j8irs13z"
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 8800,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "5300",
+          "dr": 2200,
+          "cr": 0,
+          "tag": "RTB"
+        },
+        {
+          "acct": "1210",
+          "dr": 0,
+          "cr": 11000,
+          "tag": "j8irs13z"
+        }
+      ],
+      "id": "0k8z8xvz",
+      "no": 77,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-10-05",
+      "type": "donation",
+      "memo": "In-kind transfer of shares or fund units — 1,000 PHEQ to Northside Community Health Clinic (specific lots)",
+      "data": {
+        "charityId": "i102sdnf",
+        "vehicle": "Securities",
+        "dafAsset": "",
+        "donee": "accredited",
+        "exempt": true,
+        "receipt": {
+          "cert": false,
+          "f1800": false,
+          "deed": true,
+          "ref": "Deed of donation notarized 2026-10-05"
+        },
+        "sym": "PHEQ",
+        "acctType": "Taxable",
+        "qty": 1000,
+        "fmvUnit": 118,
+        "amount": 118000,
+        "cost": 100295,
+        "gain": 17705,
+        "consumed": [
+          {
+            "lotId": "0hk3ihg5",
+            "qty": 1000,
+            "cost": 100295,
+            "acq": "2025-01-08",
+            "lt": true
+          }
+        ],
+        "fmvRef": "PSE closing price on 2026-10-05",
+        "method": "specific",
+        "deductBasis": 100295,
+        "taxYear": "2026"
+      },
+      "lines": [
+        {
+          "acct": "5000",
+          "dr": 118000,
+          "cr": 0,
+          "tag": "i102sdnf"
+        },
+        {
+          "acct": "1100",
+          "dr": 0,
+          "cr": 100295,
+          "tag": "PHEQ"
+        },
+        {
+          "acct": "4110",
+          "dr": 0,
+          "cr": 17705,
+          "tag": "PHEQ"
+        }
+      ],
+      "id": "ozu2ahqw",
+      "no": 78,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-10-15",
+      "type": "receive",
+      "memo": "Dividend received — REIT · 0% final tax withheld",
+      "data": {
+        "kind": "Dividend",
+        "sym": "REIT",
+        "gross": 9000,
+        "fwt": 0,
+        "net": 9000,
+        "rate": 0,
+        "recId": "0k1h2det"
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 9000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "1200",
+          "dr": 0,
+          "cr": 9000,
+          "tag": "0k1h2det"
+        }
+      ],
+      "id": "l46blvp8",
+      "no": 79,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-10-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "4zbaj64t",
+      "no": 80,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-10-15",
+      "type": "debtpay",
+      "memo": "Loan payment — Bank term loan (principal ₱50,000.00, interest ₱7,170.55)",
+      "data": {
+        "debtId": "ku9vdjbq",
+        "principal": 50000,
+        "interest": 7170.55
+      },
+      "lines": [
+        {
+          "acct": "2000",
+          "dr": 50000,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "2100",
+          "dr": 5999.32,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "5200",
+          "dr": 1171.23,
+          "cr": 0,
+          "tag": "ku9vdjbq"
+        },
+        {
+          "acct": "1000",
+          "dr": 0,
+          "cr": 57170.55,
+          "tag": ""
+        }
+      ],
+      "id": "sdamww10",
+      "no": 81,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2026-11-15",
+      "type": "subcollect",
+      "memo": "Subscription payment — Andrea Santos (3,000,000 shares)",
+      "data": {
+        "subId": "zwq8mxwi",
+        "holderId": "uzvkv4d9",
+        "amount": 80000
+      },
+      "lines": [
+        {
+          "acct": "1000",
+          "dr": 80000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "3020",
+          "dr": 0,
+          "cr": 80000,
+          "tag": "zwq8mxwi"
+        }
+      ],
+      "id": "w07qwju6",
+      "no": 82,
+      "created": "2026-11-20T00:00:00.000Z"
+    },
+    {
+      "date": "2025-12-31",
+      "type": "closing",
+      "memo": "Year-end closing entry 2025: income and expense accounts closed to retained earnings",
+      "data": {
+        "year": 2025
+      },
+      "lines": [
+        {
+          "acct": "4000",
+          "dr": 30000,
+          "cr": 0,
+          "tag": ""
+        },
+        {
+          "acct": "5200",
+          "dr": 0,
+          "cr": 49595.2,
+          "tag": ""
+        },
+        {
+          "acct": "3800",
+          "dr": 19595.2,
+          "cr": 0,
+          "tag": ""
+        }
+      ],
+      "id": "eu52xdij",
+      "no": 83,
+      "created": "2026-11-20T00:00:00.000Z"
+    }
+  ],
+  "charities": [
+    {
+      "id": "bxpw1ezt",
+      "name": "Riverbend Literacy Foundation",
+      "reg": "SEC Reg. CN200812345",
+      "jurisdiction": "Philippines",
+      "focus": "Education",
+      "isDAF": false,
+      "donee": "accredited",
+      "accredUntil": "2028-06-30",
+      "expenseRatio": 9.5,
+      "notes": "",
+      "checks": {
+        "reg": "2026-02-20",
+        "gov": "2026-02-20",
+        "pay": "2026-02-20"
+      }
+    },
+    {
+      "id": "i102sdnf",
+      "name": "Northside Community Health Clinic",
+      "reg": "SEC Reg. CN201154321",
+      "jurisdiction": "Philippines",
+      "focus": "Healthcare",
+      "isDAF": false,
+      "donee": "accredited",
+      "accredUntil": "2027-12-31",
+      "expenseRatio": 12.1,
+      "notes": "Accepts share transfers through its broker",
+      "checks": {
+        "reg": "2026-09-10",
+        "gov": "2026-09-10",
+        "pay": "2026-09-10"
+      }
+    },
+    {
+      "id": "us4kit20",
+      "name": "Evergreen Charitable Foundation",
+      "reg": "SEC Reg. CN201900001",
+      "jurisdiction": "Philippines",
+      "focus": "Pooled giving fund",
+      "isDAF": true,
+      "donee": "accredited",
+      "accredUntil": "2027-03-31",
+      "expenseRatio": 8,
+      "notes": "Re-grants to vetted community programs",
+      "checks": {
+        "reg": "2026-05-30",
+        "gov": "2026-05-30",
+        "pay": "2026-05-30"
+      }
+    },
+    {
+      "id": "en942xgb",
+      "name": "San Isidro Community Feeding Program",
+      "reg": "SEC Reg. CN202277889",
+      "jurisdiction": "Philippines",
+      "focus": "Local Community Development",
+      "isDAF": false,
+      "donee": "nonaccredited",
+      "accredUntil": "",
+      "expenseRatio": 12,
+      "notes": "Registered non-stock corporation; no PCNC accreditation",
+      "checks": {
+        "reg": "2026-08-01",
+        "gov": "2026-08-01",
+        "pay": "2026-08-01"
+      }
+    },
+    {
+      "id": "tu4f5q2t",
+      "name": "Coastal Mangrove Alliance",
+      "reg": "Reg. pending",
+      "jurisdiction": "Philippines",
+      "focus": "Environmental Conservation",
+      "isDAF": false,
+      "donee": "accredited",
+      "accredUntil": "2027-09-30",
+      "expenseRatio": 15,
+      "notes": "Awaiting confirmed bank instructions",
+      "checks": {
+        "reg": "2026-10-28",
+        "gov": "2026-10-28",
+        "pay": null
+      }
+    }
+  ],
+  "debts": [
+    {
+      "id": "ku9vdjbq",
+      "name": "Bank term loan",
+      "rate": 9.5,
+      "scheduled": true
+    }
+  ],
+  "grants": [
+    {
+      "id": "ihvq2t9a",
+      "date": "2026-07-01",
+      "dafId": "us4kit20",
+      "toId": "bxpw1ezt",
+      "amount": 25000,
+      "memo": ""
+    }
+  ],
+  "review": {},
+  "recons": {
+    "2025-01": {
+      "cash": {
+        "1000": "1055516",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-02-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1055516,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-02": {
+      "cash": {
+        "1000": "1005516",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-03-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1005516,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-03": {
+      "cash": {
+        "1000": "1005516",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-04-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1005516,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-04": {
+      "cash": {
+        "1000": "939899.56",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-05-08T09:00:00.000Z",
+      "snap": {
+        "1000": 939899.56,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-05": {
+      "cash": {
+        "1000": "939899.56",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-06-08T09:00:00.000Z",
+      "snap": {
+        "1000": 939899.56,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-06": {
+      "cash": {
+        "1000": "939899.56",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-07-08T09:00:00.000Z",
+      "snap": {
+        "1000": 939899.56,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-07": {
+      "cash": {
+        "1000": "876885.87",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-08-08T09:00:00.000Z",
+      "snap": {
+        "1000": 876885.87,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-08": {
+      "cash": {
+        "1000": "876885.87",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-09-08T09:00:00.000Z",
+      "snap": {
+        "1000": 876885.87,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-09": {
+      "cash": {
+        "1000": "876885.87",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-10-08T09:00:00.000Z",
+      "snap": {
+        "1000": 876885.87,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-10": {
+      "cash": {
+        "1000": "814926.28",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-11-08T09:00:00.000Z",
+      "snap": {
+        "1000": 814926.28,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-11": {
+      "cash": {
+        "1000": "814926.28",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2025-12-08T09:00:00.000Z",
+      "snap": {
+        "1000": 814926.28,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2025-12": {
+      "cash": {
+        "1000": "844926.28",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "14000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2026-01-08T09:00:00.000Z",
+      "snap": {
+        "1000": 844926.28,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 14000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2026-01": {
+      "cash": {
+        "1000": "758854.2",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "15000",
+        "REIT|Taxable": "4000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2026-02-08T09:00:00.000Z",
+      "snap": {
+        "1000": 758854.2,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 15000,
+        "REIT|Taxable": 4000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2026-02": {
+      "cash": {
+        "1000": "1237854.2",
+        "1010": "480000",
+        "1020": "0"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "15000",
+        "REIT|Taxable": "4000",
+        "RTB|PERA": "1000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2026-03-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1237854.2,
+        "1010": 480000,
+        "1020": 0,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 15000,
+        "REIT|Taxable": 4000,
+        "RTB|PERA": 1000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2026-03": {
+      "cash": {
+        "1000": "1567854.2",
+        "1010": "480000",
+        "1020": "120000"
+      },
+      "units": {
+        "GLEQ|Taxable": "16000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "15000",
+        "REIT|Taxable": "4000",
+        "RTB|PERA": "1000",
+        "RTB|Taxable": "4500"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2026-04-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1567854.2,
+        "1010": 480000,
+        "1020": 120000,
+        "GLEQ|Taxable": 16000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 15000,
+        "REIT|Taxable": 4000,
+        "RTB|PERA": 1000,
+        "RTB|Taxable": 4500
+      }
+    },
+    "2026-04": {
+      "cash": {
+        "1000": "1370397.35",
+        "1010": "480000",
+        "1020": "120000"
+      },
+      "units": {
+        "GLEQ|Taxable": "19000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "15000",
+        "REIT|Taxable": "4000",
+        "RTB|PERA": "1000",
+        "RTB|Taxable": "5700"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2026-05-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1370397.35,
+        "1010": 480000,
+        "1020": 120000,
+        "GLEQ|Taxable": 19000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 15000,
+        "REIT|Taxable": 4000,
+        "RTB|PERA": 1000,
+        "RTB|Taxable": 5700
+      }
+    },
+    "2026-05": {
+      "cash": {
+        "1000": "1532085.12",
+        "1010": "480000",
+        "1020": "120000"
+      },
+      "units": {
+        "GLEQ|Taxable": "17000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "15000",
+        "REIT|Taxable": "3500",
+        "RTB|PERA": "1000",
+        "RTB|Taxable": "5700"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2026-06-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1532085.12,
+        "1010": 480000,
+        "1020": 120000,
+        "GLEQ|Taxable": 17000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 15000,
+        "REIT|Taxable": 3500,
+        "RTB|PERA": 1000,
+        "RTB|Taxable": 5700
+      }
+    },
+    "2026-06": {
+      "cash": {
+        "1000": "1588085.12",
+        "1010": "480000",
+        "1020": "120000"
+      },
+      "units": {
+        "GLEQ|Taxable": "17000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "15000",
+        "REIT|Taxable": "3500",
+        "RTB|PERA": "1000",
+        "RTB|Taxable": "5700"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2026-07-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1588085.12,
+        "1010": 480000,
+        "1020": 120000,
+        "GLEQ|Taxable": 17000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 15000,
+        "REIT|Taxable": 3500,
+        "RTB|PERA": 1000,
+        "RTB|Taxable": 5700
+      }
+    },
+    "2026-07": {
+      "cash": {
+        "1000": "1521548.8",
+        "1010": "480000",
+        "1020": "120000"
+      },
+      "units": {
+        "GLEQ|Taxable": "17000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "15800",
+        "REIT|Taxable": "3500",
+        "RTB|PERA": "1000",
+        "RTB|Taxable": "5700"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2026-08-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1521548.8,
+        "1010": 480000,
+        "1020": 120000,
+        "GLEQ|Taxable": 17000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 15800,
+        "REIT|Taxable": 3500,
+        "RTB|PERA": 1000,
+        "RTB|Taxable": 5700
+      }
+    },
+    "2026-08": {
+      "cash": {
+        "1000": "1331548.8",
+        "1010": "480000",
+        "1020": "120000"
+      },
+      "units": {
+        "GLEQ|Taxable": "17000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "15800",
+        "REIT|Taxable": "3500",
+        "RTB|PERA": "1000",
+        "RTB|Taxable": "5700"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2026-09-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1331548.8,
+        "1010": 480000,
+        "1020": 120000,
+        "GLEQ|Taxable": 17000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 15800,
+        "REIT|Taxable": 3500,
+        "RTB|PERA": 1000,
+        "RTB|Taxable": 5700
+      }
+    },
+    "2026-09": {
+      "cash": {
+        "1000": "1359211.62",
+        "1010": "480000",
+        "1020": "120000"
+      },
+      "units": {
+        "GLEQ|Taxable": "17000",
+        "MMF|Taxable": "1100",
+        "PHEQ|Taxable": "15800",
+        "REIT|Taxable": "5000",
+        "RTB|PERA": "1000",
+        "RTB|Taxable": "5700"
+      },
+      "notes": {},
+      "by": "Portfolio owner",
+      "at": "2026-10-08T09:00:00.000Z",
+      "snap": {
+        "1000": 1359211.62,
+        "1010": 480000,
+        "1020": 120000,
+        "GLEQ|Taxable": 17000,
+        "MMF|Taxable": 1100,
+        "PHEQ|Taxable": 15800,
+        "REIT|Taxable": 5000,
+        "RTB|PERA": 1000,
+        "RTB|Taxable": 5700
+      }
+    }
+  },
+  "periods": {
+    "2025-01": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-02-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-02-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-02": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-03-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-03-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-03": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-04-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-04-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-04": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-05-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-05-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-05": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-06-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-06-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-06": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-07-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-07-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-07": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-08-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-08-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-08": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-09-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-09-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-09": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-10-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-10-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-10": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-11-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-11-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-11": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2025-12-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2025-12-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2025-12": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2026-01-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": "eu52xdij",
+      "history": [
+        {
+          "at": "2026-01-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2026-01": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2026-02-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2026-02-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2026-02": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2026-03-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2026-03-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2026-03": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2026-04-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2026-04-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2026-04": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2026-05-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2026-05-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2026-05": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2026-06-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2026-06-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2026-06": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2026-07-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2026-07-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2026-07": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2026-08-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2026-08-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2026-08": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2026-09-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2026-09-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    },
+    "2026-09": {
+      "accruedAt": "2026-11-20T00:00:00.000Z",
+      "closedAt": "2026-10-10T09:00:00.000Z",
+      "closedBy": "Portfolio owner",
+      "closingId": null,
+      "history": [
+        {
+          "at": "2026-10-10T09:00:00.000Z",
+          "by": "Portfolio owner",
+          "action": "closed"
+        }
+      ]
+    }
+  },
+  "priceHist": {
+    "PHEQ": [
+      {
+        "date": "2025-01-31",
+        "price": 100,
+        "src": "sample"
+      },
+      {
+        "date": "2025-02-28",
+        "price": 101.59,
+        "src": "sample"
+      },
+      {
+        "date": "2025-03-31",
+        "price": 103.18,
+        "src": "sample"
+      },
+      {
+        "date": "2025-04-30",
+        "price": 104.77,
+        "src": "sample"
+      },
+      {
+        "date": "2025-05-31",
+        "price": 106.36,
+        "src": "sample"
+      },
+      {
+        "date": "2025-06-30",
+        "price": 107.95,
+        "src": "sample"
+      },
+      {
+        "date": "2025-07-31",
+        "price": 109.55,
+        "src": "sample"
+      },
+      {
+        "date": "2025-08-31",
+        "price": 111.14,
+        "src": "sample"
+      },
+      {
+        "date": "2025-09-30",
+        "price": 112.73,
+        "src": "sample"
+      },
+      {
+        "date": "2025-10-31",
+        "price": 114.32,
+        "src": "sample"
+      },
+      {
+        "date": "2025-11-30",
+        "price": 115.91,
+        "src": "sample"
+      },
+      {
+        "date": "2025-12-31",
+        "price": 117.5,
+        "src": "sample"
+      },
+      {
+        "date": "2026-01-31",
+        "price": 119.09,
+        "src": "sample"
+      },
+      {
+        "date": "2026-02-28",
+        "price": 120.68,
+        "src": "sample"
+      },
+      {
+        "date": "2026-03-31",
+        "price": 122.27,
+        "src": "sample"
+      },
+      {
+        "date": "2026-04-30",
+        "price": 123.86,
+        "src": "sample"
+      },
+      {
+        "date": "2026-05-31",
+        "price": 125.45,
+        "src": "sample"
+      },
+      {
+        "date": "2026-06-30",
+        "price": 127.05,
+        "src": "sample"
+      },
+      {
+        "date": "2026-07-31",
+        "price": 128.64,
+        "src": "sample"
+      },
+      {
+        "date": "2026-08-31",
+        "price": 130.23,
+        "src": "sample"
+      },
+      {
+        "date": "2026-09-30",
+        "price": 131.82,
+        "src": "sample"
+      },
+      {
+        "date": "2026-10-31",
+        "price": 133.41,
+        "src": "sample"
+      },
+      {
+        "date": "2026-11-17",
+        "price": 135,
+        "src": "sample"
+      }
+    ],
+    "GLEQ": [
+      {
+        "date": "2025-01-31",
+        "price": 30,
+        "src": "sample"
+      },
+      {
+        "date": "2025-02-28",
+        "price": 30.16,
+        "src": "sample"
+      },
+      {
+        "date": "2025-03-31",
+        "price": 30.32,
+        "src": "sample"
+      },
+      {
+        "date": "2025-04-30",
+        "price": 30.48,
+        "src": "sample"
+      },
+      {
+        "date": "2025-05-31",
+        "price": 30.64,
+        "src": "sample"
+      },
+      {
+        "date": "2025-06-30",
+        "price": 30.8,
+        "src": "sample"
+      },
+      {
+        "date": "2025-07-31",
+        "price": 30.95,
+        "src": "sample"
+      },
+      {
+        "date": "2025-08-31",
+        "price": 31.11,
+        "src": "sample"
+      },
+      {
+        "date": "2025-09-30",
+        "price": 31.27,
+        "src": "sample"
+      },
+      {
+        "date": "2025-10-31",
+        "price": 31.43,
+        "src": "sample"
+      },
+      {
+        "date": "2025-11-30",
+        "price": 31.59,
+        "src": "sample"
+      },
+      {
+        "date": "2025-12-31",
+        "price": 31.75,
+        "src": "sample"
+      },
+      {
+        "date": "2026-01-31",
+        "price": 31.91,
+        "src": "sample"
+      },
+      {
+        "date": "2026-02-28",
+        "price": 32.07,
+        "src": "sample"
+      },
+      {
+        "date": "2026-03-31",
+        "price": 32.23,
+        "src": "sample"
+      },
+      {
+        "date": "2026-04-30",
+        "price": 32.39,
+        "src": "sample"
+      },
+      {
+        "date": "2026-05-31",
+        "price": 32.55,
+        "src": "sample"
+      },
+      {
+        "date": "2026-06-30",
+        "price": 32.7,
+        "src": "sample"
+      },
+      {
+        "date": "2026-07-31",
+        "price": 32.86,
+        "src": "sample"
+      },
+      {
+        "date": "2026-08-31",
+        "price": 33.02,
+        "src": "sample"
+      },
+      {
+        "date": "2026-09-30",
+        "price": 33.18,
+        "src": "sample"
+      },
+      {
+        "date": "2026-10-31",
+        "price": 33.34,
+        "src": "sample"
+      },
+      {
+        "date": "2026-11-17",
+        "price": 33.5,
+        "src": "sample"
+      }
+    ],
+    "RTB": [
+      {
+        "date": "2025-01-31",
+        "price": 100,
+        "src": "sample"
+      },
+      {
+        "date": "2025-02-28",
+        "price": 100.05,
+        "src": "sample"
+      },
+      {
+        "date": "2025-03-31",
+        "price": 100.11,
+        "src": "sample"
+      },
+      {
+        "date": "2025-04-30",
+        "price": 100.16,
+        "src": "sample"
+      },
+      {
+        "date": "2025-05-31",
+        "price": 100.22,
+        "src": "sample"
+      },
+      {
+        "date": "2025-06-30",
+        "price": 100.27,
+        "src": "sample"
+      },
+      {
+        "date": "2025-07-31",
+        "price": 100.33,
+        "src": "sample"
+      },
+      {
+        "date": "2025-08-31",
+        "price": 100.38,
+        "src": "sample"
+      },
+      {
+        "date": "2025-09-30",
+        "price": 100.44,
+        "src": "sample"
+      },
+      {
+        "date": "2025-10-31",
+        "price": 100.49,
+        "src": "sample"
+      },
+      {
+        "date": "2025-11-30",
+        "price": 100.55,
+        "src": "sample"
+      },
+      {
+        "date": "2025-12-31",
+        "price": 100.6,
+        "src": "sample"
+      },
+      {
+        "date": "2026-01-31",
+        "price": 100.65,
+        "src": "sample"
+      },
+      {
+        "date": "2026-02-28",
+        "price": 100.71,
+        "src": "sample"
+      },
+      {
+        "date": "2026-03-31",
+        "price": 100.76,
+        "src": "sample"
+      },
+      {
+        "date": "2026-04-30",
+        "price": 100.82,
+        "src": "sample"
+      },
+      {
+        "date": "2026-05-31",
+        "price": 100.87,
+        "src": "sample"
+      },
+      {
+        "date": "2026-06-30",
+        "price": 100.93,
+        "src": "sample"
+      },
+      {
+        "date": "2026-07-31",
+        "price": 100.98,
+        "src": "sample"
+      },
+      {
+        "date": "2026-08-31",
+        "price": 101.04,
+        "src": "sample"
+      },
+      {
+        "date": "2026-09-30",
+        "price": 101.09,
+        "src": "sample"
+      },
+      {
+        "date": "2026-10-31",
+        "price": 101.15,
+        "src": "sample"
+      },
+      {
+        "date": "2026-11-17",
+        "price": 101.2,
+        "src": "sample"
+      }
+    ],
+    "MMF": [
+      {
+        "date": "2025-01-31",
+        "price": 100,
+        "src": "sample"
+      },
+      {
+        "date": "2025-02-28",
+        "price": 100.2,
+        "src": "sample"
+      },
+      {
+        "date": "2025-03-31",
+        "price": 100.41,
+        "src": "sample"
+      },
+      {
+        "date": "2025-04-30",
+        "price": 100.61,
+        "src": "sample"
+      },
+      {
+        "date": "2025-05-31",
+        "price": 100.82,
+        "src": "sample"
+      },
+      {
+        "date": "2025-06-30",
+        "price": 101.02,
+        "src": "sample"
+      },
+      {
+        "date": "2025-07-31",
+        "price": 101.23,
+        "src": "sample"
+      },
+      {
+        "date": "2025-08-31",
+        "price": 101.43,
+        "src": "sample"
+      },
+      {
+        "date": "2025-09-30",
+        "price": 101.64,
+        "src": "sample"
+      },
+      {
+        "date": "2025-10-31",
+        "price": 101.84,
+        "src": "sample"
+      },
+      {
+        "date": "2025-11-30",
+        "price": 102.05,
+        "src": "sample"
+      },
+      {
+        "date": "2025-12-31",
+        "price": 102.25,
+        "src": "sample"
+      },
+      {
+        "date": "2026-01-31",
+        "price": 102.45,
+        "src": "sample"
+      },
+      {
+        "date": "2026-02-28",
+        "price": 102.66,
+        "src": "sample"
+      },
+      {
+        "date": "2026-03-31",
+        "price": 102.86,
+        "src": "sample"
+      },
+      {
+        "date": "2026-04-30",
+        "price": 103.07,
+        "src": "sample"
+      },
+      {
+        "date": "2026-05-31",
+        "price": 103.27,
+        "src": "sample"
+      },
+      {
+        "date": "2026-06-30",
+        "price": 103.48,
+        "src": "sample"
+      },
+      {
+        "date": "2026-07-31",
+        "price": 103.68,
+        "src": "sample"
+      },
+      {
+        "date": "2026-08-31",
+        "price": 103.89,
+        "src": "sample"
+      },
+      {
+        "date": "2026-09-30",
+        "price": 104.09,
+        "src": "sample"
+      },
+      {
+        "date": "2026-10-31",
+        "price": 104.3,
+        "src": "sample"
+      },
+      {
+        "date": "2026-11-17",
+        "price": 104.5,
+        "src": "sample"
+      }
+    ],
+    "REIT": [
+      {
+        "date": "2025-01-31",
+        "price": 30,
+        "src": "sample"
+      },
+      {
+        "date": "2025-02-28",
+        "price": 30.09,
+        "src": "sample"
+      },
+      {
+        "date": "2025-03-31",
+        "price": 30.18,
+        "src": "sample"
+      },
+      {
+        "date": "2025-04-30",
+        "price": 30.27,
+        "src": "sample"
+      },
+      {
+        "date": "2025-05-31",
+        "price": 30.36,
+        "src": "sample"
+      },
+      {
+        "date": "2025-06-30",
+        "price": 30.45,
+        "src": "sample"
+      },
+      {
+        "date": "2025-07-31",
+        "price": 30.55,
+        "src": "sample"
+      },
+      {
+        "date": "2025-08-31",
+        "price": 30.64,
+        "src": "sample"
+      },
+      {
+        "date": "2025-09-30",
+        "price": 30.73,
+        "src": "sample"
+      },
+      {
+        "date": "2025-10-31",
+        "price": 30.82,
+        "src": "sample"
+      },
+      {
+        "date": "2025-11-30",
+        "price": 30.91,
+        "src": "sample"
+      },
+      {
+        "date": "2025-12-31",
+        "price": 31,
+        "src": "sample"
+      },
+      {
+        "date": "2026-01-31",
+        "price": 31.09,
+        "src": "sample"
+      },
+      {
+        "date": "2026-02-28",
+        "price": 31.18,
+        "src": "sample"
+      },
+      {
+        "date": "2026-03-31",
+        "price": 31.27,
+        "src": "sample"
+      },
+      {
+        "date": "2026-04-30",
+        "price": 31.36,
+        "src": "sample"
+      },
+      {
+        "date": "2026-05-31",
+        "price": 31.45,
+        "src": "sample"
+      },
+      {
+        "date": "2026-06-30",
+        "price": 31.55,
+        "src": "sample"
+      },
+      {
+        "date": "2026-07-31",
+        "price": 31.64,
+        "src": "sample"
+      },
+      {
+        "date": "2026-08-31",
+        "price": 31.73,
+        "src": "sample"
+      },
+      {
+        "date": "2026-09-30",
+        "price": 31.82,
+        "src": "sample"
+      },
+      {
+        "date": "2026-10-31",
+        "price": 31.91,
+        "src": "sample"
+      },
+      {
+        "date": "2026-11-17",
+        "price": 32,
+        "src": "sample"
+      }
+    ]
+  },
+  "certs": [
+    {
+      "id": "4vzjb9l7",
+      "no": "001",
+      "holderId": "ydnsngxp",
+      "shares": 500000,
+      "date": "2025-01-20",
+      "source": "subscription",
+      "subId": "14i4q5g2",
+      "txnId": "rtnjg4z5"
+    },
+    {
+      "id": "prrvc0s6",
+      "no": "002",
+      "holderId": "i3bz0vov",
+      "shares": 1500000,
+      "date": "2026-02-20",
+      "source": "subscription",
+      "subId": "mdc62izu",
+      "txnId": "mu6sa4b5",
+      "cancelledAt": "2026-06-01",
+      "cancelledBy": "0yamsm9u"
+    },
+    {
+      "id": "a18ascwy",
+      "no": "003",
+      "holderId": "7cry88lg",
+      "shares": 200000,
+      "date": "2026-03-02",
+      "source": "subscription",
+      "subId": "6dhslzxy",
+      "txnId": "3jt29nc1"
+    },
+    {
+      "id": "ooub7xv9",
+      "no": "004",
+      "holderId": "160t41ca",
+      "shares": 300000,
+      "date": "2026-06-01",
+      "source": "transfer",
+      "transferId": "0yamsm9u"
+    },
+    {
+      "id": "itbmvhko",
+      "no": "005",
+      "holderId": "i3bz0vov",
+      "shares": 1200000,
+      "date": "2026-06-01",
+      "source": "transfer",
+      "transferId": "0yamsm9u"
+    }
+  ],
+  "transfers": [
+    {
+      "id": "0yamsm9u",
+      "date": "2026-06-01",
+      "fromId": "i3bz0vov",
+      "toId": "160t41ca",
+      "shares": 300000,
+      "price": 1.8,
+      "carRef": "eCAR 2026-0529-00321",
+      "deedRef": "Deed of sale 2026-05-15",
+      "surrendered": [
+        "002"
+      ],
+      "newCerts": [
+        "004",
+        "005"
+      ],
+      "dstSeller": 2250,
+      "recordedAt": "2026-11-20T00:00:00.000Z"
+    }
+  ],
+  "corp": {
+    "name": "Malaya Capital Holdings, Inc.",
+    "secReg": "2025010012345",
+    "secRegDate": "2025-01-06",
+    "par": 1,
+    "authorized": 20000000,
+    "increases": []
+  },
+  "holders": [
+    {
+      "id": "uzvkv4d9",
+      "name": "Andrea Santos",
+      "type": "individual",
+      "tin": "123-456-789-000",
+      "nationality": "Filipino",
+      "address": "Makati City"
+    },
+    {
+      "id": "i3bz0vov",
+      "name": "Benjamin Reyes",
+      "type": "individual",
+      "tin": "234-567-890-000",
+      "nationality": "Filipino",
+      "address": "Quezon City"
+    },
+    {
+      "id": "ydnsngxp",
+      "name": "Alon Ventures Corp.",
+      "type": "domestic",
+      "tin": "345-678-901-000",
+      "nationality": "Filipino",
+      "address": "Pasig City"
+    },
+    {
+      "id": "7cry88lg",
+      "name": "Carla Mendoza",
+      "type": "individual",
+      "tin": "456-789-012-000",
+      "nationality": "Filipino",
+      "address": "Cebu City"
+    },
+    {
+      "id": "160t41ca",
+      "name": "Diego Lim",
+      "type": "individual",
+      "tin": "567-890-123-000",
+      "nationality": "Filipino",
+      "address": "Taguig City"
+    }
+  ],
+  "subs": [
+    {
+      "id": "zwq8mxwi",
+      "holderId": "uzvkv4d9",
+      "date": "2025-01-06",
+      "shares": 3000000,
+      "price": 1,
+      "kind": "incorporation",
+      "incId": "",
+      "issuedAt": null,
+      "certNo": "",
+      "callDue": "2026-09-30",
+      "txnId": "km3on1wa",
+      "callDate": "2026-08-14",
+      "callRef": "Board Res. 2026-08"
+    },
+    {
+      "id": "mdc62izu",
+      "holderId": "i3bz0vov",
+      "date": "2025-01-06",
+      "shares": 1500000,
+      "price": 1,
+      "kind": "incorporation",
+      "incId": "",
+      "issuedAt": "2026-02-20",
+      "certNo": "002",
+      "callDue": "",
+      "txnId": "97difbn2"
+    },
+    {
+      "id": "14i4q5g2",
+      "holderId": "ydnsngxp",
+      "date": "2025-01-06",
+      "shares": 500000,
+      "price": 1,
+      "kind": "incorporation",
+      "incId": "",
+      "issuedAt": "2025-01-20",
+      "certNo": "001",
+      "callDue": "",
+      "txnId": "szygrlew"
+    },
+    {
+      "id": "6dhslzxy",
+      "holderId": "7cry88lg",
+      "date": "2026-03-02",
+      "shares": 200000,
+      "price": 2,
+      "kind": "unissued",
+      "incId": "",
+      "issuedAt": "2026-03-02",
+      "certNo": "003",
+      "callDue": "",
+      "txnId": "f2cg3dli"
+    }
+  ],
+  "dividends": [],
+  "audit": [
+    {
+      "ts": "2026-11-20T00:00:00.000Z",
+      "msg": "Sample records loaded (clearly marked examples)."
+    }
+  ],
+  "sampleVer": 6
+}
