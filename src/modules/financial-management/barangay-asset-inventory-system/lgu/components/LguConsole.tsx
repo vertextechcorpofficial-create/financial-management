@@ -117,7 +117,8 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded-md border p-3 text-sm">
-        This is the LGU side of section 4.9 and 4.10, duplicated here so the LGU register is not edited. Data is read through one seam.
+        Assets owned by the municipal office that can be handed to a barangay. Sending one moves it to that barangay&apos;s
+        incoming list, where they accept or reject it.
       </div>
 
       <SubTabs

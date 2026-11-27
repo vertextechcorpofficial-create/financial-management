@@ -132,7 +132,7 @@ export function CountTab({
 
       <div className="flex flex-wrap items-center gap-2">
         <select
-          className="h-9 rounded-md border bg-background px-2 text-sm"
+          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           value={yearFilter}
           onChange={(e) => setYearFilter(e.target.value)}
         >
@@ -144,7 +144,7 @@ export function CountTab({
           ))}
         </select>
         <select
-          className="h-9 rounded-md border bg-background px-2 text-sm"
+          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
         >
@@ -174,7 +174,7 @@ export function CountTab({
             <label className="grid gap-1 text-sm">
               <span className="text-muted-foreground">Year to count</span>
               <select
-                className="h-9 rounded-md border bg-background px-2 text-sm"
+                className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 value={newYear}
                 onChange={(e) => setNewYear(e.target.value)}
               >
@@ -215,8 +215,8 @@ export function CountTab({
           </div>
           {yearTaken ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              {newYear} already has an {yearTaken} count. Rule 94: a closed count is final, and a year is counted once, so it
-              cannot be picked. {openCount && String(openCount.year) !== newYear ? "Close " + openCount.year + " before opening another year." : ""}
+              {newYear} already has an {yearTaken} count. A year is counted once, and a closed count cannot be changed.{" "}
+              {openCount && String(openCount.year) !== newYear ? "Close " + openCount.year + " before opening another year." : ""}
             </p>
           ) : null}
           {freeYears.length === 0 ? (

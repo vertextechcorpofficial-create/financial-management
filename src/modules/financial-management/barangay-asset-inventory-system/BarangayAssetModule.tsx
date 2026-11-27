@@ -174,7 +174,7 @@ export function BarangayAssetModule({
   return (
     // the fm layout is a fixed height column with overflow hidden, so the screen owns its scroll
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="-mx-2 -mt-2 flex flex-wrap items-start justify-between gap-3 bg-background/95 px-2 pt-2 pb-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 sticky top-0 z-30">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold tracking-tight">Barangay Asset Inventory</h1>
@@ -242,7 +242,7 @@ export function BarangayAssetModule({
       {missingCount > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
           <span className="font-medium">{missingCount} asset(s) marked Missing.</span>
-          <span className="text-muted-foreground">Section 4.6 asks the Barangay Admin to follow up through the official lost property procedure.</span>
+          <span className="text-muted-foreground">The Barangay Admin follows up through the official lost property procedure.</span>
           <Button
             size="sm"
             variant="outline"

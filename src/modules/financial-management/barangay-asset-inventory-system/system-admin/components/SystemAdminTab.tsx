@@ -197,9 +197,8 @@ export function SystemAdminTab({
           </Button>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Section 2 and Table 5: only the System Admin gives a user a role and a barangay. Rule 18 lets one person hold several
-          roles, so Save adds a role and the x on a chip turns one off without deleting it. A role row is matched by email.
-          Every account that can log in is listed here, filtered by the filters below.
+          Give a person a role, and the barangay it covers when the role belongs to one barangay. One person may hold more than one
+          role. Turning a role off keeps it on record for audit. Every account that can sign in is listed here.
         </p>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -210,7 +209,7 @@ export function SystemAdminTab({
             className="max-w-xs"
           />
           <select
-            className="h-9 rounded-md border bg-background px-2 text-sm"
+            className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
           >
@@ -223,7 +222,7 @@ export function SystemAdminTab({
             ))}
           </select>
           <select
-            className="h-9 rounded-md border bg-background px-2 text-sm"
+            className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
             value={barangayFilter}
             onChange={(e) => setBarangayFilter(e.target.value)}
           >
@@ -286,12 +285,13 @@ export function SystemAdminTab({
                               {barangay ? " at " + barangay.code : ""}
                               <button
                                 type="button"
-                                className="text-muted-foreground hover:text-destructive"
+                                aria-label={"Turn off the " + (ROLE_LABEL[row.role] ?? row.role) + " role for " + user.email}
+                                className="inline-flex size-6 items-center justify-center rounded text-muted-foreground outline-none transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
                                 disabled={busyKey !== null}
                                 title="Turn this role off, the row is kept for audit"
                                 onClick={() => void deactivate(user, row)}
                               >
-                                x
+                                <span aria-hidden="true">x</span>
                               </button>
                             </span>
                           );
@@ -302,7 +302,7 @@ export function SystemAdminTab({
                     <td className="p-2 align-top">
                       <div className="flex flex-wrap gap-1">
                         <select
-                          className="h-9 rounded-md border bg-background px-2 text-sm"
+                          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                           value={draft.role}
                           disabled={!user.email}
                           onChange={(e) =>
@@ -320,7 +320,7 @@ export function SystemAdminTab({
                           ))}
                         </select>
                         <select
-                          className="h-9 rounded-md border bg-background px-2 text-sm"
+                          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                           value={draft.barangayId}
                           disabled={!user.email || !BARANGAY_ROLES.includes(draft.role)}
                           onChange={(e) => setDraft(user, { barangayId: e.target.value })}

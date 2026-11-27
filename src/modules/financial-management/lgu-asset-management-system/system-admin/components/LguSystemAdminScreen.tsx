@@ -141,14 +141,13 @@ function AccountsCard({ setNotice, setError }: { setNotice: (v: string | null) =
     <div className="rounded-md border p-4">
       <div className="text-sm font-medium">Accounts and roles</div>
       <div className="mt-1 text-sm text-muted-foreground">
-        The two roles that may enter this module: Municipal and System Admin. A role row is matched by login email. Turning one
-        off sets it inactive, it never deletes.
+        The two roles that may use this module, Municipal and System Admin. Turning a role off keeps it on record for audit.
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Input className="max-w-xs" placeholder="Filter by name or email" value={query} onChange={(e) => setQuery(e.target.value)} />
         <select
-          className="h-9 rounded-md border bg-background px-2 text-sm"
+          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
         >
@@ -200,8 +199,14 @@ function AccountsCard({ setNotice, setError }: { setNotice: (v: string | null) =
                       {held.map((row) => (
                         <span key={row.id} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs">
                           {row.role.replace(/_/g, " ")}
-                          <button type="button" className="text-muted-foreground" disabled={busy} onClick={() => void revoke(row.id)}>
-                            x
+                          <button
+                            type="button"
+                            aria-label={"Turn off the " + row.role.replace(/_/g, " ") + " role for " + row.email}
+                            className="inline-flex size-6 items-center justify-center rounded text-muted-foreground outline-none transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
+                            disabled={busy}
+                            onClick={() => void revoke(row.id)}
+                          >
+                            <span aria-hidden="true">x</span>
                           </button>
                         </span>
                       ))}
@@ -210,7 +215,7 @@ function AccountsCard({ setNotice, setError }: { setNotice: (v: string | null) =
                   </td>
                   <td className="p-2">
                     <select
-                      className="h-9 rounded-md border bg-background px-2 text-sm"
+                      className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                       value={drafts[account.email] ?? ""}
                       onChange={(e) => setDrafts({ ...drafts, [account.email]: e.target.value })}
                     >
@@ -360,7 +365,7 @@ function ListCard({
                     <td key={column.field} className="p-2 align-top">
                       {column.kind === "select" ? (
                         <select
-                          className="h-9 rounded-md border bg-background px-2 text-sm"
+                          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                           value={valueOf(values, column.field)}
                           onChange={(e) => setEdits({ ...edits, [row.id]: { ...(edits[row.id] ?? {}), [column.field]: e.target.value } })}
                         >
@@ -461,8 +466,7 @@ export function LguSystemAdminScreen({ email }: { email: string | null }) {
         {email ? <span className="text-sm text-muted-foreground">{email}</span> : null}
       </div>
       <p className="text-sm text-muted-foreground">
-        Everything this module runs on: who may enter it, and the reference data behind it, the asset classes, conditions and offices.
-        Only the System Admin reaches this screen, and no barangay record is shown or changed here.
+        The lists this module runs on: asset classes, conditions and offices.
       </p>
 
       <div className="flex flex-wrap items-center gap-1 rounded-md border bg-muted/20 p-2">
