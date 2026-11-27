@@ -47,44 +47,44 @@ export function DepositModule() {
     setSlipsPage,
     slipsPageSize,
   } = useDeposit();
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tab, setTab] = useState("undeposited");
   const [createOpen, setCreateOpen] = useState(false);
   const [activeSlip, setActiveSlip] = useState<DepositSlip | null>(null);
   const [openAsset, setOpenAsset] = useState<UndepositedAsset | null>(null);
 
   const selectedAssets = useMemo(
-    () => assets.filter((asset) => selected.has(asset.collectionInvoiceId)),
+    () => assets.filter((asset) => selected.has(asset.rowKey)),
     [assets, selected],
   );
 
-  function toggle(id: number) {
+  function toggle(key: string) {
     setSelected((current) => {
       const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
 
-  // `selected` is a set of asset ids that outlives the page, so a page-scoped select-all
+  // `selected` is a set of asset keys that outlives the page, so a page-scoped select-all
   // merges into it; replacing the set would drop picks made on other pages.
-  function toggleAll(checked: boolean, ids: number[]) {
+  function toggleAll(checked: boolean, keys: string[]) {
     setSelected((current) => {
       const next = new Set(current);
-      for (const id of ids) {
-        if (checked) next.add(id);
-        else next.delete(id);
+      for (const key of keys) {
+        if (checked) next.add(key);
+        else next.delete(key);
       }
       return next;
     });
   }
 
   // Same merge as `toggleAll`: choosing everything ready must not drop picks made earlier.
-  function selectAllReady(ids: number[]) {
+  function selectAllReady(keys: string[]) {
     setSelected((current) => {
       const next = new Set(current);
-      for (const id of ids) next.add(id);
+      for (const key of keys) next.add(key);
       return next;
     });
   }
@@ -166,7 +166,7 @@ export function DepositModule() {
             filters={filters}
             selected={selected}
             selectedAmount={assets
-              .filter((asset) => selected.has(asset.collectionInvoiceId))
+              .filter((asset) => selected.has(asset.rowKey))
               .reduce((sum, asset) => sum + asset.amount, 0)}
             isLoading={isLoading}
             page={assetsPage}
@@ -214,7 +214,7 @@ export function DepositModule() {
 
       <AssetDetailDialog
         asset={openAsset}
-        selected={openAsset ? selected.has(openAsset.collectionInvoiceId) : false}
+        selected={openAsset ? selected.has(openAsset.rowKey) : false}
         onOpenChange={(open) => {
           if (!open) setOpenAsset(null);
         }}

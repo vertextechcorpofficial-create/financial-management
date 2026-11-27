@@ -44,6 +44,7 @@ type Props = {
     slipNo: string;
     remarks: string | null;
     cashIds: number[];
+    overageDetailIds?: number[];
     checkIds: number[];
   }) => Promise<SlipSubmitResult>;
 };
@@ -85,10 +86,10 @@ export function NewDepositDialog({ open, onOpenChange, accounts, accountTotals, 
   // What this dialog can already see is wrong, so the row is marked before the round trip.
   // Same predicate as the queue checkbox and "Select all ready", judged at the slip date.
   const rowIssues = useMemo(() => {
-    const issues = new Map<number, string>();
+    const issues = new Map<string, string>();
     for (const asset of assets) {
       const reason = assetBlockReason(asset, depositDate);
-      if (reason) issues.set(asset.collectionInvoiceId, reason);
+      if (reason) issues.set(asset.rowKey, reason);
     }
     return issues;
   }, [assets, depositDate]);
@@ -121,8 +122,15 @@ export function NewDepositDialog({ open, onOpenChange, accounts, accountTotals, 
       depositDate,
       slipNo: slipNo.trim(),
       remarks: remarks.trim() || null,
-      cashIds: assets.filter((asset) => asset.assetType === "CASH").map((asset) => asset.collectionInvoiceId),
-      checkIds: assets.filter((asset) => asset.assetType === "CHECK").map((asset) => asset.collectionInvoiceId),
+      cashIds: assets
+        .filter((asset) => asset.assetType === "CASH" && asset.collectionInvoiceId !== null)
+        .map((asset) => asset.collectionInvoiceId as number),
+      overageDetailIds: assets
+        .filter((asset) => asset.assetType === "CASH" && asset.collectionDetailId !== null)
+        .map((asset) => asset.collectionDetailId as number),
+      checkIds: assets
+        .filter((asset) => asset.assetType === "CHECK" && asset.collectionInvoiceId !== null)
+        .map((asset) => asset.collectionInvoiceId as number),
     });
     if (!result.ok) {
       setServerError(result);
@@ -271,10 +279,10 @@ export function NewDepositDialog({ open, onOpenChange, accounts, accountTotals, 
                   </TableHeader>
                   <TableBody>
                     {assets.map((asset) => {
-                      const issue = rowIssues.get(asset.collectionInvoiceId);
+                      const issue = rowIssues.get(asset.rowKey);
                       const flagged = Boolean(issue) || blockedDocs.has(asset.documentNumber);
                       return (
-                        <TableRow key={asset.collectionInvoiceId} className={flagged ? "bg-destructive/10" : undefined}>
+                        <TableRow key={asset.rowKey} className={flagged ? "bg-destructive/10" : undefined}>
                           <TableCell className="text-sm">{asset.methodLabel}</TableCell>
                           <TableCell className="max-w-[140px]">
                             <p className="truncate font-mono text-sm" title={asset.documentNumber}>
