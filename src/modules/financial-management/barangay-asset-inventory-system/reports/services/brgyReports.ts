@@ -1,4 +1,5 @@
 import { enc, list } from "../../shared/api";
+import { officeDate } from "../../shared/dates";
 import { fetchLookups, mapAsset } from "../../assets/services/brgyAssets";
 import type { BrgyAsset, BrgyCondition } from "../../types";
 import { projectedTotal, projectedValue } from "../../types";
@@ -9,20 +10,23 @@ export interface ReportAsset {
   asset: BrgyAsset;
   office: string;
   custodian: string;
+  /** the item type name, which the guide records for every asset and the workbook now prints */
+  itemType: string;
   projected: number;
   total: number;
 }
 
 const ASSET_FIELDS =
-  "id,asset_code,barangay_id,owner_type,name,classification_id,barcode,tag_no,security_tag,serial_no,office_id,custodian_id,date_acquired,cost,quantity,life_span_years,condition,status,photo,remarks,is_draft,cancelled,cancel_reason,source,created_by";
+  "id,asset_code,barangay_id,owner_type,name,classification_id,item_type_id,barcode,tag_no,security_tag,serial_no,office_id,custodian_id,date_acquired,cost,quantity,life_span_years,condition,status,photo,remarks,is_draft,cancelled,cancel_reason,source,created_by";
 
 /** Section 4.8: the asset masterlist. */
 export async function masterlist(barangayId: number): Promise<{ asOf: string; rows: ReportAsset[]; totalValue: number }> {
-  const asOf = new Date().toISOString().slice(0, 10);
+  const asOf = officeDate();
   const lookups = await fetchLookups(barangayId);
   const salvage = lookups.settings?.salvage_percent ?? 0;
   const offices = new Map(lookups.offices.map((o) => [o.id, o.name]));
   const custodians = new Map(lookups.custodians.map((c) => [c.id, c.full_name]));
+  const itemTypes = new Map(lookups.itemTypes.map((t) => [t.id, t.name]));
 
   const res = await list<Row>(
     "/items/brgy_asset?filter=" +
@@ -33,6 +37,7 @@ export async function masterlist(barangayId: number): Promise<{ asOf: string; ro
     asset,
     office: asset.office_id ? offices.get(asset.office_id) ?? "" : "",
     custodian: asset.custodian_id ? custodians.get(asset.custodian_id) ?? "" : "",
+    itemType: asset.item_type_id ? itemTypes.get(asset.item_type_id) ?? "" : "",
     projected: projectedValue(asset, asOf, salvage),
     total: projectedTotal(asset, asOf, salvage),
   }));
@@ -99,7 +104,7 @@ export async function consolidation(): Promise<{
   rows: { barangay: string; code: string; assets: number; cost: number; totalValue: number }[];
   totals: { assets: number; cost: number; totalValue: number };
 }> {
-  const asOf = new Date().toISOString().slice(0, 10);
+  const asOf = officeDate();
   const lookups = await fetchLookups();
   const salvage = lookups.settings?.salvage_percent ?? 0;
   const res = await list<Row>(

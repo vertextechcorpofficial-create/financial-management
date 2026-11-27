@@ -1,12 +1,14 @@
 import { bool, enc, get, list, num, patch, post, text } from "../../shared/api";
+import { officeDate } from "../../shared/dates";
 import type {
   Brgy,
   BrgyAsset,
+  BrgyCondition,
   BrgyHistoryEntry,
   BrgyAssignment,
   BrgyClassification,
-  BrgyCondition,
   BrgyCustodian,
+  BrgyItemType,
   BrgyOffice,
   BrgySettings,
   BrgyStatus,
@@ -23,6 +25,7 @@ export function mapAsset(row: Row): BrgyAsset {
     owner_type: (text(row.owner_type) || "barangay") as "barangay" | "lgu",
     name: text(row.name),
     classification_id: num(row.classification_id),
+    item_type_id: num(row.item_type_id),
     barcode: (row.barcode as string) ?? null,
     tag_no: (row.tag_no as string) ?? null,
     security_tag: (row.security_tag as string) ?? null,
@@ -48,6 +51,7 @@ export function mapAsset(row: Row): BrgyAsset {
 export interface BrgyLookups {
   barangays: Brgy[];
   classifications: BrgyClassification[];
+  itemTypes: BrgyItemType[];
   offices: BrgyOffice[];
   custodians: BrgyCustodian[];
   settings: BrgySettings | null;
@@ -56,9 +60,10 @@ export interface BrgyLookups {
 export async function fetchLookups(barangayId?: number | null): Promise<BrgyLookups> {
   const officeFilter = barangayId ? "&filter=" + enc({ barangay_id: { _eq: barangayId } }) : "";
   const custodianFilter = officeFilter;
-  const [barangays, classifications, offices, custodians, settings] = await Promise.all([
+  const [barangays, classifications, itemTypes, offices, custodians, settings] = await Promise.all([
     get<Row[]>("/items/brgy_barangay?sort=code&limit=-1&fields=id,code,name,district,contact_person,status"),
     get<Row[]>("/items/brgy_classification?sort=sort,name&limit=-1&fields=id,name,life_span_years,sort,status"),
+    get<Row[]>("/items/brgy_item_type?sort=name&limit=-1&fields=id,name,classification_id,status"),
     get<Row[]>("/items/brgy_office?sort=sort,name&limit=-1" + officeFilter + "&fields=id,barangay_id,name,sort,status"),
     get<Row[]>("/items/brgy_custodian?sort=full_name&limit=-1" + custodianFilter + "&fields=id,barangay_id,full_name,position,status"),
     get<Row[]>("/items/brgy_settings?limit=1&fields=id,barangay_id,salvage_percent,approval_required,valuation_method,life_equipment,life_machinery,life_furniture,life_other"),
@@ -72,6 +77,7 @@ export async function fetchLookups(barangayId?: number | null): Promise<BrgyLook
     classifications: classifications.map((c) => ({
       id: Number(c.id), name: text(c.name), life_span_years: num(c.life_span_years), sort: Number(c.sort ?? 0), status: text(c.status),
     })),
+    itemTypes: itemTypes.map((t) => ({ id: Number(t.id), name: text(t.name), classification_id: num(t.classification_id), status: text(t.status) })),
     offices: offices.map((o) => ({ id: Number(o.id), barangay_id: Number(o.barangay_id), name: text(o.name), sort: Number(o.sort ?? 0), status: text(o.status) })),
     custodians: custodians.map((c) => ({ id: Number(c.id), barangay_id: Number(c.barangay_id), full_name: text(c.full_name), position: (c.position as string) ?? null, status: text(c.status) })),
     settings: s
@@ -86,7 +92,7 @@ export async function fetchLookups(barangayId?: number | null): Promise<BrgyLook
 }
 
 const ASSET_FIELDS =
-  "id,asset_code,barangay_id,owner_type,name,classification_id,barcode,tag_no,security_tag,serial_no,office_id,custodian_id,date_acquired,cost,quantity,life_span_years,condition,status,photo,remarks,is_draft,cancelled,cancel_reason,source,created_by";
+  "id,asset_code,barangay_id,owner_type,name,classification_id,item_type_id,barcode,tag_no,security_tag,serial_no,office_id,custodian_id,date_acquired,cost,quantity,life_span_years,condition,status,photo,remarks,is_draft,cancelled,cancel_reason,source,created_by";
 
 export interface AssetListResult {
   assets: BrgyAsset[];
@@ -135,9 +141,22 @@ export async function listAssets(params: {
   return {
     assets: rows.map(mapAsset),
     total,
-    asOf: new Date().toISOString().slice(0, 10),
+    asOf: officeDate(),
     salvagePercent: lookups.settings?.salvage_percent ?? 0,
   };
+}
+
+/** Section 4.1: item names are picked from existing choices first. */
+export async function listAssetNames(barangayId: number): Promise<string[]> {
+  const rows = await get<{ name: string }[]>(
+    "/items/brgy_asset?filter=" +
+      enc({ _and: [{ barangay_id: { _eq: barangayId } }, { cancelled: { _eq: false } }] }) +
+      "&groupBy[]=name&fields=name&limit=-1"
+  );
+  return (rows ?? [])
+    .map((r) => text(r.name))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
 }
 
 /** Rule 13: AST-(barangay code)-(running number), never reused within a barangay. */
@@ -159,6 +178,7 @@ export interface AssetInput {
   barangayId: number;
   name: string;
   classificationId: number | null;
+  itemTypeId?: number | null;
   barcode?: string | null;
   tagNo?: string | null;
   securityTag?: string | null;
@@ -180,14 +200,29 @@ export interface AssetInput {
 export async function createAsset(input: AssetInput): Promise<BrgyAsset> {
   if (!input.name || !input.name.trim()) throw new Error("Item name is required");
   if (!input.dateAcquired) throw new Error("Date acquired is required");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = officeDate();
   if (input.dateAcquired > today) throw new Error("Date acquired cannot be later than today");
   if (!Number.isFinite(input.quantity) || input.quantity < 1) throw new Error("Quantity must be at least 1");
+  // section 3 requires a life span, and 7.1 says it comes from the category, so a missing value is
+  // derived from the classification or the settings below instead of being refused here
   if (!Number.isFinite(input.cost) || input.cost < 0) throw new Error("Cost cannot be negative");
-  const settings = (await fetchLookups(input.barangayId)).settings;
+  // Table 2: classification and item type are required. A draft is explicitly half finished,
+  // so it may miss them and is checked again when it is completed.
+  const lookups = await fetchLookups(input.barangayId);
+  const settings = lookups.settings;
+  if (!input.isDraft) {
+    if (!input.classificationId) throw new Error("Classification is required");
+    if (!input.itemTypeId) throw new Error("Item type is required");
+  }
+  const itemType = input.itemTypeId ? lookups.itemTypes.find((t) => t.id === input.itemTypeId) : null;
+  if (input.itemTypeId && !itemType) throw new Error("That item type does not exist");
+  if (itemType && input.classificationId && itemType.classification_id && itemType.classification_id !== input.classificationId) {
+    throw new Error("The item type " + itemType.name + " belongs to a different classification.");
+  }
+
   let lifeSpan = Number(input.lifeSpanYears);
   if (!Number.isFinite(lifeSpan) || lifeSpan < 1) {
-    const classification = (await fetchLookups(input.barangayId)).classifications.find((c) => c.id === input.classificationId);
+    const classification = lookups.classifications.find((c) => c.id === input.classificationId);
     const byName = classification?.name?.toLowerCase() ?? "";
     lifeSpan =
       (byName.includes("equipment") && settings?.life_equipment) ||
@@ -224,6 +259,7 @@ export async function createAsset(input: AssetInput): Promise<BrgyAsset> {
     owner_type: "barangay",
     name: storedName,
     classification_id: input.classificationId,
+    item_type_id: itemType ? itemType.id : null,
     barcode: input.barcode?.trim() || null,
     tag_no: input.tagNo?.trim() || null,
     security_tag: input.securityTag?.trim() || null,
@@ -257,6 +293,135 @@ export async function createAsset(input: AssetInput): Promise<BrgyAsset> {
     });
   }
   return asset;
+}
+
+/**
+ * Table 5 grants "Register or edit an asset", and section 4.1 says a half finished form can be
+ * saved as a draft and completed later. Editing is that path, and it keeps the same rules.
+ */
+export async function updateAsset(input: {
+  assetId: number;
+  name?: string;
+  classificationId?: number | null;
+  itemTypeId?: number | null;
+  barcode?: string | null;
+  tagNo?: string | null;
+  securityTag?: string | null;
+  serialNo?: string | null;
+  officeId?: number | null;
+  dateAcquired?: string | null;
+  cost?: number;
+  quantity?: number;
+  lifeSpanYears?: number;
+  condition?: BrgyCondition;
+  remarks?: string | null;
+  photo?: string | null;
+  isDraft?: boolean;
+  actor?: string | null;
+}): Promise<AssetDetail> {
+  const detail = await fetchAsset(input.assetId);
+  const asset = detail.asset;
+  if (asset.cancelled) throw new Error("A cancelled record cannot be edited");
+  if (asset.status === "Disposed") throw new Error("A disposed asset cannot be edited");
+  // section 4.10: an asset in For Return cannot be assigned, edited or counted until the LGU decides
+  if (asset.status === "For Return") throw new Error("This asset is For Return and cannot be edited until the LGU decides.");
+  // section 4.9: a For Receiving asset is not part of the barangay's active assets yet
+  if (asset.status === "For Receiving") throw new Error("This asset is For Receiving and cannot be edited until the barangay receives it.");
+
+  const body: Row = {};
+
+  if (input.name !== undefined) {
+    if (!input.name.trim()) throw new Error("Item name is required");
+    const sameNamed = await get<Row[]>(
+      "/items/brgy_asset?filter=" + enc({ _and: [{ name: { _icontains: input.name.trim() } }, { id: { _neq: asset.id } }] }) + "&fields=name&limit=-1"
+    );
+    body.name = (sameNamed ?? []).map((r) => text(r.name)).find((n) => sameName(n, input.name as string)) ?? input.name.trim();
+  }
+
+  if (input.dateAcquired !== undefined) {
+    const today = officeDate();
+    if (input.dateAcquired && input.dateAcquired > today) throw new Error("Date acquired cannot be later than today");
+    body.date_acquired = input.dateAcquired;
+  }
+
+  if (input.quantity !== undefined) {
+    if (!Number.isFinite(input.quantity) || input.quantity < 1) throw new Error("Quantity must be at least 1");
+    body.quantity = input.quantity;
+  }
+  if (input.lifeSpanYears !== undefined) {
+    if (!Number.isFinite(input.lifeSpanYears) || input.lifeSpanYears < 1) {
+      throw new Error("Life span is required, in years.");
+    }
+    body.life_span_years = input.lifeSpanYears;
+  }
+  if (input.cost !== undefined) {
+    if (!Number.isFinite(input.cost) || input.cost < 0) throw new Error("Cost cannot be negative");
+    body.cost = input.cost;
+  }
+  if (input.lifeSpanYears !== undefined) {
+    if (!Number.isFinite(input.lifeSpanYears) || input.lifeSpanYears < 1) throw new Error("Life span must be at least 1 year");
+    body.life_span_years = input.lifeSpanYears;
+  }
+
+  // the same uniqueness rule as creation, ignoring this asset
+  for (const [field, value, label] of [
+    ["barcode", input.barcode, "barcode"],
+    ["tag_no", input.tagNo, "tag number"],
+    ["security_tag", input.securityTag, "security tag"],
+  ] as const) {
+    if (value === undefined) continue;
+    if (value && value.trim()) {
+      const clash = await get<Row[]>(
+        "/items/brgy_asset?filter=" + enc({ _and: [{ [field]: { _eq: value.trim() } }, { cancelled: { _eq: false } }, { id: { _neq: asset.id } }] }) + "&fields=asset_code,name&limit=1"
+      );
+      if (clash && clash.length) {
+        throw new Error("This " + label + " is already used by asset " + text(clash[0].asset_code) + " (" + text(clash[0].name) + ").");
+      }
+    }
+    body[field] = value && value.trim() ? value.trim() : null;
+  }
+
+  // Table 2: the item type has to belong to the classification the asset is in, and completing a
+  // draft must end up with both of them filled in.
+  if (input.classificationId !== undefined) body.classification_id = input.classificationId;
+  if (input.classificationId !== undefined || input.itemTypeId !== undefined) {
+    const lookups = await fetchLookups(asset.barangay_id);
+    const nextTypeId = input.itemTypeId !== undefined ? input.itemTypeId : asset.item_type_id;
+    const nextClassificationId = input.classificationId !== undefined ? input.classificationId : asset.classification_id;
+    const type = nextTypeId ? lookups.itemTypes.find((t) => t.id === nextTypeId) : null;
+    if (nextTypeId && !type) throw new Error("That item type does not exist");
+    if (type && nextClassificationId && type.classification_id && type.classification_id !== nextClassificationId) {
+      throw new Error("The item type " + type.name + " belongs to a different classification.");
+    }
+    body.item_type_id = nextTypeId ?? null;
+  }
+  if (input.isDraft === false) {
+    const finalClassification = input.classificationId !== undefined ? input.classificationId : asset.classification_id;
+    if (!finalClassification) throw new Error("Classification is required");
+    if (input.itemTypeId === undefined && !asset.item_type_id) throw new Error("Item type is required");
+  }
+  if (input.serialNo !== undefined) body.serial_no = input.serialNo?.trim() || null;
+  if (input.officeId !== undefined) body.office_id = input.officeId;
+  if (input.condition !== undefined) body.condition = input.condition;
+  if (input.remarks !== undefined) body.remarks = input.remarks;
+  if (input.photo !== undefined) body.photo = input.photo;
+  if (input.isDraft !== undefined) {
+    body.is_draft = input.isDraft;
+    // completing a draft needs a custodian decision later, so the status stays as it is
+  }
+
+  if (Object.keys(body).length === 0) return detail;
+
+  await patch("/items/brgy_asset/" + asset.id, body);
+  await recordHistory(
+    asset.id,
+    input.isDraft === false && asset.is_draft ? "draft completed" : "edited",
+    null,
+    null,
+    input.actor ?? null,
+    Object.keys(body).join(", ")
+  );
+  return fetchAsset(asset.id);
 }
 
 export async function recordHistory(
@@ -295,7 +460,7 @@ export async function fetchAsset(id: number): Promise<AssetDetail> {
   const asset = mapAsset(assetRows[0]);
   const lookups = await fetchLookups(asset.barangay_id);
   const salvage = lookups.settings?.salvage_percent ?? 0;
-  const asOf = new Date().toISOString().slice(0, 10);
+  const asOf = officeDate();
   return {
     asset,
     assignments: (assignments ?? []).map((a) => ({
@@ -328,7 +493,9 @@ export async function assignCustodian(input: {
     throw new Error("This asset is " + asset.status + " and cannot be assigned.");
   }
   if (!input.custodianId) throw new Error("Choose the custodian who will be responsible for this asset");
-  const today = input.startDate ?? new Date().toISOString().slice(0, 10);
+  // rule 87: every Active asset has exactly one custodian and one office
+  if (!input.officeId) throw new Error("Choose the office where this asset is kept");
+  const today = input.startDate ?? officeDate();
   // rule 5.7: an assignment cannot start before the date acquired
   if (asset.date_acquired && today < asset.date_acquired) {
     throw new Error("An assignment cannot start before the date acquired (" + asset.date_acquired + ").");
@@ -392,7 +559,7 @@ export async function changeStatus(input: {
   await recordHistory(asset.id, "status", asset.status, input.to, input.actor ?? null, input.reason ?? input.repairNote ?? null);
   if (input.to === "Missing" || input.to === "For Disposal") {
     const open = detail.assignments.filter((a) => !a.end_date);
-    for (const row of open) await patch("/items/brgy_assignment/" + row.id, { end_date: new Date().toISOString().slice(0, 10) });
+    for (const row of open) await patch("/items/brgy_assignment/" + row.id, { end_date: officeDate() });
   }
   return fetchAsset(asset.id);
 }

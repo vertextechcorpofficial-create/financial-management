@@ -60,7 +60,7 @@ export async function fetchCount(countId: number): Promise<CountDetail> {
     list<Row>(
       "/items/brgy_asset?filter=" +
         enc({ _and: [{ barangay_id: { _eq: count.barangay_id } }, { cancelled: { _eq: false } }, { is_draft: { _eq: false } }] }) +
-        "&sort=asset_code&limit=-1&fields=id,asset_code,barangay_id,owner_type,name,classification_id,barcode,tag_no,security_tag,serial_no,office_id,custodian_id,date_acquired,cost,quantity,life_span_years,condition,status,photo,remarks,is_draft,cancelled,cancel_reason,source,created_by"
+        "&sort=asset_code&limit=-1&fields=id,asset_code,barangay_id,owner_type,name,classification_id,item_type_id,barcode,tag_no,security_tag,serial_no,office_id,custodian_id,date_acquired,cost,quantity,life_span_years,condition,status,photo,remarks,is_draft,cancelled,cancel_reason,source,created_by"
     ),
   ]);
 
