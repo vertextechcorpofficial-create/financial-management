@@ -53,6 +53,7 @@ export type CreateSlipPayload = {
   slipNo: string;
   remarks: string | null;
   cashIds: number[];
+  overageDetailIds?: number[];
   checkIds: number[];
 };
 

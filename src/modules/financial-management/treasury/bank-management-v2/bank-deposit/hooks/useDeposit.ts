@@ -185,10 +185,14 @@ export function useDeposit() {
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : "Could not save the slip.";
         const withFields = caught as Error & { fieldErrors?: Record<string, string> };
-        const selectedIds = new Set([...payload.cashIds, ...payload.checkIds]);
+        const selectedKeys = new Set([
+          ...payload.cashIds.map((id) => `inv:${id}`),
+          ...(payload.overageDetailIds ?? []).map((id) => `det:${id}`),
+          ...payload.checkIds.map((id) => `inv:${id}`),
+        ]);
         // Server messages now name the offending documents; match them back to rows to highlight.
         const blockedDocuments = assets
-          .filter((asset) => selectedIds.has(asset.collectionInvoiceId) && message.includes(asset.documentNumber))
+          .filter((asset) => selectedKeys.has(asset.rowKey) && message.includes(asset.documentNumber))
           .map((asset) => asset.documentNumber);
         toast.error(message);
         return { ok: false, message, fieldErrors: withFields.fieldErrors ?? {}, blockedDocuments };

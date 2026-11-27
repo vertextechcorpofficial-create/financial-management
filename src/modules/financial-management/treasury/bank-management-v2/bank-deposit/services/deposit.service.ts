@@ -223,10 +223,11 @@ async function loadInvoices(
 }
 
 /**
- * Settlement types that put money in the drawer. MEMO is a note, DRAFT is not posted yet, EWT is
- * tax withheld before the money reached us, and RETURN takes money back out.
+ * Non-depositable `collection_invoices.type` values. Everything else (e.g. CASH, CHECK,
+ * BANK_TRANSFER, GCASH, etc.) is depositable and read directly from `collection_invoices.type`.
+ * ADJUSTMENT is excluded here because shortages are not money and overages live in `collection_details`.
  */
-const DEPOSITABLE_TYPES = ["CASH", "CHECK", "ADJUSTMENT"] as const;
+const NON_DEPOSITABLE_TYPES = ["MEMO", "DRAFT", "EWT", "RETURN", "ADJUSTMENT"] as const;
 
 type SettlementRow = {
   id: number;
@@ -236,159 +237,96 @@ type SettlementRow = {
   type: string | null;
 };
 
-type CollectionDetailRow = {
+type OverageDetailRow = {
   id: number;
   collection_id: number | null;
   invoice_id: number | null;
-  payment_method: number | null;
-  check_no: string | null;
-  chequeDate: string | null;
-  balance_type_id: number | null;
-  remarks: string | null;
+  customer_code: string | null;
   amount: number | string | null;
+  remarks: string | null;
+  balance_type_id: number | null;
 };
 
-async function loadPaymentMethods(): Promise<Map<number, string>> {
-  try {
-    const { rows } = await listItems<{ method_id: number; method_name: string | null }>("payment_methods", {
-      fields: ["method_id", "method_name"],
-      limit: 200,
-    });
-    return new Map(
-      rows
-        .map((row) => [Number(row.method_id), asString(row.method_name).trim()] as const)
-        .filter(([id, name]) => Number.isInteger(id) && id > 0 && name.length > 0),
-    );
-  } catch (error) {
-    if (error instanceof DirectusError) return new Map();
-    throw error;
-  }
+function formatInvoiceTypeLabel(rawType: string): string {
+  const cleaned = rawType.trim();
+  if (!cleaned) return "Cash";
+  const upper = cleaned.toUpperCase();
+  if (upper === "CASH") return "Cash";
+  if (upper === "CHECK" || upper === "CHEQUE") return "Check";
+  if (upper === "GCASH") return "GCash";
+  if (upper === "EWT") return "EWT";
+  return cleaned
+    .replace(/[_-]+/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function isCheckPaymentMethod(methodId: number | null, methodName: string | undefined): boolean {
-  if (methodName) return /check|cheque/i.test(methodName);
-  return methodId === CHECK;
-}
-
-function isShortageAdjustmentDetail(detail: CollectionDetailRow): boolean {
-  return Number(detail.balance_type_id ?? 0) === 2 && asString(detail.remarks).startsWith("adj-");
-}
-
-function resolveDetailForSettlement(
-  row: SettlementRow,
-  byCollectionAndInvoice: Map<string, CollectionDetailRow[]>,
-  byCollection: Map<number, CollectionDetailRow[]>,
-  paymentMethods: Map<number, string>,
-): CollectionDetailRow | undefined {
-  const collectionId = Number(row.collection_id ?? 0);
-  const invoiceId = Number(row.invoice_id ?? 0);
-  const rowWantsCheck = asString(row.type) === "CHECK";
-
-  const pickBest = (candidates: CollectionDetailRow[] | undefined): CollectionDetailRow | undefined => {
-    if (!candidates?.length) return undefined;
-    const withMethod = candidates.filter((d) => d.payment_method != null && !isShortageAdjustmentDetail(d));
-    if (!withMethod.length) return undefined;
-    const exactKind = withMethod.find((d) => {
-      const id = Number(d.payment_method);
-      return isCheckPaymentMethod(id, paymentMethods.get(id)) === rowWantsCheck;
-    });
-    return exactKind ?? withMethod[0];
-  };
-
-  if (collectionId > 0 && invoiceId > 0) {
-    const exact = pickBest(byCollectionAndInvoice.get(`${collectionId}:${invoiceId}`));
-    if (exact) return exact;
-  }
-  return collectionId > 0 ? pickBest(byCollection.get(collectionId)) : undefined;
+function isCheckType(rawType: string): boolean {
+  return /check|cheque/i.test(rawType);
 }
 
 /**
- * The money waiting to be banked is the settlement row, not the tender line: the Collection
- * Summary reads `collection_invoices` (one row per invoice and money type), which is the only
- * place a customer and an invoice can be named. A receipt's cash tender may cover two invoices,
- * so its settlement rows carry the names the slip has to print.
+ * Undeposited money comes cleanly from two non-overlapping sources:
+ * 1. `collection_invoices` (depositable payment types, read directly from `collection_invoices.type`),
+ *    linked via `bank_deposit_details.collection_invoice_id`.
+ * 2. `collection_details` overages (`balance_type_id = 1` and `remarks` containing `adj`),
+ *    linked via `bank_deposit_details.collection_detail_id`.
  */
 export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
-  const [{ rows: settlements }, { rows: links }, checkResult, paymentMethods] = await Promise.all([
+  const [{ rows: settlements }, { rows: overageDetails }, { rows: links }, checkResult] = await Promise.all([
     listItems<SettlementRow>("collection_invoices", {
       fields: ["id", "collection_id", "invoice_id", "amount", "type"],
-      // A receipt settles with cash, cheques and the odd adjustment. Leaving CHECK out is why a
-      // cheque-funded receipt showed only its 21.00 adjustment instead of the money that arrived.
-      filter: { type: { _in: DEPOSITABLE_TYPES } },
+      filter: {
+        _and: [
+          { type: { _nnull: true } },
+          { type: { _nin: [...NON_DEPOSITABLE_TYPES] } },
+        ],
+      },
+      sort: "-id",
       limit: 800,
     }),
-    listItems<{ collection_invoice_id: number | null }>("bank_deposit_details", {
-      fields: ["collection_invoice_id"],
+    listItems<OverageDetailRow>("collection_details", {
+      fields: ["id", "collection_id", "invoice_id", "customer_code", "amount", "remarks", "balance_type_id"],
+      filter: {
+        balance_type_id: { _eq: 1 },
+        remarks: { _icontains: "adj" },
+      },
+      sort: "-id",
       limit: 800,
+    }),
+    listItems<{ collection_invoice_id: number | null; collection_detail_id: number | null }>("bank_deposit_details", {
+      fields: ["collection_invoice_id", "collection_detail_id"],
+      limit: 2000,
     }),
     listItems<{ check_no: string | null; source_ref: string | null; drawee_bank: string | null }>("bank_checks", {
       fields: ["check_no", "source_ref", "drawee_bank"],
       filter: { direction: { _eq: "RECEIVED" }, status: { _neq: "CANCELLED" } },
       limit: 800,
     }).catch(() => ({ rows: [] as { check_no: string | null; source_ref: string | null; drawee_bank: string | null }[] })),
-    loadPaymentMethods(),
   ]);
 
-  const deposited = new Set(links.map((link) => Number(link.collection_invoice_id)));
-  const allCollectionIds = [...new Set(settlements.map((row) => Number(row.collection_id)).filter(Boolean))];
-  const { rows: detailRows } = allCollectionIds.length
-    ? await listItems<CollectionDetailRow>("collection_details", {
-        fields: [
-          "id",
-          "collection_id",
-          "invoice_id",
-          "payment_method",
-          "check_no",
-          "chequeDate",
-          "balance_type_id",
-          "remarks",
-          "amount",
-        ],
-        filter: { collection_id: { _in: allCollectionIds } },
-        limit: 2000,
-      })
-    : { rows: [] as CollectionDetailRow[] };
+  const depositedInvoices = new Set(
+    links.map((link) => Number(link.collection_invoice_id ?? 0)).filter((id) => id > 0),
+  );
+  const depositedDetails = new Set(
+    links.map((link) => Number(link.collection_detail_id ?? 0)).filter((id) => id > 0),
+  );
 
-  const shortageInvoices = new Set<number>();
-  const shortageUnlinkedAmounts = new Set<string>();
-  const detailsByCollectionAndInvoice = new Map<string, CollectionDetailRow[]>();
-  const detailsByCollection = new Map<number, CollectionDetailRow[]>();
+  const pendingInvoices = settlements.filter((row) => !depositedInvoices.has(Number(row.id)));
+  const pendingOverages = overageDetails.filter((row) => !depositedDetails.has(Number(row.id)));
+  if (!pendingInvoices.length && !pendingOverages.length) return [];
 
-  for (const detail of detailRows) {
-    const colId = Number(detail.collection_id ?? 0);
-    const invId = Number(detail.invoice_id ?? 0);
-    if (isShortageAdjustmentDetail(detail)) {
-      if (Number.isInteger(invId) && invId > 0) {
-        shortageInvoices.add(invId);
-      } else {
-        shortageUnlinkedAmounts.add(`${colId}:${roundMoney(asNumber(detail.amount)).toFixed(2)}`);
-      }
-      continue;
-    }
-    if (colId > 0) {
-      const colList = detailsByCollection.get(colId) ?? [];
-      colList.push(detail);
-      detailsByCollection.set(colId, colList);
-      if (invId > 0) {
-        const key = `${colId}:${invId}`;
-        const invList = detailsByCollectionAndInvoice.get(key) ?? [];
-        invList.push(detail);
-        detailsByCollectionAndInvoice.set(key, invList);
-      }
-    }
-  }
+  const collectionIds = [
+    ...new Set([
+      ...pendingInvoices.map((row) => Number(row.collection_id)).filter(Boolean),
+      ...pendingOverages.map((row) => Number(row.collection_id)).filter(Boolean),
+    ]),
+  ];
+  const invoiceIds = [
+    ...pendingInvoices.map((row) => Number(row.invoice_id ?? 0)),
+    ...pendingOverages.map((row) => Number(row.invoice_id ?? 0)),
+  ];
 
-  const pending = settlements.filter((row) => {
-    if (deposited.has(Number(row.id))) return false;
-    if (asString(row.type) !== "ADJUSTMENT") return true;
-    const invoiceId = Number(row.invoice_id ?? 0);
-    if (invoiceId > 0) return !shortageInvoices.has(invoiceId);
-    const key = `${Number(row.collection_id ?? 0)}:${roundMoney(asNumber(row.amount)).toFixed(2)}`;
-    return !shortageUnlinkedAmounts.has(key);
-  });
-  if (!pending.length) return [];
-
-  const collectionIds = [...new Set(pending.map((row) => Number(row.collection_id)).filter(Boolean))];
   const [{ rows: collections }, invoices] = await Promise.all([
     listItems<{
       id: number;
@@ -398,7 +336,7 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
       isPosted: unknown;
       isCancelled: unknown;
     }>("collection", { fields: COLLECTION_FIELDS, filter: { id: { _in: collectionIds } }, limit: 800 }),
-    loadInvoices(pending.map((row) => Number(row.invoice_id ?? 0))),
+    loadInvoices(invoiceIds),
   ]);
   const byId = new Map(collections.map((row) => [Number(row.id), row]));
 
@@ -408,65 +346,98 @@ export async function listUndepositedAssets(): Promise<UndepositedAsset[]> {
     if (ref && !checkByRef.has(ref)) checkByRef.set(ref, { checkNo: check.check_no, draweeBank: check.drawee_bank });
   }
 
-  const customerNames = await loadCustomerNames(
-    pending.map((row) => invoices.get(Number(row.invoice_id ?? 0))?.customerCode ?? ""),
-  );
+  const cleanCustomerCode = (raw: unknown): string | null => {
+    const s = asString(raw).trim();
+    return s && s !== "0" ? s : null;
+  };
 
-  return pending
-    .map((row) => {
-      const parent = row.collection_id == null ? undefined : byId.get(Number(row.collection_id));
-      const collectionDate = parent?.collection_date ?? null;
-      const documentNumber = parent?.collection_receipt_no || parent?.docNo || `#${row.collection_id ?? row.id}`;
-      const invoice = invoices.get(Number(row.invoice_id ?? 0));
-      const customerCode = invoice?.customerCode ?? null;
-      const isAdjustment = asString(row.type) === "ADJUSTMENT";
+  const allCustomerCodes = [
+    ...pendingInvoices.map((row) => invoices.get(Number(row.invoice_id ?? 0))?.customerCode ?? ""),
+    ...pendingOverages.map(
+      (row) => invoices.get(Number(row.invoice_id ?? 0))?.customerCode ?? cleanCustomerCode(row.customer_code) ?? "",
+    ),
+  ];
+  const customerNames = await loadCustomerNames(allCustomerCodes);
 
-      const detail = isAdjustment
-        ? undefined
-        : resolveDetailForSettlement(row, detailsByCollectionAndInvoice, detailsByCollection, paymentMethods);
-      const paymentMethodId = detail?.payment_method != null ? Number(detail.payment_method) : null;
-      const resolvedMethodName = paymentMethodId != null ? paymentMethods.get(paymentMethodId) : undefined;
+  const invoiceAssets: UndepositedAsset[] = pendingInvoices.map((row) => {
+    const parent = row.collection_id == null ? undefined : byId.get(Number(row.collection_id));
+    const collectionDate = parent?.collection_date ?? null;
+    const documentNumber = parent?.collection_receipt_no || parent?.docNo || `#${row.collection_id ?? row.id}`;
+    const invoice = invoices.get(Number(row.invoice_id ?? 0));
+    const customerCode = invoice?.customerCode ?? null;
+    const rawType = asString(row.type);
+    const isCheck = isCheckType(rawType);
+    const check = isCheck
+      ? checkByRef.get(asString(parent?.collection_receipt_no) || asString(parent?.docNo) || "")
+      : undefined;
 
-      const isCheck = isAdjustment
-        ? false
-        : paymentMethodId != null
-          ? isCheckPaymentMethod(paymentMethodId, resolvedMethodName)
-          : asString(row.type) === "CHECK";
+    return {
+      rowKey: `inv:${Number(row.id)}`,
+      collectionInvoiceId: Number(row.id),
+      collectionDetailId: null,
+      collectionId: Number(row.collection_id ?? 0),
+      invoiceId: row.invoice_id == null ? null : Number(row.invoice_id),
+      invoiceNo: invoice?.invoiceNo ?? null,
+      documentNumber,
+      collectionReference: parent?.docNo ?? null,
+      assetType: isCheck ? "CHECK" : "CASH",
+      methodLabel: formatInvoiceTypeLabel(rawType),
+      paymentMethodId: isCheck ? CHECK : CASH,
+      customer: (customerCode ? customerNames.get(customerCode) : undefined) ?? customerCode,
+      customerCode,
+      bankName: isCheck ? (check?.draweeBank ?? null) : null,
+      checkNo: isCheck ? (check?.checkNo ?? null) : null,
+      chequeDate: null,
+      collectionDate,
+      amount: roundMoney(asNumber(row.amount)),
+      ageDays: daysSince(collectionDate),
+      alreadyDeposited: false,
+      isPosted: isTruthyFlag(parent?.isPosted),
+      isCancelled: isTruthyFlag(parent?.isCancelled),
+    } satisfies UndepositedAsset;
+  });
 
-      const check = isCheck
-        ? checkByRef.get(asString(parent?.collection_receipt_no) || asString(parent?.docNo) || "")
-        : undefined;
+  const overageAssets: UndepositedAsset[] = pendingOverages.map((row) => {
+    const parent = row.collection_id == null ? undefined : byId.get(Number(row.collection_id));
+    const collectionDate = parent?.collection_date ?? null;
+    const documentNumber = parent?.collection_receipt_no || parent?.docNo || `#${row.collection_id ?? row.id}`;
+    const invoice = invoices.get(Number(row.invoice_id ?? 0));
+    const customerCode = invoice?.customerCode ?? cleanCustomerCode(row.customer_code);
 
-      const methodLabel = isAdjustment
-        ? "Adjustment"
-        : resolvedMethodName ?? (isCheck ? "Check" : "Cash");
+    return {
+      rowKey: `det:${Number(row.id)}`,
+      collectionInvoiceId: null,
+      collectionDetailId: Number(row.id),
+      collectionId: Number(row.collection_id ?? 0),
+      invoiceId: row.invoice_id == null ? null : Number(row.invoice_id),
+      invoiceNo: invoice?.invoiceNo ?? null,
+      documentNumber,
+      collectionReference: parent?.docNo ?? null,
+      assetType: "CASH",
+      methodLabel: "Overage",
+      paymentMethodId: CASH,
+      customer: (customerCode ? customerNames.get(customerCode) : undefined) ?? customerCode,
+      customerCode,
+      bankName: null,
+      checkNo: null,
+      chequeDate: null,
+      collectionDate,
+      amount: roundMoney(asNumber(row.amount)),
+      ageDays: daysSince(collectionDate),
+      alreadyDeposited: false,
+      isPosted: isTruthyFlag(parent?.isPosted),
+      isCancelled: isTruthyFlag(parent?.isCancelled),
+    } satisfies UndepositedAsset;
+  });
 
-      return {
-        collectionInvoiceId: Number(row.id),
-        collectionId: Number(row.collection_id ?? 0),
-        invoiceId: row.invoice_id == null ? null : Number(row.invoice_id),
-        invoiceNo: invoice?.invoiceNo ?? null,
-        documentNumber,
-        collectionReference: parent?.docNo ?? null,
-        assetType: isCheck ? "CHECK" : "CASH",
-        methodLabel,
-        paymentMethodId,
-        customer: (customerCode ? customerNames.get(customerCode) : undefined) ?? customerCode,
-        customerCode,
-        bankName: isCheck ? (check?.draweeBank ?? null) : null,
-        checkNo: isCheck ? (asString(detail?.check_no) || check?.checkNo || null) : null,
-        chequeDate: isCheck ? (detail?.chequeDate ?? null) : null,
-        collectionDate,
-        amount: roundMoney(asNumber(row.amount)),
-        ageDays: daysSince(collectionDate),
-        alreadyDeposited: false,
-        isPosted: isTruthyFlag(parent?.isPosted),
-        isCancelled: isTruthyFlag(parent?.isCancelled),
-      } satisfies UndepositedAsset;
-    })
-    // Only rows that can go on a slip belong here (P14): posted, dated, not voided. The
-    // queue is not a hiding place for ineligible rows, so there is nothing left to toggle.
-    .filter((asset) => asset.isPosted && !asset.isCancelled && asset.collectionDate !== null);
+  return [...invoiceAssets, ...overageAssets]
+    // Only rows that can go on a slip belong here (P14): posted, dated, not voided.
+    .filter((asset) => asset.isPosted && !asset.isCancelled && asset.collectionDate !== null)
+    .sort((a, b) => {
+      const idA = a.collectionInvoiceId ?? a.collectionDetailId ?? 0;
+      const idB = b.collectionInvoiceId ?? b.collectionDetailId ?? 0;
+      return b.collectionId - a.collectionId || idB - idA;
+    });
 }
 
 export type DepositPreview = { entries: ResolvedJournalEntry[]; account: DepositAccount };
@@ -536,28 +507,66 @@ async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlip
     id: number;
     bank_deposit_id: number | null;
     collection_invoice_id: number | null;
+    collection_detail_id: number | null;
     amount: number | string | null;
     payment_method: number | null;
     check_no: string | null;
     deposit_status: string | null;
   }>("bank_deposit_details", {
-    fields: ["id", "bank_deposit_id", "collection_invoice_id", "amount", "payment_method", "check_no", "deposit_status"],
+    fields: [
+      "id",
+      "bank_deposit_id",
+      "collection_invoice_id",
+      "collection_detail_id",
+      "amount",
+      "payment_method",
+      "check_no",
+      "deposit_status",
+    ],
     filter: { bank_deposit_id: { _in: slipIds } },
     limit: 2000,
   });
   if (!links.length) return result;
 
-  const invoiceRowIds = [...new Set(links.map((link) => Number(link.collection_invoice_id)).filter(Boolean))];
-  const { rows: settlements } = invoiceRowIds.length
-    ? await listItems<{ id: number; collection_id: number | null; invoice_id: number | null }>("collection_invoices", {
-        fields: ["id", "collection_id", "invoice_id"],
-        filter: { id: { _in: invoiceRowIds } },
-        limit: 2000,
-      })
-    : { rows: [] as { id: number; collection_id: number | null; invoice_id: number | null }[] };
+  const invoiceRowIds = [...new Set(links.map((link) => Number(link.collection_invoice_id ?? 0)).filter((id) => id > 0))];
+  const detailRowIds = [...new Set(links.map((link) => Number(link.collection_detail_id ?? 0)).filter((id) => id > 0))];
+
+  const [{ rows: settlements }, { rows: overageRows }] = await Promise.all([
+    invoiceRowIds.length
+      ? listItems<{ id: number; collection_id: number | null; invoice_id: number | null; type: string | null }>(
+          "collection_invoices",
+          {
+            fields: ["id", "collection_id", "invoice_id", "type"],
+            filter: { id: { _in: invoiceRowIds } },
+            limit: 2000,
+          },
+        )
+      : Promise.resolve({
+          rows: [] as { id: number; collection_id: number | null; invoice_id: number | null; type: string | null }[],
+        }),
+    detailRowIds.length
+      ? listItems<{ id: number; collection_id: number | null; invoice_id: number | null; customer_code: string | null }>(
+          "collection_details",
+          {
+            fields: ["id", "collection_id", "invoice_id", "customer_code"],
+            filter: { id: { _in: detailRowIds } },
+            limit: 2000,
+          },
+        )
+      : Promise.resolve({
+          rows: [] as { id: number; collection_id: number | null; invoice_id: number | null; customer_code: string | null }[],
+        }),
+  ]);
+
   const settlementById = new Map(settlements.map((row) => [Number(row.id), row]));
-  const collectionIds = [...new Set(settlements.map((row) => Number(row.collection_id)).filter(Boolean))];
-  const [{ rows: collections }, invoices, paymentMethods] = await Promise.all([
+  const overageById = new Map(overageRows.map((row) => [Number(row.id), row]));
+  const collectionIds = [
+    ...new Set([
+      ...settlements.map((row) => Number(row.collection_id)).filter(Boolean),
+      ...overageRows.map((row) => Number(row.collection_id)).filter(Boolean),
+    ]),
+  ];
+  const [{ rows: collections }, invoices] = await Promise.all([
     collectionIds.length
       ? listItems<{ id: number; docNo: string | null; collection_receipt_no: string | null; collection_date: string | null }>(
           "collection",
@@ -566,11 +575,16 @@ async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlip
       : Promise.resolve({
           rows: [] as { id: number; docNo: string | null; collection_receipt_no: string | null; collection_date: string | null }[],
         }),
-    loadInvoices(settlements.map((row) => Number(row.invoice_id ?? 0))),
-    loadPaymentMethods(),
+    loadInvoices([
+      ...settlements.map((row) => Number(row.invoice_id ?? 0)),
+      ...overageRows.map((row) => Number(row.invoice_id ?? 0)),
+    ]),
   ]);
   const collectionById = new Map(collections.map((row) => [Number(row.id), row]));
-  const customerNames = await loadCustomerNames([...invoices.values()].map((entry) => entry.customerCode ?? ""));
+  const customerNames = await loadCustomerNames([
+    ...[...invoices.values()].map((entry) => entry.customerCode ?? ""),
+    ...overageRows.map((row) => asString(row.customer_code)),
+  ]);
 
   // Load slip headers for all slips so we have deposit_no (to join bank_checks) and
   // total_checks (to type legacy lines that predate receipt links).
@@ -626,44 +640,57 @@ async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlip
     if (ref && !checkBySlip.has(ref)) checkBySlip.set(ref, row);
   }
 
-  // One row per invoice, the way the Collection Summary reads: a receipt's cash tender and its
-  // adjustment legs are two settlement rows against the same invoice, and splitting them on the
-  // slip shows the same customer twice for one invoice.
   const grouped = new Map<string, DepositSlipItem>();
   for (const link of links) {
-    const settlement = settlementById.get(Number(link.collection_invoice_id));
-    const parent = settlement?.collection_id == null ? undefined : collectionById.get(Number(settlement.collection_id));
-    const invoice = invoices.get(Number(settlement?.invoice_id ?? 0));
-    const customerCode = invoice?.customerCode ?? null;
+    const isOverageLink = link.collection_detail_id != null && Number(link.collection_detail_id) > 0;
+    const settlement = !isOverageLink && link.collection_invoice_id != null
+      ? settlementById.get(Number(link.collection_invoice_id))
+      : undefined;
+    const overage = isOverageLink ? overageById.get(Number(link.collection_detail_id)) : undefined;
+    const parentCollectionId = settlement?.collection_id ?? overage?.collection_id ?? null;
+    const parent = parentCollectionId == null ? undefined : collectionById.get(Number(parentCollectionId));
+    const linkedInvoiceId = settlement?.invoice_id ?? overage?.invoice_id ?? null;
+    const invoice = invoices.get(Number(linkedInvoiceId ?? 0));
+    const rawOverageCode = asString(overage?.customer_code).trim();
+    const customerCode = invoice?.customerCode ?? (rawOverageCode && rawOverageCode !== "0" ? rawOverageCode : null);
     const method = link.payment_method != null ? Number(link.payment_method) : null;
-    const resolvedMethodName = method != null ? paymentMethods.get(method) : undefined;
     const slipId = Number(link.bank_deposit_id);
-    const key = `${slipId}:${settlement?.invoice_id ?? link.id}`;
+    const key = isOverageLink
+      ? `${slipId}:det:${link.collection_detail_id}`
+      : `${slipId}:inv:${settlement?.invoice_id ?? link.id}`;
     const amount = roundMoney(asNumber(link.amount));
-    // No settlement row: this line cannot name a receipt, a customer or a tender, so it is
-    // labelled legacy and typed from the slip header instead of being guessed as cash.
-    const legacy = !settlement;
-    const isCheck = legacy
-      ? isCheckPaymentMethod(method, resolvedMethodName) || link.check_no != null || (slipChecks.get(slipId) ?? 0) > 0
-      : isCheckPaymentMethod(method, resolvedMethodName);
+    const legacy = !settlement && !overage;
+    const rawSettlementType = asString(settlement?.type);
+    const isCheck = isOverageLink
+      ? false
+      : legacy
+        ? method === CHECK || link.check_no != null || (slipChecks.get(slipId) ?? 0) > 0
+        : rawSettlementType
+          ? isCheckType(rawSettlementType)
+          : method === CHECK;
     const depositNo = slipNoById.get(slipId) ?? "";
     const matchedCheck =
       (link.collection_invoice_id != null ? checkByDetailId.get(Number(link.collection_invoice_id)) : undefined) ??
       (depositNo && link.check_no ? checkBySlipAndNo.get(`${depositNo}:${asString(link.check_no).trim()}`) : undefined) ??
       (isCheck && legacy && depositNo ? checkBySlip.get(depositNo) : undefined);
     const resolvedCheckStatus = (matchedCheck?.status as DepositSlipItem["checkStatus"]) ?? null;
+    const resolvedLabel = isOverageLink
+      ? "Overage"
+      : rawSettlementType
+        ? formatInvoiceTypeLabel(rawSettlementType)
+        : isCheck
+          ? "Check"
+          : method === CASH
+            ? "Cash"
+            : "Adjustment";
 
     const existing = grouped.get(key);
     if (existing) {
       existing.amount = roundMoney(existing.amount + amount);
       if (isCheck) {
         existing.assetType = "CHECK";
-        existing.methodLabel = resolvedMethodName ?? "Check";
+        existing.methodLabel = resolvedLabel;
         existing.checkNo = existing.checkNo ?? link.check_no ?? matchedCheck?.check_no ?? null;
-      } else if (resolvedMethodName && existing.assetType !== "CHECK") {
-        existing.methodLabel = resolvedMethodName;
-      } else if (method === CASH && existing.assetType !== "CHECK") {
-        existing.methodLabel = "Cash";
       }
       if (!existing.checkStatus && resolvedCheckStatus) {
         existing.checkStatus = resolvedCheckStatus;
@@ -673,12 +700,10 @@ async function loadSlipItems(slipIds: number[]): Promise<Map<number, DepositSlip
     const resolvedCustomer =
       (customerCode ? customerNames.get(customerCode) : undefined) ?? customerCode ?? matchedCheck?.payor ?? null;
     grouped.set(key, {
-      collectionInvoiceId: Number(link.collection_invoice_id ?? link.id),
+      collectionInvoiceId: Number(link.collection_invoice_id ?? link.collection_detail_id ?? link.id),
       invoiceNo: invoice?.invoiceNo ?? null,
       assetType: isCheck ? "CHECK" : "CASH",
-      methodLabel: legacy
-        ? resolvedMethodName ?? (isCheck ? "Check" : "Cash")
-        : resolvedMethodName ?? (isCheck ? "Check" : method === CASH ? "Cash" : "Adjustment"),
+      methodLabel: resolvedLabel,
       documentNumber: legacy
         ? matchedCheck?.check_no || depositNo || "Legacy line — prepared before receipt links"
         : parent?.collection_receipt_no || parent?.docNo || "No receipt recorded",
@@ -792,6 +817,7 @@ export type CreateSlipInput = {
   slipNo: string;
   remarks: string | null;
   cashIds: number[];
+  overageDetailIds?: number[];
   checkIds: number[];
   /** `bank_deposit.prepared_by` is NOT NULL, so the route must resolve the signed-in user first. */
   preparedBy: number | null;
@@ -833,7 +859,8 @@ function describeDirectusWrite(error: DirectusError, what: string): string {
 }
 
 export async function createDepositSlip(input: CreateSlipInput): Promise<CreateSlipResult> {
-  if (!input.cashIds.length && !input.checkIds.length) {
+  const overageDetailIds = input.overageDetailIds ?? [];
+  if (!input.cashIds.length && !overageDetailIds.length && !input.checkIds.length) {
     throw new ValidationError("Select at least one cash collection or check to deposit.");
   }
   if (input.preparedBy === null) {
@@ -863,16 +890,36 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
   const account = await loadDepositAccount(input.bankAccountId);
 
   const assets = await listUndepositedAssets();
-  const byId = new Map(assets.map((asset) => [asset.collectionInvoiceId, asset]));
+  const byInvoiceId = new Map(
+    assets.filter((a) => a.collectionInvoiceId !== null).map((a) => [a.collectionInvoiceId as number, a]),
+  );
+  const byDetailId = new Map(
+    assets.filter((a) => a.collectionDetailId !== null).map((a) => [a.collectionDetailId as number, a]),
+  );
 
-  const cash = input.cashIds.map((id) => byId.get(id)).filter((asset): asset is UndepositedAsset => !!asset && asset.assetType === "CASH");
-  const checks = input.checkIds.map((id) => byId.get(id)).filter((asset): asset is UndepositedAsset => !!asset && asset.assetType === "CHECK");
+  const invoiceCash = input.cashIds
+    .map((id) => byInvoiceId.get(id))
+    .filter((asset): asset is UndepositedAsset => !!asset && asset.assetType === "CASH");
+  const overageCash = overageDetailIds
+    .map((id) => byDetailId.get(id))
+    .filter((asset): asset is UndepositedAsset => !!asset && asset.assetType === "CASH");
+  const cash = [...invoiceCash, ...overageCash];
+  const checks = input.checkIds
+    .map((id) => byInvoiceId.get(id))
+    .filter((asset): asset is UndepositedAsset => !!asset && asset.assetType === "CHECK");
 
-  if (cash.length !== input.cashIds.length || checks.length !== input.checkIds.length) {
-    const known = new Set(assets.map((asset) => asset.collectionInvoiceId));
-    const missing = [...input.cashIds, ...input.checkIds].filter((id) => !known.has(id));
+  if (
+    invoiceCash.length !== input.cashIds.length ||
+    overageCash.length !== overageDetailIds.length ||
+    checks.length !== input.checkIds.length
+  ) {
+    const missingInvoices = [...input.cashIds, ...input.checkIds].filter((id) => !byInvoiceId.has(id));
+    const missingDetails = overageDetailIds.filter((id) => !byDetailId.has(id));
+    const detailText = missingDetails.length ? `overage #${missingDetails.join(", #")}` : "";
+    const invText = missingInvoices.length ? await describeMissing(missingInvoices) : "";
+    const combined = [invText, detailText].filter(Boolean).join("; ");
     throw new ValidationError(
-      `These collections are no longer waiting to be deposited: ${await describeMissing(missing)}. Refresh and try again.`,
+      `These collections are no longer waiting to be deposited: ${combined || "selected items"}. Refresh and try again.`,
     );
   }
 
@@ -950,9 +997,8 @@ export async function createDepositSlip(input: CreateSlipInput): Promise<CreateS
     for (const asset of [...cash, ...checks]) {
       await createItem("bank_deposit_details", {
         bank_deposit_id: created.id,
-        // The line is the only place the method and the cheque survive: the settlement row
-        // behind it knows the customer and the invoice, never how the money arrived.
         collection_invoice_id: asset.collectionInvoiceId,
+        collection_detail_id: asset.collectionDetailId,
         amount: asset.amount,
         payment_method: asset.paymentMethodId ?? (asset.assetType === "CHECK" ? CHECK : CASH),
         check_no: asset.checkNo,

@@ -18,16 +18,16 @@ type Props = {
   assets: UndepositedAsset[];
   totalCount: number;
   filters: UndepositedFilters;
-  selected: Set<number>;
+  selected: Set<string>;
   isLoading: boolean;
   page: number;
   pageSize: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onFiltersChange: (filters: UndepositedFilters) => void;
-  onToggle: (id: number) => void;
-  onToggleAll: (checked: boolean, ids: number[]) => void;
-  onSelectAllReady: (ids: number[]) => void;
+  onToggle: (key: string) => void;
+  onToggleAll: (checked: boolean, keys: string[]) => void;
+  onSelectAllReady: (keys: string[]) => void;
   onDeselectAll: () => void;
   onOpenRow: (asset: UndepositedAsset) => void;
   /** Money value of the current selection, so the slip amount is visible before the dialog opens. */
@@ -77,9 +77,9 @@ export function UndepositedTable({
   const isPdc = (asset: UndepositedAsset) => isPostDated(asset, today);
   const blockReason = (asset: UndepositedAsset) => assetBlockReason(asset, today);
   const isDisabled = (asset: UndepositedAsset) => blockReason(asset) !== null;
-  const selectableIds = rows.filter((asset) => !isDisabled(asset)).map((asset) => asset.collectionInvoiceId);
+  const selectableIds = rows.filter((asset) => !isDisabled(asset)).map((asset) => asset.rowKey);
   // "Ready" ignores paging: the button exists for the common case of depositing everything at once.
-  const readyIds = assets.filter((asset) => !isDisabled(asset)).map((asset) => asset.collectionInvoiceId);
+  const readyIds = assets.filter((asset) => !isDisabled(asset)).map((asset) => asset.rowKey);
   const allSelected =
     selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const activeLabels = activeFilterLabels(filters);
@@ -175,8 +175,8 @@ export function UndepositedTable({
                   const blocked = blockReason(asset);
                   return (
                     <TableRow
-                      key={asset.collectionInvoiceId}
-                      data-state={selected.has(asset.collectionInvoiceId) ? "selected" : undefined}
+                      key={asset.rowKey}
+                      data-state={selected.has(asset.rowKey) ? "selected" : undefined}
                       tabIndex={0}
                       aria-label={`Open ${asset.documentNumber}`}
                       className={cn("cursor-pointer", blocked && "bg-muted/30")}
@@ -192,8 +192,8 @@ export function UndepositedTable({
                         <Checkbox
                           aria-label={`Select ${asset.documentNumber}`}
                           disabled={blocked !== null}
-                          checked={selected.has(asset.collectionInvoiceId)}
-                          onCheckedChange={() => onToggle(asset.collectionInvoiceId)}
+                          checked={selected.has(asset.rowKey)}
+                          onCheckedChange={() => onToggle(asset.rowKey)}
                         />
                       </TableCell>
                       <TableCell className="whitespace-nowrap font-mono text-sm">
@@ -275,7 +275,7 @@ export function UndepositedTable({
               const blocked = blockReason(asset);
               return (
                 <li
-                  key={asset.collectionInvoiceId}
+                  key={asset.rowKey}
                   className={cn("flex cursor-pointer items-start gap-3 p-4", blocked && "bg-muted/30")}
                   onClick={() => onOpenRow(asset)}
                   onKeyDown={(event) => {
@@ -295,8 +295,8 @@ export function UndepositedTable({
                     <Checkbox
                       aria-label={`Select ${asset.documentNumber}`}
                       disabled={blocked !== null}
-                      checked={selected.has(asset.collectionInvoiceId)}
-                      onCheckedChange={() => onToggle(asset.collectionInvoiceId)}
+                      checked={selected.has(asset.rowKey)}
+                      onCheckedChange={() => onToggle(asset.rowKey)}
                     />
                   </span>
                   <div className="min-w-0 flex-1">
