@@ -31,7 +31,7 @@ export async function readDonationDocuments(cgt: boolean | "all" = false): Promi
       if (snapshot) rows.push(...(snapshot.auditEvents ?? []).filter((row: { action?: string }) => actions.includes(row.action ?? ""))
         .map((row: { entry_id?: string; after_state?: unknown }) => ({ entry_id: row.entry_id, after_state: row.after_state, revision: Number(snapshot.posting.stateRevision) + 1 })));
     }
-    return Object.fromEntries(rows.slice().sort((a, b) => Number(a.revision ?? 0) - Number(b.revision ?? 0)).flatMap(row => {
+    return Object.fromEntries(rows.slice().sort((a: { revision?: unknown }, b: { revision?: unknown }) => Number(a.revision ?? 0) - Number(b.revision ?? 0)).flatMap((row: { entry_id?: string; after_state?: unknown }) => {
       const parsed = document.parse(typeof row.after_state === "string" ? JSON.parse(row.after_state) : row.after_state);
       if (parsed.status === "filed-manually" && !parsed.evidenceFileId) {
         parsed.status = "reference-only";

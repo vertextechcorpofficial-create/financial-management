@@ -1,4 +1,4 @@
-import { balance, centavos, fiscalDates, type Entry, type Line } from "./ledger.ts";
+import { balance, centavos, fiscalDates, type Entry, type Line } from "./ledger";
 import { activeEntries, assertFutureBalances, validPostingDate } from "./financial-engine.mjs";
 
 export type Trade = {

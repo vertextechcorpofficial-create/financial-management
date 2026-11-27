@@ -5,6 +5,7 @@ export type LedgerAccess = { id: number; admin: boolean; workspaces: readonly Wo
   roles?: Partial<Record<WorkspaceKey, LedgerRole>>; rolesAuthoritative?: boolean };
 
 export function workspaceRole(access: LedgerAccess | null, workspace: WorkspaceKey, config = process.env.CGL_WORKSPACE_ROLES): LedgerRole {
+  if (!access) return "none";
   const siblingGrant = (keys: string[]) => access?.workspaces.some(key => keys.includes(key)) ?? false;
   const hasModuleAccess = access?.workspaces.includes(workspace) ||
     (workspace === "annual-review-preparer" && siblingGrant(["annual-review-approver"])) ||

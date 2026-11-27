@@ -622,7 +622,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
               ["Cash across 3 accounts", peso(cash), "Operating and reserve accounts"],
               ["Giving this financial year", peso(giving), `Target ${peso(givingTarget)}`],
                ["Net worth at book value", peso(assets - liabilities), <>Liabilities {peso(liabilities)} · <StatusBadge status={balance(entries) === 0 ? "Books balanced" : "Check balances"} tone={balance(entries) === 0 ? "success" : "danger"} /></>]]
-              .map(([label, value, note]) => <Card key={label}><CardHeader><CardTitle className="text-sm">{label}</CardTitle></CardHeader>
+              .map(([label, value, note]) => <Card key={String(label)}><CardHeader><CardTitle className="text-sm">{label}</CardTitle></CardHeader>
                 <CardContent><p className="text-lg font-semibold">{value}</p><p className="text-xs text-muted-foreground">{note}</p></CardContent></Card>)}
           </div>
            <div className="grid items-start gap-4 lg:grid-cols-2">

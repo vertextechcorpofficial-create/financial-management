@@ -245,17 +245,17 @@ export async function readLedgerActivity(limit = 100) {
     const sources = ["cgl_audit_events", "cgl_master_events", "cgl_period_events", "cgl_reconciliation_events", "cgl_annual_review_events"];
     const parse = (value: unknown): unknown => typeof value === "string" ? JSON.parse(value) : value ?? null;
     const batches = process.env.CGL_MYSQL_URL
-      ? await ledgerDatabase().transaction(async trx => Promise.all(sources.map(table => trx(table).orderBy("id", "desc").limit(limit).select("*"))),
+      ? await ledgerDatabase().transaction(async (trx: import("knex").Knex) => Promise.all(sources.map(table => trx(table).orderBy("id", "desc").limit(limit).select("*"))),
         { isolationLevel: "repeatable read", readOnly: true })
       : await Promise.all(sources.map(table => ledgerClient()(table, { query: { sort: "-id", limit: String(limit) } })));
     if (batches.some(rows => !Array.isArray(rows))) throw new Error("Invalid activity response.");
-    const events = batches.flatMap((rows, index) => rows.map((row: Record<string, unknown>) => ({
+     const events = batches.flatMap((rows: unknown, index: number) => (rows as Record<string, unknown>[]).map((row: Record<string, unknown>) => ({
         id: `${sources[index]}:${String(row.id)}`,
         at: row.occurred_at instanceof Date ? row.occurred_at.toISOString() : String(row.occurred_at),
         actor: Number(row.actor), action: String(row.action),
         entity: String(row.entity ?? row.entry_id ?? row.month_start ?? row.fiscal_start ?? ""),
         before: parse(row.before_state), after: parse(row.after_state ?? row.payload ?? row.checks),
-      }))).sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id)).slice(0, limit);
+       }))).sort((a: { at: string; id: string }, b: { at: string; id: string }) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id)).slice(0, limit);
     return { ok: true as const, events };
   } catch {
     return failure("The activity log is unavailable. No records were changed.");

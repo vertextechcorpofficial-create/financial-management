@@ -11,7 +11,7 @@ const json = (value: unknown) => typeof value === "string" ? JSON.parse(value) :
 export async function readDirectusLedger() {
   if (process.env.CGL_MYSQL_URL) {
     // One MVCC snapshot avoids mixed headers/registers when a posting commits mid-read.
-    return ledgerDatabase().transaction(async trx => {
+    return ledgerDatabase().transaction(async (trx: import("knex").Knex) => {
       await assertStorageReady(trx);
       const [journal, registers, periods, events] = await Promise.all([
         readStoredJournal(trx), readStoredRegisters((table: string) => trx(table).select("*")),

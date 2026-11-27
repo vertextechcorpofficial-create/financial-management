@@ -50,7 +50,7 @@ export async function ledgerAccess() {
   const grants = admin ? null : new Set((await rows("user_access_modules", "module_id", {
     user_id: { _eq: id }, module_id: { _in: registry.map(row => row.id) },
   }, z.object({ module_id: Id }))).map(row => row.module_id));
-  const isChild = (row: Registry) => row.parent_module_id === parent.id || row.base_path.startsWith(`${parent.base_path}/`);
+  const isChild = (row: z.infer<typeof Registry>) => row.parent_module_id === parent.id || row.base_path.startsWith(`${parent.base_path}/`);
   const parentGranted = !grants || grants.has(parent.id) || registry.some(row => isChild(row) && grants.has(row.id));
   const workspaces = INVESTMENT_DONATIONS_WORKSPACES.filter(workspace => {
     const row = find(workspace.slug, workspace.path, parent.id);

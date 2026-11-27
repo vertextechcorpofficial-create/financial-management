@@ -1,4 +1,4 @@
-import { balance, type Entry } from "./ledger.ts";
+import { balance, type Entry } from "./ledger";
 
 type Lot = { id: string; sym: string; acctType: string };
 type Snapshot = {
