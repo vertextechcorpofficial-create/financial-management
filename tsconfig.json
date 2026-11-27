@@ -31,18 +31,17 @@
   "include": [
     "next-env.d.ts",
     "next.config.ts",
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "src/**/*.mts",
+    "**/*.ts",
+    "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    "**/*.mts",
+    "src/modules/financial-management/accounting/supplier-management/delivery-terms/hooks/sample",
+    "src/modules/financial-management/accounting/supplier-management/payment-terms/components/sample",
+    "src/modules/financial-management/accounting/supplier-management/payment-terms/hooks/sample",
+    "src/modules/financial-management/accounting/supplier-management/payment-terms/utils/sample"
   ],
   "exclude": [
-    "node_modules",
-    ".next",
-    "**/*.test.ts",
-    "**/*.test.tsx",
-    "**/*.spec.ts",
-    "**/*.spec.tsx"
+    "node_modules"
   ]
 }
