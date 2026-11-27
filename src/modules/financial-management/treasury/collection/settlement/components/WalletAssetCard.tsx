@@ -1,5 +1,6 @@
 "use client";
 
+import { parseSettlementAmount, SETTLEMENT_STEP } from "../utils/settlement-balance";
 import React from "react";
 import { X, Check, Edit2, Layers, ChevronsUpDown, Save, Trash2, User, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -130,15 +131,15 @@ export default function WalletAssetCard({
                     )}
                     <div className="relative">
                         <span className="absolute left-2 top-1.5 text-[9px] font-black text-muted-foreground">₱</span>
-                        <Input type="number" value={editAmt} onChange={e => setEditAmt(e.target.value)} placeholder="0.00" className="h-7 pl-5 text-xs font-mono font-black shadow-inner bg-muted/20"/>
+                        <Input type="number" step={SETTLEMENT_STEP} value={editAmt} onChange={e => setEditAmt(e.target.value)} placeholder="0.000" className="h-7 pl-5 text-xs font-mono font-black shadow-inner bg-muted/20"/>
                     </div>
                     <Input value={editRef} onChange={e => setEditRef(e.target.value.toUpperCase())} placeholder={item.type === "EWT" ? "Form 2307 Ref" : "Remarks"} className="h-7 text-xs bg-muted/20 shadow-inner px-2"/>
                 </div>
 
                 <Button size="sm" className="w-full h-7 text-[9px] font-black tracking-widest uppercase bg-primary text-white mt-0.5 shadow-md active:scale-95"
                         onClick={() => {
-                            const numAmt = parseFloat(editAmt);
-                            if (isNaN(numAmt) || numAmt <= 0) return toast.error("Please enter a valid amount greater than 0.");
+                            const numAmt = parseSettlementAmount(editAmt);
+                            if (numAmt === null || numAmt <= 0) return toast.error("Enter an amount greater than zero with up to three decimal places.");
                             if (item.type === "ADJUSTMENT" && !editFId) return toast.error("Please select a specific reason.");
 
                             const label = item.type === "EWT" ? `Form 2307: ${editRef}` : (findings.find((f) => f.id === editFId)?.findingName || "Adjustment");
@@ -159,12 +160,12 @@ export default function WalletAssetCard({
                     <Badge variant={badgeColor} className={`text-[7px] uppercase px-1 py-0 h-3.5 leading-none ${item.type === 'ADJUSTMENT' && item.balanceTypeId === 2 ? 'border-purple-200 text-purple-700 bg-purple-50' : (item.type === 'EWT' ? 'border-teal-200 text-teal-700 bg-teal-50' : '')}`}>{item.type}</Badge>
                     {!isPosted && (item.type === "ADJUSTMENT" || item.type === "EWT") && (
                         <div className="flex items-center ml-0.5 border-l border-border/50 pl-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => {
+                            {!item.overageSourceId && <button onClick={() => {
                                 setEditingId(item.id); setEditAmt(item.originalAmount.toString()); setEditRef(item.customerName || "");
                                 const matchedFinding = findings?.find((f) => f.id === item.findingId || f.findingName === item.label);
                                 const cId = matchedFinding?.chartOfAccount?.coaId || matchedFinding?.chartOfAccount?.id;
                                 setEditCoaId(cId || ""); setEditFId(matchedFinding?.id || item.findingId || ""); setEditBalType(item.balanceTypeId || 2);
-                            }} className="text-muted-foreground hover:text-blue-500 transition-colors p-0.5" title="Edit Item"><Edit2 size={10}/></button>
+                            }} className="text-muted-foreground hover:text-blue-500 transition-colors p-0.5" title="Edit Item"><Edit2 size={10}/></button>}
                             <button onClick={() => deleteWalletItem(item.id, item.type)} className="text-muted-foreground hover:text-destructive transition-colors p-0.5" title="Remove Item"><Trash2 size={10}/></button>
                         </div>
                     )}
@@ -188,8 +189,8 @@ export default function WalletAssetCard({
             )}
 
             <div className={`flex justify-between gap-2 text-[10px] ${item.customerName || item.invoiceId ? 'mt-1 border-t border-border/50 pt-1' : 'mt-1.5'}`}>
-                <div className="min-w-0 flex-1"><p className="text-[7px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-0.5">Original</p><p className="font-mono truncate leading-none">₱{item.originalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}</p></div>
-                <div className="text-right min-w-0 flex-1"><p className="text-[7px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-0.5">Remaining</p><p className={`font-mono font-black truncate leading-none ${isExhausted ? 'text-muted-foreground' : (item.balanceTypeId === 1 ? 'text-red-600' : 'text-emerald-600')}`}>₱{remaining.toLocaleString(undefined, {minimumFractionDigits: 2})}</p></div>
+                <div className="min-w-0 flex-1"><p className="text-[7px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-0.5">Original</p><p className="font-mono truncate leading-none">₱{item.originalAmount.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</p></div>
+                <div className="text-right min-w-0 flex-1"><p className="text-[7px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-0.5">Remaining</p><p className={`font-mono font-black truncate leading-none ${isExhausted ? 'text-muted-foreground' : (item.balanceTypeId === 1 ? 'text-red-600' : 'text-emerald-600')}`}>₱{remaining.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</p></div>
             </div>
         </div>
     );

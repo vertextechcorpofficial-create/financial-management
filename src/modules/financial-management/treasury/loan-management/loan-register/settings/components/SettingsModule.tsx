@@ -73,7 +73,9 @@ export function SettingsModule() {
       ) : null}
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
-        <TabsList>
+        {/* The list is inline-flex and its height is pinned by the tabs variant, so wrapping at 375
+            would clip the second row. Scroll instead: every tab stays reachable, no page overflow. */}
+        <TabsList className="flex h-auto w-full max-w-full min-w-0 justify-start gap-1 overflow-x-auto">
           {TABS.map((entry) => (
             <TabsTrigger key={entry.value} value={entry.value} className="min-h-11 md:min-h-0">
               {entry.label}
@@ -107,6 +109,7 @@ export function SettingsModule() {
             chartAccounts={settings.chartAccounts}
             isSaving={settings.isSaving}
             onChange={settings.mapKey}
+            onAdd={settings.addMapping}
           />
         </TabsContent>
 

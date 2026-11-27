@@ -44,7 +44,7 @@ export interface TaxRates {
 }
 
 /** Two defensible readings of "cost of sales", both shown rather than one chosen. */
-export type CostBasis = "PRODUCT_COST" | "PURCHASES";
+export type CostBasis = "PRODUCT_COST" | "PURCHASES" | "LEDGER";
 
 /** One carryover lot the desk can still use, with the year it came from. */
 export interface CarryoverLot {
@@ -66,15 +66,25 @@ export interface CarryoverInput {
   actualPaid: (number | null)[];
 }
 
+export type TaxArbitrage = "REGULAR" | "MCIT";
+
 export interface TaxScenario {
   basis: CostBasis;
   label: string;
   grossIncome: number[];
   deductions: number[];
+  /** NOLCO applied in each quarter; the running total is what line 8 prints. */
   nolcoUsed: number[];
+  /** Running taxable income at each quarter, the same basis line 10 is computed on. */
   netTaxableIncome: number[];
   taxDue: number[];
   payable: number[];
+  /** Cumulative regular income tax per quarter. */
+  regular: number[];
+  /** Cumulative minimum corporate income tax per quarter; zero when the 2% does not apply. */
+  mcit: number[];
+  /** The higher of the two each quarter, i.e. what line 10 printed. */
+  arbitrage: TaxArbitrage[];
   annual: {
     grossIncome: number;
     deductions: number;
@@ -85,6 +95,10 @@ export interface TaxScenario {
     netPosition: number;
   };
   mcitApplied: boolean;
+  /** False while the company is still inside its first three years of operations. */
+  mcitApplicable: boolean;
+  /** 2% of year-to-date gross income, shown even when the MCIT is dormant so the gap is visible. */
+  mcitOnGross: number;
   smallCorporation: boolean;
   rate: number;
 }
@@ -101,6 +115,8 @@ export interface QuarterFigures {
   purchasesVat: number;
   /** Σ(line quantity × product standard cost), allocated across the quarter by line amount. */
   cogsProductCost: number;
+  /** The ledger basis is not loaded here, so the engine never sees one. */
+  cogsLedger: number;
   expenses: number;
   cwt: number;
   icSales: number;

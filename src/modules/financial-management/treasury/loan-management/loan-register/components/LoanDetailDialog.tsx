@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,11 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
+import { paymentShiftReason } from "@/modules/financial-management/treasury/loan-management/loan-schedules/services/kpis";
 
 import {
-  APPROVAL_STATUS_LABEL,
-  BUSINESS_DAY_RULE_LABEL,
-  DST_TREATMENT_LABEL,
+  BUSINESS_DAY_RULE_LABEL,  DST_TREATMENT_LABEL,
   FIRST_PERIOD_BASIS_LABEL,
   LENDER_TYPE_LABEL,
   LOAN_STATUS_LABEL,
@@ -25,36 +26,68 @@ import {
   SECURITY_LABEL,
   toneClass,
 } from "../constants";
-import { phtDisplayStamp, phtToday } from "../pht";
+import { formatDateMDY, phtDisplayStamp, phtToday } from "../pht";
 import type { LoanListRow } from "../types";
+import type { LoanSchedulePreview } from "../providers/registerApi";
 
 function stamp(value: string | null): string {
-  return value ? phtDisplayStamp(value) : "—";
+  return value ? stampOrDate(value) : "not recorded";
 }
 
 /** `release_date` is the drawdown date agreed on the terms sheet; the release itself is
  *  `released_at` plus status CURRENT. Naming the date "released" made readers think it had
  *  happened, so the line states which of the two it is. */
+// Rows written from a date column arrive as midnight, and printing 00:00:00 beside a date reads
+// like a recorded time. Anything with a real time keeps its seconds.
+function stampOrDate(value: string): string {
+  return /T00:00:00(\.0+)?$/.test(value) ? formatDateMDY(value) : phtDisplayStamp(value);
+}
 function releaseLine(loan: LoanListRow): string {
-  if (loan.released_at) return `Released ${phtDisplayStamp(loan.released_at)}`;
+  if (loan.released_at) return `Released ${stampOrDate(loan.released_at)}`;
   const due = loan.release_date < phtToday();
   return due
-    ? `Release date ${loan.release_date} has passed, still not released`
-    : `Release date ${loan.release_date}, not released yet`;
+    ? `Release date ${formatDateMDY(loan.release_date)} has passed, still not released`
+    : `Release date ${formatDateMDY(loan.release_date)}, not released yet`;
 }
 
 export function LoanDetailDialog({
   loan,
+  schedule,
+  scheduleError,
+  showingAll = false,
+  onShowAll,
   onOpenChange,
 }: {
   loan: LoanListRow | null;
+  schedule: LoanSchedulePreview | null;
+  scheduleError: string | null;
+  /** True once the reader asked for every installment instead of the first page. */
+  showingAll?: boolean;
+  onShowAll?: () => void;
   onOpenChange: (open: boolean) => void;
 }) {
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const installmentsRef = useRef<HTMLDivElement | null>(null);
+  const wasShowingAll = useRef(showingAll);
+
+  // Collapsing a long list left the body scrolled past the table, so the reader landed on the
+  // groups below it. Put the installments back at the top of the view when the list shrinks.
+  useEffect(() => {
+    const collapsed = wasShowingAll.current && !showingAll;
+    wasShowingAll.current = showingAll;
+    const body = bodyRef.current;
+    const anchor = installmentsRef.current;
+    if (!collapsed || !body || !anchor) return;
+    body.scrollTo({
+      top: Math.max(0, anchor.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 8),
+    });
+  }, [showingAll]);
+
   return (
     <Dialog open={loan !== null} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[860px]"
+        className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[85vw] lg:max-w-[1000px]"
       >
         <DialogHeader className="space-y-2 border-b px-6 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -74,9 +107,9 @@ export function LoanDetailDialog({
                 <Badge variant="outline" className={toneClass(LOAN_STATUS_TONE[loan.status])}>
                   {LOAN_STATUS_LABEL[loan.status]}
                 </Badge>
-                {loan.status === "PENDING_APPROVAL" || loan.status === "REJECTED" ? (
-                  <Badge variant="outline">{APPROVAL_STATUS_LABEL[loan.approval_status]}</Badge>
-                ) : null}
+                {/* QA1: a second badge that restated the first made "pending approval" read as
+                    two different answers. The status badge is the only state; the approval
+                    decision lives in the Trail group with its stamp. */}
                 {loan.schedule_version > 1 ? (
                   <Badge variant="outline">Schedule v{loan.schedule_version}</Badge>
                 ) : null}
@@ -86,7 +119,7 @@ export function LoanDetailDialog({
         </DialogHeader>
 
         {loan ? (
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          <div ref={bodyRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Tile label="Principal" value={formatCurrency(loan.principal)} />
               <Tile label="Outstanding" value={formatCurrency(loan.outstandingPrincipal)} />
@@ -96,9 +129,12 @@ export function LoanDetailDialog({
 
             <div className="grid gap-4 md:grid-cols-2">
               <Group title="Terms">
-                <Row label="Repayment method" value={REPAYMENT_METHOD_LABEL[loan.repayment_method]} />
-                <Row label="First payment" value={loan.first_payment_date} />
-                <Row label="Maturity" value={loan.maturity_date ?? "—"} />
+                <Row
+                  label="Repayment method"
+                  value={`${REPAYMENT_METHOD_LABEL[loan.repayment_method]} · ${PAYMENT_FREQUENCY_LABEL[loan.payment_frequency]}`}
+                />
+                <Row label="First payment" value={formatDateMDY(loan.first_payment_date)} />
+                <Row label="Maturity" value={formatDateMDY(loan.maturity_date)} />
                 <Row label="First period interest" value={FIRST_PERIOD_BASIS_LABEL[loan.first_period_basis]} />
                 <Row label="Due date on a holiday" value={BUSINESS_DAY_RULE_LABEL[loan.business_day_rule]} />
                 <Row
@@ -142,7 +178,7 @@ export function LoanDetailDialog({
                 <Row label="Proceeds account" value={loan.proceedsAccountLabel ?? "—"} />
                 <Row label="Branch" value={loan.branch || "—"} />
                 <Row label="Account officer" value={loan.account_officer || "—"} />
-                <Row label="Account number" value={loan.account_no} />
+                <Row label="Loan account / PN number" value={loan.account_no} />
               </Group>
 
               <Group title="Trail">
@@ -154,6 +190,89 @@ export function LoanDetailDialog({
                 <Row label="Purpose" value={loan.purpose || "—"} />
               </Group>
             </div>
+
+            <Group title="Installments">
+              {scheduleError ? (
+                <Row label="The schedule" value={scheduleError} />
+              ) : !schedule ? (
+                <Row label="The schedule" value="Reading the installments…" />
+              ) : schedule.rows.length === 0 ? (
+                <Row label="The schedule" value="No installments have been built for this loan." />
+              ) : (
+                <div ref={installmentsRef} className="px-4 py-3">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[680px] table-fixed text-xs">
+                      <thead>
+                        <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                          <th className="w-10 py-1 pl-0 pr-3 text-left font-medium">#</th>
+                          <th className="w-[105px] py-1 px-3 text-left font-medium">Due date</th>
+                          <th className="w-[170px] py-1 px-3 text-left font-medium">Payment due</th>
+                          <th className="py-1 pl-3 pr-4 text-right font-medium">Payment</th>
+                          <th className="py-1 pl-3 pr-4 text-right font-medium">Interest</th>
+                          <th className="py-1 pl-3 pr-4 text-right font-medium">Principal</th>
+                          <th className="py-1 pl-3 pr-0 text-right font-medium">Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {schedule.rows.map((row) => {
+                          const shifted = Boolean(row.payment_due_date && row.payment_due_date !== row.due_date);
+                          const reason = paymentShiftReason(row.due_date, row.payment_due_date, schedule.holidays);
+                          return (
+                            <tr key={row.id}>
+                              <td className="py-1.5 pl-0 pr-3 text-left tabular-nums text-muted-foreground">
+                                {row.period_no}
+                              </td>
+                              <td className="py-1.5 px-3 tabular-nums whitespace-nowrap">
+                                {formatDateMDY(row.due_date)}
+                              </td>
+                              <td className="py-1.5 px-3 tabular-nums">
+                                <span className="block whitespace-nowrap">{formatDateMDY(row.payment_due_date)}</span>
+                                <span
+                                  className="block truncate text-[11px] text-muted-foreground"
+                                  title={
+                                    shifted
+                                      ? `was ${formatDateMDY(row.due_date)}${reason ? ` · ${reason}` : ""}`
+                                      : "same"
+                                  }
+                                >
+                                  {shifted
+                                    ? `${reason || `was ${formatDateMDY(row.due_date)}`}`
+                                    : "same"}
+                                </span>
+                              </td>
+                              <td className="py-1.5 pl-3 pr-4 text-right tabular-nums">{formatCurrency(row.payment)}</td>
+                              <td className="py-1.5 pl-3 pr-4 text-right tabular-nums">{formatCurrency(row.interest)}</td>
+                              <td className="py-1.5 pl-3 pr-4 text-right tabular-nums">{formatCurrency(row.principal)}</td>
+                              <td className="py-1.5 pl-3 pr-0 text-right tabular-nums">
+                                {formatCurrency(row.closing_principal)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="flex flex-wrap items-center justify-between gap-2 pt-2 text-[11px] text-muted-foreground">
+                    <span>
+                      {showingAll
+                        ? `All ${formatNumber(schedule.total)} installments.`
+                        : schedule.total > schedule.rows.length
+                          ? `The first ${schedule.rows.length} of ${formatNumber(schedule.total)} installments.`
+                          : `${formatNumber(schedule.total)} installment${schedule.total === 1 ? "" : "s"} in this version.`}
+                    </span>
+                    {onShowAll && (showingAll || schedule.total > schedule.rows.length) ? (
+                      <button
+                        type="button"
+                        onClick={onShowAll}
+                        className="font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        {showingAll ? "Show the first rows again" : `Show all ${formatNumber(schedule.total)}`}
+                      </button>
+                    ) : null}
+                  </p>
+                </div>
+              )}
+            </Group>
 
             {loan.remarks ? (
               <div className="rounded-lg border border-border/60 bg-muted/20 px-4 py-3">

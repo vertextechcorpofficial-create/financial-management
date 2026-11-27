@@ -6,7 +6,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import type { Choice, Fund, FundReference, Page, Settings } from "../onboarding-types";
 import { useOnboardingCommand, useOnboardingRead } from "../hooks/useOnboarding";
-import { usePettyCashRefresh } from "../hooks/usePettyCashRefresh";
 import { OnboardingChoice } from "./OnboardingChoice";
 import { ErrorBox, Field, NativeSelect, OnboardingFeedback, Paging } from "./OnboardingCommon";
 import { FundStatusBadge } from "./FundStatusBadge";
@@ -28,7 +27,7 @@ const fundFieldIds: Record<string, string> = {
     approvalThreshold: "fund-threshold",
 };
 
-export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }: { requesterName: string; canSubmit: boolean; canEdit: boolean; canDelete: boolean }) {
+export function OnboardingFunds({ canSubmit, canEdit, canDelete }: { canSubmit: boolean; canEdit: boolean; canDelete: boolean }) {
   const [page, setPage] = useState(1), [editor, setEditor] = useState<Fund | "new" | null>(null), [deleting, setDeleting] = useState<Fund | null>(null);
   const [search, setSearch] = useState(""), [debouncedSearch, setDebouncedSearch] = useState("");
   const [department, setDepartment] = useState<Choice | null>(null), [custodian, setCustodian] = useState<Choice | null>(null), [statusFilter, setStatusFilter] = useState("ALL");
@@ -36,7 +35,6 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
   const filtersActive = Boolean(search.trim() || department || custodian || statusFilter !== "ALL");
   const query = fundFilterParams({ page, search: debouncedSearch, departmentId: department?.id, custodianId: custodian?.id, status: statusFilter }).toString();
   const { data, loading, refreshing, updatedAt, error, refresh } = useOnboardingRead<Page<Fund>>(`funds?${query}`);
-  usePettyCashRefresh(refresh, loading || refreshing);
   const headers = ["Fund", "Department", "Custodian", "Imprest", "Per voucher", "Approval above", "Requested by", "Status", ...(canEdit || canDelete ? [""] : [])];
   function clearFilters() { setSearch(""); setDebouncedSearch(""); setDepartment(null); setCustodian(null); setStatusFilter("ALL"); setPage(1); }
   function changeDepartment(value: Choice | null) { setDepartment(value); setPage(1); }
@@ -51,7 +49,7 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
     setPage(1);
     refresh();
   }
-  return <div className="space-y-4 rounded-xl border bg-card p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Fund requests</h2><div className="flex flex-wrap items-center gap-3"><UpdatedAgo at={updatedAt} onRefresh={refresh} />{canSubmit && <Button onClick={() => setEditor("new")}>+ New fund request</Button>}</div></div>
+  return <div className="space-y-4 rounded-xl border bg-card p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Fund requests</h2><div className="flex flex-wrap items-center gap-3"><UpdatedAgo at={updatedAt} />{canSubmit && <Button onClick={() => setEditor("new")}>+ New fund request</Button>}</div></div>
     <div role="search" aria-label="Fund request filters" className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3">
       <div className="min-w-56 flex-1 space-y-2"><label htmlFor="fund-search" className="text-sm font-medium">Search</label><Input id="fund-search" type="search" aria-label="Search funds" placeholder="Fund name, PCF #, or requester" value={search} onChange={event => setSearch(event.target.value)} /></div>
       <div className="w-full sm:w-52"><OnboardingChoice label="Department" resource="departments" selected={department} onSelect={changeDepartment} placeholder="All departments" /></div>
@@ -66,12 +64,12 @@ export function OnboardingFunds({ requesterName, canSubmit, canEdit, canDelete }
         {(canEdit || canDelete) && <td className="p-3">{item.status === "PENDING" && <div className="flex gap-2">{canEdit && <Button size="sm" variant="outline" aria-label={`Edit ${item.docNo}`} onClick={() => setEditor(item)}>Edit</Button>}{canDelete && <Button size="sm" variant="outline" aria-label={`Delete ${item.docNo}`} onClick={() => setDeleting(item)}>Delete</Button>}</div>}</td>}</tr>)}
       {!data.items.length && <tr><td colSpan={9} className="p-6 text-center text-muted-foreground">{filtersActive ? "No fund requests match these filters." : "No fund requests yet."}</td></tr>}
     </tbody></table></div>{data.total > data.pageSize && <Paging page={page} total={data.total} pageSize={data.pageSize} onChange={setPage} />}</>}
-    {editor && <FundRequestDialog key={editor === "new" ? "new" : editor.id} initial={editor === "new" ? null : editor} requesterName={requesterName} onClose={() => setEditor(null)} onSaved={saved} />}
+    {editor && <FundRequestDialog key={editor === "new" ? "new" : editor.id} initial={editor === "new" ? null : editor} onClose={() => setEditor(null)} onSaved={saved} />}
     {deleting && <DeleteFund fund={deleting} onClose={() => setDeleting(null)} onDeleted={() => { toast.success(`Fund request ${deleting.docNo} deleted. Audit history was retained.`); setDeleting(null); setPage(1); refresh(); }} />}
   </div>;
 }
 
-function FundRequestDialog({ initial, requesterName, onClose, onSaved }: { initial: Fund | null; requesterName: string; onClose: () => void; onSaved: (fund: Fund) => void }) {
+function FundRequestDialog({ initial, onClose, onSaved }: { initial: Fund | null; onClose: () => void; onSaved: (fund: Fund) => void }) {
   const [name, setName] = useState(initial?.name || ""), [department, setDepartment] = useState<Choice | null>(choice(initial?.department || null)), [custodian, setCustodian] = useState<Choice | null>(choice(initial?.custodian || null));
   const [imprest, setImprest] = useState(String(initial?.imprestAmount ?? "")), [limit, setLimit] = useState(String(initial?.perVoucherLimit ?? "")), [threshold, setThreshold] = useState(String(initial?.approvalThreshold ?? ""));
   const [validation, setValidation] = useState<Record<string, string>>({});
@@ -105,22 +103,21 @@ function FundRequestDialog({ initial, requesterName, onClose, onSaved }: { initi
     const result = await command.run<Fund>(initial ? `funds/${initial.id}` : "funds/submit", initial ? "PUT" : "POST", { version: initial?.version || 0, name, departmentId: department?.id ?? null, custodianId: custodian?.id ?? null, fundAccountId: account?.id ?? null, imprestAmount: imprest.trim() || null, perVoucherLimit: limit.trim() || null, approvalThreshold: threshold.trim() || null });
     if (result) onSaved(result);
   }
-  return <Dialog open onOpenChange={open => { if (!open && !command.busy) onClose(); }}><DialogContent showCloseButton={false} className="max-h-[90dvh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-4xl" onEscapeKeyDown={event => { if (command.busy) event.preventDefault(); }} onInteractOutside={event => { if (command.busy) event.preventDefault(); }}>
-    <DialogHeader className="flex-row items-center justify-between space-y-0 text-left"><DialogTitle>{initial ? "Edit fund request" : "New fund request"}</DialogTitle><Button type="button" size="sm" variant="outline" disabled={command.busy} onClick={onClose}>Close</Button><DialogDescription className="sr-only">Request a petty cash fund.</DialogDescription></DialogHeader>
+  return <Dialog open onOpenChange={open => { if (!open && !command.busy) onClose(); }}><DialogContent showCloseButton={false} className="max-h-[90dvh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-2xl" onEscapeKeyDown={event => { if (command.busy) event.preventDefault(); }} onInteractOutside={event => { if (command.busy) event.preventDefault(); }}>
+    <DialogHeader><DialogTitle>{initial ? "Edit fund request" : "New fund request"}</DialogTitle><DialogDescription className="sr-only">Request a petty cash fund.</DialogDescription></DialogHeader>
     <form noValidate onSubmit={submit} onChange={clearFeedback} className="space-y-4"><fieldset disabled={command.busy} className="space-y-4">
       <div id="fund-error-summary" tabIndex={-1} className="space-y-3 outline-none">
         {Object.keys(validation).length > 0 && <OnboardingFeedback tone="error" title="Check the highlighted fields"><p>Review the highlighted fund request fields and try again.</p></OnboardingFeedback>}
         <ErrorBox error={command.error} title={initial ? "Could not save fund request" : "Could not submit fund request"} showFields={false} />
       </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        <Field label="Fund name" id="fund-name" value={name} onChange={setName} maxLength={60} placeholder="e.g. Finance Office Fund" error={fieldError("name")} />
-        <OnboardingChoice label="Department" id="fund-department" resource="departments" selected={department} onSelect={value => { setDepartment(value); clearFeedback(); }} disabled={command.busy} error={fieldError("departmentId")} fundRequest excludeFundId={initial?.id} />
-        <OnboardingChoice label="Custodian" id="fund-custodian" resource="personnel" selected={custodian} onSelect={value => { setCustodian(value); clearFeedback(); }} disabled={command.busy} error={fieldError("custodianId")} />
+      <div className="space-y-3">
+        <Field label="Fund name" id="fund-name" value={name} onChange={setName} required maxLength={60} placeholder="e.g. Finance Office Fund" error={fieldError("name")} />
+        <OnboardingChoice label="Department" id="fund-department" resource="departments" selected={department} onSelect={value => { setDepartment(value); clearFeedback(); }} disabled={command.busy} error={fieldError("departmentId")} fundRequest excludeFundId={initial?.id} required wrap />
+        <OnboardingChoice label="Custodian" id="fund-custodian" resource="personnel" selected={custodian} onSelect={value => { setCustodian(value); clearFeedback(); }} disabled={command.busy} error={fieldError("custodianId")} required wrap />
         <Field label="Imprest amount (₱)" id="fund-imprest" value={imprest} onChange={setImprest} required error={fieldError("imprestAmount")} inputMode="decimal" autoComplete="off" />
         <Field label="Max per voucher, hard limit (₱)" id="fund-limit" value={limit} onChange={setLimit} required error={fieldError("perVoucherLimit")} inputMode="decimal" autoComplete="off" />
         <Field label="Approval required above (₱)" id="fund-threshold" value={threshold} onChange={setThreshold} required error={fieldError("approvalThreshold")} inputMode="decimal" autoComplete="off" />
-        <OnboardingChoice label="Fund account (GL)" id="fund-account" resource="accounts" role="PETTY_CASH_FUND" selected={account} onSelect={value => { setSelectedAccount(value); clearFeedback(); }} disabled={policy.loading || command.busy} error={fieldError("fundAccountId")} eligibleOnly />
-        <Field label="Requested by" id="fund-requester" value={initial?.requestedBy?.name || requesterName} onChange={() => {}} disabled />
+        <OnboardingChoice label="Fund account (GL)" id="fund-account" resource="accounts" role="PETTY_CASH_FUND" selected={account} onSelect={value => { setSelectedAccount(value); clearFeedback(); }} disabled={policy.loading || command.busy} error={fieldError("fundAccountId")} eligibleOnly required wrap />
       </div>
       <p className="rounded-lg bg-muted/60 p-3 text-sm">Size the fund to cover about 2 to 4 weeks of small expenses. The approval threshold must not exceed the per-voucher limit.</p>
       {!policy.loading && !policy.error && setupError && <OnboardingFeedback tone="warning" title="Fund account setup is incomplete"><p>{setupError} Review the fund account below or update the policy mapping.</p></OnboardingFeedback>}

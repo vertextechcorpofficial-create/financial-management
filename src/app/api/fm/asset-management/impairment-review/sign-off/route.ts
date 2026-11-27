@@ -1,0 +1,58 @@
+import { NextResponse } from "next/server";
+import {
+  appendAuditLog,
+  getDefaultUserId,
+} from "@/modules/financial-management/asset-management/registration/services/asset";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
+const AUTH_HEADERS = {
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${process.env.DIRECTUS_STATIC_TOKEN}`,
+};
+
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json()) as { review_id?: number };
+    const reviewId = body.review_id;
+    if (!reviewId) {
+      return NextResponse.json({ error: "review_id is required" }, { status: 400 });
+    }
+
+    if (API_BASE_URL) {
+      const userId = await getDefaultUserId();
+      const patchRes = await fetch(`${API_BASE_URL}/items/asset_impairment_reviews/${reviewId}`, {
+        method: "PATCH",
+        headers: AUTH_HEADERS,
+        body: JSON.stringify({
+          status_id: 2, // SIGNED
+          signed_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+          signed_by: userId,
+        }),
+      });
+
+      if (!patchRes.ok) {
+        const errJson = (await patchRes.json().catch(() => ({}))) as {
+          errors?: Array<{ message?: string }>;
+        };
+        return NextResponse.json(
+          { error: errJson.errors?.[0]?.message || "Failed to sign off impairment review in database." },
+          { status: 400 }
+        );
+      }
+
+      await appendAuditLog({
+        action_id: 14, // IMPAIRMENT_REVIEW
+        user_id: userId,
+        details: `Signed off and froze impairment review #${reviewId}`,
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    console.error("POST /api/fm/asset-management/impairment-review/sign-off error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Internal server error" },
+      { status: 500 }
+    );
+  }
+}

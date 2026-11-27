@@ -31,7 +31,24 @@ export function SlipFiltersBar({ slips, filters, onChange }: Props) {
     return () => clearTimeout(timer);
   }, [query, filters, onChange]);
 
-  const banks = Array.from(new Set(slips.map((slip) => slip.targetBankLabel))).sort();
+  // One option per bank account actually on a slip: the name on the first line, the account
+  // number on the second, so the list never clips mid-number.
+  const banks = Array.from(
+    new Map(
+      slips
+        .filter((slip) => slip.targetBankLabel && slip.targetBankLabel !== "—")
+        .map((slip) => [
+          slip.targetBankLabel,
+          {
+            value: slip.targetBankLabel,
+            // QA3: the account number leads, the bank name sits under it. A slip whose account has
+            // no number falls back to the bank name rather than to "bank · number" on one line.
+            label: slip.targetBankNumber ?? slip.targetBankName ?? slip.targetBankLabel,
+            description: slip.targetBankNumber ? (slip.targetBankName ?? undefined) : undefined,
+          },
+        ]),
+    ).values(),
+  ).sort((a, b) => a.label.localeCompare(b.label, "en-PH"));
   const dirty = JSON.stringify(filters) !== JSON.stringify(EMPTY_SLIP_FILTERS);
 
   return (
@@ -55,7 +72,7 @@ export function SlipFiltersBar({ slips, filters, onChange }: Props) {
           </Label>
           <OptionCombobox
             id="slip-bank"
-            options={banks.map((bank) => ({ value: bank, label: bank }))}
+            options={banks}
             value={filters.bank}
             onChange={(bank) => onChange({ ...filters, bank })}
             placeholder="All banks"

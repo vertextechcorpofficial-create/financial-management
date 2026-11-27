@@ -24,6 +24,26 @@ export const holidayPatchSchema = holidayBodySchema.partial();
 
 export const mappingBodySchema = z.object({
   coaId: z.union([z.coerce.number().int().positive(), z.null()]),
+  description: z.string().trim().max(255, "Keep the description under 255 characters.").optional(),
+});
+
+const MAPPING_KEY = /^[A-Z][A-Z0-9_]{2,63}$/;
+
+/** A line account added from the GL tab: the key, the account, the group it sits under. */
+export const mappingCreateBodySchema = z.object({
+  mapping_key: z
+    .string()
+    .trim()
+    .regex(MAPPING_KEY, "A key is uppercase letters, digits and underscores, starting with a letter."),
+  coa_id: z.coerce.number().int().positive("Choose the posting account."),
+  mapping_group: z.string().trim().min(1, "Choose a group.").max(64, "Keep the group under 64 characters."),
+  mapping_label: z
+    .string()
+    .trim()
+    .min(1, "Give the line an account label.")
+    .max(120, "Keep the label under 120 characters."),
+  /** The deck's "Usage Description"; stored in `usage_description`. */
+  usage_description: z.string().trim().max(255, "Keep the description under 255 characters.").optional(),
 });
 
 export const lockBodySchema = z.object({
@@ -40,3 +60,13 @@ export type AccountPatch = z.infer<typeof accountPatchSchema>;
 export type HolidayBody = z.infer<typeof holidayBodySchema>;
 export type HolidayPatch = z.infer<typeof holidayPatchSchema>;
 export type LockBody = z.infer<typeof lockBodySchema>;
+export type MappingCreateBody = z.infer<typeof mappingCreateBodySchema>;
+
+/** A new line account as the client holds it; the route takes the snake_case form. */
+export interface LineAccountBody {
+  mappingKey: string;
+  coaId: number;
+  mappingGroup: string;
+  mappingLabel: string;
+  mappingDescription: string;
+}

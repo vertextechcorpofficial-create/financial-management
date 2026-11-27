@@ -13,21 +13,31 @@ import { formatCurrency } from "@/lib/utils";
 
 import { PAYMENT_KINDS, PAYMENT_KIND_LABEL, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "../constants";
 import { fetchPaymentContext, recordPayment } from "../providers/paymentsApi";
-import { phtDate } from "../pht";
+import { mdy, phtDate } from "../pht";
 import type { PaymentAccountRow, PaymentContext, PaymentMethod } from "../types";
 import { DateField } from "./DateField";
 import { Notice } from "./Notice";
 import { OptionCombobox } from "./OptionCombobox";
 
+export interface PaymentDialogLoan {
+  id: number;
+  loanNo: string;
+  lenderName: string;
+  installmentAmount: number;
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  loans: Array<{ id: number; loanNo: string; lenderName: string; installmentAmount: number }>;
+  /** The loan the workspace is on: the dialog never asks which loan again. */
+  loan: PaymentDialogLoan | null;
+  /** Prefilled amount, in pesos. Missing means "whatever the schedule suggests". */
+  presetAmount?: number | null;
+  presetKind?: "NORMAL" | "CATCH_UP";
   onRecorded: () => void;
 }
 
 interface FormState {
-  loanId: number | null;
   paymentDate: string;
   amount: string;
   accountId: number | null;
@@ -40,7 +50,6 @@ interface FormState {
 }
 
 const blank = (): FormState => ({
-  loanId: null,
   paymentDate: phtDate(),
   amount: "",
   accountId: null,
@@ -54,12 +63,15 @@ const blank = (): FormState => ({
 
 const money = (value: number) => formatCurrency(Math.abs(value) < 0.005 ? 0 : value);
 
-export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: Props) {
+export function RecordPaymentDialog({ open, onOpenChange, loan, presetAmount, presetKind, onRecorded }: Props) {
   const [form, setForm] = useState<FormState>(blank);
   const [context, setContext] = useState<PaymentContext | null>(null);
   const [contextError, setContextError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [amountFocused, setAmountFocused] = useState(false);
+
+  const loanId = loan?.id ?? null;
 
   useEffect(() => {
     if (!open) {
@@ -68,17 +80,25 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
       setContextError(null);
       setErrors({});
       setIsSaving(false);
+      setAmountFocused(false);
+      return;
     }
-  }, [open]);
+    // The amount is only fixed on open: retyping the loan's schedule must not overwrite the desk.
+    setForm((current) => ({
+      ...current,
+      amount: presetAmount && presetAmount > 0 ? presetAmount.toFixed(2) : current.amount,
+      kind: presetKind ?? current.kind,
+    }));
+  }, [open, presetAmount, presetKind]);
 
   useEffect(() => {
-    if (!form.loanId) {
+    if (!open || !loanId) {
       setContext(null);
       return;
     }
     let cancelled = false;
     setContextError(null);
-    fetchPaymentContext(form.loanId)
+    fetchPaymentContext(loanId)
       .then((payload) => {
         if (cancelled) return;
         setContext(payload);
@@ -96,7 +116,7 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
     return () => {
       cancelled = true;
     };
-  }, [form.loanId]);
+  }, [open, loanId]);
 
   const accounts: PaymentAccountRow[] = context?.accounts ?? [];
   const needsCheck = form.method === "CHECK";
@@ -115,18 +135,17 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
 
   // A submit button that rejects everything the desk types is worse than one that says what is missing.
   const missing = [
-    !form.loanId ? "choose the loan" : null,
+    !loanId ? "open a loan first" : null,
     !form.paymentDate ? "pick the payment date" : null,
     !(Number(form.amount.replace(/,/g, "")) > 0) ? "enter the amount" : null,
     !form.accountId ? "choose the account" : null,
     needsCheck && !form.checkNo.trim() ? "enter the check number" : null,
     needsCheck && !form.checkDate ? "pick the check date" : null,
   ].filter(Boolean) as string[];
-  const canSubmit = missing.length === 0 && loans.length > 0;
+  const canSubmit = missing.length === 0;
 
   function validate(): boolean {
     const next: Record<string, string> = {};
-    if (!form.loanId) next.loanId = "Choose the loan being paid.";
     if (!form.paymentDate) next.paymentDate = "Pick the payment date.";
     const amount = Number(form.amount.replace(/,/g, ""));
     if (!Number.isFinite(amount) || amount <= 0) next.amount = "Enter an amount above zero.";
@@ -141,11 +160,11 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
   }
 
   async function submit() {
-    if (!validate()) return;
+    if (!validate() || !loanId) return;
     setIsSaving(true);
     try {
       const created = await recordPayment({
-        loanId: form.loanId as number,
+        loanId,
         paymentDate: form.paymentDate,
         amount: Number(form.amount.replace(/,/g, "")),
         accountId: form.accountId as number,
@@ -168,7 +187,9 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
 
   const subtitle = context
     ? `${context.loan.loan_no} · ${context.loan.lender_name} · installment ${money(context.loan.installment_amount)}`
-    : "Choose the loan this money is for.";
+    : loan
+      ? `${loan.loanNo} · ${loan.lenderName}`
+      : "Open a loan to record its payment.";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -180,10 +201,10 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Tile label="Amount" value={enteredAmount > 0 ? money(enteredAmount) : "—"} />
-            <Tile label="Bank charge" value={bankCharge > 0 ? money(bankCharge) : "—"} />
-            <Tile label="Money out" value={moneyOut > 0 ? money(moneyOut) : "—"} />
-            <Tile label="Next due" value={nextDue ? money(nextDue.totalOutstanding) : context ? "Nothing left" : "—"} />
+            <Tile label="Amount" value={enteredAmount > 0 ? money(enteredAmount) : "not entered"} />
+            <Tile label="Bank charge" value={bankCharge > 0 ? money(bankCharge) : "not entered"} />
+            <Tile label="Money out" value={moneyOut > 0 ? money(moneyOut) : "not entered"} />
+            <Tile label="Next due" value={nextDue ? money(nextDue.totalOutstanding) : context ? "Nothing left" : "not known yet"} />
           </div>
 
           {context ? (
@@ -192,7 +213,7 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
               title={amountCovers ? "This covers the next installment" : "This does not cover the next installment"}
             >
               {nextDue
-                ? `${money(nextDue.totalOutstanding)} is due on ${nextDue.paymentDueDate}${nextDue.overdue ? ", already past its due date" : ""}. The oldest installment takes the money first, so this pays ${amountCovers ? "it in full" : "into it and leaves a balance"}${bankCharge > 0 && chosenAccount ? `; ${chosenAccount.name} adds ${money(bankCharge)} on top` : ""}.`
+                ? `${money(nextDue.totalOutstanding)} is due on ${mdy(nextDue.paymentDueDate)}${nextDue.overdue ? ", already past its due date" : ""}. The oldest installment takes the money first, so this pays ${amountCovers ? "it in full" : "into it and leaves a balance"}${bankCharge > 0 && chosenAccount ? `; ${chosenAccount.name} adds ${money(bankCharge)} on top` : ""}.`
                 : "Every installment on this loan is settled, so anything recorded now is held as an advance."}
             </Notice>
           ) : null}
@@ -204,26 +225,6 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
           ) : null}
 
           <Group title="Payment">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="payment-loan">
-                Loan <span className="text-destructive">*</span>
-              </Label>
-              <OptionCombobox
-                value={form.loanId ? String(form.loanId) : ""}
-                onChange={(value) => setForm((current) => ({ ...current, loanId: value ? Number(value) : null, amount: "" }))}
-                placeholder="Choose a loan"
-                searchPlaceholder="Search loan no or lender"
-                emptyLabel="No open loan found."
-                options={loans.map((loan) => ({
-                  value: String(loan.id),
-                  label: `${loan.loanNo} · ${loan.lenderName}`,
-                  searchText: `${loan.loanNo} ${loan.lenderName}`,
-                  description: `Installment ${formatCurrency(loan.installmentAmount)}`,
-                }))}
-              />
-              {errors.loanId ? <p className="text-xs text-destructive">{errors.loanId}</p> : null}
-            </div>
-
             <Field label="Payment date" required error={errors.paymentDate} htmlFor="payment-date">
               <DateField
                 id="payment-date"
@@ -235,11 +236,14 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
             </Field>
 
             <Field label="Amount" required error={errors.amount} htmlFor="payment-amount">
+              {/* Money reads as money when the field is left alone, and stays typeable while focused. */}
               <Input
                 id="payment-amount"
                 inputMode="decimal"
-                value={form.amount}
+                value={amountFocused ? form.amount : enteredAmount > 0 ? money(enteredAmount) : ""}
                 onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
+                onFocus={() => setAmountFocused(true)}
+                onBlur={() => setAmountFocused(false)}
                 aria-invalid={errors.amount ? true : undefined}
                 className="h-9 tabular-nums"
               />
@@ -251,7 +255,7 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
                 onChange={(value) => setForm((current) => ({ ...current, accountId: Number(value) }))}
                 placeholder="Choose an account"
                 searchPlaceholder="Search account"
-                emptyLabel="No payment account is set up."
+                emptyLabel="No payment account is active."
                 className="h-9 w-full justify-between"
                 options={accounts.map((account) => ({
                   value: String(account.id),
@@ -326,7 +330,7 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
                 id="payment-receipt"
                 value={form.lenderReceipt}
                 onChange={(event) => setForm((current) => ({ ...current, lenderReceipt: event.target.value }))}
-                placeholder="Optional"
+                placeholder="e.g. OR-2026-0451"
                 className="h-9"
               />
             </Field>
@@ -340,6 +344,7 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
                 value={form.remarks}
                 onChange={(event) => setForm((current) => ({ ...current, remarks: event.target.value }))}
                 rows={2}
+                className="resize-none"
               />
             </div>
           </Group>
@@ -353,7 +358,7 @@ export function RecordPaymentDialog({ open, onOpenChange, loans, onRecorded }: P
             type="button"
             onClick={() => void submit()}
             disabled={isSaving || !canSubmit}
-            title={loans.length === 0 ? "No open loan can take a payment yet." : canSubmit ? undefined : `Still to do: ${missing.join(", ")}.`}
+            title={canSubmit ? undefined : `Still to do: ${missing.join(", ")}.`}
           >
             {isSaving ? "Recording…" : "Record payment"}
           </Button>
@@ -373,12 +378,11 @@ function Tile({ label, value }: { label: string; value: string }) {
 }
 
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  // The heading sits above the box, not on its rule: a border crossing "Paid from *" read as a strike.
   return (
-    <section className="overflow-hidden rounded-lg border border-border/60">
-      <div className="border-b border-border/60 bg-muted/20 px-4 py-2">
-        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{title}</p>
-      </div>
-      <div className="grid gap-3 px-4 py-3 sm:grid-cols-2">{children}</div>
+    <section>
+      <h3 className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      <div className="grid gap-3 rounded-lg border border-border/60 px-4 py-3 sm:grid-cols-2">{children}</div>
     </section>
   );
 }

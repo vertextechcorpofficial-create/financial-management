@@ -24,7 +24,7 @@ type Props = {
   asset: UndepositedAsset | null;
   selected: boolean;
   onOpenChange: (open: boolean) => void;
-  onToggle: (id: number) => void;
+  onToggle: (key: string) => void;
 };
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
@@ -53,8 +53,7 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
             <DialogHeader className="border-b px-6 py-4">
               <DialogTitle className="line-clamp-1 font-mono text-base">{asset.documentNumber}</DialogTitle>
               <DialogDescription className="line-clamp-2 max-w-md">
-                {asset.assetType === "CASH" ? "Cash collection" : "Customer check"} ·{" "}
-                {asset.customer ?? "No customer on the collection"}
+                {asset.methodLabel} · {asset.customer ?? "No customer on the collection"}
               </DialogDescription>
             </DialogHeader>
 
@@ -63,9 +62,20 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
                 <Detail label="Type">
                   <Badge
                     variant="outline"
-                    className={cn("text-[11px] font-semibold", toneClass(asset.assetType === "CASH" ? "success" : "info"))}
+                    className={cn(
+                      "text-[11px] font-semibold",
+                      toneClass(
+                        asset.methodLabel === "Adjustment"
+                          ? "warning"
+                          : asset.assetType === "CHECK"
+                            ? "info"
+                            : asset.methodLabel.toLowerCase() === "cash"
+                              ? "success"
+                              : "info",
+                      ),
+                    )}
                   >
-                    {asset.assetType === "CASH" ? "Cash" : "Check"}
+                    {asset.methodLabel}
                   </Badge>
                 </Detail>
                 <Detail label="Status">
@@ -85,6 +95,7 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
                   {asset.collectionDate ? toPhtDateString(asset.collectionDate) : "—"}
                 </Detail>
                 <Detail label="Customer">{asset.customer ?? "—"}</Detail>
+                {asset.invoiceNo ? <Detail label="Invoice no.">{asset.invoiceNo}</Detail> : null}
                 {asset.collectionReference && asset.collectionReference !== asset.documentNumber ? (
                   <Detail label="Source">{asset.collectionReference}</Detail>
                 ) : null}
@@ -125,7 +136,7 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
                 variant={selected ? "outline" : "default"}
                 disabled={blockReason !== null && !selected}
                 title={blockReason ?? undefined}
-                onClick={() => onToggle(asset.collectionDetailId)}
+                onClick={() => onToggle(asset.rowKey)}
               >
                 {selected ? "Remove from slip" : "Add to slip"}
               </Button>

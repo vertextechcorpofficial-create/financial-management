@@ -1,4 +1,5 @@
 import { OnboardingError } from "./onboarding.api";
+import { invalidateReadsAfterWrite } from "../utils/readCache";
 import { redirectToLogin } from "../utils/sessionExpiry";
 export const REPLENISHMENT_API = "/api/fm/petty-cash/replenishment";
 export async function replenishmentApi<T>(path: string, init?: RequestInit): Promise<T> {
@@ -6,6 +7,7 @@ export async function replenishmentApi<T>(path: string, init?: RequestInit): Pro
   if (response.status === 401) redirectToLogin();
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new OnboardingError(body?.message || "The replenishment request failed. Please retry.", response.status, body?.fieldErrors || {}, body?.requestId, body?.code);
+  invalidateReadsAfterWrite(path, init?.method);
   if (!body || typeof body !== "object") throw new OnboardingError("The replenishment response was incomplete. Please retry.", 503);
   return body as T;
 }

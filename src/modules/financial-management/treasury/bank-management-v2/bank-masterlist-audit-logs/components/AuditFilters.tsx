@@ -95,7 +95,7 @@ export function AuditFilters({ filters, modules, users, onChange }: Props) {
       </Select>
 
       <div className="relative min-w-0">
-        <span className="pointer-events-none absolute -top-2 left-2 z-10 rounded bg-card px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className="pointer-events-none absolute -top-2 left-2 z-10 rounded bg-card px-1 text-[11px] uppercase tracking-wide text-muted-foreground">
           From
         </span>
         <DateField
@@ -108,7 +108,7 @@ export function AuditFilters({ filters, modules, users, onChange }: Props) {
       </div>
 
       <div className="relative min-w-0">
-        <span className="pointer-events-none absolute -top-2 left-2 z-10 rounded bg-card px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className="pointer-events-none absolute -top-2 left-2 z-10 rounded bg-card px-1 text-[11px] uppercase tracking-wide text-muted-foreground">
           To
         </span>
         <DateField

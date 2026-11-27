@@ -3,15 +3,17 @@ import "server-only";
 import {
   agingFromRows,
   currentPortionFromRows,
+  deriveLoanStatus,
   emptyBuckets,
   mergeBuckets,
   outstandingOf,
   tieFor,
   totalsFromRows,
 } from "./aging";
-import { asBoolean, asNumber, asString, listItems, updateItem } from "./directus";
+import { asBoolean, asNumber, asString, createItem, listItems, updateItem } from "./directus";
 import { LoanNotFoundError } from "./errors";
-import { round2 } from "./loanEngine";
+import { kpisFromRows } from "./kpis";
+import { daysBetween, round2 } from "./loanEngine";
 import { planRefresh } from "./refreshPlan";
 import { phtStamp, phtToday } from "../pht";
 import type {
@@ -19,7 +21,10 @@ import type {
   LoanAgingRow,
   LoanScheduleRow,
   LoanStatus,
+  PaymentFrequency,
+  RateType,
   RefreshResult,
+  RepaymentMethod,
   ScheduleLoanEntry,
   SchedulePayload,
 } from "../types";
@@ -28,13 +33,25 @@ const LOAN_FIELDS = [
   "id",
   "loan_no",
   "lender_name",
+  "account_no",
   "principal",
+  "nominal_rate",
+  "current_rate",
+  "rate_type",
+  "repayment_method",
+  "payment_frequency",
+  "release_date",
+  "maturity_date",
+  "proceeds_net",
+  "eir_rate",
   "status",
   "schedule_version",
   "grace_days",
   "term_payments",
   "installment_amount",
 ];
+
+const HOLIDAYS = "loan_holiday";
 
 const SCHEDULE_FIELDS = [
   "id",
@@ -100,13 +117,45 @@ function mapLoan(raw: Record<string, unknown>): LoanCore {
     id: asNumber(raw.id),
     loanNo: asString(raw.loan_no),
     lenderName: asString(raw.lender_name),
+    accountNo: asString(raw.account_no),
     status: (asString(raw.status) || "PENDING_APPROVAL") as LoanStatus,
     principal: asNumber(raw.principal),
+    nominalRate: asNumber(raw.nominal_rate),
+    currentRate: asNumber(raw.current_rate),
+    rateType: (asString(raw.rate_type) || "FIXED") as RateType,
+    repaymentMethod: (asString(raw.repayment_method) || "ORDINARY_ANNUITY") as RepaymentMethod,
+    paymentFrequency: (asString(raw.payment_frequency) || "MONTHLY") as PaymentFrequency,
+    releaseDate: asString(raw.release_date).slice(0, 10),
+    maturityDate: raw.maturity_date ? asString(raw.maturity_date).slice(0, 10) : null,
+    proceedsNet: asNumber(raw.proceeds_net),
+    eirRate: asNumber(raw.eir_rate),
     scheduleVersion: asNumber(raw.schedule_version, 1),
     graceDays: asNumber(raw.grace_days),
     termPayments: asNumber(raw.term_payments),
     installmentAmount: asNumber(raw.installment_amount),
   };
+}
+
+/**
+ * `loan_holiday` as date → name, so a payment date that moved can say which day it moved off.
+ * A failure here only costs the subtext, so it must not take the schedule down with it.
+ */
+async function holidayNames(): Promise<Record<string, string>> {
+  try {
+    const { rows } = await listItems<Record<string, unknown>>(HOLIDAYS, {
+      fields: ["holiday_date", "name"],
+      limit: -1,
+    });
+    const map: Record<string, string> = {};
+    for (const row of rows) {
+      const date = asString(row.holiday_date).slice(0, 10);
+      if (date) map[date] = asString(row.name) || "Holiday";
+    }
+    return map;
+  } catch (cause) {
+    console.warn("loan-schedules: the holiday calendar could not be read", cause);
+    return {};
+  }
 }
 
 /** Every schedule row on the desk: the loan tables are small by design and one read beats N. */
@@ -162,6 +211,9 @@ export interface ScheduleQuery {
   version: number | null;
   asOf: string;
   status: string | null;
+  /** Inclusive range on the payable date, `YYYY-MM-DD`. Empty means "no bound". */
+  dueFrom: string | null;
+  dueTo: string | null;
   page: number;
   pageSize: number;
 }
@@ -191,10 +243,16 @@ function agingRowsFor(
  * answer is the portfolio view: no rows, but every loan's aging.
  */
 export async function loadSchedule(query: ScheduleQuery): Promise<SchedulePayload> {
-  const loans = await listScheduleLoans();
+  const stored = await listScheduleLoans();
   const asOf = query.asOf || phtToday();
-  const schedules = await readAllSchedules();
+  const [schedules, holidays] = await Promise.all([readAllSchedules(), holidayNames()]);
   const byLoan = groupByLoan(schedules);
+  // The badge follows the as-of date the reader picked, so it cannot disagree with the buckets
+  // printed beside it. Derived here, never written back: a status is a view of time.
+  const loans = stored.map((entry) => ({
+    ...entry,
+    status: deriveLoanStatus(entry.status, liveRows(byLoan, entry.id, entry.scheduleVersion), entry.graceDays, asOf),
+  }));
 
   if (query.loanId === null) {
     const aging = agingRowsFor(loans, byLoan, asOf);
@@ -210,6 +268,8 @@ export async function loadSchedule(query: ScheduleQuery): Promise<SchedulePayloa
       total: 0,
       totals: totalsFromRows([]),
       tie: null,
+      kpis: kpisFromRows([], asOf, null),
+      holidays,
       // Nothing on the desk means nothing to split: a ₱0.00 tile would read as a measured zero.
       currentPortion:
         allLive.length === 0 ? null : currentPortionFromRows(allLive, asOf, loanPrincipal, schedulePrincipal),
@@ -236,6 +296,8 @@ export async function loadSchedule(query: ScheduleQuery): Promise<SchedulePayloa
       total: 0,
       totals: totalsFromRows([]),
       tie: null,
+      kpis: kpisFromRows([], asOf, loan),
+      holidays,
       currentPortion: null,
       agingRows: aging.rows,
       aging: aging.total,
@@ -243,11 +305,18 @@ export async function loadSchedule(query: ScheduleQuery): Promise<SchedulePayloa
     };
   }
 
-  const totals = totalsFromRows(all);
-  const filtered = query.status ? all.filter((row) => row.status === query.status) : all;
+  // Filters narrow what the table lists and what its footer adds up; the KPIs stay a statement
+  // about the whole version, so the tiles do not move while the reader pages.
+  const filtered = all.filter((row) => {
+    if (query.status && row.status !== query.status) return false;
+    if (query.dueFrom && row.payment_due_date < query.dueFrom) return false;
+    if (query.dueTo && row.payment_due_date > query.dueTo) return false;
+    return true;
+  });
   const start = query.pageSize > 0 ? (Math.max(1, query.page) - 1) * query.pageSize : 0;
   const rows = query.pageSize > 0 ? filtered.slice(start, start + query.pageSize) : filtered;
   const loanAging = agingFromRows(all, asOf);
+  const totals = totalsFromRows(filtered);
 
   return {
     loans,
@@ -257,7 +326,9 @@ export async function loadSchedule(query: ScheduleQuery): Promise<SchedulePayloa
     total: filtered.length,
     totals,
     tie: tieFor(all, loan.principal),
-    currentPortion: currentPortionFromRows(all, asOf, loan.principal, totals.principal),
+    kpis: kpisFromRows(all, asOf, loan),
+    holidays,
+    currentPortion: currentPortionFromRows(all, asOf, loan.principal, totalsFromRows(all).principal),
     agingRows: [
       {
         loanId: loan.id,
@@ -282,14 +353,16 @@ export interface RefreshOptions {
 
 export async function refreshStatuses(asOf: string, options: RefreshOptions): Promise<RefreshResult> {
   const { rows: loanRows } = await listItems<Record<string, unknown>>("loan", {
-    fields: ["id", "schedule_version", "grace_days"],
+    fields: ["id", "schedule_version", "grace_days", "status"],
     limit: -1,
   });
   const graceByLoan = new Map<number, number>();
   const versionByLoan = new Map<number, number>();
+  const statusByLoan = new Map<number, LoanStatus>();
   for (const raw of loanRows) {
     graceByLoan.set(asNumber(raw.id), asNumber(raw.grace_days));
     versionByLoan.set(asNumber(raw.id), asNumber(raw.schedule_version, 1));
+    statusByLoan.set(asNumber(raw.id), (asString(raw.status) || "PENDING_APPROVAL") as LoanStatus);
   }
 
   const schedules = await readAllSchedules();
@@ -309,11 +382,66 @@ export async function refreshStatuses(asOf: string, options: RefreshOptions): Pr
     }
   }
 
+  // The register filters, tiles and badge all read `loan.status`, so the loan row has to carry the
+  // same answer the schedule just gave: an installment past its grace makes the loan overdue, and a
+  // loan whose late installments were settled goes back to current. Loans in another stage keep
+  // the status their own workflow set, and `approval_status` is never touched here.
+  const rowsByLoan = new Map<number, LoanScheduleRow[]>();
+  for (const row of scoped) {
+    const held = rowsByLoan.get(row.loan_id);
+    if (held) held.push(row);
+    else rowsByLoan.set(row.loan_id, [row]);
+  }
+  const moves: Array<{ id: number; from: LoanStatus; to: LoanStatus; late: number }> = [];
+  for (const [id, stored] of statusByLoan) {
+    if (options.loanId && id !== options.loanId) continue;
+    const rows = rowsByLoan.get(id) ?? [];
+    const grace = graceByLoan.get(id) ?? 0;
+    const next = deriveLoanStatus(stored, rows, grace, asOf);
+    if (next !== stored) {
+      const late = rows.filter(
+        (row) => round2(row.principal - row.paid_principal) > 0.005 && daysBetween(row.payment_due_date, asOf) > grace,
+      ).length;
+      moves.push({ id, from: stored, to: next, late });
+    }
+  }
+  if (!options.dryRun) {
+    for (const move of moves) {
+      await updateItem("loan", move.id, {
+        status: move.to,
+        updated_at: phtStamp(),
+        updated_by: options.actorId,
+      });
+      // One event per loan, not per installment: the whole move is one fact about the loan, and the
+      // description has to say both what it became and what moved it.
+      const now = phtStamp();
+      await createItem("loan_event", {
+        loan_id: move.id,
+        kind: "STATUS_CHANGED",
+        occurred_at: now,
+        description:
+          move.to === "OVERDUE"
+            ? `Moved to OVERDUE: ${move.late === 1 ? "1 installment is" : `${move.late} installments are`} past their due date.`
+            : "Moved back to CURRENT: no installment is late.",
+        amount: 0,
+        reference: null,
+        actor_id: options.actorId,
+        created_at: now,
+        created_by: options.actorId,
+        updated_at: now,
+        updated_by: options.actorId,
+      });
+    }
+  }
+
   return {
     asOf,
     scanned: scoped.length,
     updated,
     markedDue: plan.filter((step) => step.to === "DUE").length,
     markedOverdue: plan.filter((step) => step.to === "OVERDUE").length,
+    loansUpdated: options.dryRun ? 0 : moves.length,
+    loansOverdue: moves.filter((move) => move.to === "OVERDUE").length,
+    loansCurrent: moves.filter((move) => move.to === "CURRENT").length,
   };
 }

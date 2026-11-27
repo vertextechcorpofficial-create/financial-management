@@ -91,7 +91,7 @@ export function OptionCombobox({
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+      <PopoverContent className="w-[340px] max-w-[calc(100vw-2rem)] p-0" align="start">
         <Command>
                     <CommandInput
             placeholder={searchPlaceholder}
@@ -116,14 +116,16 @@ export function OptionCombobox({
                   <Check
                     className={cn("mr-2 size-4 shrink-0", value === option.value ? "opacity-100" : "opacity-0")}
                   />
-                  <span className="min-w-0 flex-1 truncate" title={option.label}>
-                    {option.label}
-                  </span>
-                  {option.description ? (
-                    <span className="ml-2 shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {option.description}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate" title={option.label}>
+                      {option.label}
                     </span>
-                  ) : null}
+                    {option.description ? (
+                      <span className="block truncate text-xs text-muted-foreground" title={option.description}>
+                        {option.description}
+                      </span>
+                    ) : null}
+                  </span>
                 </CommandItem>
               ))}
               {customOffered ? (

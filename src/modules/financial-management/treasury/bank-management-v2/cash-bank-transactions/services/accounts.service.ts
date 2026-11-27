@@ -14,6 +14,8 @@ import { asNumber, asNumberOrNull, asString, DirectusError, listItems, roundMone
 export interface AccountRef {
   bankId: number;
   bankName: string;
+  /** The two halves of `label`; a picker prints the number over the bank name (QA3). */
+  accountNumber: string | null;
   label: string;
   currency: string;
   glCoaId: number | null;
@@ -72,6 +74,7 @@ export function toAccountOption(account: AccountRef): AccountOption {
     bankId: account.bankId,
     bankName: account.bankName,
     label: account.label,
+    accountNumber: account.accountNumber,
     currency: account.currency,
     bookBalance: account.bookBalance,
   };
@@ -128,6 +131,7 @@ function toAccountRef(row: BankRow, deltas: Map<number, number>): AccountRef | n
     bankId,
     bankName,
     label: accountNumber ? `${bankName} — ${accountNumber}` : bankName,
+    accountNumber: accountNumber || null,
     currency: asString(row.currency) || "PHP",
     glCoaId: asNumberOrNull(row.gl_coa_id),
     openingBalance,

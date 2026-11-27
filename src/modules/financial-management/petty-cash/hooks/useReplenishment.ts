@@ -1,20 +1,17 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { replenishmentApi, recoverReplenishmentRequest } from "../providers/replenishment.api";
 import { onboardingRequestId, OnboardingError } from "../providers/onboarding.api";
-import { sameResource } from "../utils/readResource";
+import { useCachedRead } from "./useCachedRead";
 export function useReplenishmentRead<T>(path: string | null, delay = 0) {
-  const [revision, setRevision] = useState(0), [result, setResult] = useState<{ path: string; key: string; data: T | null; error: Error | null; updatedAt?: number } | null>(null);
-  const key = JSON.stringify([path, revision]);
-  useEffect(() => {
-    if (!path) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => { replenishmentApi<T>(path, { signal: controller.signal }).then(data => { if (!controller.signal.aborted) setResult({ path, key, data, error: null, updatedAt: Date.now() }); })
-      .catch(cause => { if (!controller.signal.aborted) setResult(previous => ({ path, key, data: previous?.path === path ? previous.data : null, error: cause instanceof Error ? cause : new Error("Unable to load replenishment."), updatedAt: previous?.path === path ? previous.updatedAt : undefined })); }); }, delay);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [path, key, delay]);
-  const active = result && path !== null && (result.path === path || sameResource(result.path, path)) ? result : null, current = active?.key === key;
-  return { data: active?.data ?? null, updatedAt: active?.updatedAt ?? null, error: active?.path === path ? active.error : null, loading: path !== null && !active, refreshing: path !== null && Boolean(active) && !current, refresh: useCallback(() => setRevision(value => value + 1), []) };
+  const read = useCachedRead<T>({
+    namespace: "replenishment",
+    path,
+    delay,
+    load: replenishmentApi,
+    errorMessage: "Unable to load replenishment.",
+  });
+  return { ...read, data: read.data ?? null, error: read.error ?? null };
 }
 export function useReplenishmentCommand() {
   const active = useRef(false), identity = useRef<{ fingerprint: string; key: string } | null>(null);

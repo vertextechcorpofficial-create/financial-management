@@ -1,11 +1,25 @@
 import type { DepositSlip, DepositSlipDetail, ResolvedJournalEntry, UndepositedAsset } from "../types";
 
-export type DepositAccountOption = { bankId: number; label: string };
+export type DepositAccountOption = {
+  bankId: number;
+  label: string;
+  /** The two halves of that label, so a picker can stack them. */
+  bankName?: string | null;
+  accountNumber?: string | null;
+};
+
+export type DepositAccountTotals = {
+  /** Active accounts that carry a GL link, so a deposit can post. */
+  eligible: number;
+  /** Every active account, linked or not. */
+  active: number;
+};
 
 export type DepositSnapshot = {
   assets: UndepositedAsset[];
   slips: DepositSlip[];
   accounts: DepositAccountOption[];
+  accountTotals: DepositAccountTotals;
 };
 
 async function unwrap<T>(response: Response): Promise<T> {
@@ -39,6 +53,7 @@ export type CreateSlipPayload = {
   slipNo: string;
   remarks: string | null;
   cashIds: number[];
+  overageDetailIds?: number[];
   checkIds: number[];
 };
 
@@ -68,10 +83,24 @@ export async function cancelSlip(slipId: number, reason: string): Promise<Deposi
   );
 }
 
-/** E07 lines for both dialogs; the server resolves the account's Linked GL (E07 never uses a dummy). */
+/** Prepared -> Deposited: the bank has the money, so cash lines are Deposited and checks For clearing. */
+export type DepositConfirmation = { depositDate?: string; slipNo?: string };
+
+export async function markSlipDeposited(slipId: number, confirmation: DepositConfirmation = {}): Promise<DepositSlip> {
+  return unwrap<{ slip: DepositSlip }>(
+    await fetch(`/api/fm/treasury/bank-management-v2/bank-deposit/slips/${slipId}/deposit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(confirmation),
+    }),
+  ).then((payload) => payload.slip);
+}
+
+/** Every line both dialogs will post (E07 for cash, E12 for cheques); the server resolves the Linked GL. */
 export async function previewDepositSlip(payload: {
   bankAccountId: number;
   cashTotal: number;
+  checkTotal: number;
 }): Promise<DepositPreview> {
   return unwrap<DepositPreview>(
     await fetch("/api/fm/treasury/bank-management-v2/bank-deposit/slips/preview", {
@@ -83,7 +112,7 @@ export async function previewDepositSlip(payload: {
 }
 
 export type DepositPreview = {
-  entry: ResolvedJournalEntry;
+  entries: ResolvedJournalEntry[];
   account: { bankId: number; label: string; glCoaId: number | null; glCode: string | null; glTitle: string | null; glFallback: boolean };
 };
 

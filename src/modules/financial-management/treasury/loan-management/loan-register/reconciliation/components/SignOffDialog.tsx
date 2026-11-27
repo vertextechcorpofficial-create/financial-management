@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/utils";
 
 import type { ReconciliationRow } from "../types";
+import { formatDateMDY } from "../pht";
 import { Notice } from "./Notice";
 
 type Props = {
@@ -47,7 +48,7 @@ export function SignOffDialog({ row, open, onOpenChange, onConfirm }: Props) {
     try {
       const signed = await onConfirm(row, remarks);
       if (signed) {
-        toast.success(`The period ending ${signed.periodEnd} is signed off.`);
+        toast.success(`The period ending ${formatDateMDY(signed.periodEnd)} is signed off.`);
         onOpenChange(false);
       }
     } finally {
@@ -62,7 +63,7 @@ export function SignOffDialog({ row, open, onOpenChange, onConfirm }: Props) {
         className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[550px]"
       >
         <DialogHeader className="border-b border-border px-6 py-4">
-          <DialogTitle className="text-base">Sign off {row.periodStart} → {row.periodEnd}</DialogTitle>
+          <DialogTitle className="text-base">Sign off {formatDateMDY(row.periodStart)} → {formatDateMDY(row.periodEnd)}</DialogTitle>
           <DialogDescription>
             The figures below are frozen as accepted. Nothing is recalculated afterwards.
           </DialogDescription>
@@ -99,6 +100,7 @@ export function SignOffDialog({ row, open, onOpenChange, onConfirm }: Props) {
               onChange={(event) => setRemarks(event.target.value)}
               placeholder="What was checked, and what it settled."
               rows={3}
+              className="resize-none"
               disabled={!reconciled || isSaving}
             />
           </div>

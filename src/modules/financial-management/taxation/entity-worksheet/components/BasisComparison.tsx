@@ -1,13 +1,13 @@
-﻿"use client";
+"use client";
 
 import { formatCurrency } from "@/lib/utils";
 
 import type { TaxScenario } from "../types";
 
 /**
- * The desk shows both readings of "cost of sales" instead of picking one, because the
- * choice moves taxable income by hundreds of millions in a stock-building year and only
- * an accountant can settle which figure the return should carry.
+ * The desk shows the readings of "cost of sales" side by side instead of picking one, because
+ * the choice moves taxable income and the MCIT base with it, and only an accountant can settle
+ * which figure the return should carry. The ledger reading leads when the ledger carries cost.
  */
 
 const rows: Array<{ label: string; pick: (scenario: TaxScenario) => number; strong?: boolean }> = [
@@ -23,6 +23,7 @@ const rows: Array<{ label: string; pick: (scenario: TaxScenario) => number; stro
 
 export function BasisComparison({ scenarios, year }: { scenarios: TaxScenario[]; year: number }) {
   if (scenarios.length === 0) return null;
+  const primary = scenarios[0];
 
   return (
     <section
@@ -32,7 +33,9 @@ export function BasisComparison({ scenarios, year }: { scenarios: TaxScenario[];
       <div className="border-b px-4 py-3">
         <h2 className="text-sm font-semibold">Tax under each cost of sales basis</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {year} has no cost-of-sales ledger, so both readings are shown. The worksheet carries the first column.
+          {scenarios[0]?.basis === "LEDGER"
+            ? `${year} carries cost of sales in the ledger, so the ledger reading leads. The worksheet carries the first column.`
+            : `${year} carries no cost of sales in the ledger, so the other readings are shown. The worksheet carries the first column.`}
         </p>
       </div>
 
@@ -75,13 +78,35 @@ export function BasisComparison({ scenarios, year }: { scenarios: TaxScenario[];
               </th>
               {scenarios.map((scenario) => (
                 <td key={scenario.basis} className="py-2.5 pl-4 pr-5 text-right tabular-nums">
-                  {(scenario.rate * 100).toFixed(0)}%{scenario.mcitApplied ? " · MCIT applies" : ""}
+                  {(scenario.rate * 100).toFixed(0)}%{scenario.mcitApplied ? " · MCIT applies for the year" : ""}
+                </td>
+              ))}
+            </tr>
+            {/* Deck item 8: the tax due is the higher of the two each quarter, so the table shows
+                which one won where instead of leaving it to the reader to compare. */}
+            <tr className="text-xs text-muted-foreground">
+              <th scope="row" className="py-2.5 pl-5 pr-4 text-left font-normal">
+                Higher of RCIT and MCIT
+              </th>
+              {scenarios.map((scenario) => (
+                <td key={scenario.basis} className="py-2.5 pl-4 pr-5 text-right tabular-nums">
+                  {scenario.arbitrage
+                    .map((winner, index) => `Q${index + 1} ${winner === "MCIT" ? "MCIT" : "RCIT"}`)
+                    .join(" · ")}
                 </td>
               ))}
             </tr>
           </tbody>
         </table>
       </div>
+
+      {primary && !primary.mcitApplicable ? (
+        <p className="border-t px-4 py-3 text-xs text-muted-foreground">
+          MCIT is dormant for {year}: the 2% minimum is charged from the fourth year of operations, and
+          this company is still inside its first three. At 2% of gross income it would be{" "}
+          {formatCurrency(primary.mcitOnGross)}, so the regular tax above is what the return carries.
+        </p>
+      ) : null}
     </section>
   );
 }

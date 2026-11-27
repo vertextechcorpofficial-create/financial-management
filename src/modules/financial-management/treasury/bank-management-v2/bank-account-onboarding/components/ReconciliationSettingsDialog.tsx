@@ -110,7 +110,8 @@ export function ReconciliationSettingsDialog({ account, cashAccounts, onClose, o
                 id="reconciliation-cash-gl"
                 options={pickerAccounts.map(gl => ({
                   value: String(gl.coaId),
-                  label: `${gl.glCode} · ${gl.accountTitle}`,
+                  label: gl.accountTitle,
+                  description: gl.glCode,
                   searchText: `${gl.glCode} ${gl.accountTitle}`,
                 }))}
                 value={glCoaId}

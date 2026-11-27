@@ -11,7 +11,7 @@ import {
   effectiveRatePercent,
   lockStateLabel,
 } from "../constants";
-import { phtDate } from "../pht";
+import { phtDisplayDate, phtDisplayStamp, phtToday } from "../pht";
 import type { CertificateRow, PaymentRow, PeriodLockRow } from "../types";
 
 type Cell = string | number | null;
@@ -25,17 +25,17 @@ function writeSheet(filename: string, sheetName: string, header: string[], rows:
   XLSX.writeFile(book, filename);
 }
 
-/** "Tax desk payments 2026-11-17.xlsx" — the date keeps repeat downloads apart. It is the PHT
- * date, not `toISOString()`'s UTC one, so an export at 01:00 PHT is not stamped with yesterday. */
-function fileName(label: string): string {
-  const today = phtDate();
-  return `Tax desk ${label} ${today}.xlsx`;
+/** `payments-2307-certificates-2026-as-at-2026-11-17.xlsx` — the date keeps repeat downloads
+ * apart. It is the PHT date, not `toISOString()`'s UTC one, so an export at 01:00 PHT is not
+ * stamped with yesterday. */
+function fileName(sheet: string, taxYear: number): string {
+  return `payments-2307-${sheet}-${taxYear}-as-at-${phtToday()}.xlsx`;
 }
 
 export function downloadCertificates(certificates: CertificateRow[]) {
   const taxYear = certificates[0]?.taxYear ?? new Date().getFullYear();
   writeSheet(
-    fileName(`2307 certificates ${taxYear}`),
+    fileName("certificates", taxYear),
     "Certificates",
     [
       "Issuer / payee",
@@ -63,7 +63,7 @@ export function downloadCertificates(certificates: CertificateRow[]) {
       ),
       row.taxWithheld,
       certificateStatusLabel(row.status),
-      row.dateReceived,
+      phtDisplayDate(row.dateReceived),
       row.source,
       row.sourceRef,
     ]),
@@ -74,13 +74,13 @@ export function downloadCertificates(certificates: CertificateRow[]) {
 export function downloadPayments(payments: PaymentRow[]) {
   const taxYear = payments[0]?.taxYear ?? new Date().getFullYear();
   writeSheet(
-    fileName(`tax payments ${taxYear}`),
+    fileName("payments", taxYear),
     "Payments",
     ["Form", "Period", "Paid on", "Amount", "Reference", "Recorded by", "Remarks"],
     payments.map((row) => [
       row.formCode,
       PAYMENT_PERIOD_LABELS[row.periodKey],
-      row.paidOn,
+      phtDisplayDate(row.paidOn),
       row.amount,
       row.referenceNo,
       row.createdByName,
@@ -93,16 +93,16 @@ export function downloadPayments(payments: PaymentRow[]) {
 export function downloadLocks(locks: PeriodLockRow[]) {
   const taxYear = locks[0]?.taxYear ?? new Date().getFullYear();
   writeSheet(
-    fileName(`period locks ${taxYear}`),
+    fileName("locks", taxYear),
     "Locks",
     ["Period", "State", "Locked by", "Locked at", "Unlock reason", "Unlocked at"],
     locks.map((row) => [
       PERIOD_LABELS[row.periodKey],
       lockStateLabel(row.unlockedAt && row.unlockedAt > row.lockedAt ? "OPEN" : "LOCKED"),
       row.lockedByName,
-      row.lockedAt,
+      phtDisplayStamp(row.lockedAt),
       row.unlockReason,
-      row.unlockedAt,
+      phtDisplayStamp(row.unlockedAt),
     ]),
     [10, 14, 26, 22, 40, 22],
   );

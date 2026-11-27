@@ -99,14 +99,18 @@ export async function resolveJournalEntry(draft: JournalEntryDraft): Promise<Res
     // `COA:<id>` pins a line to an explicit account (reversals, direct expense picks);
     // everything else must come from the mapping table.
     const pinned = key.startsWith("COA:") ? byCoaId.get(key.slice(4)) : undefined;
-    const mapped = pinned ?? byKey.get(key);
-    if (!mapped || (pinned ? false : !("coaId" in mapped && mapped.coaId))) missing.add(key);
+    const row = pinned ? undefined : byKey.get(key);
+    // A mapping row can name a coa_id that is not in the chart of accounts (the seeded
+    // clearing keys did). Posting that line would write an account that does not exist, so
+    // it counts as unmapped instead of balancing silently.
+    const account = pinned ?? (row?.coaId == null ? undefined : byCoaId.get(String(row.coaId)));
+    if (!account) missing.add(key);
 
     return {
       lineNo: index + 1,
-      coaId: pinned ? Number(pinned.coa_id) : (mapped as GlMappingRow | undefined)?.coaId ?? null,
-      glCode: pinned ? pinned.gl_code : (mapped as GlMappingRow | undefined)?.glCode ?? null,
-      accountTitle: pinned ? pinned.account_title : (mapped as GlMappingRow | undefined)?.accountTitle ?? null,
+      coaId: account ? Number(account.coa_id) : null,
+      glCode: account?.gl_code ?? null,
+      accountTitle: account?.account_title ?? null,
       debit: roundMoney(line.debit || 0),
       credit: roundMoney(line.credit || 0),
       memo: line.memo ?? null,

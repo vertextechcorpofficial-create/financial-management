@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/utils";
 
 import { CHANGE_KINDS, CHANGE_KIND_LABEL, PREPAYMENT_OPTION_LABEL, PREPAYMENT_OPTIONS } from "../constants";
-import { phtDate } from "../pht";
+import { formatDateMDY, phtDate } from "../pht";
 import { fetchChangeContext, recordChangeRequest } from "../providers/changesApi";
 import { outstandingPrincipal, planChange } from "../services/changePlan";
 import type { ChangeContext, ChangeKind, PrepaymentOption } from "../types";
@@ -70,6 +70,9 @@ const toNumber = (raw: string): number | null => {
 };
 
 const money = (value: number) => formatCurrency(Math.abs(value) < 0.005 ? 0 : value);
+
+/** One value when nothing moved, otherwise "before → after": an unchanged pair says nothing. */
+const moved = (before: string, after: string): string => (before === after ? after : `${before} → ${after}`);
 
 export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Props) {
   const [form, setForm] = useState<FormState>(blank);
@@ -237,17 +240,41 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[760px]">
         <DialogHeader className="space-y-1 border-b border-border px-6 py-4">
-          <DialogTitle className="truncate">Record a change</DialogTitle>
+          <DialogTitle className="truncate">Record change</DialogTitle>
           <DialogDescription className="truncate">{subtitle}</DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Tile label="Outstanding" value={context ? money(outstandingPrincipal(context.schedule)) : "—"} />
-            <Tile label="Installment" value={plan ? money(plan.newInstallment) : context ? money(context.loan.installmentAmount) : "—"} />
-            <Tile label="Maturity" value={plan?.newMaturity ?? context?.loan.maturityDate ?? "—"} />
-            <Tile label={form.kind === "RATE_CHANGE" ? "Rate after" : "Cash for this"} value={plan ? (form.kind === "RATE_CHANGE" ? `${plan.eirAfter.toFixed(2)}%` : money(plan.cashAmount)) : "—"} />
-          </div>
+          {form.loanId ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Tile label="Outstanding" value={context ? money(outstandingPrincipal(context.schedule)) : "not recorded"} />
+              <Tile
+                label="Installment"
+                value={plan ? money(plan.newInstallment) : context ? money(context.loan.installmentAmount) : "not recorded"}
+                previous={plan && plan.oldInstallment !== plan.newInstallment ? money(plan.oldInstallment) : null}
+              />
+              <Tile
+                label="Maturity"
+                value={plan?.newMaturity ? formatDateMDY(plan.newMaturity) : context?.loan.maturityDate ? formatDateMDY(context.loan.maturityDate) : "not recorded"}
+                previous={plan?.newMaturity && plan.oldMaturity !== plan.newMaturity ? formatDateMDY(plan.oldMaturity) : null}
+              />
+              <Tile
+                label={form.kind === "RATE_CHANGE" ? "Rate after" : "Cash for this"}
+                value={plan ? (form.kind === "RATE_CHANGE" ? `${plan.eirAfter.toFixed(2)}%` : money(plan.cashAmount)) : "not recorded"}
+                previous={
+                  plan && form.kind === "RATE_CHANGE" && plan.eirBefore.toFixed(2) !== plan.eirAfter.toFixed(2)
+                    ? `${plan.eirBefore.toFixed(2)}%`
+                    : null
+                }
+              />
+            </div>
+          ) : (
+            // Four "not recorded" boxes read as a failed load before a loan is picked. Say what fills them.
+            <p className="rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-xs text-muted-foreground">
+              Choose a loan and this strip fills in: what it still owes, its installment, its maturity and the cash this
+              change moves.
+            </p>
+          )}
 
           {isLoadingContext ? (
             <Notice tone="info" title="Reading the loan">
@@ -328,6 +355,15 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
                     inputMode="decimal"
                     value={form.amount}
                     onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
+                    onBlur={() => {
+                      const typed = toNumber(form.amount);
+                      if (typed === null) return;
+                      // Group the digits on the way out, the way a payment does.
+                      setForm((current) => ({
+                        ...current,
+                        amount: typed.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                      }));
+                    }}
                     aria-invalid={errors.amount ? true : undefined}
                     className="h-9 tabular-nums"
                   />
@@ -340,7 +376,11 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
                       setForm((current) => ({ ...current, prepaymentOption: value as PrepaymentOption }))
                     }
                   >
-                    <SelectTrigger id="change-option" className="h-9 w-full">
+                    <SelectTrigger
+                      id="change-option"
+                      className="h-9 w-full [&>span]:min-w-0 [&>span]:truncate"
+                      title={PREPAYMENT_OPTION_LABEL[form.prepaymentOption]}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="max-h-60 min-w-[200px] [&_[data-slot=select-item]]:whitespace-nowrap">
@@ -363,8 +403,13 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
                   value={form.newRate}
                   onChange={(event) => setForm((current) => ({ ...current, newRate: event.target.value }))}
                   aria-invalid={errors.newRate ? true : undefined}
+                  aria-describedby="change-rate-hint"
                   className="h-9 tabular-nums"
                 />
+                {/* The 30% ceiling is enforced below; an enforced limit nobody can read is a trap. */}
+                <p id="change-rate-hint" className="text-xs text-muted-foreground">
+                  30% a year or less. Anything higher is refused as a typo.
+                </p>
               </Field>
             ) : null}
 
@@ -430,12 +475,12 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Before and after</p>
               </div>
               <dl className="divide-y divide-border/50">
-                <Row label="Installment" value={`${money(plan.oldInstallment)} → ${money(plan.newInstallment)}`} />
-                <Row label="Maturity" value={`${plan.oldMaturity ?? "—"} → ${plan.newMaturity ?? "—"}`} />
+                <Row label="Installment" value={moved(money(plan.oldInstallment), money(plan.newInstallment))} />
+                <Row label="Maturity" value={moved(plan.oldMaturity ? formatDateMDY(plan.oldMaturity) : "not recorded", plan.newMaturity ? formatDateMDY(plan.newMaturity) : "not recorded")} />
                 <Row label="Principal after" value={money(plan.outstandingAfter)} />
                 <Row label="Cash for this change" value={money(plan.cashAmount)} />
-                <Row label="Effective rate" value={`${plan.eirBefore.toFixed(2)}% → ${plan.eirAfter.toFixed(2)}%`} />
-                <Row label="Gain / loss" value={plan.gainLoss === 0 ? "—" : money(plan.gainLoss)} />
+                <Row label="Effective rate" value={moved(`${plan.eirBefore.toFixed(2)}%`, `${plan.eirAfter.toFixed(2)}%`)} />
+                <Row label="Gain / loss" value={plan.gainLoss === 0 ? "none" : money(plan.gainLoss)} />
                 {plan.testPct !== null ? (
                   <Row
                     label="10% test"
@@ -490,11 +535,12 @@ export function RecordChangeDialog({ open, onOpenChange, loans, onRecorded }: Pr
   );
 }
 
-function Tile({ label, value }: { label: string; value: string }) {
+function Tile({ label, value, previous }: { label: string; value: string; previous?: string | null }) {
   return (
     <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
       <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="truncate text-sm font-semibold tabular-nums">{value}</p>
+      {previous ? <p className="truncate text-[11px] text-muted-foreground">was {previous}</p> : null}
     </div>
   );
 }

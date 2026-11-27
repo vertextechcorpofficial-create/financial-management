@@ -1,6 +1,6 @@
 import "server-only";
 
-import { phtDate, phtStamp, toPhtDateString } from "../pht";
+import { formatDateMDY, phtDate, phtStamp, toPhtDateString } from "../pht";
 import { statusNoun } from "../format";
 import type {
   ApprovalAction,
@@ -27,8 +27,18 @@ import {
   roundMoney,
   updateItem,
 } from "./directus";
-import { LoanConflictError, LoanNotFoundError, LoanValidationError } from "./errors";
-import { buildSchedule, type BusinessDayRule, type FirstPeriodBasis, type PaymentFrequency, type RepaymentMethod } from "./loanEngine";
+import {
+  LoanConflictError,
+  LoanNotFoundError,
+  LoanValidationError,
+} from "./errors";
+import {
+  buildSchedule,
+  type BusinessDayRule,
+  type FirstPeriodBasis,
+  type PaymentFrequency,
+  type RepaymentMethod,
+} from "./loanEngine";
 
 const LOANS = "loan";
 const APPROVALS = "loan_approval";
@@ -43,7 +53,11 @@ const HOLIDAYS = "loan_holiday";
 const COA = "chart_of_accounts";
 const USERS = "user";
 
-const QUEUE_STATUSES: LoanStatus[] = ["PENDING_APPROVAL", "PENDING_RELEASE"];
+/**
+ * What the queue lists. Approval posts the release in the same action, so a new approval lands on
+ * `CURRENT` and nothing ever waits for a second step (QA item 16).
+ */
+const QUEUE_STATUSES: LoanStatus[] = ["PENDING_APPROVAL"];
 
 const LOAN_FIELDS = [
   "id",
@@ -51,11 +65,18 @@ const LOAN_FIELDS = [
   "lender_name",
   "lender_type",
   "branch",
+  "account_officer",
+  "contact_phone",
+  "contact_email",
   "purpose",
   "account_no",
+  "security",
+  "security_value",
+  "guarantor",
   "principal",
   "nominal_rate",
   "current_rate",
+  "rate_type",
   "repayment_method",
   "payment_frequency",
   "term_payments",
@@ -68,6 +89,8 @@ const LOAN_FIELDS = [
   "dst_treatment",
   "dst_amount",
   "other_costs",
+  "pas23_applies",
+  "pas23_borrowing_type",
   "installment_amount",
   "proceeds_net",
   "eir_rate",
@@ -96,25 +119,33 @@ function toLoanRow(raw: RawLoan): LoanRow {
     lender_name: asString(raw.lender_name),
     lender_type: asString(raw.lender_type) as LoanRow["lender_type"],
     branch: asString(raw.branch) || null,
-    account_officer: null,
-    contact_phone: null,
-    contact_email: null,
+    account_officer: asString(raw.account_officer) || null,
+    contact_phone: asString(raw.contact_phone) || null,
+    contact_email: asString(raw.contact_email) || null,
     account_no: asString(raw.account_no),
     purpose: asString(raw.purpose),
-    security: "NONE",
-    security_value: null,
-    guarantor: null,
+    security: (asString(raw.security) || "NONE") as LoanRow["security"],
+    security_value: asNumberOrNull(raw.security_value),
+    guarantor: asString(raw.guarantor) || null,
     principal: number("principal"),
     nominal_rate: number("nominal_rate"),
     current_rate: number("current_rate"),
-    rate_type: "FIXED",
-    repayment_method: asString(raw.repayment_method) as LoanRow["repayment_method"],
-    payment_frequency: asString(raw.payment_frequency) as LoanRow["payment_frequency"],
+    rate_type: (asString(raw.rate_type) || "FIXED") as LoanRow["rate_type"],
+    repayment_method: asString(
+      raw.repayment_method,
+    ) as LoanRow["repayment_method"],
+    payment_frequency: asString(
+      raw.payment_frequency,
+    ) as LoanRow["payment_frequency"],
     term_payments: number("term_payments"),
     release_date: toPhtDateString(asString(raw.release_date)),
     first_payment_date: toPhtDateString(asString(raw.first_payment_date)),
-    first_period_basis: asString(raw.first_period_basis) as LoanRow["first_period_basis"],
-    business_day_rule: asString(raw.business_day_rule) as LoanRow["business_day_rule"],
+    first_period_basis: asString(
+      raw.first_period_basis,
+    ) as LoanRow["first_period_basis"],
+    business_day_rule: asString(
+      raw.business_day_rule,
+    ) as LoanRow["business_day_rule"],
     proceeds_account_id: number("proceeds_account_id"),
     processing_fee: number("processing_fee"),
     dst_treatment: asString(raw.dst_treatment) as LoanRow["dst_treatment"],
@@ -122,16 +153,21 @@ function toLoanRow(raw: RawLoan): LoanRow {
     other_costs: number("other_costs"),
     penalty_rate_monthly: 0,
     grace_days: 0,
-    pas23_applies: false,
-    pas23_borrowing_type: null,
+    pas23_applies: asBoolean(raw.pas23_applies),
+    pas23_borrowing_type: (asString(raw.pas23_borrowing_type) ||
+      null) as LoanRow["pas23_borrowing_type"],
     pas23_asset: null,
     pas23_capitalize_from: null,
     pas23_capitalize_until: null,
     installment_amount: number("installment_amount"),
     proceeds_net: number("proceeds_net"),
     eir_rate: number("eir_rate"),
-    maturity_date: asString(raw.maturity_date) ? toPhtDateString(asString(raw.maturity_date)) : null,
-    approval_status: asString(raw.approval_status) as LoanRow["approval_status"],
+    maturity_date: asString(raw.maturity_date)
+      ? toPhtDateString(asString(raw.maturity_date))
+      : null,
+    approval_status: asString(
+      raw.approval_status,
+    ) as LoanRow["approval_status"],
     status: asString(raw.status) as LoanStatus,
     schedule_version: number("schedule_version") || 1,
     advance_balance: 0,
@@ -174,12 +210,18 @@ async function loadMapping(): Promise<Map<string, number | null>> {
     limit: 100,
   });
   const map = new Map<string, number | null>();
-  for (const row of rows) map.set(asString(row.mapping_key).toUpperCase(), asNumberOrNull(row.coa_id));
+  for (const row of rows)
+    map.set(
+      asString(row.mapping_key).toUpperCase(),
+      asNumberOrNull(row.coa_id),
+    );
   return map;
 }
 
 async function loadCoa(ids: number[]): Promise<Map<number, CoaRow>> {
-  const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  const unique = [
+    ...new Set(ids.filter((id) => Number.isInteger(id) && id > 0)),
+  ];
   if (unique.length === 0) return new Map();
   const { rows } = await listItems<Record<string, unknown>>(COA, {
     fields: ["coa_id", "gl_code", "account_title"],
@@ -189,7 +231,11 @@ async function loadCoa(ids: number[]): Promise<Map<number, CoaRow>> {
   const map = new Map<number, CoaRow>();
   for (const row of rows) {
     const id = asNumber(row.coa_id);
-    map.set(id, { coa_id: id, gl_code: asString(row.gl_code), account_title: asString(row.account_title) });
+    map.set(id, {
+      coa_id: id,
+      gl_code: asString(row.gl_code),
+      account_title: asString(row.account_title),
+    });
   }
   return map;
 }
@@ -221,18 +267,29 @@ export async function lockedThrough(): Promise<string | null> {
  * Same shape as `taxation/payments-2307/services/actor.ts` and loan-reconciliation.
  */
 async function loadActorNames(ids: number[]): Promise<Map<number, string>> {
-  const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  const unique = [
+    ...new Set(ids.filter((id) => Number.isInteger(id) && id > 0)),
+  ];
   if (unique.length === 0) return new Map();
   try {
     const { rows } = await listItems<Record<string, unknown>>(USERS, {
-      fields: ["user_id", "user_fname", "user_mname", "user_lname", "user_email"],
+      fields: [
+        "user_id",
+        "user_fname",
+        "user_mname",
+        "user_lname",
+        "user_email",
+      ],
       filter: { user_id: { _in: unique } },
       limit: unique.length,
     });
     const map = new Map<number, string>();
     for (const row of rows) {
       const id = asNumber(row.user_id);
-      const name = [row.user_fname, row.user_mname, row.user_lname].map(asString).filter(Boolean).join(" ");
+      const name = [row.user_fname, row.user_mname, row.user_lname]
+        .map(asString)
+        .filter(Boolean)
+        .join(" ");
       map.set(id, name || asString(row.user_email) || `User ${id}`);
     }
     return map;
@@ -242,12 +299,14 @@ async function loadActorNames(ids: number[]): Promise<Map<number, string>> {
 }
 
 function releaseKeyLabel(key: string): string {
-  return {
-    LOAN_PRINCIPAL: "the loans payable account",
-    UNAMORTIZED_COSTS: "the unamortized costs account",
-    CHECKS_UNCLEARED: "the checks issued – uncleared account",
-    DST_PAYABLE: "the DST payable account",
-  }[key] ?? key;
+  return (
+    {
+      LOAN_PRINCIPAL: "the loans payable account",
+      UNAMORTIZED_COSTS: "the unamortized costs account",
+      CHECKS_UNCLEARED: "the checks issued that have not cleared",
+      DST_PAYABLE: "the DST payable account",
+    }[key] ?? key
+  );
 }
 
 /**
@@ -256,14 +315,23 @@ function releaseKeyLabel(key: string): string {
  * Release posts the principal owed against the money we received and the costs we will
  * amortize: `Dr proceeds account (or checks uncleared) + Dr unamortized costs = Cr loans
  * payable`. When we pay the DST ourselves it is not withheld from the proceeds, so it gets
- * its own pair — `Dr unamortized costs / Cr DST payable` — and stays a liability until remitted.
+ * its own pair (`Dr unamortized costs / Cr DST payable`) and stays a liability until remitted.
  */
 function buildReleaseLines(
   loan: LoanRow,
   account: LoanPaymentAccountRow | null,
   channel: ReleaseChannel,
   mapping: Map<string, number | null>,
-): { lines: { key: string; coaId: number | null; debit: number; credit: number; memo: string }[]; missing: string[] } {
+): {
+  lines: {
+    key: string;
+    coaId: number | null;
+    debit: number;
+    credit: number;
+    memo: string;
+  }[];
+  missing: string[];
+} {
   const missing: string[] = [];
   const resolve = (key: string): number | null => {
     const coaId = mapping.get(key) ?? null;
@@ -274,9 +342,16 @@ function buildReleaseLines(
   const principal = roundMoney(loan.principal);
   const proceeds = roundMoney(loan.proceeds_net);
   const costs = roundMoney(principal - proceeds);
-  const dstOurs = loan.dst_treatment === "PAID_BY_US" ? roundMoney(loan.dst_amount) : 0;
+  const dstOurs =
+    loan.dst_treatment === "PAID_BY_US" ? roundMoney(loan.dst_amount) : 0;
 
-  const lines: { key: string; coaId: number | null; debit: number; credit: number; memo: string }[] = [];
+  const lines: {
+    key: string;
+    coaId: number | null;
+    debit: number;
+    credit: number;
+    memo: string;
+  }[] = [];
   // The debit side of the proceeds: the bank/ewallet account, or the uncleared-checks account.
   if (channel === "CHECK") {
     lines.push({
@@ -332,7 +407,13 @@ function buildReleaseLines(
 }
 
 async function describeLines(
-  raw: { key: string; coaId: number | null; debit: number; credit: number; memo: string }[],
+  raw: {
+    key: string;
+    coaId: number | null;
+    debit: number;
+    credit: number;
+    memo: string;
+  }[],
 ): Promise<ReleasePreviewLine[]> {
   const coa = await loadCoa(raw.map((line) => line.coaId ?? 0));
   return raw.map((line) => {
@@ -351,27 +432,6 @@ function accountLabel(account: LoanPaymentAccountRow | null): string | null {
   return account ? account.name : null;
 }
 
-/** The reason a release cannot run, in the reviewer's words. Null when nothing blocks it. */
-function releaseBlocker(
-  loan: LoanRow,
-  account: LoanPaymentAccountRow | null,
-  missingKeys: string[],
-  locked: string | null,
-): string | null {
-  if (loan.status !== "PENDING_RELEASE") {
-    return `This loan is ${statusNoun(loan.status)}; only an approved loan waiting for its money can be released.`;
-  }
-  if (loan.approval_status !== "APPROVED") return "This loan has not been approved yet.";
-  if (!account) return "The proceeds account on this loan is not in the active payment account list.";
-  if (locked && loan.release_date <= locked) {
-    return `The books are closed through ${locked}, so a release on ${loan.release_date} cannot be posted.`;
-  }
-  if (missingKeys.length > 0) {
-    return `Ask accounting to map ${missingKeys.map(releaseKeyLabel).join(" and ")} before this loan can be released.`;
-  }
-  return null;
-}
-
 interface QueueQuery {
   q?: string;
   status?: string;
@@ -381,9 +441,11 @@ interface QueueQuery {
 }
 
 function queueFilter(query: QueueQuery): Record<string, unknown> {
-  const statuses = query.status && query.status !== "ALL" ? [query.status] : QUEUE_STATUSES;
+  const statuses =
+    query.status && query.status !== "ALL" ? [query.status] : QUEUE_STATUSES;
   const clauses: Record<string, unknown>[] = [{ status: { _in: statuses } }];
-  if (query.lenderType && query.lenderType !== "ALL") clauses.push({ lender_type: { _eq: query.lenderType } });
+  if (query.lenderType && query.lenderType !== "ALL")
+    clauses.push({ lender_type: { _eq: query.lenderType } });
   if (query.q) {
     clauses.push({
       _or: [
@@ -396,11 +458,12 @@ function queueFilter(query: QueueQuery): Record<string, unknown> {
   return { _and: clauses };
 }
 
-async function mapQueueRows(rawRows: RawLoan[], actorId: number | null): Promise<ApprovalQueueRow[]> {
-  const [mapping, accounts, locked, schedule, names] = await Promise.all([
-    loadMapping(),
+async function mapQueueRows(
+  rawRows: RawLoan[],
+  actorId: number | null,
+): Promise<ApprovalQueueRow[]> {
+  const [accounts, schedule, names] = await Promise.all([
     listPaymentAccounts(),
-    lockedThrough(),
     scheduledLoanIds(rawRows.map((row) => asNumber(row.id))),
     loadActorNames(rawRows.map((row) => asNumberOrNull(row.submitted_by) ?? 0)),
   ]);
@@ -409,7 +472,6 @@ async function mapQueueRows(rawRows: RawLoan[], actorId: number | null): Promise
   return rawRows.map((raw) => {
     const loan = toLoanRow(raw);
     const account = accountById.get(loan.proceeds_account_id) ?? null;
-    const { missing } = buildReleaseLines(loan, account, "TRANSFER", mapping);
     return {
       id: loan.id,
       loanNo: loan.loan_no,
@@ -425,11 +487,12 @@ async function mapQueueRows(rawRows: RawLoan[], actorId: number | null): Promise
       maturityDate: loan.maturity_date,
       submittedAt: loan.submitted_at,
       submittedBy: loan.submitted_by,
-      submittedByName: loan.submitted_by ? (names.get(loan.submitted_by) ?? null) : null,
+      submittedByName: loan.submitted_by
+        ? (names.get(loan.submitted_by) ?? null)
+        : null,
       status: loan.status,
       approvalStatus: loan.approval_status,
       selfSubmitted: actorId !== null && loan.submitted_by === actorId,
-      releaseBlockedReason: releaseBlocker(loan, account, missing, locked),
       hasSchedule: schedule.has(loan.id),
       proceedsAccountLabel: accountLabel(account),
     };
@@ -451,32 +514,19 @@ async function scheduledLoanIds(ids: number[]): Promise<Set<number>> {
 export async function loadQueue(
   query: QueueQuery,
   actorId: number | null,
-): Promise<{ rows: ApprovalQueueRow[]; total: number; counts: Record<string, number> }> {
+): Promise<{ rows: ApprovalQueueRow[]; total: number }> {
   const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 10;
   const page = query.page ?? 1;
-  const [pageResult, pendingApproval, pendingRelease, rejected] = await Promise.all([
-    listItems<RawLoan>(LOANS, {
-      fields: LOAN_FIELDS,
-      filter: queueFilter(query),
-      sort: "-submitted_at",
-      limit: pageSize,
-      page,
-    }),
-    listItems<RawLoan>(LOANS, { fields: ["id"], filter: { status: { _eq: "PENDING_APPROVAL" } }, limit: 1 }),
-    listItems<RawLoan>(LOANS, { fields: ["id"], filter: { status: { _eq: "PENDING_RELEASE" } }, limit: 1 }),
-    listItems<RawLoan>(LOANS, { fields: ["id"], filter: { status: { _eq: "REJECTED" } }, limit: 1 }),
-  ]);
+  const pageResult = await listItems<RawLoan>(LOANS, {
+    fields: LOAN_FIELDS,
+    filter: queueFilter(query),
+    sort: "-submitted_at",
+    limit: pageSize,
+    page,
+  });
 
   const rows = await mapQueueRows(pageResult.rows, actorId);
-  return {
-    rows,
-    total: pageResult.total,
-    counts: {
-      PENDING_APPROVAL: pendingApproval.total,
-      PENDING_RELEASE: pendingRelease.total,
-      REJECTED: rejected.total,
-    },
-  };
+  return { rows, total: pageResult.total };
 }
 
 async function loadLoan(id: number): Promise<LoanRow> {
@@ -485,7 +535,10 @@ async function loadLoan(id: number): Promise<LoanRow> {
   return toLoanRow(raw);
 }
 
-type TimelineFallback = { submittedBy: number | null; approvedBy: number | null };
+type TimelineFallback = {
+  submittedBy: number | null;
+  approvedBy: number | null;
+};
 
 /** Two rows describe one action when they agree on the action and land within two seconds. */
 const SAME_ACTION_MS = 2000;
@@ -503,39 +556,76 @@ function stampOf(value: unknown): number {
  * and the decision writes the same pair, so reading both printed "Submitted" twice a second
  * apart (finding L7). The approval row is the decision record; the matching event is folded
  * into it (its description and reference fill in when the decision has none).
- * Nothing is deleted — the rows stay where they are.
+ * Nothing is deleted: the rows stay where they are.
  */
-async function loadTimeline(loanId: number, fallback: TimelineFallback): Promise<ApprovalTimelineEntry[]> {
-  const [decisions, events] = await Promise.all([
-    listItems<Record<string, unknown>>(APPROVALS, {
-      fields: ["id", "action", "remarks", "actor_id", "acted_at", "self_approved"],
-      filter: { loan_id: { _eq: loanId } },
-      sort: "-acted_at,-id",
-      limit: 100,
-    }),
-    listItems<Record<string, unknown>>(EVENTS, {
-      fields: ["id", "kind", "occurred_at", "description", "amount", "reference", "actor_id"],
-      filter: { loan_id: { _eq: loanId } },
-      sort: "-occurred_at,-id",
-      limit: 100,
-    }),
-  ]);
+type TimelineRow = Record<string, unknown>;
 
-  const names = await loadActorNames([
-    ...decisions.rows.map((row) => asNumberOrNull(row.actor_id) ?? 0),
-    ...events.rows.map((row) => asNumberOrNull(row.actor_id) ?? 0),
+/** Neither read needs the loan row, so the caller starts both with it instead of after it. */
+async function loadDecisionRows(loanId: number): Promise<TimelineRow[]> {
+  const { rows } = await listItems<TimelineRow>(APPROVALS, {
+    fields: [
+      "id",
+      "action",
+      "remarks",
+      "actor_id",
+      "acted_at",
+      "self_approved",
+    ],
+    filter: { loan_id: { _eq: loanId } },
+    sort: "-acted_at,-id",
+    limit: 100,
+  });
+  return rows;
+}
+
+async function loadEventRows(loanId: number): Promise<TimelineRow[]> {
+  const { rows } = await listItems<TimelineRow>(EVENTS, {
+    fields: [
+      "id",
+      "kind",
+      "occurred_at",
+      "description",
+      "amount",
+      "reference",
+      "actor_id",
+    ],
+    filter: { loan_id: { _eq: loanId } },
+    sort: "-occurred_at,-id",
+    limit: 100,
+  });
+  return rows;
+}
+
+/** Every id the trail will name, so one directory read serves the timeline and the header. */
+function timelineActorIds(
+  decisions: TimelineRow[],
+  events: TimelineRow[],
+  fallback: TimelineFallback,
+): number[] {
+  return [
+    ...decisions.map((row) => asNumberOrNull(row.actor_id) ?? 0),
+    ...events.map((row) => asNumberOrNull(row.actor_id) ?? 0),
     fallback.submittedBy ?? 0,
     fallback.approvedBy ?? 0,
-  ]);
+  ];
+}
 
+function buildTimeline(
+  decisions: TimelineRow[],
+  events: TimelineRow[],
+  names: Map<number, string>,
+  fallback: TimelineFallback,
+): ApprovalTimelineEntry[] {
   const nameFor = (actorId: number | null): string | null =>
-    actorId ? names.get(actorId) ?? `User ${actorId}` : null;
+    actorId ? (names.get(actorId) ?? `User ${actorId}`) : null;
 
   const entries: ApprovalTimelineEntry[] = [];
-  for (const row of decisions.rows) {
+  for (const row of decisions) {
     const action = asString(row.action) as ApprovalAction;
     const fallbackId =
-      action === "SUBMITTED" || action === "RESUBMITTED" ? fallback.submittedBy : fallback.approvedBy;
+      action === "SUBMITTED" || action === "RESUBMITTED"
+        ? fallback.submittedBy
+        : fallback.approvedBy;
     entries.push({
       id: `approval-${asNumber(row.id)}`,
       kind: "DECISION",
@@ -551,7 +641,7 @@ async function loadTimeline(loanId: number, fallback: TimelineFallback): Promise
     });
   }
 
-  for (const row of events.rows) {
+  for (const row of events) {
     const kind = asString(row.kind) as LoanEventKind;
     const at = stampOf(row.occurred_at);
     const twin = entries.find(
@@ -581,7 +671,9 @@ async function loadTimeline(loanId: number, fallback: TimelineFallback): Promise
     });
   }
 
-  return entries.sort((a, b) => (a.occurredAt < b.occurredAt ? 1 : a.occurredAt > b.occurredAt ? -1 : 0));
+  return entries.sort((a, b) =>
+    a.occurredAt < b.occurredAt ? 1 : a.occurredAt > b.occurredAt ? -1 : 0,
+  );
 }
 
 const ACTION_LABEL: Record<string, string> = {
@@ -609,28 +701,59 @@ const EVENT_LABEL: Record<string, string> = {
   SCHEDULE_REBUILT: "Schedule rebuilt",
 };
 
-async function loadScheduleCount(loanId: number, version: number): Promise<number> {
+async function loadScheduleCount(
+  loanId: number,
+  version: number,
+): Promise<number> {
   const { total } = await listItems<Record<string, unknown>>(SCHEDULE, {
     fields: ["id"],
-    filter: { _and: [{ loan_id: { _eq: loanId } }, { version: { _eq: version } }] },
+    filter: {
+      _and: [{ loan_id: { _eq: loanId } }, { version: { _eq: version } }],
+    },
     limit: 1,
   });
   return total;
 }
 
-export async function loadDetail(id: number, actorId: number | null, channel: ReleaseChannel = "TRANSFER", accountId?: number | null): Promise<ApprovalDetail> {
-  const loan = await loadLoan(id);
-  const [accounts, mapping, locked, timeline, schedulePeriods] = await Promise.all([
-    listPaymentAccounts(),
-    loadMapping(),
-    lockedThrough(),
-    loadTimeline(id, { submittedBy: loan.submitted_by, approvedBy: loan.approved_by }),
+export async function loadDetail(
+  id: number,
+  actorId: number | null,
+  channel: ReleaseChannel = "TRANSFER",
+  accountId?: number | null,
+): Promise<ApprovalDetail> {
+  // Opening this dialog used to take five Directus waves: the loan, then six reads, then the
+  // actor names, then the chart of accounts, then the names again. Only the loan row is a
+  // prerequisite for the rest, so the work now runs in two waves and reads names once.
+  const [loan, accounts, mapping, locked, decisions, events] =
+    await Promise.all([
+      loadLoan(id),
+      listPaymentAccounts(),
+      loadMapping(),
+      lockedThrough(),
+      loadDecisionRows(id),
+      loadEventRows(id),
+    ]);
+
+  const account =
+    accounts.find(
+      (item) => item.id === (accountId ?? loan.proceeds_account_id),
+    ) ?? null;
+  const { lines: rawLines, missing } = buildReleaseLines(
+    loan,
+    account,
+    channel,
+    mapping,
+  );
+  const fallback: TimelineFallback = {
+    submittedBy: loan.submitted_by,
+    approvedBy: loan.approved_by,
+  };
+  const [lines, names, schedulePeriods] = await Promise.all([
+    describeLines(rawLines),
+    loadActorNames(timelineActorIds(decisions, events, fallback)),
     loadScheduleCount(id, loan.schedule_version),
   ]);
-
-  const account = accounts.find((item) => item.id === (accountId ?? loan.proceeds_account_id)) ?? null;
-  const { lines: rawLines, missing } = buildReleaseLines(loan, account, channel, mapping);
-  const lines = await describeLines(rawLines);
+  const timeline = buildTimeline(decisions, events, names, fallback);
   const preview: ReleasePreview = {
     lines,
     totalDebit: roundMoney(lines.reduce((sum, line) => sum + line.debit, 0)),
@@ -643,7 +766,6 @@ export async function loadDetail(id: number, actorId: number | null, channel: Re
   };
 
   const approvedBy = loan.approved_by;
-  const names = await loadActorNames([approvedBy ?? 0, loan.submitted_by ?? 0]);
   const row: ApprovalQueueRow = {
     id: loan.id,
     loanNo: loan.loan_no,
@@ -659,11 +781,12 @@ export async function loadDetail(id: number, actorId: number | null, channel: Re
     maturityDate: loan.maturity_date,
     submittedAt: loan.submitted_at,
     submittedBy: loan.submitted_by,
-    submittedByName: loan.submitted_by ? (names.get(loan.submitted_by) ?? null) : null,
+    submittedByName: loan.submitted_by
+      ? (names.get(loan.submitted_by) ?? null)
+      : null,
     status: loan.status,
     approvalStatus: loan.approval_status,
     selfSubmitted: actorId !== null && loan.submitted_by === actorId,
-    releaseBlockedReason: releaseBlocker(loan, account, missing, locked),
     hasSchedule: schedulePeriods > 0,
     proceedsAccountLabel: accountLabel(account),
   };
@@ -675,8 +798,12 @@ export async function loadDetail(id: number, actorId: number | null, channel: Re
     preview,
     lockedThrough: locked,
     schedulePeriods,
-    submittedByName: loan.submitted_by ? (names.get(loan.submitted_by) ?? `User ${loan.submitted_by}`) : null,
-    approvedByName: approvedBy ? names.get(approvedBy) ?? `User ${approvedBy}` : null,
+    submittedByName: loan.submitted_by
+      ? (names.get(loan.submitted_by) ?? `User ${loan.submitted_by}`)
+      : null,
+    approvedByName: approvedBy
+      ? (names.get(approvedBy) ?? `User ${approvedBy}`)
+      : null,
     approvedAt: loan.approved_at,
     releasedAt: loan.released_at,
     purpose: loan.purpose,
@@ -685,11 +812,25 @@ export async function loadDetail(id: number, actorId: number | null, channel: Re
     dstAmount: loan.dst_amount,
     otherCosts: loan.other_costs,
     eirRate: loan.eir_rate,
+    accountOfficer: loan.account_officer,
+    contactPhone: loan.contact_phone,
+    contactEmail: loan.contact_email,
+    security: loan.security,
+    securityValue: loan.security_value,
+    guarantor: loan.guarantor,
+    rateType: loan.rate_type,
+    repaymentMethod: loan.repayment_method,
+    paymentFrequency: loan.payment_frequency,
+    firstPaymentDate: loan.first_payment_date,
+    firstPeriodBasis: loan.first_period_basis,
+    businessDayRule: loan.business_day_rule,
+    pas23Applies: Boolean(loan.pas23_applies),
+    pas23BorrowingType: loan.pas23_borrowing_type,
   };
 }
 
 function assertDecidable(loan: LoanRow): void {
-  if (loan.status === "PENDING_APPROVAL" || loan.status === "PENDING_RELEASE") return;
+  if (loan.status === "PENDING_APPROVAL") return;
   throw new LoanConflictError(
     `This loan is ${statusNoun(loan.status)}, so it can no longer be approved or rejected.`,
   );
@@ -699,25 +840,82 @@ async function assertOpenPeriod(releaseDate: string): Promise<void> {
   const locked = await lockedThrough();
   if (locked && releaseDate <= locked) {
     throw new LoanConflictError(
-      `The books are closed through ${locked}, so a loan released on ${releaseDate} cannot be approved. Ask accounting to reopen the period.`,
+      `The books are closed through ${formatDateMDY(locked)}, so a loan released on ${formatDateMDY(releaseDate)} cannot be approved. Ask accounting to reopen the period.`,
     );
   }
 }
 
-export async function approveLoan(id: number, remarks: string, actorId: number | null): Promise<{ loanNo: string; selfApproved: boolean }> {
+/**
+ * Approves a loan and posts its release in the same action: the approval decision, the RELEASE
+ * entry, schedule version 1 and the loan's move to Current happen together, so there is no
+ * "Awaiting release" step to get stuck in.
+ *
+ * Everything is validated before the first write: a refused approval (already posted, closed
+ * period, unmapped GL account) leaves the loan exactly as it was.
+ */
+export async function approveLoan(
+  id: number,
+  remarks: string,
+  actorId: number | null,
+): Promise<ApproveResult> {
   const loan = await loadLoan(id);
+  if (
+    loan.status === "CURRENT" ||
+    loan.status === "OVERDUE" ||
+    loan.status === "PAID_OFF" ||
+    loan.status === "PREPAID"
+  ) {
+    throw new LoanConflictError("This loan is already approved and posted.");
+  }
   assertDecidable(loan);
-  if (loan.status === "PENDING_RELEASE") throw new LoanConflictError("This loan is already approved and waiting for its money.");
-  await assertOpenPeriod(loan.release_date);
+
+  const releaseDate = toPhtDateString(loan.release_date);
+  if (!releaseDate) {
+    throw new LoanValidationError(
+      "The loan has no release date to post against.",
+      { releaseDate: ["Set the release date first."] },
+    );
+  }
+  if (releaseDate > phtDate()) {
+    throw new LoanValidationError(
+      "The release date cannot be in the future: the money has not arrived yet.",
+      {
+        releaseDate: ["Pick today or an earlier date."],
+      },
+    );
+  }
+  await assertOpenPeriod(releaseDate);
+
+  const accounts = await listPaymentAccounts();
+  const account =
+    accounts.find((item) => item.id === loan.proceeds_account_id) ?? null;
+  if (!account)
+    throw new LoanConflictError(
+      "The proceeds account on this loan is not in the active payment account list.",
+    );
+
+  // The approval has no channel picker: the money is taken as arriving at the loan's own proceeds
+  // account, which is the same assumption the approval queue's preview makes.
+  const channel: ReleaseChannel = "TRANSFER";
+  const posted = await postReleaseEntry(
+    loan,
+    releaseDate,
+    channel,
+    account,
+    actorId,
+  );
 
   const now = phtStamp();
   const selfApproved = actorId !== null && loan.submitted_by === actorId;
 
   await updateItem(LOANS, id, {
     approval_status: "APPROVED",
-    status: "PENDING_RELEASE",
+    status: "CURRENT",
     approved_at: now,
     approved_by: actorId,
+    released_at: `${releaseDate}T00:00:00`,
+    release_date: releaseDate,
+    proceeds_account_id: account.id,
     updated_at: now,
     updated_by: actorId,
   });
@@ -746,11 +944,36 @@ export async function approveLoan(id: number, remarks: string, actorId: number |
     updated_at: now,
     updated_by: actorId,
   });
+  await createItem(EVENTS, {
+    loan_id: id,
+    kind: "RELEASED",
+    occurred_at: now,
+    description: `Released ${channelNoun(channel)} on ${releaseDate} to ${account.name} · ${posted.entryNo}`,
+    amount: loan.principal,
+    reference: posted.entryNo,
+    actor_id: actorId,
+    created_at: now,
+    created_by: actorId,
+    updated_at: now,
+    updated_by: actorId,
+  });
 
-  return { loanNo: loan.loan_no, selfApproved };
+  return {
+    loanNo: loan.loan_no,
+    selfApproved,
+    status: "CURRENT",
+    entryNo: posted.entryNo,
+    totalDebit: posted.totalDebit,
+    scheduleRows: posted.scheduleRows,
+    lines: posted.lines,
+  };
 }
 
-export async function rejectLoan(id: number, reason: string, actorId: number | null): Promise<{ loanNo: string }> {
+export async function rejectLoan(
+  id: number,
+  reason: string,
+  actorId: number | null,
+): Promise<{ loanNo: string }> {
   const trimmed = reason.trim();
   if (trimmed.length < 3) {
     throw new LoanValidationError("Say why the loan is being rejected.", {
@@ -808,16 +1031,24 @@ async function nextEntryNo(entryDate: string): Promise<string> {
     limit: 1,
   });
   const last = rows.length > 0 ? asString(rows[0].entry_no) : "";
-  const lastNumber = last.startsWith(prefix) ? Number.parseInt(last.slice(prefix.length), 10) : 0;
-  const next = Number.isFinite(lastNumber) && lastNumber > 0 ? lastNumber + 1 : 1;
+  const lastNumber = last.startsWith(prefix)
+    ? Number.parseInt(last.slice(prefix.length), 10)
+    : 0;
+  const next =
+    Number.isFinite(lastNumber) && lastNumber > 0 ? lastNumber + 1 : 1;
   return `${prefix}${String(next).padStart(4, "0")}`;
 }
 
-async function buildScheduleRows(loan: LoanRow): Promise<ReturnType<typeof buildSchedule>> {
-  const { rows: holidays } = await listItems<Record<string, unknown>>(HOLIDAYS, {
-    fields: ["holiday_date"],
-    limit: 500,
-  });
+async function buildScheduleRows(
+  loan: LoanRow,
+): Promise<ReturnType<typeof buildSchedule>> {
+  const { rows: holidays } = await listItems<Record<string, unknown>>(
+    HOLIDAYS,
+    {
+      fields: ["holiday_date"],
+      limit: 500,
+    },
+  );
   return buildSchedule({
     principal: loan.principal,
     annualRate: loan.nominal_rate,
@@ -828,18 +1059,23 @@ async function buildScheduleRows(loan: LoanRow): Promise<ReturnType<typeof build
     firstPaymentDate: loan.first_payment_date,
     firstPeriodBasis: loan.first_period_basis as FirstPeriodBasis,
     businessDayRule: loan.business_day_rule as BusinessDayRule,
-    holidays: holidays.map((row) => toPhtDateString(asString(row.holiday_date))).filter(Boolean),
+    holidays: holidays
+      .map((row) => toPhtDateString(asString(row.holiday_date)))
+      .filter(Boolean),
   });
 }
 
-export interface ReleaseInput {
-  releaseDate: string;
-  channel: ReleaseChannel;
-  accountId: number | null;
+export interface ApproveResult {
+  loanNo: string;
+  selfApproved: boolean;
+  status: LoanStatus;
+  entryNo: string;
+  totalDebit: number;
+  scheduleRows: number;
+  lines: number;
 }
 
-export interface ReleaseResult {
-  loanNo: string;
+interface PostedRelease {
   entryNo: string;
   totalDebit: number;
   scheduleRows: number;
@@ -847,59 +1083,42 @@ export interface ReleaseResult {
 }
 
 /**
- * Releases an approved loan: posts the RELEASE entry, moves the loan to Current, writes the
- * event and — when the loan has no schedule yet — builds schedule version 1 from its own terms.
+ * Posts a loan's RELEASE entry and builds schedule version 1 when the loan has none. Shared by
+ * approval (which posts immediately) and the release action kept for loans already in the queue.
  *
- * Not a database transaction (Directus has none over REST): the entry is written before the
- * loan row changes, so a failure after the entry leaves a posted entry with an unreleased loan
- * that a second release attempts to repair by refusing to post a duplicate entry number.
+ * Refuses before the first write when a GL account is unmapped or the entry does not balance;
+ * a failed line write pulls the header back out, so nothing half-posted is left behind.
  */
-export async function releaseLoan(id: number, input: ReleaseInput, actorId: number | null): Promise<ReleaseResult> {
-  const loan = await loadLoan(id);
-  if (loan.status !== "PENDING_RELEASE" || loan.approval_status !== "APPROVED") {
-    throw new LoanConflictError(
-      `This loan is ${loan.status === "PENDING_RELEASE" ? "already released" : statusNoun(loan.status)}; only an approved loan waiting for its money can be released.`,
-    );
-  }
-
-  const releaseDate = toPhtDateString(input.releaseDate || phtDate());
-  if (!releaseDate) throw new LoanValidationError("Pick the date the money arrived.", { releaseDate: ["Use a calendar date."] });
-  if (releaseDate > phtDate()) {
-    throw new LoanValidationError("The release date cannot be in the future: the money has not arrived yet.", {
-      releaseDate: ["Pick today or an earlier date."],
-    });
-  }
-
-  const locked = await lockedThrough();
-  if (locked && releaseDate <= locked) {
-    throw new LoanConflictError(
-      `The books are closed through ${locked}, so a release on ${releaseDate} cannot be posted. Ask accounting to reopen the period.`,
-    );
-  }
-
-  const accounts = await listPaymentAccounts();
-  const account = accounts.find((item) => item.id === (input.accountId ?? loan.proceeds_account_id)) ?? null;
-  if (!account) {
-    throw new LoanValidationError("Choose the account that received the money.", {
-      accountId: ["That account is not in the active payment account list."],
-    });
-  }
-  if (input.channel !== "CHECK" && input.channel !== "CASH" && input.channel !== "TRANSFER") {
-    throw new LoanValidationError("Choose how the money arrived.", { channel: ["Cash, check or transfer."] });
-  }
-
+async function postReleaseEntry(
+  loan: LoanRow,
+  releaseDate: string,
+  channel: ReleaseChannel,
+  account: LoanPaymentAccountRow,
+  actorId: number | null,
+): Promise<PostedRelease> {
   const mapping = await loadMapping();
-  const { lines: rawLines, missing } = buildReleaseLines(loan, account, input.channel, mapping);
+  const { lines: rawLines, missing } = buildReleaseLines(
+    loan,
+    account,
+    channel,
+    mapping,
+  );
   if (missing.length > 0) {
     throw new LoanConflictError(
-      `Ask accounting to map ${missing.map(releaseKeyLabel).join(" and ")} before this loan can be released.`,
+      `Ask accounting to map ${missing.map((key) => `${releaseKeyLabel(key)} (${key})`).join(" and ")} before its release can be posted.`,
     );
   }
 
-  const totalDebit = roundMoney(rawLines.reduce((sum, line) => sum + line.debit, 0));
-  const totalCredit = roundMoney(rawLines.reduce((sum, line) => sum + line.credit, 0));
+  const totalDebit = roundMoney(
+    rawLines.reduce((sum, line) => sum + line.debit, 0),
+  );
+  const totalCredit = roundMoney(
+    rawLines.reduce((sum, line) => sum + line.credit, 0),
+  );
   if (totalDebit !== totalCredit) {
-    throw new LoanConflictError("The release entry does not balance, so nothing was posted. Check the fees and DST on the loan.");
+    throw new LoanConflictError(
+      "The release entry does not balance, so nothing was posted. Check the fees and DST on the loan.",
+    );
   }
 
   const now = phtStamp();
@@ -908,16 +1127,24 @@ export async function releaseLoan(id: number, input: ReleaseInput, actorId: numb
   // that entry instead of posting a second one; the loan row is the part that still has to change.
   const { rows: posted } = await listItems<Record<string, unknown>>(ENTRIES, {
     fields: ["id", "entry_no", "entry_date", "total_debit"],
-    filter: { _and: [{ loan_id: { _eq: id } }, { entry_type: { _eq: "RELEASE" } }, { status: { _eq: "POSTED" } }] },
+    filter: {
+      _and: [
+        { loan_id: { _eq: loan.id } },
+        { entry_type: { _eq: "RELEASE" } },
+        { status: { _eq: "POSTED" } },
+      ],
+    },
     sort: "-id",
     limit: 1,
   });
   const existing = posted[0];
-  const entryNo = existing ? asString(existing.entry_no) : await nextEntryNo(releaseDate);
+  const entryNo = existing
+    ? asString(existing.entry_no)
+    : await nextEntryNo(releaseDate);
 
   if (!existing) {
     const entry = await createItem<Record<string, unknown>>(ENTRIES, {
-      loan_id: id,
+      loan_id: loan.id,
       entry_no: entryNo,
       entry_date: releaseDate,
       entry_type: "RELEASE",
@@ -950,17 +1177,19 @@ export async function releaseLoan(id: number, input: ReleaseInput, actorId: numb
       }
     } catch (error) {
       // Do not leave half an entry in the ledger: pull the header back out and rethrow.
-      await directusFetch(`/items/${ENTRIES}/${entryId}`, { method: "DELETE" }).catch(() => undefined);
+      await directusFetch(`/items/${ENTRIES}/${entryId}`, {
+        method: "DELETE",
+      }).catch(() => undefined);
       throw error;
     }
   }
 
   let scheduleRows = 0;
-  if (!(await loadScheduleCount(id, 1))) {
+  if (!(await loadScheduleCount(loan.id, 1))) {
     const rows = await buildScheduleRows(loan);
     for (const row of rows) {
       await createItem(SCHEDULE, {
-        loan_id: id,
+        loan_id: loan.id,
         version: 1,
         period_no: row.periodNo,
         due_date: row.dueDate,
@@ -981,7 +1210,7 @@ export async function releaseLoan(id: number, input: ReleaseInput, actorId: numb
       scheduleRows += 1;
     }
     await createItem(EVENTS, {
-      loan_id: id,
+      loan_id: loan.id,
       kind: "SCHEDULE_REBUILT",
       occurred_at: now,
       description: `Schedule built on release: ${scheduleRows} installments`,
@@ -995,31 +1224,13 @@ export async function releaseLoan(id: number, input: ReleaseInput, actorId: numb
     });
   }
 
-  await updateItem(LOANS, id, {
-    status: "CURRENT",
-    released_at: `${releaseDate}T00:00:00`,
-    release_date: releaseDate,
-    proceeds_account_id: account.id,
-    updated_at: now,
-    updated_by: actorId,
-  });
-  await createItem(EVENTS, {
-    loan_id: id,
-    kind: "RELEASED",
-    occurred_at: now,
-    description: `Released ${channelNoun(input.channel)} on ${releaseDate} to ${account.name} · ${entryNo}`,
-    amount: loan.principal,
-    reference: entryNo,
-    actor_id: actorId,
-    created_at: now,
-    created_by: actorId,
-    updated_at: now,
-    updated_by: actorId,
-  });
-
-  return { loanNo: loan.loan_no, entryNo, totalDebit, scheduleRows, lines: rawLines.length };
+  return { entryNo, totalDebit, scheduleRows, lines: rawLines.length };
 }
 
 export function channelNoun(channel: ReleaseChannel): string {
-  return channel === "CHECK" ? "by check" : channel === "CASH" ? "in cash" : "by transfer";
+  return channel === "CHECK"
+    ? "by check"
+    : channel === "CASH"
+      ? "in cash"
+      : "by transfer";
 }

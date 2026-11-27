@@ -15,23 +15,26 @@ export const money = decimal(10, 2);
 const percent = decimal(3, 6).refine(value => Number(value) <= 100, "Enter a percentage from 0 to 100.");
 const monthlyRate = percent.refine(value => Number(value) <= 10, "Enter a monthly rate from 0 to 10.");
 const floorPercent = decimal(3, 4).refine(value => Number(value) <= 100, "Enter a percentage from 0 to 100.");
+export const savingsRateYear = z.string().regex(/^[1-9]\d{3}$/, "Enter a four-digit calendar year.");
+export const exitSavingsRatesSchema = z.record(savingsRateYear, percent);
+export const paymentOrderSchema = z.enum(["PENALTIES_FIRST", "INSTALLMENTS_FIRST"]);
 
 export const settingsSchema = z.discriminatedUnion("floorMode", [
   z.object({
     floorMode: z.literal("FIXED"),
     membershipFee: money, minimumSavings: money, maintainingBalance: money, withdrawalsPerYear: uint16,
-    paymentOrder: z.enum(["PENALTIES_FIRST", "INSTALLMENTS_FIRST"]),
+    paymentOrder: paymentOrderSchema, exitSavingsAnnualRates: exitSavingsRatesSchema.optional(),
     floorFixedAmount: money, floorPercent: z.null(),
   }),
   z.object({
     floorMode: z.literal("PERCENT"),
     membershipFee: money, minimumSavings: money, maintainingBalance: money, withdrawalsPerYear: uint16,
-    paymentOrder: z.enum(["PENALTIES_FIRST", "INSTALLMENTS_FIRST"]),
+    paymentOrder: paymentOrderSchema, exitSavingsAnnualRates: exitSavingsRatesSchema.optional(),
     floorFixedAmount: z.null(), floorPercent,
   }),
 ]);
 
-export const loanMethods = { diminishing: "Diminishing balance", flat: "Flat", markup: "Markup" } as const;
+export const loanMethods = { diminishing: "Diminishing balance", flat: "Flat", upfront: "Upfront interest", markup: "Markup" } as const;
 export const repaymentFrequencies = { cutoff: "Every cutoff", monthly: "Monthly" } as const;
 export const repaymentModes = { payroll: "Salary deduction", otc: "Over the counter" } as const;
 export const policyAreas = {
@@ -73,7 +76,7 @@ export const productSchema = z.discriminatedUnion("kind", [
   z.object({
     ...productFields, kind: z.literal("CASH"),
     rateMin: monthlyRate, rateDefault: monthlyRate, rateMax: monthlyRate,
-    methods: z.array(z.enum(["diminishing", "flat"])).min(1).max(2).refine(unique),
+    methods: z.array(z.enum(["diminishing", "flat", "upfront"])).min(1).max(2).refine(unique),
     markup: z.null(), items: z.tuple([]),
   }),
   z.object({
@@ -83,6 +86,9 @@ export const productSchema = z.discriminatedUnion("kind", [
       .refine(items => unique(items.flatMap(item => item.id === undefined ? [] : [item.id])), "Each item must be listed once."),
   }),
 ]).superRefine((product, ctx) => {
+  if (product.kind === "CASH" && product.methods.includes("upfront") && product.methods.length !== 1) {
+    ctx.addIssue({ code: "custom", path: ["methods"], message: "Use a separate product for upfront interest so its rates apply to the full term." });
+  }
   if (product.kind === "CASH" && (Number(product.rateMin) > Number(product.rateDefault) ||
       Number(product.rateDefault) > Number(product.rateMax))) {
     ctx.addIssue({ code: "custom", path: ["rateDefault"], message: "The default rate must be within the minimum and maximum." });
@@ -114,6 +120,7 @@ export const accountPurposes = [
   ["INTEREST_MARKUP_RECEIVABLE", "1130", "Interest and markup receivable", "ASSET"],
   ["PENALTIES_RECEIVABLE", "1140", "Penalties receivable", "ASSET"],
   ["DUE_FROM_EMPLOYER", "1150", "Due from employer", "ASSET"],
+  ["UNEARNED_LOAN_INTEREST", "1135", "Unearned loan interest", "ASSET", true],
   ["LOAN_LOSS_ALLOWANCE", "1190", "Allowance for probable loan losses", "ASSET", true],
   ["MEMBER_SAVINGS", "2010", "Members' savings deposits", "LIABILITY"],
   ["VENDOR_PAYABLE", "2020", "Accounts payable to vendors", "LIABILITY"],

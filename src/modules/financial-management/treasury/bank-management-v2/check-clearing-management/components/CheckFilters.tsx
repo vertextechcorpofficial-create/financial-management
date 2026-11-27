@@ -1,16 +1,15 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { statusLabel } from "../constants";
 import { DateField } from "./DateField";
-import { OptionCombobox } from "./OptionCombobox";
+import { OptionCombobox, type ComboboxOption } from "./OptionCombobox";
 import type { RegisterFilters } from "../providers/checksApi";
 
 const STATUS_FILTERS = ["ALL", "PENDING", "RECEIVED", "IN_CLEARING", "CLEARED", "RETURNED", "CANCELLED"] as const;
@@ -28,6 +27,7 @@ const EMPTY: RegisterFilters = {
   status: "ALL",
   accountId: undefined,
   bank: undefined,
+  payee: undefined,
   flag: undefined,
   from: undefined,
   to: undefined,
@@ -35,8 +35,8 @@ const EMPTY: RegisterFilters = {
 };
 
 type Props = {
-  accountOptions: { value: string; label: string }[];
-  bankOptions: { value: string; label: string }[];
+  accountOptions: ComboboxOption[];
+  bankOptions: ComboboxOption[];
   filters: RegisterFilters;
   onChange: (next: RegisterFilters) => void;
 };
@@ -49,7 +49,7 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
     const timer = setTimeout(() => {
       const next = query.trim();
       if ((filters.q ?? "") !== next) onChange({ ...filters, q: next || undefined });
-    }, 300);
+    }, 150);
     return () => clearTimeout(timer);
   }, [query, filters, onChange]);
 
@@ -60,62 +60,28 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
     (filters.flag ?? "ALL") !== "ALL" ||
     filters.accountId !== undefined ||
     filters.bank !== undefined ||
+    filters.payee !== undefined ||
     filters.from !== undefined ||
     filters.to !== undefined;
 
   return (
     <div aria-label="Check register filters" className="border-b border-border/50 px-4 py-3">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(118px,1.4fr)_116px_132px_130px_122px_122px_116px_116px]">
-        <div className="space-y-1.5 sm:col-span-2 xl:col-span-1">
-          <Label htmlFor="check-search" className="text-[11px] font-medium text-muted-foreground">
-            Search
-          </Label>
-          <div className="flex items-center gap-1">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="check-search"
-                aria-label="Search checks"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search checks"
-                className="pl-9"
-              />
-            </div>
-            {dirty ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                aria-label="Clear filters"
-                title="Clear filters"
-                onClick={() => {
-                  setQuery("");
-                  onChange({ ...EMPTY });
-                }}
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px] font-medium text-muted-foreground">Bank</Label>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-4 xl:grid-cols-7">
+        <Band label="Bank">
           <OptionCombobox
             options={bankOptions}
             value={filters.bank ?? "ALL"}
-            onChange={(value) => onChange({ ...filters, bank: value === "ALL" ? undefined : value, accountId: undefined })}
+            onChange={(value) =>
+              onChange({ ...filters, bank: value === "ALL" ? undefined : value, accountId: undefined })
+            }
             placeholder="All banks"
             searchPlaceholder="Search banks"
             emptyLabel="No bank matches that search."
             aria-label="Bank filter"
           />
-        </div>
+        </Band>
 
-        <div className="space-y-1.5">
-          <Label className="text-[11px] font-medium text-muted-foreground">Account</Label>
+        <Band label="Account">
           <OptionCombobox
             options={accountOptions}
             value={filters.accountId ? String(filters.accountId) : "ALL"}
@@ -125,45 +91,39 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
             emptyLabel="No account matches that search."
             aria-label="Account filter"
           />
-        </div>
+        </Band>
 
-        <div className="space-y-1.5">
-          <Label className="text-[11px] font-medium text-muted-foreground">Direction</Label>
-          <Select
-            value={filters.direction ?? "ALL"}
-            onValueChange={(value) => onChange({ ...filters, direction: value })}
-          >
-            <SelectTrigger className="w-full min-w-0 whitespace-nowrap [&>span]:truncate">
-              <SelectValue className="truncate" placeholder="All directions" />
+        <Band label="Direction">
+          <Select value={filters.direction ?? "ALL"} onValueChange={(value) => onChange({ ...filters, direction: value })}>
+            <SelectTrigger className="h-9 w-full min-w-0" aria-label="Direction filter">
+              <SelectValue className="truncate" placeholder="All" />
             </SelectTrigger>
             <SelectContent className="max-h-60">
-              <SelectItem value="ALL">All directions</SelectItem>
+              <SelectItem value="ALL">All</SelectItem>
               <SelectItem value="ISSUED">Issued</SelectItem>
               <SelectItem value="RECEIVED">Received</SelectItem>
             </SelectContent>
           </Select>
-        </div>
+        </Band>
 
-        <div className="space-y-1.5">
-          <Label className="text-[11px] font-medium text-muted-foreground">Status</Label>
+        <Band label="Status">
           <Select value={filters.status ?? "ALL"} onValueChange={(value) => onChange({ ...filters, status: value })}>
-            <SelectTrigger className="w-full min-w-0 whitespace-nowrap [&>span]:truncate">
-              <SelectValue className="truncate" placeholder="All statuses" />
+            <SelectTrigger className="h-9 w-full min-w-0" aria-label="Status filter">
+              <SelectValue className="truncate" placeholder="All" />
             </SelectTrigger>
             <SelectContent className="max-h-60">
               {STATUS_FILTERS.map((status) => (
                 <SelectItem key={status} value={status}>
-                  {status === "ALL" ? "All statuses" : statusLabel(status)}
+                  {status === "ALL" ? "All" : statusLabel(status)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        </div>
+        </Band>
 
-        <div className="space-y-1.5">
-          <Label className="text-[11px] font-medium text-muted-foreground">Flag</Label>
+        <Band label="Flag">
           <Select value={filters.flag ?? "ALL"} onValueChange={(value) => onChange({ ...filters, flag: value })}>
-            <SelectTrigger className="w-full min-w-0 whitespace-nowrap [&>span]:truncate">
+            <SelectTrigger className="h-9 w-full min-w-0" aria-label="Flag filter">
               <SelectValue className="truncate" placeholder="Any" />
             </SelectTrigger>
             <SelectContent className="max-h-60">
@@ -174,32 +134,73 @@ export function CheckFilters({ accountOptions, bankOptions, filters, onChange }:
               ))}
             </SelectContent>
           </Select>
-        </div>
+        </Band>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="check-from" className="text-[11px] font-medium text-muted-foreground">
-            Check date from
-          </Label>
+        <Band label="Check date from">
           <DateField
             id="check-from"
             value={filters.from ?? ""}
             maxDate={filters.to}
             onChange={(value) => onChange({ ...filters, from: value || undefined })}
           />
-        </div>
+        </Band>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="check-to" className="text-[11px] font-medium text-muted-foreground">
-            Check date to
-          </Label>
+        <Band label="Check date to">
           <DateField
             id="check-to"
             value={filters.to ?? ""}
             minDate={filters.from}
             onChange={(value) => onChange({ ...filters, to: value || undefined })}
           />
-        </div>
+        </Band>
       </div>
+
+      <div className="mt-3 flex items-end gap-2">
+        <div className="min-w-0 flex-1">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Search
+          </span>
+          <div className="relative min-w-0">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <Input
+              id="check-search"
+              aria-label="Search checks"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Check no., payee, customer or reason"
+              className="h-9 pl-8"
+            />
+          </div>
+        </div>
+        {dirty ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-9 shrink-0 gap-1 px-2 text-xs"
+            onClick={() => {
+              setQuery("");
+              onChange({ ...EMPTY });
+            }}
+          >
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+            Clear
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** A labelled cell in the band: the caption sits above the control, as the register reference draws it. */
+function Band({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+      {children}
     </div>
   );
 }

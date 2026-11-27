@@ -15,20 +15,24 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/utils";
 
+import { formatDateMDY } from "../pht";
 import type { ApprovalQueueRow } from "../types";
 
 export type DecisionKind = "APPROVE" | "REJECT";
 
-const COPY: Record<DecisionKind, { title: string; verb: string; hint: string }> = {
+const COPY: Record<
+  DecisionKind,
+  { title: string; verb: string; hint: string }
+> = {
   APPROVE: {
     title: "Approve this loan",
     verb: "Approve",
-    hint: "Approving moves the loan to “approved, not yet released”. Remarks are optional; they go into the approval trail.",
+    hint: "Approving posts the proceeds and activates the repayment schedule in one step. Remarks are optional; they go into the approval trail.",
   },
   REJECT: {
     title: "Reject this loan",
     verb: "Reject",
-    hint: "The loan goes back to the preparer as rejected. Say what has to change — the reason is shown in the approval trail.",
+    hint: "The loan goes back to the preparer as rejected. Say what has to change. The reason is shown in the approval trail.",
   },
 };
 
@@ -53,13 +57,17 @@ export function DecisionDialog({
 
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[550px]">
+      <DialogContent
+        showCloseButton={false}
+        className="flex max-h-[85vh] w-[95vw] flex-col overflow-hidden rounded-2xl p-0 sm:max-w-[550px]"
+      >
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>
             {copy.title} · {row.loanNo}
           </DialogTitle>
           <DialogDescription>
-            {row.lenderName} · {formatCurrency(row.principal)} · releases {row.releaseDate}
+            {row.lenderName} · {formatCurrency(row.principal)} · releases{" "}
+            {formatDateMDY(row.releaseDate)}
           </DialogDescription>
         </DialogHeader>
 
@@ -80,11 +88,17 @@ export function DecisionDialog({
               value={text}
               onChange={(event) => setText(event.target.value)}
               placeholder={
-                needsReason ? "What has to change before this loan can go ahead" : "Anything the preparer should know"
+                needsReason
+                  ? "What has to change before this loan can go ahead"
+                  : "Anything the preparer should know"
               }
               className="min-h-[100px] resize-none"
             />
-            {blocked ? <p className="text-xs text-muted-foreground">Say why in one sentence.</p> : null}
+            {blocked ? (
+              <p className="text-xs text-muted-foreground">
+                Say why in one sentence.
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -92,7 +106,10 @@ export function DecisionDialog({
           <Button variant="outline" onClick={onClose} disabled={isSaving}>
             Cancel
           </Button>
-          <Button onClick={() => onSubmit(text.trim())} disabled={isSaving || blocked}>
+          <Button
+            onClick={() => onSubmit(text.trim())}
+            disabled={isSaving || blocked}
+          >
             {isSaving ? "Saving…" : copy.verb}
           </Button>
         </DialogFooter>

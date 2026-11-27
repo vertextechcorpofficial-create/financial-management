@@ -7,27 +7,34 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { cn, formatCurrency } from "@/lib/utils";
 
 import { toneClass } from "../constants";
-import { previewDepositSlip, type DepositPreview as DepositPreviewResponse } from "../providers/depositApi";
+import {
+  previewDepositSlip,
+  type DepositPreview as DepositPreviewResponse,
+} from "../providers/depositApi";
+import type { ResolvedJournalEntry } from "../types";
 
 interface Props {
   bankAccountId: number | null;
   cashTotal: number;
-  /** Checks on the same slip. They post nothing now, so the heading must not claim a cash entry. */
-  checkCount?: number;
+  /** Cheques on the same slip. They post E12 to clearing, so they get their own entry. */
+  checkTotal?: number;
 }
 
 /**
- * Live E07 preview. The server resolves the same lines the posting path will use, so this panel
- * reports unmapped GL keys instead of inventing accounts.
+ * Live posting preview. The server resolves every line the posting path will use, so this panel
+ * lists each entry (E07 for cash, E12 for cheques) and reports unmapped GL keys instead of
+ * inventing accounts.
  */
-export function DepositPreview({ bankAccountId, cashTotal, checkCount = 0 }: Props) {
+export function DepositPreview({ bankAccountId, cashTotal, checkTotal = 0 }: Props) {
   const [preview, setPreview] = useState<DepositPreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const hasCash = cashTotal > 0;
+  const hasChecks = checkTotal > 0;
 
   useEffect(() => {
-    if (!bankAccountId || cashTotal <= 0) return;
+    if (!bankAccountId || (!hasCash && !hasChecks)) return;
     let cancelled = false;
-    previewDepositSlip({ bankAccountId, cashTotal })
+    previewDepositSlip({ bankAccountId, cashTotal, checkTotal })
       .then((result) => {
         if (cancelled) return;
         setPreview(result);
@@ -40,36 +47,31 @@ export function DepositPreview({ bankAccountId, cashTotal, checkCount = 0 }: Pro
     return () => {
       cancelled = true;
     };
-  }, [bankAccountId, cashTotal]);
+  }, [bankAccountId, cashTotal, checkTotal, hasCash, hasChecks]);
 
-  // A stale entry from the previous account is never shown: the guard is on render, not in the effect.
-  const current = bankAccountId && cashTotal > 0 ? preview : null;
-  const entry = current?.entry ?? null;
-  const unmapped = entry?.missingMappingKeys ?? [];
-  const balanced =
-    entry !== null &&
-    unmapped.length === 0 &&
-    Math.abs(entry.totalDebit - entry.totalCredit) < 0.005;
-
-  const hasCash = cashTotal > 0;
-  const heading = hasCash
-    ? checkCount > 0
-      ? "E07 · Cash deposit + checks — preview"
-      : "E07 · Cash deposit — preview"
-    : checkCount > 0
-      ? "Checks only — nothing posts now"
-      : "Posting preview";
+  // A stale set of entries from the previous amounts is never shown: the guard is on render.
+  const current = bankAccountId && (hasCash || hasChecks) ? preview : null;
+  const entries = current?.entries ?? [];
+  const unmapped = [...new Set(entries.flatMap((entry) => entry.missingMappingKeys))];
 
   return (
     <div className="rounded-xl border border-border/60">
       <div className="flex items-center justify-between gap-2 border-b border-border/50 bg-muted/30 px-3 py-2">
-        <p className="min-w-0 truncate text-xs font-semibold">{heading}</p>
+        <p className="min-w-0 truncate text-xs font-semibold">
+          {hasCash && hasChecks
+            ? "E07 cash deposit + E12 check deposit"
+            : hasCash
+              ? "E07 cash deposit"
+              : hasChecks
+                ? "E12 check deposit"
+                : "Posting preview"}
+        </p>
         {current ? (
           <Badge
             variant="outline"
-            className={cn("shrink-0 text-[11px] font-semibold", toneClass(balanced ? "success" : "warning"))}
+            className={cn("shrink-0 text-[11px] font-semibold", toneClass(unmapped.length ? "warning" : "success"))}
           >
-            {balanced ? "Balanced" : unmapped.length ? "GL mapping missing" : "Not balanced"}
+            {unmapped.length ? "GL mapping missing" : "Balanced"}
           </Badge>
         ) : null}
       </div>
@@ -87,53 +89,14 @@ export function DepositPreview({ bankAccountId, cashTotal, checkCount = 0 }: Pro
         <p className="p-3 text-xs text-muted-foreground">
           {!bankAccountId
             ? "Choose the deposit account to see the posting."
-            : cashTotal <= 0
-              ? "No cash on this slip, so nothing posts now. Each check debits the bank GL when it clears."
-              : null}
+            : "Nothing on this slip posts yet."}
         </p>
-      ) : current && entry ? (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[80px]">GL</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead className="w-[110px] text-right">Debit</TableHead>
-              <TableHead className="w-[110px] text-right">Credit</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {entry.lines.map((line) => (
-              <TableRow key={line.lineNo}>
-                <TableCell className="font-mono text-xs">{line.glCode ?? "—"}</TableCell>
-                <TableCell className="max-w-[220px]">
-                  <p className="truncate text-sm" title={line.accountTitle ?? undefined}>
-                    {line.accountTitle ?? `Unmapped: ${line.memo ?? "GL key"}`}
-                  </p>
-                  {line.memo ? <p className="truncate text-[11px] text-muted-foreground">{line.memo}</p> : null}
-                </TableCell>
-                <TableCell className="text-right text-sm tabular-nums">
-                  {line.debit ? formatCurrency(line.debit) : "—"}
-                </TableCell>
-                <TableCell className="text-right text-sm tabular-nums">
-                  {line.credit ? formatCurrency(line.credit) : "—"}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-          <TableFooter>
-            <TableRow>
-              <TableCell colSpan={2} className="text-xs font-semibold">
-                Total
-              </TableCell>
-              <TableCell className="text-right text-sm font-semibold tabular-nums">
-                {formatCurrency(entry.totalDebit)}
-              </TableCell>
-              <TableCell className="text-right text-sm font-semibold tabular-nums">
-                {formatCurrency(entry.totalCredit)}
-              </TableCell>
-            </TableRow>
-          </TableFooter>
-        </Table>
+      ) : entries.length ? (
+        <div className="divide-y divide-border/50">
+          {entries.map((entry) => (
+            <EntryTable key={entry.eventCode} entry={entry} showHeader={entries.length > 1} />
+          ))}
+        </div>
       ) : null}
 
       {unmapped.length > 0 ? (
@@ -141,6 +104,75 @@ export function DepositPreview({ bankAccountId, cashTotal, checkCount = 0 }: Pro
           Configure {unmapped.join(", ")} under bank GL mapping to post this deposit.
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function EntryTable({ entry, showHeader }: { entry: ResolvedJournalEntry; showHeader: boolean }) {
+  const balanced =
+    entry.missingMappingKeys.length === 0 && Math.abs(entry.totalDebit - entry.totalCredit) < 0.005;
+  return (
+    <div>
+      {showHeader ? (
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5">
+        <p className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {entry.eventCode} · {entry.description}
+        </p>
+        <Badge
+          variant="outline"
+          className={cn(
+            "shrink-0 text-[10px] font-semibold",
+            toneClass(balanced ? "success" : "warning"),
+          )}
+        >
+          {balanced ? "Balanced" : entry.missingMappingKeys.length ? "GL mapping missing" : "Not balanced"}
+        </Badge>
+      </div>
+      ) : null}
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[56px] px-2">GL</TableHead>
+              <TableHead className="min-w-0 px-2">Account</TableHead>
+              <TableHead className="w-[86px] px-2 text-right">Debit</TableHead>
+              <TableHead className="w-[86px] px-2 text-right">Credit</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {entry.lines.map((line) => (
+              <TableRow key={line.lineNo}>
+                <TableCell className="px-2 font-mono text-[11px]">{line.glCode ?? "—"}</TableCell>
+                <TableCell className="min-w-0 px-2">
+                  <p className="truncate text-[13px]" title={line.accountTitle ?? undefined}>
+                    {line.accountTitle ?? `Unmapped: ${line.memo ?? "GL key"}`}
+                  </p>
+                  {line.memo ? <p className="truncate text-[11px] text-muted-foreground">{line.memo}</p> : null}
+                </TableCell>
+                <TableCell className="px-2 text-right text-xs tabular-nums">
+                  {line.debit ? formatCurrency(line.debit) : "—"}
+                </TableCell>
+                <TableCell className="px-2 text-right text-xs tabular-nums">
+                  {line.credit ? formatCurrency(line.credit) : "—"}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+          <TableFooter>
+            <TableRow>
+              <TableCell colSpan={2} className="px-2 text-xs font-semibold">
+                Total
+              </TableCell>
+              <TableCell className="px-2 text-right text-xs font-semibold tabular-nums">
+                {formatCurrency(entry.totalDebit)}
+              </TableCell>
+              <TableCell className="px-2 text-right text-xs font-semibold tabular-nums">
+                {formatCurrency(entry.totalCredit)}
+              </TableCell>
+            </TableRow>
+          </TableFooter>
+        </Table>
+      </div>
     </div>
   );
 }

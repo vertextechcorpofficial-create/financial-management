@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
-import { toPhtDateString } from "../pht";
+import { phtDisplayDate } from "../pht";
 import { toneClass } from "../constants";
 import { StatusBadge } from "./StatusBadge";
 import { SlipFiltersBar } from "./SlipFilters";
@@ -106,7 +106,7 @@ export function SlipsTable({
                     }}
                   >
                     <TableCell className="whitespace-nowrap font-mono text-sm">
-                      {toPhtDateString(slip.depositDate)}
+                      {phtDisplayDate(slip.depositDate)}
                     </TableCell>
                     <TableCell className="max-w-[140px]">
                       <p className="truncate font-mono text-sm" title={slip.depositNo}>
@@ -116,8 +116,16 @@ export function SlipsTable({
                         {slip.referenceNo ?? "No validation no."}
                       </p>
                     </TableCell>
-                    <TableCell className="max-w-[200px] truncate text-sm" title={slip.targetBankLabel}>
-                      {slip.targetBankLabel}
+                    <TableCell className="max-w-[200px]">
+                      {/* The account number identifies the account; the bank name sits under it. */}
+                      <p className="truncate text-sm" title={slip.targetBankNumber ?? slip.targetBankLabel}>
+                        {slip.targetBankNumber ?? slip.targetBankLabel}
+                      </p>
+                      {slip.targetBankName ? (
+                        <p className="truncate text-[11px] text-muted-foreground" title={slip.targetBankName}>
+                          {slip.targetBankName}
+                        </p>
+                      ) : null}
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">{formatCurrency(slip.totalCash)}</TableCell>
                     <TableCell className="text-right text-sm tabular-nums">{formatCurrency(slip.totalChecks)}</TableCell>
@@ -169,10 +177,19 @@ export function SlipsTable({
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate font-mono text-sm">{toPhtDateString(slip.depositDate)}</p>
-                    <p className="truncate text-xs text-muted-foreground" title={slip.targetBankLabel}>
-                      {slip.depositNo} · {slip.targetBankLabel}
+                    <p className="truncate font-mono text-sm">{phtDisplayDate(slip.depositDate)}</p>
+                    <p className="truncate text-xs text-muted-foreground" title={slip.referenceNo ?? undefined}>
+                      {slip.depositNo}
+                      {slip.referenceNo ? ` · ${slip.referenceNo}` : ""}
                     </p>
+                    <p className="truncate text-xs" title={slip.targetBankNumber ?? slip.targetBankLabel}>
+                      {slip.targetBankNumber ?? slip.targetBankLabel}
+                    </p>
+                    {slip.targetBankName ? (
+                      <p className="truncate text-[11px] text-muted-foreground" title={slip.targetBankName}>
+                        {slip.targetBankName}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <StatusBadge status={slip.status} />

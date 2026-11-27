@@ -40,10 +40,17 @@ export function toCompanyOption(company: RegistryCompany): CompanyOption {
   };
 }
 
+/** Named for the banner: the old default of "purchase orders" mislabelled every other gap. */
+const FAILED_SOURCE_LABELS: Record<string, string> = {
+  sales: "sales invoices",
+  purchases: "purchase orders",
+};
+
 function emptyQuarter(): QuarterFigures {
   return {
     sales: 0,
     salesVat: 0,
+    vatFreeSales: 0,
     discounts: 0,
     returns: 0,
     returnsVat: 0,
@@ -142,11 +149,10 @@ async function buildVatWithholding(
     profile,
     figures: figureResult.figures,
     notices,
-    // Output VAT is the headline, so a missing sales register makes the whole panel unknown.
-    figuresAvailable: !figureResult.failed.includes("sales"),
-    failedSources: figureResult.failed.map((source) =>
-      source === "sales" ? "sales invoices" : "purchase orders",
-    ),
+    // Net VAT is output less input: if either register could not be read, the payable is
+    // unknown, so the panel refuses rather than printing a total built on a zero.
+    figuresAvailable: figureResult.failed.length === 0,
+    failedSources: figureResult.failed.map((source) => FAILED_SOURCE_LABELS[source] ?? source),
   };
 
   return {

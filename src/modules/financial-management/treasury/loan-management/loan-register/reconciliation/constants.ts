@@ -4,10 +4,12 @@ export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "acce
 
 export const TONE_CLASS: Record<Tone, string> = {
   neutral: "bg-muted text-muted-foreground",
-  success: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  warning: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  danger: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
-  info: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  success: "bg-success/15 text-success",
+  warning: "bg-warning/15 text-warning",
+  // Destructive text on its own tint measures ~3:1, so the pill carries a red ring over the tint
+  // and keeps the label at foreground contrast (the pairing Notice uses for a refusal).
+  danger: "bg-destructive/10 text-foreground ring-1 ring-inset ring-destructive/40",
+  info: "bg-info/15 text-info",
   accent: "bg-primary/10 text-primary",
 };
 
@@ -27,7 +29,7 @@ export const STATEMENT_PAGE_SIZE = 10;
 export const STATEMENT_STORAGE_KEY = "fm.loan-statements.rows";
 
 /** The GL accounts the ledger side of the roll-forward is built from. Read from
- *  `loan_gl_mapping`, never hard-coded — the ids below only name the mapping keys. */
+ *  `loan_gl_mapping`, never hard-coded, so the ids below only name the mapping keys. */
 export const LIABILITY_MAPPING_KEYS = ["LOAN_PRINCIPAL", "ACCRUED_INTEREST", "UNAMORTIZED_COSTS"] as const;
 
 export const RESULT_LABEL: Record<ReconciliationResult, string> = {

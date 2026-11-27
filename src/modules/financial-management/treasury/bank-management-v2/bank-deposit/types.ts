@@ -73,6 +73,7 @@ export interface BankTransfer {
 
 export type DepositStatus =
   | "PREPARED"
+  | "DEPOSITED"
   | "PARTIALLY_BOUNCED"
   | "BOUNCED"
   | "CLEARED"
@@ -84,6 +85,9 @@ export interface DepositSlip {
   depositDate: string;
   targetBankId: number;
   targetBankLabel: string;
+  /** Name over account number, so a picker never prints one clipped string. */
+  targetBankName: string | null;
+  targetBankNumber: string | null;
   /** Linked GL of the destination account; null only when the account has no linked GL. */
   glCode: string | null;
   glTitle: string | null;
@@ -111,16 +115,29 @@ export interface DepositSlip {
 
 /** One row of the read-only slip contents table (P17). */
 export interface DepositSlipItem {
-  collectionDetailId: number;
+  collectionInvoiceId: number;
+  invoiceNo: string | null;
   assetType: "CASH" | "CHECK";
+  /**
+   * What the settlement row was applied as: money handed over, or an adjustment such as a
+   * discount or rounding. An adjustment moves no cash, so it must not read as "Cash".
+   */
+  methodLabel: string;
   documentNumber: string;
   checkNo: string | null;
   customer: string | null;
   customerCode: string | null;
   collectionDate: string | null;
   amount: number;
-  /** Clearing outcome of the check backing this item; cash resolves on the slip itself. */
+  /**
+   * Written before receipt links existed: no settlement row and no check record. The slip's own
+   * deposit status decides whether it counts as resolved, because nothing finer was ever recorded.
+   */
+  legacy: boolean;
+  /** Clearing outcome of the check backing this item; cash resolves on the deposit. */
   checkStatus: CheckStatus | null;
+  /** Stored `deposit_status` of the slip line: IN_TRANSIT until the slip is marked deposited. */
+  lineStatus: string;
 }
 
 export interface DepositSlipDetail {
@@ -128,16 +145,26 @@ export interface DepositSlipDetail {
   items: DepositSlipItem[];
 }
 
-/** A cash or check asset sitting in the vault, not yet deposited. */
+/** A settlement row (`collection_invoices`) or overage (`collection_details`) waiting to be deposited. */
 export interface UndepositedAsset {
-  collectionDetailId: number;
+  /** Collision-free composite key: `"inv:<id>"` for `collection_invoices`, `"det:<id>"` for `collection_details`. */
+  rowKey: string;
+  /** `collection_invoices.id` when backed by an invoice settlement; `null` for overages. */
+  collectionInvoiceId: number | null;
+  /** `collection_details.id` when backed by an overage detail row; `null` for invoice settlements. */
+  collectionDetailId: number | null;
   collectionId: number;
+  invoiceId: number | null;
+  invoiceNo: string | null;
+  /** Directly from `collection_invoices.type`, or `"Overage"` for `collection_details` overages. */
+  methodLabel: string;
+  paymentMethodId: number | null;
   documentNumber: string;
   collectionReference: string | null;
   assetType: "CASH" | "CHECK";
   /** Customer name from the customer master; falls back to the raw code when no row matches. */
   customer: string | null;
-  /** `collection_details.customer_code`, shown under the name. */
+  /** Customer code behind this row. */
   customerCode: string | null;
   bankName: string | null;
   checkNo: string | null;

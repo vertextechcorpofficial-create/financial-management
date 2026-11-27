@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle, CalendarClock, RefreshCw } from "lucide-react";
+import { AlertTriangle, CalendarClock, Download, FileText, RefreshCw } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,9 +19,11 @@ import { formatCurrency, formatNumber } from "@/lib/utils";
 
 import { CalendarMonth } from "./components/CalendarMonth";
 import { CalendarTable } from "./components/CalendarTable";
+import { OptionCombobox } from "./components/OptionCombobox";
 import { useTaxCalendar } from "./hooks/useTaxCalendar";
 import { phtToday } from "./pht";
 import { HOLIDAY_CAVEAT } from "./services/holidays";
+import { downloadDeadlines, downloadDeadlinesPdf } from "./utils/exportWorkbook";
 import { TAX_YEARS, toneClass } from "./constants";
 import type { Tone } from "./constants";
 
@@ -81,7 +83,27 @@ export function TaxCalendarModule() {
             weekend. The SEC eFAST date appears for the years that have one.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-[220px]">
+            <OptionCombobox
+              options={[
+                { value: "ALL", label: "Every company" },
+                ...calendar.companies.map((company) => ({
+                  value: String(company.companyId),
+                  label: company.reachable ? company.name : `${company.name} (source offline)`,
+                  searchText: `${company.code} ${company.name}`,
+                })),
+              ]}
+              value={calendar.filters.companyId === null ? "ALL" : String(calendar.filters.companyId)}
+              onChange={(value) =>
+                calendar.setFilters({ companyId: value === "ALL" ? null : Number(value) })
+              }
+              placeholder="Every company"
+              searchPlaceholder="Search companies"
+              emptyLabel="No company matches"
+              aria-label="Company"
+            />
+          </div>
           <Select
             value={String(year)}
             onValueChange={(value) => {
@@ -100,6 +122,26 @@ export function TaxCalendarModule() {
               ))}
             </SelectContent>
           </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => downloadDeadlines(calendar.allRows, year)}
+            disabled={calendar.allRows.length === 0 || calendar.isLoading}
+            title="Download filtered deadlines as an Excel workbook"
+          >
+            <Download className="mr-2 h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">Export Excel</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => downloadDeadlinesPdf(calendar.allRows, year)}
+            disabled={calendar.allRows.length === 0 || calendar.isLoading}
+            title="Download filtered deadlines as a PDF schedule"
+          >
+            <FileText className="mr-2 h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">Download PDF</span>
+          </Button>
           <Button variant="outline" size="sm" asChild>
             <Link href="/fm/taxation/payments-2307">Record payments</Link>
           </Button>
@@ -204,8 +246,9 @@ export function TaxCalendarModule() {
         <TabsContent value="deadlines">
           <CalendarTable
             rows={calendar.rows}
+            allRows={calendar.allRows}
+            taxYear={year}
             total={calendar.total}
-            companies={calendar.companies}
             filters={calendar.filters}
             isLoading={calendar.isLoading || stale}
             page={calendar.page}
@@ -214,6 +257,7 @@ export function TaxCalendarModule() {
             today={calendar.today}
             onFiltersChange={calendar.setFilters}
             onPageChange={calendar.setPage}
+            onNilFiled={calendar.refetch}
           />
         </TabsContent>
       </Tabs>

@@ -116,6 +116,7 @@ export function CertificateDialog({
   const manualWithheld = useRef(false);
   const income = useWatch({ control: form.control, name: "incomeAmount" });
   const rate = useWatch({ control: form.control, name: "taxRate" });
+  const direction = useWatch({ control: form.control, name: "direction" });
 
   useEffect(() => {
     if (manualWithheld.current) return;
@@ -180,12 +181,13 @@ export function CertificateDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="flex max-h-[85vh] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[720px]">
+      <DialogContent showCloseButton={false} className="flex max-h-[85vh] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[720px]">
         <DialogHeader className="border-b border-border/50 px-6 py-4">
           <DialogTitle>{certificate ? "Edit 2307 certificate" : "Add 2307 certificate"}</DialogTitle>
           <DialogDescription>
-            One certificate per counterparty and period, {year}. Received means a supplier withheld from you; issued
-            means you withheld from a payee.
+            One certificate per counterparty and period, {year}. Received means a customer or payor
+            withheld tax from you (a credit); issued means you withheld tax from a supplier or payee
+            (a liability).
           </DialogDescription>
         </DialogHeader>
 
@@ -311,10 +313,19 @@ export function CertificateDialog({
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
                       <FormLabel>
-                        Issuer / payee <span className="text-destructive">*</span>
+                        {direction === "ISSUED" ? "Payee / supplier" : "Payor / customer"}{" "}
+                        <span className="text-destructive">*</span>
                       </FormLabel>
                       <FormControl>
-                        <Input {...field} maxLength={180} placeholder="Registered name on the certificate" />
+                        <Input
+                          {...field}
+                          maxLength={180}
+                          placeholder={
+                            direction === "ISSUED"
+                              ? "Supplier or payee named on the certificate"
+                              : "Customer or payor named on the certificate"
+                          }
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -326,7 +337,9 @@ export function CertificateDialog({
                   name="counterpartyTin"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>TIN</FormLabel>
+                      <FormLabel>
+                        TIN <span className="text-destructive">*</span>
+                      </FormLabel>
                       <FormControl>
                         <Input {...field} maxLength={30} placeholder="000-000-000-000" className="tabular-nums" />
                       </FormControl>
@@ -340,14 +353,17 @@ export function CertificateDialog({
                   name="dateReceived"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Date received</FormLabel>
+                      <FormLabel>
+                        {direction === "ISSUED" ? "Date issued" : "Date received"}{" "}
+                        <span className="text-destructive">*</span>
+                      </FormLabel>
                       <FormControl>
                         <DateField
                           inDialog
                           value={field.value}
                           onChange={field.onChange}
-                          placeholder="Pick the date received"
-                          aria-label="Date received"
+                          placeholder={direction === "ISSUED" ? "Pick the date issued" : "Pick the date received"}
+                          aria-label={direction === "ISSUED" ? "Date issued" : "Date received"}
                         />
                       </FormControl>
                       <FormMessage />
@@ -400,6 +416,7 @@ export function CertificateDialog({
                           }}
                         />
                       </FormControl>
+                      <FormDescription>1%, 2%, 5%, 10% or 15% of the VAT-exclusive income.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

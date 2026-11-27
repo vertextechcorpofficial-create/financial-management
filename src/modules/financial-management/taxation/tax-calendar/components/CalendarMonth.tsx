@@ -26,7 +26,13 @@ const LEGEND = [
   { label: "Overdue", className: "bg-red-500" },
 ] as const;
 
-const STATUS_RANK: Record<CalendarStatus, number> = { OVERDUE: 3, DUE: 2, PAID: 1, UNKNOWN: 0 };
+const STATUS_RANK: Record<CalendarStatus, number> = {
+  OVERDUE: 3,
+  DUE: 2,
+  PAID: 1,
+  UNVERIFIED: 0,
+  UNKNOWN: 0,
+};
 
 type DayChip = { formCode: string; count: number; status: CalendarStatus };
 
@@ -151,7 +157,7 @@ export function CalendarMonth({
         </div>
       </div>
 
-      <div className="grid grid-cols-7 border-b border-border/50 bg-muted/30 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="grid grid-cols-7 border-b border-border/50 bg-muted/30 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {WEEKDAYS.map((weekday) => (
           <span key={weekday} className="px-2 py-1.5 text-center">
             {weekday}
@@ -203,7 +209,7 @@ export function CalendarMonth({
                     {shown.map((chip) => (
                       <span
                         key={chip.formCode}
-                        className="flex min-w-0 items-center gap-1.5 text-[10px] leading-4"
+                        className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4"
                         title={`${chip.formCode}: ${chip.count} ${chip.count === 1 ? "company" : "companies"}`}
                       >
                         <span
@@ -229,7 +235,7 @@ export function CalendarMonth({
                       </span>
                     ))}
                     {hiddenCount > 0 ? (
-                      <span className="text-[10px] leading-4 text-muted-foreground">+{hiddenCount} more</span>
+                      <span className="text-[11px] leading-4 text-muted-foreground">+{hiddenCount} more</span>
                     ) : null}
                   </span>
                 ) : null}

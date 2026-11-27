@@ -100,13 +100,13 @@ export function PeriodsTab({
                 <TableRow key={lock.id}>
                   <TableCell className="tabular-nums">{lock.lockedThrough}</TableCell>
                   <TableCell className="max-w-[320px] truncate text-sm text-muted-foreground" title={lock.note ?? ""}>
-                    {lock.note || "—"}
+                    {lock.note || "not recorded"}
                   </TableCell>
                   <TableCell className="truncate text-sm" title={lock.lockedByName ?? ""}>
-                    {lock.lockedByName || "—"}
+                    {lock.lockedByName || "not recorded"}
                   </TableCell>
-                  <TableCell className="truncate text-sm tabular-nums text-muted-foreground">
-                    {lock.lockedAt ? phtDisplayStamp(lock.lockedAt) : "—"}
+                  <TableCell title={lock.lockedAt ? phtDisplayStamp(lock.lockedAt) : undefined} className="truncate text-sm tabular-nums text-muted-foreground">
+                    {lock.lockedAt ? phtDisplayStamp(lock.lockedAt) : "not recorded"}
                   </TableCell>
                   <TableCell>
                     {lock.reopenedAt ? (
@@ -143,7 +143,7 @@ export function PeriodsTab({
               </div>
               <p className="text-xs text-muted-foreground">{lock.note || "No note recorded."}</p>
               <p className="text-xs text-muted-foreground">
-                {lock.lockedByName || "Unknown"} · {lock.lockedAt ? phtDisplayStamp(lock.lockedAt) : "—"}
+                {lock.lockedByName || "Unknown"} · {lock.lockedAt ? phtDisplayStamp(lock.lockedAt) : "not recorded"}
               </p>
             </li>
           ))}
@@ -186,7 +186,7 @@ export function PeriodsTab({
                 <div className="min-w-0">
                   <p className="font-mono text-xs text-muted-foreground">{value.settingKey}</p>
                   <p className="truncate text-sm" title={value.settingValue}>
-                    {value.settingValue || "—"}
+                    {value.settingValue || "not recorded"}
                   </p>
                 </div>
               </li>

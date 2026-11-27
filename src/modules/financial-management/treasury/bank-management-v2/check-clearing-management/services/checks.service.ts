@@ -1,4 +1,5 @@
 import "server-only";
+import { isDisbursementCheck } from "../disbursement-check";
 
 import { CHECK_CANCEL_REASONS, CHECK_RETURN_REASONS, CHECK_STATUS_LABELS, STALE_CHECK_DAYS } from "../constants";
 import type { PayableKey } from "../constants";
@@ -239,16 +240,24 @@ export type CheckRegisterFilter = {
   status?: CheckStatus;
   accountId?: number;
   bankName?: string;
+  /** One payee or customer name, matched against the payee and payor columns. */
+  payee?: string;
   flag?: CheckRegisterFlag;
   dateFrom?: string;
   dateTo?: string;
   q?: string;
+  page?: number;
+  pageSize?: number;
 };
 
 export type CheckRegisterResult = {
   checks: BankCheck[];
   counts: Record<CheckStatus, number>;
-  accounts: { bankId: number; label: string; bankName: string }[];
+  accounts: { bankId: number; label: string; bankName: string; accountNumber: string | null }[];
+  /** Rows matching the filters before paging, so the pager can size itself without pulling them. */
+  total: number;
+  page: number;
+  pageSize: number;
   notice?: string;
 };
 
@@ -276,12 +285,16 @@ export type ReceiveCheckInput = {
   remarks: string | null;
 };
 
+export type ReplacementCheckType = "PDC" | "DATED" | "MANAGERS_CHECK";
+
 export type ReplacementInput = {
   checkDate: string;
   amount: number;
-  checkNo?: string | null;
+  checkNo: string;
   /** Received replacements only: the new check's drawee bank. Falls back to the old check's. */
   draweeBank?: string | null;
+  /** Classification of the replacement itself, so a dated check cannot be recorded as post-dated. */
+  checkType: ReplacementCheckType;
 };
 
 export type CheckActionInput = {
@@ -367,7 +380,19 @@ export function describeCheckError(error: unknown, context: string): { status: n
   }
   console.error(context, error);
   if (error instanceof DirectusError) {
-    return { status: 502, body: { success: false, error: "The banking instance rejected the request." } };
+    // The path is the only thing that makes a 502 diagnosable, and it names no customer data.
+    const where = error.message.match(/on (\S+)/)?.[1];
+    // The platform's own sentence names the column it refused; without it a 502 is a dead end.
+    const why = error.body.replace(/\s+/g, " ").slice(0, 200);
+    return {
+      status: 502,
+      body: {
+        success: false,
+        error: where
+          ? `The banking instance rejected the request (${where}): ${why}`
+          : `The banking instance rejected the request: ${why}`,
+      },
+    };
   }
   return { status: 500, body: { success: false, error: "The request could not be completed." } };
 }
@@ -376,13 +401,31 @@ function accountLabel(row: AccountRow): string {
   return [row.bank_name, row.account_number].filter(Boolean).join(" · ") || `Account ${row.bank_id}`;
 }
 
-async function accountLabels(ids?: number[]): Promise<Map<number, string>> {
-  const filter = ids && ids.length ? { bank_id: { _in: ids } } : undefined;
-  const { rows } = await listItems<AccountRow>(ACCOUNTS, { fields: ACCOUNT_FIELDS, filter, limit: 500 });
-  return new Map(rows.map((row) => [Number(row.bank_id), accountLabel(row)]));
+/** The label's two halves: the account number identifies the account, the bank names it. */
+function accountParts(rows: AccountRow[]): Map<number, { number: string | null; bank: string | null }> {
+  return new Map(
+    rows.map((row) => [
+      Number(row.bank_id),
+      { number: asString(row.account_number) || null, bank: asString(row.bank_name) || null },
+    ]),
+  );
 }
 
-async function listActiveAccounts(): Promise<{ bankId: number; label: string; bankName: string }[]> {
+async function accountLabelMap(
+  ids?: number[],
+): Promise<{ labels: Map<number, string>; parts: Map<number, { number: string | null; bank: string | null }> }> {
+  const filter = ids && ids.length ? { bank_id: { _in: ids } } : undefined;
+  const { rows } = await listItems<AccountRow>(ACCOUNTS, { fields: ACCOUNT_FIELDS, filter, limit: 500 });
+  return { labels: new Map(rows.map((row) => [Number(row.bank_id), accountLabel(row)])), parts: accountParts(rows) };
+}
+
+async function accountLabels(ids?: number[]): Promise<Map<number, string>> {
+  return (await accountLabelMap(ids)).labels;
+}
+
+async function listActiveAccounts(): Promise<
+  { bankId: number; label: string; bankName: string; accountNumber: string | null }[]
+> {
   const { rows } = await listItems<AccountRow>(ACCOUNTS, {
     fields: ACCOUNT_FIELDS,
     filter: { is_active: { _eq: true }, account_status: { _eq: "ACTIVE" } },
@@ -393,6 +436,7 @@ async function listActiveAccounts(): Promise<{ bankId: number; label: string; ba
     bankId: Number(row.bank_id),
     label: accountLabel(row),
     bankName: asString(row.bank_name) || "Bank account",
+    accountNumber: asString(row.account_number) || null,
   }));
 }
 
@@ -410,14 +454,24 @@ function sourceType(value: unknown): BankCheck["sourceType"] {
   return type === "COLLECTIONS" || type === "DISBURSEMENT" || type === "REPLACEMENT" ? type : "MANUAL";
 }
 
-function toCheck(row: CheckRow, labels: Map<number, string>, checkNos: Map<number, string> = new Map()): BankCheck {
+type AccountParts = Map<number, { number: string | null; bank: string | null }>;
+
+function toCheck(
+  row: CheckRow,
+  labels: Map<number, string>,
+  checkNos: Map<number, string> = new Map(),
+  parts: AccountParts = new Map(),
+): BankCheck {
   const status = checkStatus(row.status);
   const ageDays = daysSince(row.check_date);
+  const direction = checkDirection(row.direction);
   return {
     id: Number(row.id),
     bankAccountId: Number(row.bank_account_id ?? 0),
     bankAccountLabel: labels.get(Number(row.bank_account_id)) ?? "—",
-    direction: checkDirection(row.direction),
+    bankAccountNumber: parts.get(Number(row.bank_account_id))?.number ?? null,
+    bankAccountBank: parts.get(Number(row.bank_account_id))?.bank ?? null,
+    direction,
     checkNo: asString(row.check_no),
     checkDate: toPhtDateString(row.check_date),
     amount: roundMoney(asNumber(row.amount)),
@@ -440,7 +494,7 @@ function toCheck(row: CheckRow, labels: Map<number, string>, checkNos: Map<numbe
     replacesId: row.replaces_id == null ? null : Number(row.replaces_id),
     replacedByNo: row.replaced_by_id == null ? null : (checkNos.get(Number(row.replaced_by_id)) ?? null),
     replacesNo: row.replaces_id == null ? null : (checkNos.get(Number(row.replaces_id)) ?? null),
-    sourceType: sourceType(row.source_type),
+    sourceType: isDisbursementCheck(direction, row.source_ref) ? "DISBURSEMENT" : sourceType(row.source_type),
     sourceRef: row.source_ref,
     remarks: row.remarks,
     createdAt: toPhtDateString(row.created_at),
@@ -486,25 +540,14 @@ async function countByStatus(): Promise<Record<CheckStatus, number>> {
   return Object.fromEntries(entries) as Record<CheckStatus, number>;
 }
 
-function flagMatches(row: CheckRow, flag: CheckRegisterFlag): boolean {
-  const status = checkStatus(row.status);
-  const open = status === "PENDING" || status === "RECEIVED" || status === "IN_CLEARING";
-  const issued = checkDirection(row.direction) === "ISSUED";
-
-  if (flag === "PDC") return open && toPhtDateString(row.check_date) > phtToday();
-  if (flag === "STALE") {
-    return issued && (status === "PENDING" || status === "IN_CLEARING") && daysSince(row.check_date) > STALE_CHECK_DAYS;
-  }
-  if (flag === "NOREPL") {
-    return (status === "RETURNED" || status === "CANCELLED") && row.replaced_by_id == null;
-  }
-  return row.replaces_id != null || row.replaced_by_id != null;
-}
-
+/** Statuses that mean a cheque is still moving: not settled, not dead. */
+const OPEN_STATUSES = ["PENDING", "RECEIVED", "IN_CLEARING"] as const;
 async function listFilteredChecks(
   input: CheckRegisterFilter,
   accounts: { bankId: number; bankName: string }[],
-): Promise<CheckRow[]> {
+  page: number,
+  pageSize: number,
+): Promise<{ rows: CheckRow[]; total: number }> {
   const filter: Record<string, unknown> = {};
   if (input.direction) filter.direction = { _eq: input.direction };
   if (input.status) filter.status = { _eq: input.status };
@@ -532,26 +575,62 @@ async function listFilteredChecks(
     ];
   }
 
-  const { rows } = await listItems<CheckRow>(CHECKS, {
+  // Payee / customer filter: its own group, so choosing a payee ANDs with a free-text search
+  // instead of replacing the search's `_or` group.
+  const payee = asString(input.payee);
+  if (payee) {
+    filter._and = [{ _or: [{ payee: { _icontains: payee } }, { payor: { _icontains: payee } }] }];
+  }
+
+  // Every cheque comes back: the register pages and filters in memory, so a cap here silently hides
+  // rows instead of paging them. Batches keep one request from carrying the whole table.
+  // Every flag is expressible in the platform filter, so paging happens in the database rather than
+  // in memory: a 10,000-row register costs one page, not the whole table.
+  const today = phtToday();
+  const staleBefore = toPhtDateString(new Date(Date.parse(`${today}T00:00:00Z`) - STALE_CHECK_DAYS * 86_400_000));
+  if (input.flag === "PDC") {
+    filter.status = { _in: OPEN_STATUSES };
+    filter.check_date = { _gt: today };
+  } else if (input.flag === "STALE") {
+    filter.direction = { _eq: "ISSUED" };
+    filter.status = { _in: ["PENDING", "IN_CLEARING"] };
+    filter.check_date = { _lt: staleBefore };
+  } else if (input.flag === "NOREPL") {
+    filter.status = { _in: ["RETURNED", "CANCELLED"] };
+    filter.replaced_by_id = { _null: true };
+  } else if (input.flag === "REPL") {
+    filter._or = [{ replaces_id: { _nnull: true } }, { replaced_by_id: { _nnull: true } }];
+  }
+
+  return listItems<CheckRow>(CHECKS, {
     fields: CHECK_FIELDS,
     filter: Object.keys(filter).length ? filter : undefined,
-    sort: "-check_date,-id",
-    // ponytail: 500-row cap on the unpaginated register; add paging once the list outgrows a screen.
-    limit: 500,
+    sort: "-id",
+    limit: pageSize,
+    page,
   });
-  return input.flag ? rows.filter((row) => flagMatches(row, input.flag as CheckRegisterFlag)) : rows;
 }
 
 export async function listCheckRegister(input: CheckRegisterFilter = {}): Promise<CheckRegisterResult> {
   const accounts = await listActiveAccounts();
   const labels = new Map(accounts.map((account) => [account.bankId, account.label]));
 
+  const page = Math.max(1, Math.trunc(input.page ?? 1));
+  const pageSize = Math.min(500, Math.max(1, Math.trunc(input.pageSize ?? 10)));
+
   let rows: CheckRow[] = [];
+  let total = 0;
   let counts = emptyCounts();
   let notice: string | undefined;
 
   try {
-    [rows, counts] = await Promise.all([listFilteredChecks(input, accounts), countByStatus()]);
+    const [current, statusCounts] = await Promise.all([
+      listFilteredChecks(input, accounts, page, pageSize),
+      countByStatus(),
+    ]);
+    rows = current.rows;
+    total = current.total;
+    counts = statusCounts;
   } catch (error) {
     if (!(error instanceof DirectusError)) throw error;
     notice = NOTICE_REGISTER;
@@ -559,10 +638,17 @@ export async function listCheckRegister(input: CheckRegisterFilter = {}): Promis
 
   const checkNos = await relatedCheckNumbers(rows);
 
+  const parts: AccountParts = new Map(
+    accounts.map((account) => [account.bankId, { number: account.accountNumber, bank: account.bankName }]),
+  );
+
   return {
-    checks: rows.map((row) => toCheck(row, labels, checkNos)),
+    checks: rows.map((row) => toCheck(row, labels, checkNos, parts)),
     counts,
     accounts,
+    total,
+    page,
+    pageSize,
     ...(notice ? { notice } : {}),
   };
 }
@@ -969,6 +1055,7 @@ export async function applyCheckAction(
   const row = await loadCheckRow(checkId);
   const status = checkStatus(row.status);
   const direction = checkDirection(row.direction);
+  const voucherLinked = isDisbursementCheck(direction, row.source_ref);
   const amount = roundMoney(asNumber(row.amount));
   const checkNo = asString(row.check_no);
   const checkDate = toPhtDateString(row.check_date);
@@ -1041,7 +1128,7 @@ export async function applyCheckAction(
       );
     }
 
-    const posting = await postCheckEntry(clearDraft(row, account, checkNo, amount, clearedDate));
+    const posting = voucherLinked ? null : await postCheckEntry(clearDraft(row, account, checkNo, amount, clearedDate));
     const eventCode = direction === "ISSUED" ? "E10" : "E13";
 
     await updateItem(CHECKS, checkId, { status: "CLEARED", cleared_at: `${clearedDate}T00:00:00` });
@@ -1051,7 +1138,7 @@ export async function applyCheckAction(
       fromStatus: status,
       toStatus: "CLEARED",
       eventCode,
-      journalEntryId: posting.journalEntryId,
+      journalEntryId: posting?.journalEntryId ?? null,
       note,
       actorId,
     });
@@ -1081,8 +1168,8 @@ export async function applyCheckAction(
       direction === "ISSUED" ? "E11" : status === "CLEARED" ? "E15" : "E14";
     const description = `Check ${checkNo} returned — ${reason}`;
     const base = draftBase(`${checkNo}-RET`, today, description);
-    const posting =
-      eventCode === "E11"
+    const posting = voucherLinked ? null
+      : eventCode === "E11"
         ? await postCheckEntry(issuedCheckEntry("E11", account, amount, payableKeyFor(row), base))
         : await postCheckEntry(receivedCheckEntry(eventCode, account, amount, base));
 
@@ -1097,8 +1184,8 @@ export async function applyCheckAction(
       fromStatus: status,
       toStatus: "RETURNED",
       eventCode,
-      journalEntryId: posting.journalEntryId,
-      note: `Returned: ${reason}`,
+      journalEntryId: posting?.journalEntryId ?? null,
+      note: `Returned: ${reason}${voucherLinked ? ". Refer to Accounting for the posted voucher correction." : ""}`,
       actorId,
     });
     return { check: await reloadCheck(checkId) };
@@ -1132,8 +1219,8 @@ export async function applyCheckAction(
 
     const description = `Check ${checkNo} cancelled — ${reason}`;
     const base = draftBase(`${checkNo}-CAN`, today, description);
-    const posting =
-      direction === "ISSUED"
+    const posting = voucherLinked ? null
+      : direction === "ISSUED"
         ? await postCheckEntry(issuedCheckEntry("E11", account, amount, payableKeyFor(row), base))
         : await postCheckEntry(receivedCheckEntry("E14", account, amount, base));
 
@@ -1144,8 +1231,8 @@ export async function applyCheckAction(
       fromStatus: status,
       toStatus: "CANCELLED",
       eventCode: direction === "ISSUED" ? "E11" : "E14",
-      journalEntryId: posting.journalEntryId,
-      note: `Cancelled: ${reason}`,
+      journalEntryId: posting?.journalEntryId ?? null,
+      note: `Cancelled: ${reason}${voucherLinked ? ". Refer to Accounting for the posted voucher correction." : ""}`,
       actorId,
     });
     return { check: await reloadCheck(checkId) };
@@ -1153,6 +1240,9 @@ export async function applyCheckAction(
 
   if (status !== "RETURNED" && status !== "CANCELLED") {
     throw new ConflictError("Only Returned or Cancelled checks can be replaced.", "action");
+  }
+  if (voucherLinked) {
+    throw new ConflictError("Arrange a voucher correction with Accounting before issuing a replacement.", "action");
   }
   const replacement = input.replacement;
   if (!replacement) {
@@ -1180,6 +1270,13 @@ export async function applyCheckAction(
   }
 
   const providedNo = asString(replacement.checkNo);
+  const replacementDrawee = asString(replacement.draweeBank) || asString(row.drawee_bank);
+  if (direction === "RECEIVED" && !replacementDrawee) {
+    throw new ValidationError("Choose the drawee bank on the replacement check.", "replacement.draweeBank");
+  }
+  if (!replacement.checkType) {
+    throw new ValidationError("Choose what kind of check the replacement is.", "replacement.checkType");
+  }
   let replacementNo: string;
   if (providedNo) {
     const { rows: duplicates } = await listItems<{ id: number }>(CHECKS, {
@@ -1202,7 +1299,7 @@ export async function applyCheckAction(
     throw new ValidationError("Give the replacement check number.", "replacement.checkNo");
   }
 
-  const draweeBank = direction === "RECEIVED" ? asString(replacement.draweeBank) || row.drawee_bank : row.drawee_bank;
+  const draweeBank = direction === "RECEIVED" ? replacementDrawee : row.drawee_bank;
   const created = await createItem<{ id: number }>(CHECKS, {
     bank_account_id: bankAccountId,
     direction,
@@ -1213,7 +1310,9 @@ export async function applyCheckAction(
     payee: row.payee,
     payor: row.payor,
     status: direction === "ISSUED" ? "PENDING" : "RECEIVED",
-    is_pdc: replacement.checkDate > today ? 1 : 0,
+    // The classification wins over the date: a manager's check drawn today is not a PDC,
+    // and a post-dated replacement keeps `is_pdc` even when the date has since arrived.
+    is_pdc: replacement.checkType === "PDC" ? 1 : 0,
     // Spec 4.8 / P82: a replacement keeps the old check's payable account.
     control_key: direction === "ISSUED" ? payableKeyFor(row) : null,
     source_type: "REPLACEMENT",
@@ -1316,6 +1415,7 @@ export async function clearChecks(
         );
       }
 
+      if (isDisbursementCheck(row.direction, row.source_ref)) continue;
       const account = await accountRef(Number(row.bank_account_id));
       const { missingMappingKeys } = await resolveJournalEntry(
         clearDraft(row, account, asString(row.check_no), asNumber(row.amount), clearedDate),
@@ -1472,4 +1572,19 @@ export async function createCheckbookSeries(input: CreateCheckbookInput): Promis
 
   const labels = await accountLabels([input.bankAccountId]);
   return { series: toSeries(created, labels) };
+}
+
+/**
+ * The drawee banks a received check can be drawn on: the shared `bank_names` registry,
+ * so the desk picks one spelling instead of typing "UnionBank", "Union Bank" and "UB".
+ */
+export async function listDraweeBanks(): Promise<Array<{ id: number; name: string }>> {
+  const { rows } = await listItems<{ id: number; bank_name: string | null }>("bank_names", {
+    fields: ["id", "bank_name"],
+    sort: "bank_name",
+    limit: 400,
+  });
+  return rows
+    .map((row) => ({ id: Number(row.id), name: asString(row.bank_name) }))
+    .filter((row) => row.name.length > 0);
 }

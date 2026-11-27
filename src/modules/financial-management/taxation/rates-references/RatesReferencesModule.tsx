@@ -10,6 +10,7 @@ import { OptionCombobox } from "./components/OptionCombobox";
 import { RateConfigPanel } from "./components/RateConfigPanel";
 import { useRateConfig } from "./hooks/useRateConfig";
 import { ratesInForce, withLiveRates } from "./liveRates";
+import { phtDisplayDate } from "./pht";
 import { REFERENCE_GROUPS, type ReferenceEntry } from "./reference.data";
 
 function matches(entry: ReferenceEntry, needle: string, groupTitle: string): boolean {
@@ -59,7 +60,7 @@ export function RatesReferencesModule() {
         : firstWithEntries;
 
   const scope = live?.row
-    ? `Rates for ${live.companyCode}, in force from ${live.row.effectiveFrom}.`
+    ? `Rates for ${live.companyCode}, in force from ${phtDisplayDate(live.row.effectiveFrom)}.`
     : rates.isLoading
       ? "Reading the rate tables."
       : `No rate version is in force for ${year}, so this page shows the statutory defaults.`;

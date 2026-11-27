@@ -18,10 +18,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 
-import { toPhtDateString } from "../pht";
-import { PAGE_SIZE } from "../constants";
+import { phtDisplayDate } from "../pht";
+import { isDisbursementCheck } from "../disbursement-check";
 import { StatusBadge } from "./StatusBadge";
-import { TablePager, usePageSize } from "./TablePager";
+import { TablePager } from "./TablePager";
 import type { BankCheck } from "../types";
 
 export type CheckAction = "RELEASE" | "DEPOSIT" | "CLEAR" | "RETURN" | "CANCEL" | "REPLACE" | "VIEW";
@@ -60,11 +60,10 @@ export function allowedActions(check: BankCheck): { action: CheckAction; label: 
     actions.push({ action: "RETURN", label: "Record return" });
     if (direction === "ISSUED") actions.push({ action: "CANCEL", label: "Cancel check", destructive: true });
   }
-  if (status === "CLEARED" && direction === "RECEIVED") {
-    // Row 12: only a received check that cleared can be returned from Cleared.
-    actions.push({ action: "RETURN", label: "Record return" });
-  }
-  if ((status === "RETURNED" || status === "CANCELLED") && !check.replacedById) {
+  // Cleared is terminal: the bank has kept the money, so nothing may move it again.
+  // The FSD's row 12 allowed a return after clearing; the third-QA review overruled it.
+  if ((status === "RETURNED" || status === "CANCELLED") && !check.replacedById &&
+      !isDisbursementCheck(direction, check.sourceRef)) {
     actions.push({ action: "REPLACE", label: "Replace check" });
   }
   return actions;
@@ -106,6 +105,11 @@ type Props = {
   filtered: boolean;
   /** Filter band rendered inside the register card, like every other V2 table. */
   filters: ReactNode;
+  /** Rows per page, held by the hook so the page request and the pager agree. */
+  pageSize: number;
+  onPageSizeChange: (size: number) => void;
+  /** Card-header controls (e.g. Reload), rendered beside the count chip. */
+  headerActions?: ReactNode;
 };
 
 /** The check register: issued and received checks across every account. */
@@ -121,14 +125,16 @@ export function ChecksTable({
   total,
   filtered,
   filters,
+  pageSize,
+  onPageSizeChange,
+  headerActions,
 }: Props) {
 
-  // A mutation can shorten the register under the current page; clamp rather than reset
-  // so an unrelated action does not also move the user off their page.
-  const [pageSize, setPageSize] = usePageSize("fm.check-clearing.rows", PAGE_SIZE);
-  const pageCount = Math.max(1, Math.ceil(checks.length / pageSize));
+  // The server pages now, so the rows that arrive are already the page: no slicing here. `total`
+  // is the filtered count across every page, which is what the pager sizes itself from.
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, pageCount);
-  const rows = checks.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const rows = checks;
 
   const eligibleRows = checks.filter((row) => batchActionFor(row) !== null);
   const pageEligible = rows.filter((row) => batchActionFor(row) !== null);
@@ -167,11 +173,14 @@ export function ChecksTable({
           <h2 className="text-sm font-semibold">Check register</h2>
           <p className="text-xs text-muted-foreground">Click a row for its details and audit trail.</p>
         </div>
-        <Badge variant="outline" className="tabular-nums text-[11px]">
-          {filtered
-            ? `${formatNumber(checks.length)} of ${formatNumber(total)} checks`
-            : `${formatNumber(total)} checks`}
-        </Badge>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Badge variant="outline" className="tabular-nums text-[11px]">
+            {filtered
+              ? `${formatNumber(checks.length)} of ${formatNumber(total)} checks`
+              : `${formatNumber(total)} checks`}
+          </Badge>
+          {headerActions}
+        </div>
       </header>
 
       {filters}
@@ -184,8 +193,12 @@ export function ChecksTable({
         </div>
       ) : checks.length === 0 ? (
         <div className="px-4 py-16 text-center">
-          <p className="text-sm font-medium">No checks match these filters</p>
-          <p className="mt-1 text-sm text-muted-foreground">Issue a check or record one received from a customer.</p>
+          <p className="text-sm font-medium">{filtered ? "No checks match these filters" : "No checks yet"}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {filtered
+              ? "Clear a filter or widen the dates to see more."
+              : "Issue a check, or record one received from a customer."}
+          </p>
         </div>
       ) : (
         <>
@@ -300,9 +313,15 @@ export function ChecksTable({
                   </TableCell>
                   <TableCell className="text-sm">{check.direction === "ISSUED" ? "Issued" : "Received"}</TableCell>
                   <TableCell className="max-w-[190px] text-sm">
-                    <span className="block truncate" title={check.bankAccountLabel}>
-                      {check.bankAccountLabel}
-                    </span>
+                    {/* Account number leads; the bank it belongs to sits under it. */}
+                    <p className="truncate" title={check.bankAccountNumber ?? check.bankAccountLabel}>
+                      {check.bankAccountNumber ?? check.bankAccountLabel}
+                    </p>
+                    {check.bankAccountBank ? (
+                      <p className="truncate text-[11px] text-muted-foreground" title={check.bankAccountBank}>
+                        {check.bankAccountBank}
+                      </p>
+                    ) : null}
                   </TableCell>
                   <TableCell className="max-w-[210px] text-sm">
                     <span className="block truncate" title={check.payee ?? check.payor ?? undefined}>
@@ -310,14 +329,14 @@ export function ChecksTable({
                     </span>
                   </TableCell>
                   <TableCell className="text-right text-sm tabular-nums">{formatCurrency(check.amount)}</TableCell>
-                  <TableCell className="whitespace-nowrap text-sm">{toPhtDateString(check.checkDate)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm">{phtDisplayDate(check.checkDate)}</TableCell>
                   <TableCell>
                     <span className="flex flex-wrap items-center gap-1">
                       <StatusBadge status={check.status} />
                       {check.replacesNo || check.replacedByNo ? (
                         <Badge
                           variant="outline"
-                          className="text-[10px] font-semibold text-muted-foreground"
+                          className="text-[11px] font-semibold text-muted-foreground"
                           title="Part of a replacement chain; open the check to see it."
                         >
                           Replacement
@@ -327,21 +346,21 @@ export function ChecksTable({
                         <Badge
                           variant="outline"
                           className={cn(
-                            "text-[10px] font-semibold",
+                            "text-[11px] font-semibold",
                             "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300",
                           )}
                         >
                           Stale
                         </Badge>
                       ) : check.isPdc ? (
-                        <Badge variant="outline" className="border-border bg-muted text-[10px] font-semibold text-muted-foreground">
+                        <Badge variant="outline" className="border-border bg-muted text-[11px] font-semibold text-muted-foreground">
                           PDC
                         </Badge>
                       ) : null}
                     </span>
                     {check.isPdc && check.status === "RECEIVED" ? (
                       <span className="mt-1 block text-xs text-muted-foreground">
-                        Deposit from {toPhtDateString(check.checkDate)}
+                        Deposit from {phtDisplayDate(check.checkDate)}
                       </span>
                     ) : null}
                   </TableCell>
@@ -390,7 +409,11 @@ export function ChecksTable({
             }}
           >
             <div className="flex items-start gap-3">
-              <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+              <span
+                className="-m-2 flex h-11 w-11 shrink-0 items-center justify-center"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
                 <Checkbox
                   aria-label={`Select check ${check.checkNo}`}
                   checked={selected.has(check.id)}
@@ -407,8 +430,13 @@ export function ChecksTable({
                   {check.payee ?? check.payor ?? "—"}
                 </p>
                 <p className="truncate text-xs text-muted-foreground" title={check.bankAccountLabel}>
-                  {check.bankAccountLabel} · {toPhtDateString(check.checkDate)}
+                  {check.bankAccountNumber ?? check.bankAccountLabel} · {phtDisplayDate(check.checkDate)}
                 </p>
+                {check.bankAccountBank ? (
+                  <p className="truncate text-[11px] text-muted-foreground" title={check.bankAccountBank}>
+                    {check.bankAccountBank}
+                  </p>
+                ) : null}
               </div>
               <StatusBadge status={check.status} />
             </div>
@@ -442,12 +470,12 @@ export function ChecksTable({
       <TablePager
         page={safePage}
         pageCount={pageCount}
-        total={checks.length}
+        total={total}
         pageSize={pageSize}
         allowAll={false}
         onPageChange={onPageChange}
         onPageSizeChange={(size) => {
-          setPageSize(size);
+          onPageSizeChange(size);
           onPageChange(1);
         }}
         className="border-t border-border/50 px-4 py-3"

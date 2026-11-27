@@ -1,0 +1,247 @@
+export type CFSViewBy = "Monthly" | "Quarterly" | "Annually";
+
+export type CFSCompareOption = "previous_year" | "previous_period" | "custom";
+
+export type CFSEntityCode = "GRP" | "STC" | "LPM" | "VCS" | "MRG" | "BDL" | "CPH";
+
+export interface CFSEntity {
+  code: CFSEntityCode;
+  name: string;
+  isConsolidated?: boolean;
+}
+
+export interface CFSFilterState {
+  viewBy: CFSViewBy;
+  periodDate: string; // e.g. "2026-10-31"
+  periodLabel: string; // e.g. "FY 2026 YTD"
+  dateRangeLabel: string; // e.g. "Jan 1 – Oct 31, 2026 304 days · to date"
+  startDate: string;
+  endDate: string;
+  compare: boolean;
+  compareOption: CFSCompareOption;
+  comparePeriodLabel: string; // e.g. "Previous year (FY 2025 YTD)"
+  compareStartDate?: string;
+  compareEndDate?: string;
+  entity: CFSEntityCode;
+  showChangeColumns: boolean;
+  simulateUnmapped: boolean;
+  dataSourceMode: "live" | "sample";
+}
+
+// Backend API Level 1: Summary Types
+export interface CFSSummaryAccountLine {
+  coaId: number | null;
+  glCode: string | null;
+  accountTitle: string;
+  inflow: number;
+  outflow: number;
+  net: number;
+}
+
+export interface CFSSummaryActivity {
+  code: "OPERATING" | "INVESTING" | "FINANCING" | "UNCLASSIFIED";
+  label: string;
+  inflow: number;
+  outflow: number;
+  net: number;
+  lines: CFSSummaryAccountLine[];
+}
+
+export interface CFSSummaryTrendPoint {
+  period: string; // "2026-01", "2026-01-15", etc.
+  operating: number;
+  investing: number;
+  financing: number;
+  unclassified: number;
+  net: number;
+}
+
+export interface CFSSummaryResponse {
+  success: boolean;
+  message?: string;
+  missingKey?: boolean;
+  companyCode?: string;
+  companyName?: string;
+  reportLabel?: string;
+  includedCompanies?: string[];
+  missingCompanies?: { code: string; name: string; reason: string }[];
+  period: {
+    startDate: string;
+    endDate: string;
+  };
+  openingCash: number;
+  netChange: number;
+  closingCash: number;
+  activities: CFSSummaryActivity[];
+  unclassified: CFSSummaryActivity;
+  trend: CFSSummaryTrendPoint[];
+}
+
+// Backend API Level 2: Entries Types
+export interface CFSEntryItem {
+  jeNo: string;
+  transactionDate: string;
+  transactionRef: string;
+  sourceModule: string;
+  description: string;
+  cashFlowActivity: string;
+  coaId: number | null;
+  glCode: string | null;
+  accountTitle: string;
+  inflow: number;
+  outflow: number;
+  net: number;
+}
+
+export interface CFSEntriesResponse {
+  success: boolean;
+  page: number;
+  size: number;
+  totalItems: number;
+  totalPages: number;
+  items: CFSEntryItem[];
+}
+
+// Backend API Level 3: Journal Details
+export interface CFSJournalLine {
+  accountNumber: string;
+  accountTitle: string;
+  description: string;
+  debit: number;
+  credit: number;
+}
+
+export interface CFSJournalDetails {
+  journalEntryId: string;
+  sourceModule: string;
+  transactionRef: string;
+  transactionDate: string;
+  description: string;
+  status: string;
+  totalDebit: number;
+  totalCredit: number;
+  lines: CFSJournalLine[];
+}
+
+export type CFSRowType =
+  | "section_header"
+  | "subsection_header"
+  | "line_item"
+  | "subtotal"
+  | "total"
+  | "reconciliation_item";
+
+export interface CFSStatementLine {
+  id: string;
+  coaId?: number | null;
+  glCode?: string | null;
+  label: string;
+  type: CFSRowType;
+  indent?: number; // 0, 1, 2
+  sectionKey?: "operating" | "investing" | "financing" | "summary" | "non_cash" | "components_of_cash" | "unclassified";
+  currentAmount?: number | null;
+  comparisonAmount?: number | null;
+  changeAmount?: number | null;
+  changePercent?: number | null;
+  isBold?: boolean;
+  isNegativeInFormat?: boolean;
+  hasAuditTrail?: boolean;
+  needsReview?: boolean;
+}
+
+export interface CFSReviewCheck {
+  id: string;
+  name: string;
+  description: string;
+  status: "pass" | "warning" | "fail";
+  message?: string;
+  isBlocking?: boolean;
+}
+
+export interface CFSRatioCard {
+  id: string;
+  title: string;
+  formula: string;
+  value: string;
+  numericValue: number;
+  comparisonValue: string;
+  changeText: string;
+  status: "strong" | "watch" | "weak";
+  meaning: string;
+  trend: number[];
+}
+
+export interface CFSFinancingLiabilityRow {
+  liabilityName: string;
+  openingBalance: number;
+  financingCashFlows: number;
+  newLeases?: number;
+  ppeAcquiredNotes?: number;
+  debtConvertedEquity?: number;
+  foreignExchange?: number;
+  dividendsDeclared?: number;
+  interestAccrued?: number;
+  otherChanges?: number;
+  closingBalance: number;
+  reconciles: boolean;
+}
+
+export interface CFSSupplierFinanceItem {
+  arrangementDescription: string;
+  carryingAmountOpening: number;
+  carryingAmountClosing: number;
+  portionSuppliersPaidByProvider: number;
+  paymentDueRangeAgainstComparable: string;
+  nonCashChanges: number;
+}
+
+export interface CFSUnmappedAccount {
+  accountNumber: string;
+  accountTitle: string;
+  accountType: "Asset" | "Liability" | "Equity" | "Revenue" | "Expense";
+  openingBalance: number;
+  closingBalance: number;
+  movement: number;
+  suggestedLineId: string;
+  suggestedLineLabel: string;
+}
+
+export interface CFSConsolidationRow {
+  lineLabel: string;
+  stc: number;
+  lpm: number;
+  mrg: number;
+  eliminations: number;
+  consolidated: number;
+}
+
+export interface CFSEliminationEntry {
+  ref: string;
+  description: string;
+  linesAffected: string;
+}
+
+export interface CFSData {
+  entity: CFSEntity;
+  lastUpdated: string;
+  ledgerPostedThrough: string;
+  status: "Draft" | "Final";
+  basis: string;
+  summaryMetrics: {
+    operating: { amount: number; description: string; compareAmount?: number; changePct?: number };
+    investing: { amount: number; description: string; compareAmount?: number; changePct?: number };
+    financing: { amount: number; description: string; compareAmount?: number; changePct?: number };
+    endingCash: { amount: number; description: string; compareAmount?: number; changePct?: number; isReconciled: boolean };
+  };
+  statementLines: CFSStatementLine[];
+  nonCashLines: CFSStatementLine[];
+  componentsOfCashLines: CFSStatementLine[];
+  reviewChecks: CFSReviewCheck[];
+  ratios: CFSRatioCard[];
+  financingLiabilities: CFSFinancingLiabilityRow[];
+  supplierFinance: CFSSupplierFinanceItem[];
+  unmappedAccounts: CFSUnmappedAccount[];
+  consolidationWorksheet: CFSConsolidationRow[];
+  eliminationEntries: CFSEliminationEntry[];
+  policyNote: string;
+}

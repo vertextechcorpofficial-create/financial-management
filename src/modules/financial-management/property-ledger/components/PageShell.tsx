@@ -15,7 +15,7 @@ export async function PropertyLedgerShell({ children }: { children: React.ReactN
     <header className="relative z-10 flex h-14 shrink-0 items-center justify-between overflow-hidden border-b bg-background shadow-sm sm:h-16">
       <div className="flex h-full min-w-0 flex-1 items-center gap-2 overflow-hidden px-3 sm:px-4"><SidebarTrigger className="-ml-1 shrink-0" /><Separator orientation="vertical" className="mr-2 hidden h-4 sm:block" />
         <PropertyLedgerBreadcrumb />
-      </div><div className="max-w-[48vw] shrink-0 overflow-hidden px-2 sm:max-w-none sm:px-4"><NavUser user={{ name, email, avatar: "/avatars/shadcn.jpg" }} /></div>
+      </div><div className="max-w-[48vw] shrink-0 overflow-hidden px-2 sm:max-w-none sm:px-4"><NavUser user={{ name, email }} /></div>
     </header>
     <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
   </div>;

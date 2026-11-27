@@ -1,0 +1,212 @@
+export const applicationTypes = {
+  NEW: "New loan",
+  RENEWAL: "Renewal / re-loan",
+} as const;
+
+export const documentKinds = {
+  APPLICATION: "Signed agency loan application",
+  ID: "Valid government ID",
+  AUTHORITY: "Signed authority to deduct",
+  DISBURSEMENT: "Proof of disbursement account",
+} as const;
+export type DocumentKind = keyof typeof documentKinds;
+
+export const enrollmentEvidenceKinds = {
+  AUTHORITY: documentKinds.AUTHORITY,
+  AGENCY_APPROVAL: "Agency approval notice",
+  STATEMENT_OF_ACCOUNT: "Statement of account",
+} as const;
+export type EnrollmentEvidenceKind = keyof typeof enrollmentEvidenceKinds;
+export type LoanDocumentKind = DocumentKind | EnrollmentEvidenceKind;
+
+export const purposes = [
+  "Education / tuition", "Medical / hospitalization", "Home repair or improvement",
+  "Calamity / emergency", "Livelihood / small business", "Debt consolidation", "Other",
+] as const;
+
+export type RequestForm = {
+  employeeId: number | null;
+  agencyId: number | null;
+  program: string;
+  applicationType: "" | keyof typeof applicationTypes;
+  renewalLoanId: number | null;
+  amount: string;
+  term: string;
+  agencyAmortization: string;
+  agencyReference: string;
+  agencyFiledOn: string;
+  purpose: string;
+  payout: string;
+  remarks: string;
+  coMakerId: number | null;
+  coMakerRelationship: string;
+  deductionConsent: boolean;
+  dataSharingConsent: boolean;
+};
+
+export const emptyRequest: RequestForm = {
+  employeeId: null, agencyId: null, program: "", applicationType: "", renewalLoanId: null,
+  amount: "", term: "", agencyAmortization: "", agencyReference: "", agencyFiledOn: "",
+  purpose: "", payout: "", remarks: "", coMakerId: null, coMakerRelationship: "",
+  deductionConsent: false, dataSharingConsent: false,
+};
+
+export type FieldErrors = Partial<Record<keyof RequestForm, string>>;
+export const requestStatusLabels = {
+  DRAFT: "Draft",
+  REQUESTED: "Requested",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  CANCELLED: "Cancelled",
+  ENROLLED: "For verification",
+  RETURNED: "Returned for correction",
+  VERIFIED: "Verified · awaiting activation",
+  ACTIVATING: "Activation pending",
+  ACTIVE: "Active",
+  AGENCY_DECLINED: "Not approved by agency",
+} as const;
+export type RequestStatus = keyof typeof requestStatusLabels;
+
+export const requestViews = {
+  "in-progress": { label: "In progress", statuses: ["REQUESTED", "APPROVED"] },
+  drafts: { label: "Drafts", statuses: ["DRAFT"] },
+  decided: { label: "History", statuses: ["REJECTED", "CANCELLED", "ENROLLED", "RETURNED", "VERIFIED", "ACTIVATING", "ACTIVE", "AGENCY_DECLINED"] },
+} as const satisfies Record<string, { label: string; statuses: readonly RequestStatus[] }>;
+export type RequestView = keyof typeof requestViews;
+
+export const requestStatusTone: Record<RequestStatus, string> = {
+  DRAFT: "text-muted-foreground",
+  REQUESTED: "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
+  APPROVED: "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
+  REJECTED: "border-destructive/30 bg-destructive/10 text-destructive",
+  CANCELLED: "text-muted-foreground",
+  ENROLLED: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+  RETURNED: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+  VERIFIED: "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
+  ACTIVATING: "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200",
+  ACTIVE: "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
+  AGENCY_DECLINED: "border-destructive/30 bg-destructive/10 text-destructive",
+};
+
+export const requestDecisionLabels = {
+  REQUEST_SUBMITTED: "Request submitted",
+  REQUEST_APPROVED: "Request approved",
+  REQUEST_REJECTED: "Request rejected",
+  REQUEST_CANCELLED: "Request cancelled",
+  REQUEST_ENROLLED: "Loan enrolled",
+  ENROLLMENT_RETURNED: "Enrollment returned",
+  ENROLLMENT_RESUBMITTED: "Enrollment resubmitted",
+  ENROLLMENT_VERIFIED: "Enrollment verified",
+  ENROLLMENT_EVIDENCE_UPDATED: "Enrollment evidence updated",
+  ENROLLMENT_TRANSFER_RECORDED: "Import transfer status recorded",
+  PAYROLL_HANDOFF_QUEUED: "Payroll handoff queued",
+  PAYROLL_HANDOFF_CHECKED: "Payroll handoff checked",
+  PAYROLL_HANDOFF_EXPORTED: "Payroll instructions downloaded",
+  PAYROLL_ACKNOWLEDGEMENT_IMPORTED: "Payroll acknowledgement imported",
+  PAYROLL_HANDOFF_UPDATED: "Payroll handoff updated",
+  PAYROLL_HANDOFF_ACCEPTED: "Payroll handoff accepted",
+  AGENCY_BALANCE_RECORDED: "Agency balance recorded",
+  LOAN_TERMS_CHANGED: "Loan terms changed",
+  LOAN_REFUND_RECORDED: "Agency refund recorded",
+  LOAN_CHANGE_PAYROLL_UPDATED: "Payroll instruction updated",
+  LOAN_TERMS_CHANGE_REVERSED: "Loan change reversed",
+  REQUEST_AGENCY_DECLINED: "Agency did not approve",
+} as const;
+export type RequestDecision = {
+  id: number;
+  action: keyof typeof requestDecisionLabels;
+  actorName: string;
+  occurredAt: string;
+  fromStatus: RequestStatus | null;
+  toStatus: RequestStatus;
+  reason: string | null;
+  remarks: string | null;
+};
+export type EmployeeChoice = { id: number; name: string; department: string | null };
+export type EmployeeSummary = EmployeeChoice & {
+  position: string | null;
+  status: string | null;
+  basicPay: string | null;
+  hiredOn: string | null;
+  separationOn: string | null;
+  sssNumber: string | null;
+  pagIbigNumber: string | null;
+  phone: string | null;
+  email: string | null;
+};
+export type AgencyChoice = {
+  id: number;
+  shortCode: string;
+  name: string;
+  agencyType: "GOVERNMENT" | "BANK" | "OTHER";
+  programs: string[];
+  payoutOptions: string[];
+  referenceExample?: string | null;
+};
+export type PayrollLoan = {
+  id: number;
+  agencyCode: string;
+  program: string | null;
+  reference: string | null;
+  amortization: string;
+  paid: number;
+  installments: number;
+};
+export type Capacity = {
+  basicPay: string | null;
+  estimatedAmortization: string | null;
+  agencyEstimate: boolean;
+  existingLoans: PayrollLoan[];
+  existingTotal: string | null;
+  remainingPay: string | null;
+  deductionPercent: string | null;
+  aboveGuide: boolean | null;
+};
+export type RequestCheck = { label: string; result: "pass" | "review"; detail: string };
+export type RequestAssessment = {
+  employee: EmployeeSummary | null;
+  agency: AgencyChoice | null;
+  coMaker: EmployeeChoice | null;
+  loans: PayrollLoan[];
+  renewalUnavailable: boolean;
+  fieldErrors: FieldErrors;
+  capacity: Capacity | null;
+  checks: RequestCheck[];
+};
+export type RequestDocument = { id: number; kind: DocumentKind; name: string; size: number };
+export type RequestListItem = {
+  id: number;
+  reference: string;
+  status: RequestStatus;
+  revision: number;
+  employeeName: string | null;
+  agencyName: string | null;
+  program: string;
+  amount: string;
+  missing: FieldErrors;
+  updatedAt: string;
+  requestedAt: string | null;
+};
+export type LoanRequest = RequestListItem & {
+  form: RequestForm;
+  documents: RequestDocument[];
+  filedAssessment: Pick<RequestAssessment, "capacity" | "checks"> | null;
+  decisionHistory: RequestDecision[];
+};
+export type Page<T> = { items: T[]; hasMore: boolean };
+export type RequestSummary = Record<RequestStatus, number>;
+export type RequestPage = Page<RequestListItem> & { summary: RequestSummary; total: number; pageSize: number };
+
+export const requestSorts = {
+  reference: "Request",
+  employee: "Employee",
+  agency: "Agency",
+  program: "Program",
+  amount: "Amount",
+  filed: "Filed",
+  updated: "Last updated",
+  status: "Status",
+} as const;
+export type RequestSort = keyof typeof requestSorts;
+export const applicationPageSizes = [10, 25, 50] as const;
+export type ApplicationPageSize = typeof applicationPageSizes[number];

@@ -15,9 +15,9 @@ export function SchedulesModule() {
     <div className="space-y-4">
       <div>
         <h1 className="text-lg font-semibold">Loan Schedules</h1>
-        <p className="text-xs text-muted-foreground">
-          Every installment of every borrowing, what has been paid on it, and how much principal falls due inside the
-          year.
+        <p className="text-sm text-muted-foreground">
+          Pick a borrowing to see its installments, what has been paid on each one, and how much principal falls due
+          inside the year.
         </p>
       </div>
 

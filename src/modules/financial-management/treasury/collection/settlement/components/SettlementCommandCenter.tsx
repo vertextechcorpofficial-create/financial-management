@@ -51,7 +51,9 @@ import {
     getInvoiceAppliedForSettlement,
     getInvoiceRequiredBalance,
     getSourceAllocationCapacity,
+    parseSettlementAmount,
     roundCurrency,
+    SETTLEMENT_STEP,
     SETTLEMENT_BALANCE_TOLERANCE,
 } from "../utils/settlement-balance";
 
@@ -104,6 +106,7 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
     const [editAccountOpen, setEditAccountOpen] = useState(false);
 
     const [adjOpen, setAdjOpen] = useState(false);
+    const [pendingOverage, setPendingOverage] = useState<{ invoiceId: number; sourceId: string; gross: number } | null>(null);
     const [adjCoaId, setAdjCoaId] = useState<number | "">("");
     const [adjCoaOpen, setAdjCoaOpen] = useState(false);
     const [adjFindingId, setAdjFindingId] = useState<number | "">("");
@@ -260,7 +263,8 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
             const used = tempAllocations
                 .filter(a => a.sourceTempId === sourceId)
                 .reduce((s, a) => s + a.amountApplied, 0);
-            return getSourceAllocationCapacity(baseAmt, used);
+            const overage = wallet.filter(item => item.overageSourceId === sourceId).reduce((sum, item) => sum + item.originalAmount, 0);
+            return getSourceAllocationCapacity(baseAmt, used + overage);
         };
 
         const allocateSim = (invoice: UnpaidInvoice, source: WalletItem, amount: number) => {
@@ -272,7 +276,8 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
                 .reduce((sum, allocation) => sum + allocation.amountApplied, 0);
             const finalAmount = capSettlementAllocation(
                 amount,
-                getSourceAllocationCapacity(source.originalAmount, sourceUsedElsewhere),
+                getSourceAllocationCapacity(source.originalAmount, sourceUsedElsewhere + wallet.filter(
+                    item => item.overageSourceId === source.id).reduce((sum, item) => sum + item.originalAmount, 0)),
                 getInvoiceAllocationCapacity(getInvoiceRequiredBalance(invoice), invoiceUsedElsewhere)
             );
             if (finalAmount <= SETTLEMENT_BALANCE_TOLERANCE) return;
@@ -309,11 +314,11 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
         // 1. EXACT MATCHES FIRST
         for (const inv of cartInvoices) {
             const invBal = getRemainingInvoiceBal(inv.id, getInvoiceRequiredBalance(inv));
-            if (invBal <= 0.01) continue;
+            if (invBal <= 0) continue;
 
             const exactSource = combinedSources.find(src => {
                 const srcAmt = getRemainingWalletAmt(src.id, src.originalAmount);
-                return Math.abs(srcAmt - invBal) <= 0.01 && src.type !== 'EWT';
+                return roundCurrency(srcAmt - invBal) === 0 && src.type !== 'EWT';
             });
 
             if (exactSource) {
@@ -325,11 +330,11 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
         // 2. REFERENCE/NAME MATCHING
         for (const inv of cartInvoices) {
             const invBal = getRemainingInvoiceBal(inv.id, getInvoiceRequiredBalance(inv));
-            if (invBal <= 0.01) continue;
+            if (invBal <= 0) continue;
 
             const matchingSource = combinedSources.find(src => {
                 const srcAmt = getRemainingWalletAmt(src.id, src.originalAmount);
-                if (srcAmt <= 0.01) return false;
+                if (srcAmt <= 0) return false;
                 return src.label.toLowerCase().includes(inv.invoiceNo.toLowerCase());
             });
 
@@ -346,17 +351,17 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
             if (src.type === 'EWT' || src.type === 'ADJUSTMENT') continue;
 
             let srcAmt = getRemainingWalletAmt(src.id, src.originalAmount);
-            if (srcAmt <= 0.01) continue;
+            if (srcAmt <= 0) continue;
 
             for (const inv of sortedInvoices) {
                 const invBal = getRemainingInvoiceBal(inv.id, getInvoiceRequiredBalance(inv));
-                if (invBal <= 0.01) continue;
+                if (invBal <= 0) continue;
 
                 const allocationAmt = Math.min(invBal, srcAmt);
                 allocateSim(inv, src, allocationAmt);
                 srcAmt -= allocationAmt;
 
-                if (srcAmt <= 0.01) break;
+                if (srcAmt <= 0) break;
             }
         }
 
@@ -377,7 +382,7 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
         return source?.balanceTypeId === 1 ? sum - a.amountApplied : sum + a.amountApplied;
     }, 0), [allocations, wallet]);
 
-    const remainingToAllocate = Math.round(((pouchTotal + ewtTotal + varianceTotal) - totalAllocated) * 100) / 100;
+    const remainingToAllocate = roundCurrency(pouchTotal + ewtTotal + varianceTotal - totalAllocated);
     const cartBalanceTotals = getCartBalanceTotals(cartInvoices, allocations);
     const cartTotalBalance = cartBalanceTotals.required;
     const cartTotalAppliedSession = cartBalanceTotals.applied;
@@ -386,19 +391,19 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
     const isCartBalanced = !underAllocatedInvoice
         && !overAllocatedInvoice
         && Math.abs(cartBalanceTotals.difference) <= SETTLEMENT_BALANCE_TOLERANCE;
-    const isPouchBalanced = Math.abs(remainingToAllocate) <= 0.01;
+    const isPouchBalanced = Math.abs(remainingToAllocate) <= 0;
     const isCommitReady = isPouchBalanced && isCartBalanced;
-    const canRecordOverage = cartInvoices.length > 0 && isCartBalanced && remainingToAllocate > 0.01;
+    const canRecordOverage = cartInvoices.length > 0 && isCartBalanced && remainingToAllocate > 0;
     const cartBalanceMessage = underAllocatedInvoice
         ? `Invoice ${underAllocatedInvoice.invoiceNo} still has ₱${(
             getInvoiceRequiredBalance(underAllocatedInvoice)
             - getInvoiceAppliedForSettlement(allocations, underAllocatedInvoice.id)
-        ).toLocaleString(undefined, { minimumFractionDigits: 2 })} unallocated. Apply the balance or remove it from the cart.`
+        ).toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} unallocated. Apply the balance or remove it from the cart.`
         : overAllocatedInvoice
             ? `The allocation for ${overAllocatedInvoice.invoiceNo} exceeds its remaining balance.`
-            : `Settlement cart is not balanced. ₱${Math.abs(cartBalanceTotals.difference).toLocaleString(undefined, { minimumFractionDigits: 2 })} remains unallocated.`;
+            : `Settlement cart is not balanced. ₱${Math.abs(cartBalanceTotals.difference).toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} remains unallocated.`;
     const pouchBalanceMessage = canRecordOverage
-        ? `₱${remainingToAllocate.toLocaleString(undefined, { minimumFractionDigits: 2 })} overage remains. Record it as an Overage (Dr) adjustment before committing.`
+        ? `₱${remainingToAllocate.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} overage remains. Record it as an Overage (Dr) adjustment before committing.`
         : "Cannot commit: the pouch allocation is not balanced.";
 
     const handleMasterSave = async () => {
@@ -434,37 +439,59 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
     };
 
     const handleCreateAdjustment = async () => {
-        const parsedAmount = Math.abs(parseFloat(adjAmount));
+        const parsedAmount = parseSettlementAmount(adjAmount);
         const validFindingId = Number(adjFindingId);
-        if (!validFindingId || validFindingId <= 0 || isNaN(parsedAmount) || parsedAmount === 0) return toast.error("Please select a valid Ledger Account.");
+        if (!validFindingId || validFindingId <= 0 || parsedAmount === null || parsedAmount <= 0) return toast.error("Please select a valid Ledger Account.");
+        if (adjBalanceType === 1 && !pendingOverage) return toast.error("Use the invoice’s cash or check line to record an overage.");
         setIsCreatingAdj(true);
-        await createAdjustment(validFindingId, parsedAmount, adjBalanceType, adjRemarks, adjInvoiceId);
+        if (pendingOverage) {
+            const { invoiceId, sourceId, gross } = pendingOverage;
+            if (!handleAllocate(invoiceId, sourceId, gross, { findingId: validFindingId, expectedExcess: parsedAmount })) {
+                setIsCreatingAdj(false);
+                return;
+            }
+            setPendingOverage(null);
+        } else {
+            await createAdjustment(validFindingId, parsedAmount, adjBalanceType, adjRemarks, adjInvoiceId);
+        }
         setIsCreatingAdj(false);
         setAdjOpen(false);
         setAdjCoaId(""); setAdjFindingId(""); setAdjAmount(""); setAdjRemarks(""); setAdjBalanceType(2); setAdjInvoiceId(null);
     };
 
     const handleCreateGlobalEwt = () => {
-        const amt = parseFloat(globalEwtAmount);
-        if (isNaN(amt) || amt <= 0 || !globalEwtRef) return toast.error("Invalid amount or reference.");
+        const amt = parseSettlementAmount(globalEwtAmount);
+        if (amt === null || amt <= 0 || !globalEwtRef) return toast.error("Invalid amount or reference.");
         createEwt(amt, globalEwtRef, null);
         setEwtOpen(false); setGlobalEwtAmount(""); setGlobalEwtRef("");
     };
 
+    const openOverage = (invoiceId: number, sourceId: string, gross: number, excess: number) => {
+        setPendingOverage({ invoiceId, sourceId, gross });
+        setAdjInvoiceId(invoiceId); setAdjBalanceType(1); setAdjAmount(excess.toFixed(3));
+        setAdjCoaId(""); setAdjFindingId(""); setAdjRemarks("Overage"); setAdjOpen(true);
+    };
+
     const handleAutoBalance = () => {
+        setPendingOverage(null);
+        if (remainingToAllocate > 0) {
+            if (cartInvoices.length === 1) setActiveInvoiceId(cartInvoices[0].id);
+            toast.info("Select the invoice and enter the full amount on its cash or check line to record the overage.");
+            return;
+        }
         const requiredAdjustment = -remainingToAllocate;
-        setAdjAmount(Math.abs(requiredAdjustment).toFixed(2));
-        setAdjRemarks(requiredAdjustment > 0 ? "Auto-balance: Shortage / Variance" : "Auto-balance: Overage");
-        setAdjBalanceType(requiredAdjustment > 0 ? 2 : 1);
+        setAdjAmount(requiredAdjustment.toFixed(3));
+        setAdjRemarks("Auto-balance: Shortage / Variance");
+        setAdjBalanceType(2);
         setAdjCoaId(""); setAdjFindingId(""); setAdjInvoiceId(null); setAdjOpen(true);
     };
 
     const handleInvoiceDiscrepancy = (inv: UnpaidInvoice) => {
         const appliedSession = getInvoiceApplied(inv.id);
         const remaining = getInvoiceRequiredBalance(inv);
-        const discrepancy = remaining - appliedSession;
-        if (discrepancy <= 0.01) return toast.error(`Cannot accept a variance adjustment. Variance: ₱${discrepancy.toFixed(2)}`);
-        setAdjAmount(Math.abs(discrepancy).toFixed(2));
+        const discrepancy = roundCurrency(remaining - appliedSession);
+        if (discrepancy <= 0) return toast.error(`Cannot accept a variance adjustment. Variance: ₱${discrepancy.toFixed(3)}`);
+        setAdjAmount(Math.abs(discrepancy).toFixed(3));
         setAdjBalanceType(2);
         setAdjRemarks(`Variance for ${inv.invoiceNo}`);
         setAdjCoaId(""); setAdjFindingId(""); setAdjInvoiceId(inv.id); setAdjOpen(true);
@@ -531,40 +558,40 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
                 <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 lg:gap-3 bg-muted/50 p-1.5 px-2.5 rounded-lg border border-border w-full lg:w-auto overflow-x-auto scrollbar-none">
                     <div className="flex flex-col border-r pr-2 lg:pr-3 border-border/50 shrink-0">
                         <span className="text-[8px] font-black uppercase text-muted-foreground tracking-tighter leading-none mb-0.5">Physical Pouch</span>
-                        <span className="text-sm font-black font-mono text-foreground truncate leading-none">₱{pouchTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                        <span className="text-sm font-black font-mono text-foreground truncate leading-none">₱{pouchTotal.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</span>
                     </div>
 
                     {ewtTotal > 0 && (
                         <div className="flex flex-col border-r pr-2 lg:pr-3 border-border/50 shrink-0 animate-in fade-in slide-in-from-left-2">
                             <span className="text-[8px] font-black uppercase text-teal-600 tracking-tighter leading-none mb-0.5">EWT Holdings</span>
-                            <span className="text-sm font-black font-mono text-teal-600 truncate leading-none">+₱{ewtTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                            <span className="text-sm font-black font-mono text-teal-600 truncate leading-none">+₱{ewtTotal.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</span>
                         </div>
                     )}
 
-                    {Math.abs(varianceTotal) > 0.001 && (
+                    {roundCurrency(varianceTotal) !== 0 && (
                         <div className="flex flex-col border-r pr-2 lg:pr-3 border-border/50 shrink-0 animate-in fade-in slide-in-from-left-2">
                             <span className={cn("text-[8px] font-black uppercase tracking-tighter leading-none mb-0.5", varianceTotal > 0 ? "text-purple-600" : "text-red-600")}>
                                 {varianceTotal > 0 ? "Shortage Credit" : "Overage Debit"}
                             </span>
                             <span className={cn("text-sm font-black font-mono truncate leading-none", varianceTotal > 0 ? "text-purple-600" : "text-red-600")}>
-                                {varianceTotal < 0 ? '-' : '+'}₱{Math.abs(varianceTotal).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                {varianceTotal < 0 ? '-' : '+'}₱{Math.abs(varianceTotal).toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}
                             </span>
                         </div>
                     )}
 
                     <div className="flex flex-col border-r pr-2 lg:pr-3 border-border/50 shrink-0">
                         <span className="text-[8px] font-black uppercase text-emerald-600 tracking-tighter leading-none mb-0.5">Allocated</span>
-                        <span className="text-sm font-black font-mono text-emerald-600 truncate leading-none">₱{totalAllocated.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                        <span className="text-sm font-black font-mono text-emerald-600 truncate leading-none">₱{totalAllocated.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</span>
                     </div>
                     <div className="flex flex-col pr-1 shrink-0">
                         <span className="text-[8px] font-black uppercase tracking-tighter text-muted-foreground leading-none mb-0.5">{canRecordOverage ? "Overage to Record" : "Unallocated"}</span>
-                        <span className={`text-sm font-black font-mono truncate leading-none ${Math.abs(remainingToAllocate) < 0.01 ? 'text-muted-foreground' : 'text-orange-500'}`}>₱{remainingToAllocate.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                        <span className={`text-sm font-black font-mono truncate leading-none ${Math.abs(remainingToAllocate) === 0 ? 'text-muted-foreground' : 'text-orange-500'}`}>₱{remainingToAllocate.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</span>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-2 w-full lg:w-auto shrink-0">
-                    {!isPosted && Math.abs(remainingToAllocate) > 0.01 && (
-                        <Button onClick={handleAutoBalance} disabled={isSubmitting || isSuccess || (remainingToAllocate > 0.01 && !canRecordOverage)} variant="outline" size="sm" className="flex-1 lg:flex-none font-black text-[10px] uppercase tracking-widest shadow-sm border-orange-500 text-orange-600 hover:bg-orange-50 h-8">
+                    {!isPosted && Math.abs(remainingToAllocate) > 0 && (
+                        <Button onClick={handleAutoBalance} disabled={isSubmitting || isSuccess || (remainingToAllocate > 0 && !canRecordOverage)} variant="outline" size="sm" className="flex-1 lg:flex-none font-black text-[10px] uppercase tracking-widest shadow-sm border-orange-500 text-orange-600 hover:bg-orange-50 h-8">
                             <Wand2 size={12} className="mr-1.5"/> {canRecordOverage ? "Record Overage" : "Auto-Balance"}
                         </Button>
                     )}
@@ -641,29 +668,30 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
                                             <PopoverContent className="w-[280px] p-4 space-y-3 shadow-xl border-teal-200" align="start">
                                                 <div className="space-y-0.5 mb-2 border-b border-border/50 pb-2"><h4 className="font-black text-xs text-foreground flex items-center gap-1.5"><FileText size={14} className="text-teal-500"/> Pooled EWT</h4><p className="text-[9px] font-bold text-muted-foreground leading-tight">Add a Form 2307 that can be distributed across multiple invoices.</p></div>
                                                 <div className="space-y-2">
-                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Amount (₱)</label><Input type="number" placeholder="0.00" value={globalEwtAmount} onChange={(e) => setGlobalEwtAmount(e.target.value)} className="h-7 text-xs"/></div>
+                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Amount (₱)</label><Input type="number" step={SETTLEMENT_STEP} placeholder="0.000" value={globalEwtAmount} onChange={(e) => setGlobalEwtAmount(e.target.value)} className="h-7 text-xs"/></div>
                                                     <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Reference No.</label><Input placeholder="E.g. 2307-XXX" value={globalEwtRef} onChange={(e) => setGlobalEwtRef(e.target.value)} className="h-7 text-xs"/></div>
                                                     <Button className="w-full mt-1 h-7 text-[9px] font-black uppercase tracking-widest bg-teal-600 hover:bg-teal-700 text-white" onClick={handleCreateGlobalEwt}>Add to Pouch</Button>
                                                 </div>
                                             </PopoverContent>
                                         </Popover>
-                                        <Popover open={adjOpen} onOpenChange={setAdjOpen}>
-                                            <PopoverTrigger asChild><Button onClick={() => { setAdjInvoiceId(null); setAdjAmount(""); setAdjRemarks(""); setAdjBalanceType(2); setAdjCoaId(""); }} size="sm" variant="outline" className="h-5 text-[8px] px-1.5 font-black uppercase tracking-widest text-purple-600 border-purple-200 hover:bg-purple-50 gap-1"><Plus size={8} strokeWidth={3}/> Variance</Button></PopoverTrigger>
+                                        <Popover open={adjOpen} onOpenChange={open => { setAdjOpen(open); if (!open) setPendingOverage(null); }}>
+                                            <PopoverTrigger asChild><Button onClick={() => { setPendingOverage(null); setAdjInvoiceId(null); setAdjAmount(""); setAdjRemarks(""); setAdjBalanceType(2); setAdjCoaId(""); }} size="sm" variant="outline" className="h-5 text-[8px] px-1.5 font-black uppercase tracking-widest text-purple-600 border-purple-200 hover:bg-purple-50 gap-1"><Plus size={8} strokeWidth={3}/> Variance</Button></PopoverTrigger>
                                             <PopoverContent className="w-[280px] p-4 space-y-3 shadow-xl border-purple-200" align="start">
                                                 <div className="space-y-0.5 mb-2 border-b border-border/50 pb-2"><h4 className="font-black text-xs text-foreground flex items-center gap-1.5"><Wallet size={14} className="text-purple-500"/> Record Variance</h4><p className="text-[9px] font-bold text-muted-foreground leading-tight">Select whether this increases assets or decreases them.</p></div>
                                                 <div className="space-y-2">
                                                     <div className="flex flex-col gap-1">
                                                         <label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Type</label>
                                                         <div className="flex gap-1.5">
-                                                            <Button variant={adjBalanceType === 2 ? "default" : "outline"} onClick={() => setAdjBalanceType(2)} className={`h-7 w-1/2 text-[10px] font-bold ${adjBalanceType === 2 ? 'bg-purple-600 text-white' : 'text-muted-foreground'}`}>Shortage (Cr)</Button>
-                                                            <Button variant={adjBalanceType === 1 ? "default" : "outline"} onClick={() => setAdjBalanceType(1)} className={`h-7 w-1/2 text-[10px] font-bold ${adjBalanceType === 1 ? 'bg-red-600 text-white' : 'text-muted-foreground'}`}>Overage (Dr)</Button>
+                                                            <Button disabled={Boolean(pendingOverage)} variant={adjBalanceType === 2 ? "default" : "outline"} onClick={() => setAdjBalanceType(2)} className={`h-7 w-1/2 text-[10px] font-bold ${adjBalanceType === 2 ? 'bg-purple-600 text-white' : 'text-muted-foreground'}`}>Shortage (Cr)</Button>
+                                                            <Button disabled={!pendingOverage} variant={adjBalanceType === 1 ? "default" : "outline"} onClick={() => setAdjBalanceType(1)} className={`h-7 w-1/2 text-[10px] font-bold ${adjBalanceType === 1 ? 'bg-red-600 text-white' : 'text-muted-foreground'}`}>Overage (Dr)</Button>
                                                         </div>
                                                     </div>
-                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Category</label><Popover open={adjCoaOpen} onOpenChange={setAdjCoaOpen}><PopoverTrigger asChild><Button variant="outline" role="combobox" className={cn("w-full h-7 justify-between text-xs font-bold bg-background", !adjCoaId && "text-muted-foreground border-dashed border-primary/50")}><span className="truncate flex items-center gap-1.5"><Layers size={12}/>{adjCoaId ? uniqueCategories.find((c) => c.id === adjCoaId)?.title : "Select..."}</span><ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50"/></Button></PopoverTrigger><PopoverContent className="w-[260px] p-0" align="start"><Command><CommandInput placeholder="Search..." className="text-xs h-7"/><CommandList className="max-h-[200px] overflow-y-auto" onWheelCapture={(e) => e.stopPropagation()}><CommandEmpty>No categories found.</CommandEmpty><CommandGroup>{uniqueCategories.map((coa) => ( <CommandItem key={coa.id} value={coa.title} onSelect={() => { setAdjCoaId(coa.id); setAdjFindingId(""); setAdjCoaOpen(false); }} className="text-[11px] cursor-pointer py-1"><Check className={cn("mr-1.5 h-3 w-3 text-primary", adjCoaId === coa.id ? "opacity-100" : "opacity-0")}/>{coa.title}</CommandItem> ))}</CommandGroup></CommandList></Command></PopoverContent></Popover></div>
-                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Reason</label><Popover open={adjAccountOpen} onOpenChange={setAdjAccountOpen}><PopoverTrigger asChild><Button variant="outline" role="combobox" disabled={!adjCoaId} className={cn("w-full h-7 justify-between text-xs font-bold bg-background", !adjFindingId && "text-muted-foreground border-dashed border-primary/50")}><span className="truncate pl-5">{adjFindingId ? filteredFindings.find((f) => f.id === adjFindingId)?.findingName : "Select reason..."}</span><ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50"/></Button></PopoverTrigger><PopoverContent className="w-[260px] p-0" align="start"><Command><CommandInput placeholder="Search reason..." className="text-xs h-7"/><CommandList className="max-h-[250px] overflow-y-auto" onWheelCapture={(e) => e.stopPropagation()}><CommandEmpty>No findings under this category.</CommandEmpty><CommandGroup>{filteredFindings.map((f) => ( <CommandItem key={f.id} value={f.findingName} onSelect={() => { setAdjFindingId(f.id); setAdjAccountOpen(false); }} className="text-[11px] cursor-pointer py-1"><Check className={cn("mr-1.5 h-3 w-3 text-primary", adjFindingId === f.id ? "opacity-100" : "opacity-0")}/>{f.findingName}</CommandItem> ))}</CommandGroup></CommandList></Command></PopoverContent></Popover></div>
-                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Amount (₱)</label><Input type="number" placeholder="0.00" value={adjAmount} onChange={(e) => setAdjAmount(e.target.value)} className="h-7 text-xs"/></div>
-                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Remarks</label><Input placeholder="Reason for variance" value={adjRemarks} onChange={(e) => setAdjRemarks(e.target.value)} className="h-7 text-xs"/></div>
-                                                    <Button className="w-full mt-1 h-7 text-[9px] font-black uppercase tracking-widest bg-purple-600 hover:bg-purple-700 text-white" disabled={!adjFindingId || adjAmount === "" || parseFloat(adjAmount) === 0 || isNaN(parseFloat(adjAmount)) || isCreatingAdj} onClick={handleCreateAdjustment}>{isCreatingAdj ? <Loader2 size={12} className="animate-spin"/> : "Inject into Pouch"}</Button>
+                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Category</label><Popover open={adjCoaOpen} onOpenChange={setAdjCoaOpen}><PopoverTrigger asChild><Button variant="outline" role="combobox" aria-label="Variance category" className={cn("w-full h-7 justify-between text-xs font-bold bg-background", !adjCoaId && "text-muted-foreground border-dashed border-primary/50")}><span className="truncate flex items-center gap-1.5"><Layers size={12}/>{adjCoaId ? uniqueCategories.find((c) => c.id === adjCoaId)?.title : "Select..."}</span><ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50"/></Button></PopoverTrigger><PopoverContent className="w-[260px] p-0" align="start"><Command><CommandInput placeholder="Search..." className="text-xs h-7"/><CommandList className="max-h-[200px] overflow-y-auto" onWheelCapture={(e) => e.stopPropagation()}><CommandEmpty>No categories found.</CommandEmpty><CommandGroup>{uniqueCategories.map((coa) => ( <CommandItem key={coa.id} value={coa.title} onSelect={() => { setAdjCoaId(coa.id); setAdjFindingId(""); setAdjCoaOpen(false); }} className="text-[11px] cursor-pointer py-1"><Check className={cn("mr-1.5 h-3 w-3 text-primary", adjCoaId === coa.id ? "opacity-100" : "opacity-0")}/>{coa.title}</CommandItem> ))}</CommandGroup></CommandList></Command></PopoverContent></Popover></div>
+                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Reason</label><Popover open={adjAccountOpen} onOpenChange={setAdjAccountOpen}><PopoverTrigger asChild><Button variant="outline" role="combobox" aria-label="Variance reason" disabled={!adjCoaId} className={cn("w-full h-7 justify-between text-xs font-bold bg-background", !adjFindingId && "text-muted-foreground border-dashed border-primary/50")}><span className="truncate pl-5">{adjFindingId ? filteredFindings.find((f) => f.id === adjFindingId)?.findingName : "Select reason..."}</span><ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50"/></Button></PopoverTrigger><PopoverContent className="w-[260px] p-0" align="start"><Command><CommandInput placeholder="Search reason..." className="text-xs h-7"/><CommandList className="max-h-[250px] overflow-y-auto" onWheelCapture={(e) => e.stopPropagation()}><CommandEmpty>No findings under this category.</CommandEmpty><CommandGroup>{filteredFindings.map((f) => ( <CommandItem key={f.id} value={f.findingName} onSelect={() => { setAdjFindingId(f.id); setAdjAccountOpen(false); }} className="text-[11px] cursor-pointer py-1"><Check className={cn("mr-1.5 h-3 w-3 text-primary", adjFindingId === f.id ? "opacity-100" : "opacity-0")}/>{f.findingName}</CommandItem> ))}</CommandGroup></CommandList></Command></PopoverContent></Popover></div>
+                                                    <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Amount (₱)</label><Input type="number" step={SETTLEMENT_STEP} placeholder="0.000" readOnly={Boolean(pendingOverage)} value={adjAmount} onChange={(e) => setAdjAmount(e.target.value)} className="h-7 text-xs"/></div>
+                                                    {pendingOverage ? <p className="text-xs">Invoice {cartInvoices.find(invoice => invoice.id === pendingOverage.invoiceId)?.invoiceNo}</p> :
+                                                        <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Remarks</label><Input placeholder="Reason for variance" value={adjRemarks} onChange={(e) => setAdjRemarks(e.target.value)} className="h-7 text-xs"/></div>}
+                                                    <Button className="w-full mt-1 h-7 text-[9px] font-black uppercase tracking-widest bg-purple-600 hover:bg-purple-700 text-white" disabled={!adjFindingId || (parseSettlementAmount(adjAmount) ?? 0) <= 0 || isCreatingAdj} onClick={handleCreateAdjustment}>{isCreatingAdj ? <Loader2 size={12} className="animate-spin"/> : pendingOverage ? "Confirm overage" : "Inject into Pouch"}</Button>
                                                 </div>
                                             </PopoverContent>
                                         </Popover>
@@ -765,8 +793,8 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
                                             </div>
                                             {c.customerName && <div className="text-[8px] font-bold text-muted-foreground truncate mb-1 leading-tight" title={c.customerName}>{c.customerName}</div>}
                                             <div className={`flex justify-between gap-2 text-[10px] ${c.customerName ? 'mt-1 border-t border-border/50 pt-1' : 'mt-1.5'}`}>
-                                                <div className="min-w-0 flex-1"><p className="text-[7px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-0.5">Original</p><p className="font-mono truncate leading-none">₱{c.originalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}</p></div>
-                                                <div className="text-right min-w-0 flex-1"><p className="text-[7px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-0.5">Remaining</p><p className={`font-mono font-black truncate leading-none ${isExhausted ? 'text-muted-foreground' : 'text-emerald-600'}`}>₱{remaining.toLocaleString(undefined, {minimumFractionDigits: 2})}</p></div>
+                                                <div className="min-w-0 flex-1"><p className="text-[7px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-0.5">Original</p><p className="font-mono truncate leading-none">₱{c.originalAmount.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</p></div>
+                                                <div className="text-right min-w-0 flex-1"><p className="text-[7px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-0.5">Remaining</p><p className={`font-mono font-black truncate leading-none ${isExhausted ? 'text-muted-foreground' : 'text-emerald-600'}`}>₱{remaining.toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3})}</p></div>
                                             </div>
                                         </div>
                                     );
@@ -858,6 +886,8 @@ export default function SettlementCommandCenter({ id, onClose, onChanged, autoAd
                 {/* RIGHT PANEL: NEW ALLOCATION SIDE PANEL (col-span-3) */}
                 <div className="col-span-1 lg:col-span-3 bg-card rounded-xl border border-border shadow-sm overflow-hidden lg:h-full">
                     <AllocationSidePanel
+                        isPosted={isPosted}
+                        onOverage={openOverage}
                         activeInvoiceId={activeInvoiceId}
                         cartInvoices={cartInvoices}
                         wallet={wallet}
