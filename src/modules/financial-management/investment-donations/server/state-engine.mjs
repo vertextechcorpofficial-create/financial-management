@@ -601,7 +601,9 @@ export function applyLedgerCommand(state, command) {
   if (!isObject(command) || typeof command.operation !== "string" || !isObject(command.input ?? {})) fail("Invalid ledger command.");
   const actor = command.actor; if (!Number.isSafeInteger(actor) || actor < 1) fail("An authenticated actor is required.");
   const commandId = command.commandId; if (!key(commandId)) fail("A command identifier is required.");
-  const input = { ...clone(command.input), commandId };
+  const { actor: preparedActor, ...domainInput } = clone(command.input ?? {});
+  if (preparedActor !== undefined && preparedActor !== actor) fail("Prepared actor does not match the authenticated actor.");
+  const input = { ...domainInput, commandId };
   const prior = [...state.auditEvents, ...state.masterEvents, ...state.periodEvents, ...state.reconciliationEvents, ...state.annualReviewEvents].find(row => row.commandId === commandId);
   if (prior) { const result = { ok: true, idempotent: true, id: prior.entry_id ?? prior.entity_id }; return { nextState: state, snapshot: snapshotOf(state, result), result }; }
   let transitioned = state, result;

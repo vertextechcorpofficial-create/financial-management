@@ -99,8 +99,10 @@ export type LedgerCommandDatabase = { transaction: <T>(callback: (trx: Knex.Tran
 
 /** Validate and authorize on every request, before looking up an idempotent response. */
 export function prepareLedgerCommand(operation: string, input: unknown, access: LedgerAccess): PreparedLedgerCommand {
-  const raw = input && typeof input === "object" && !Array.isArray(input)
-    ? Object.fromEntries(Object.entries(input).filter(([key]) => key !== "actor")) : input;
+  if (input && typeof input === "object" && ["actor", "commandId", "expectedRevision", "paymentEvidence", "evidenceFile"].some(key => Object.hasOwn(input, key))) {
+    throw new CommandValidationError("Ledger identity and verification metadata are resolved by the server.");
+  }
+  const raw = input;
   let payload: Record<string, unknown>;
   let requiredWorkspace: WorkspaceKey;
   let requiredRole: "prepare" | "approve" = "prepare";
