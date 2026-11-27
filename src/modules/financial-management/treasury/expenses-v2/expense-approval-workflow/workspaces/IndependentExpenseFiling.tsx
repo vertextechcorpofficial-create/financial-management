@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowLeft, Building2, FilePlus2, History, Inbox, LockKeyhole, Paperclip, RefreshCw, Save, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ExpenseStatus, expenseAmount } from "./ExpenseStatus";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { IndependentExpenseEvent, IndependentExpenseForm, WorkflowAttachment } from "../independentTypes";
@@ -29,6 +31,8 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
   const [loading, setLoading] = useState(true);
   const [version, setVersion] = useState(0);
   const [history, setHistory] = useState<{ requestId: string; events: IndependentExpenseEvent[] } | null>(null);
+  const [attachmentPreviews, setAttachmentPreviews] = useState<Record<string, string>>({});
+  const previewUrls = useRef(new Map<string, string>());
   const pending = useRef<{ signature: string; requestKey: string } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -36,7 +40,29 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
       .then(data => { if (!controller.signal.aborted) { setContext(data); setForm(current => ({ ...current, requestedCompany: data.organization.companyName, department: data.organization.departmentName })); } }).catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [version]);
+  useEffect(() => () => { previewUrls.current.forEach(url => URL.revokeObjectURL(url)); }, []);
   const refresh = () => { setLoading(true); setError(""); setVersion(v => v + 1); };
+  const clearAttachmentPreview = (id: string) => {
+    const url = previewUrls.current.get(id);
+    if (url) URL.revokeObjectURL(url);
+    previewUrls.current.delete(id);
+    setAttachmentPreviews(current => { const next = { ...current }; delete next[id]; return next; });
+  };
+  const clearAttachmentPreviews = () => {
+    previewUrls.current.forEach(url => URL.revokeObjectURL(url));
+    previewUrls.current.clear();
+    setAttachmentPreviews({});
+  };
+  const setAttachmentPreview = (id: string, file: File) => {
+    clearAttachmentPreview(id);
+    const url = URL.createObjectURL(file);
+    previewUrls.current.set(id, url);
+    setAttachmentPreviews(current => ({ ...current, [id]: url }));
+  };
+  const persistedAttachmentUrl = (file: WorkflowAttachment, index: number) => editing
+    ? `${API}/files?requestId=${encodeURIComponent(editing.case_id)}&index=${index}&revision=${editing.revision}`
+    : attachmentPreviews[file.id] || null;
+  const previewUrl = (file: WorkflowAttachment, index: number) => attachmentPreviews[file.id] || persistedAttachmentUrl(file, index);
   const update = (key: "expenseDate" | "amount" | "category" | "purpose" | "payee" | "requestedCompany" | "department", value: string) => setForm(current => ({ ...current, [key]: value, ...(key === "category" ? { specialDetails: { purchase: PURCHASE_CATEGORIES.includes(value) ? "Yes" : "" } } : {}) }));
   const save = async (action: "SAVE_DRAFT" | "SUBMIT") => {
     const problems = specialRuleProblems(form.category, form.specialDetails || {}, form.attachments.map(file => file.id), action === "SUBMIT");
@@ -54,7 +80,7 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
       const request = result.data.request as IndependentExpenseEvent;
       setNotice(action === "SUBMIT" ? `${request.snapshot.reference} submitted to the assigned approver.` : `${request.snapshot.reference} draft saved.`);
       setEditing(action === "SAVE_DRAFT" ? request : null);
-      if (action === "SUBMIT") setForm(blank());
+      if (action === "SUBMIT") { clearAttachmentPreviews(); setForm(blank()); }
       setHistory(null); refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Save not confirmed. Retry the same intent."); }
     finally { setBusy(false); }
@@ -71,6 +97,7 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
         const result = await response.json();
         if (!response.ok) throw Error(result.error || "Upload failed.");
         const attachment = result.data as WorkflowAttachment;
+        setAttachmentPreview(attachment.id, file);
         setForm(current => ({ ...current, attachments: [...current.attachments, attachment] }));
       }
     } catch (e) { setError(e instanceof Error ? e.message : "Upload failed; successfully uploaded files remain listed."); }
@@ -88,11 +115,13 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
       const result = await response.json();
       if (!response.ok) throw Error(result.error || "Upload failed.");
       const attachment = result.data as WorkflowAttachment;
+      const previousId = form.specialDetails?.[key];
+      if (previousId) clearAttachmentPreview(previousId);
       setForm(current => {
-        const previousId = current.specialDetails?.[key];
         const attachments = current.attachments.filter(item => item.id !== previousId);
         return { ...current, attachments: [...attachments, attachment], specialDetails: { ...current.specialDetails, [key]: attachment.id } };
       });
+      setAttachmentPreview(attachment.id, file);
     } catch (e) { setError(e instanceof Error ? e.message : "Upload failed."); }
     finally { setUploading(false); }
   };
@@ -106,6 +135,7 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
   };
   const edit = (request: IndependentExpenseEvent) => {
     const s = request.snapshot;
+    clearAttachmentPreviews();
     setEditing(request); setForm({ expenseDate: s.expenseDate, amount: s.amount, category: s.category, purpose: s.purpose, payee: s.payee, requestedCompany: s.requestedCompany, department: s.department, attachments: s.attachments, specialDetails: s.specialDetails || {}, executionMode: s.executionMode }); setNotice(""); setError("");
   };
   const disabled = busy || uploading || loading || !context;
@@ -128,8 +158,8 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
       </fieldset>
       <label className="space-y-1 text-sm sm:col-span-2">Business purpose<Textarea required minLength={10} maxLength={2000} rows={4} value={form.purpose} onChange={e => update("purpose", e.target.value)} disabled={busy} /></label>
       <SpecialExpenseFields category={form.category} value={form.specialDetails || {}} attachments={form.attachments} disabled={busy || uploading} onChange={specialDetails => setForm(current => ({ ...current, specialDetails }))} onUpload={uploadRequirement} />
-      <section className="space-y-3 rounded-lg border p-4 sm:col-span-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Paperclip className="size-4" />Supporting documents</h2><p className="text-xs text-muted-foreground">PDF, JPEG, PNG or WebP · up to 10 files · 10 MB each. Upload category-specific documents above; add any other supporting documents here.</p><Input aria-label="Upload supporting documents" type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" disabled={disabled} onChange={e => { const files = e.target.files; void upload(files); e.target.value = ""; }} />{uploading && <p role="status" className="text-xs">Uploading…</p>}{form.attachments.map(file => <div key={file.id} className="flex items-center justify-between gap-3 text-sm"><span className="truncate">{file.name} · {(file.size / 1024).toFixed(0)} KB{Object.entries(form.specialDetails || {}).some(([, id]) => id === file.id) && <span className="ml-2 text-muted-foreground">({Object.entries(form.specialDetails || {}).filter(([, id]) => id === file.id).map(([key]) => key.replace(/([A-Z])/g, " $1").toLowerCase()).join(", ")})</span>}</span><Button variant="ghost" size="sm" type="button" disabled={busy || uploading} onClick={() => setForm(current => ({ ...current, attachments: current.attachments.filter(f => f.id !== file.id), specialDetails: Object.fromEntries(Object.entries(current.specialDetails || {}).filter(([, id]) => id !== file.id)) }))}>Remove</Button></div>)}<p className="text-xs text-muted-foreground">Removing a reference does not delete a storage file. Uploaded-but-unsaved documents may require administrator cleanup.</p></section>
-      <div className="flex flex-wrap gap-2 border-t pt-4 sm:col-span-2"><Button type="button" variant="outline" disabled={disabled} onClick={() => void save("SAVE_DRAFT")}><Save aria-hidden="true" />Save draft</Button><Button disabled={disabled || !form.attachments.length}><Send aria-hidden="true" />Submit to approver</Button>{editing && <Button type="button" variant="ghost" disabled={busy || uploading} onClick={() => { setEditing(null); setForm(blank()); pending.current = null; }}>Start a new request</Button>}</div>
+      <section className="space-y-3 rounded-lg border p-4 sm:col-span-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Paperclip className="size-4" />Supporting documents</h2><p className="text-xs text-muted-foreground">PDF, JPEG, PNG or WebP · up to 10 files · 10 MB each. Upload category-specific documents above; add any other supporting documents here.</p><Input aria-label="Upload supporting documents" type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" disabled={disabled} onChange={e => { const files = e.target.files; void upload(files); e.target.value = ""; }} />{uploading && <p role="status" className="text-xs">Uploading…</p>}<div className="grid gap-3 sm:grid-cols-2">{form.attachments.map((file, index) => { const url = previewUrl(file, index); const image = file.type.startsWith("image/"); return <article key={file.id} className="overflow-hidden rounded-lg border bg-muted/20"><div className="flex min-h-40 items-center justify-center bg-background p-2">{url ? image ? <div className="relative h-40 w-full"><Image src={url} alt={`Preview of ${file.name}`} fill unoptimized className="object-contain" /></div> : <iframe title={`Preview of ${file.name}`} src={url} className="h-40 w-full rounded border" /> : <p className="px-4 text-center text-xs text-muted-foreground">Preview will be available after the upload is confirmed.</p>}</div><div className="flex items-center justify-between gap-3 border-t p-3 text-sm"><span className="min-w-0 truncate">{file.name} · {(file.size / 1024).toFixed(0)} KB{Object.entries(form.specialDetails || {}).some(([, id]) => id === file.id) && <span className="ml-2 text-muted-foreground">({Object.entries(form.specialDetails || {}).filter(([, id]) => id === file.id).map(([key]) => key.replace(/([A-Z])/g, " $1").toLowerCase()).join(", ")})</span>}</span><Button variant="ghost" size="sm" type="button" disabled={busy || uploading} onClick={() => { clearAttachmentPreview(file.id); setForm(current => ({ ...current, attachments: current.attachments.filter(f => f.id !== file.id), specialDetails: Object.fromEntries(Object.entries(current.specialDetails || {}).filter(([, id]) => id !== file.id)) })); }}>Remove</Button></div></article>; })}</div><p className="text-xs text-muted-foreground">Removing a reference does not delete a storage file. Uploaded-but-unsaved documents may require administrator cleanup.</p></section>
+      <div className="flex flex-wrap gap-2 border-t pt-4 sm:col-span-2"><Button type="button" variant="outline" disabled={disabled} onClick={() => void save("SAVE_DRAFT")}><Save aria-hidden="true" />Save draft</Button><Button disabled={disabled || !form.attachments.length}><Send aria-hidden="true" />Submit to approver</Button>{editing && <Button type="button" variant="ghost" disabled={busy || uploading} onClick={() => { clearAttachmentPreviews(); setEditing(null); setForm(blank()); pending.current = null; }}>Start a new request</Button>}</div>
     </form></CardContent></Card>}
     <section className="space-y-3">
       <div className="flex items-center justify-between"><h2 className="flex items-center gap-2 font-semibold"><Inbox aria-hidden="true" className="size-4 text-primary" />Your expense requests</h2>{showForm && <Link className="text-sm text-primary underline" href={`${ROOT}/my-requests`}>View all requests</Link>}</div>
@@ -150,6 +180,6 @@ export function IndependentExpenseFiling({ showForm = true, embedded = false }: 
       </div>
     </section>
     {context?.items.filter(request => request.snapshot.status === "NEEDS_CORRECTION").map(request => <section key={request.id} className="space-y-2 rounded-lg border p-4"><h2 className="font-semibold">Correction requested · {request.snapshot.reference}</h2><p className="text-sm">{request.reason}</p><Button disabled={busy || uploading} onClick={() => edit(request)}>Correct and resubmit</Button></section>)}
-    {history && <section className="space-y-3 rounded-xl border bg-card p-4"><div className="flex items-center justify-between"><h2 className="flex items-center gap-2 font-semibold"><History aria-hidden="true" className="size-4 text-primary" />Request history</h2><Button variant="ghost" onClick={() => setHistory(null)}>Close</Button></div><ol className="space-y-3 border-s-2 border-primary/20 ps-4">{history.events.map(event => <li key={event.id} className="space-y-3 rounded-lg border p-4 text-sm"><div className="flex flex-wrap items-center gap-2"><ExpenseStatus value={event.action} /><span className="font-medium">{event.actor_name}</span></div><p className="text-xs text-muted-foreground">{new Date(event.created_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} Manila · revision {event.revision}</p><p>{event.reason}</p><p className="whitespace-pre-wrap">{event.snapshot.purpose || "No purpose recorded in this draft."}</p><SpecialExpenseSummary category={event.snapshot.category} value={event.snapshot.specialDetails} attachments={event.snapshot.attachments} /><div className="flex flex-wrap gap-2">{event.snapshot.attachments.map((file, index) => <a key={file.id} className="inline-flex max-w-full items-center gap-2 break-all rounded-md border px-3 py-1.5 text-primary hover:bg-primary/5" href={`${API}/files?requestId=${event.case_id}&index=${index}&revision=${event.revision}`} target="_blank" rel="noopener noreferrer"><Paperclip aria-hidden="true" className="size-4 shrink-0" />{file.name}</a>)}</div></li>)}</ol></section>}
+    {history && <Dialog open onOpenChange={open => { if (!open) setHistory(null); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle className="flex items-center gap-2"><History aria-hidden="true" className="size-5 text-primary" />Request history</DialogTitle><DialogDescription>Review the full append-only timeline without leaving the request list.</DialogDescription></DialogHeader><ol className="space-y-3 border-s-2 border-primary/20 ps-4">{history.events.map(event => <li key={event.id} className="space-y-3 rounded-lg border p-4 text-sm"><div className="flex flex-wrap items-center gap-2"><ExpenseStatus value={event.action} /><span className="font-medium">{event.actor_name}</span></div><p className="text-xs text-muted-foreground">{new Date(event.created_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} Manila · revision {event.revision}</p><p>{event.reason}</p><p className="whitespace-pre-wrap">{event.snapshot.purpose || "No purpose recorded in this draft."}</p><SpecialExpenseSummary category={event.snapshot.category} value={event.snapshot.specialDetails} attachments={event.snapshot.attachments} /><div className="flex flex-wrap gap-2">{event.snapshot.attachments.map((file, index) => <a key={file.id} className="inline-flex max-w-full items-center gap-2 break-all rounded-md border px-3 py-1.5 text-primary hover:bg-primary/5" href={`${API}/files?requestId=${event.case_id}&index=${index}&revision=${event.revision}`} target="_blank" rel="noopener noreferrer"><Paperclip aria-hidden="true" className="size-4 shrink-0" />{file.name}</a>)}</div></li>)}</ol></DialogContent></Dialog>}
   </section>;
 }
