@@ -193,7 +193,7 @@ export function ClearanceDetailDialog({ id, onClose, onChanged }: {
     <ConsoleDialog open wide title={title}
       description={detail ? `Exit clearance · Filed ${formatDate(detail.createdAt)}` : "Review the case, documents, and settlement."}
       onOpenChange={open => { if (!open && !mutation.busy && !cancelling && !evidenceFile) onClose(); }}
-      footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
+      footerClassName="backdrop-blur"
       footer={<>
         <Button variant="outline" disabled={mutation.busy} onClick={onClose}>Close</Button>
         {canEdit && !editing && <>

@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash, randomInt } from "node:crypto";
 import { z } from "zod";
-import { amountToCents } from "../loans/loan-schedule";
+import { amountToCents, centsToAmount } from "../loans/loan-schedule";
 import { accountPurposes, type PolicyState } from "../policies/policy-types";
 import { cooperativeAuditTime } from "./audit";
 import { cooperativeDirectus, CooperativeDirectusError, readDirectusItems, usesCooperativeQaDatabase } from "./directus";
@@ -13,7 +13,7 @@ export type LoanActor = { actorId: number; actorName: string; actorRole: string 
 type State = Record<string, unknown>;
 type Purpose = typeof accountPurposes[number][0];
 type Account = PolicyState["accounts"][number];
-export type LoanPostingPair = { debit: { id: number }; credit: { id: number }; amount: string };
+export type LoanPostingPair = { debit: { id: number }; credit: { id: number }; amount: string; additionalCredit?: { accountId: number; amount: string } };
 
 const glLine = z.object({ journal_id: z.number(), line_no: z.number(), account_id: z.number(),
   debit: z.coerce.string(), credit: z.coerce.string() });
@@ -196,14 +196,18 @@ export async function prepareCooperativeJournal(input: JournalInput & {
 }) {
   const { type, source, date, now, actor, feeReceipt, paymentReceipt, depositReceipt, reversal } = input;
   const officialReceipt = feeReceipt ?? paymentReceipt ?? depositReceipt;
-  if (input.pairs.some(pair => pair.debit.id === pair.credit.id || amountToCents(pair.amount) <= 0n)) {
+  if (input.pairs.some(({ debit, credit, amount, additionalCredit }) => debit.id === credit.id || amountToCents(amount) <= 0n ||
+    additionalCredit && (additionalCredit.accountId === debit.id || additionalCredit.accountId === credit.id ||
+      amountToCents(additionalCredit.amount) <= 0n || amountToCents(additionalCredit.amount) >= amountToCents(amount)))) {
     throw new LoanError(422, "Check the Cooperative posting account mappings and amounts.", "LOAN_ACCOUNT_REQUIRED");
   }
   const amounts = [
     ...(reversal?.lines ?? []).map(row => ({ account_id: row.account_id, debit: row.credit, credit: row.debit })),
-    ...input.pairs.flatMap(({ debit, credit, amount }) => [
+    ...input.pairs.flatMap(({ debit, credit, amount, additionalCredit }) => [
       { account_id: debit.id, debit: amount, credit: "0.00" },
-      { account_id: credit.id, debit: "0.00", credit: amount },
+      { account_id: credit.id, debit: "0.00", credit: additionalCredit
+        ? centsToAmount(amountToCents(amount) - amountToCents(additionalCredit.amount)) : amount },
+      ...(additionalCredit ? [{ account_id: additionalCredit.accountId, debit: "0.00", credit: additionalCredit.amount }] : []),
     ]),
   ];
   const imbalance = amounts.reduce((net, row) => net + amountToCents(row.debit) - amountToCents(row.credit), 0n);

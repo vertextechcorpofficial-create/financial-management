@@ -46,7 +46,7 @@ function ProductEditor({ context, product, close }: { context: PolicyContext; pr
     name: initial?.name ?? "", shortName: initial?.shortName ?? "", prefix: initial?.prefix ?? "",
     kind: initial?.kind ?? "CASH", isOpen: initial?.isOpen ?? true, description: initial?.description ?? "",
     rateMin: initial?.rateMin ?? "", rateDefault: initial?.rateDefault ?? "", rateMax: initial?.rateMax ?? "",
-    methods: initial?.kind === "CASH" ? initial.methods : [] as ("diminishing" | "flat")[],
+    methods: initial?.kind === "CASH" ? initial.methods : [] as ("diminishing" | "flat" | "upfront")[],
     markup: initial?.markup ?? "", items: initial?.kind === "GOODS" ? initial.items : [] as GoodsItem[],
     terms: initial?.termsMonths.join(", ") ?? "", frequencies: initial?.frequencies ?? [],
     modes: initial?.modes ?? [], limitType: initial?.limitType ?? "NONE",
@@ -123,18 +123,18 @@ function ProductEditor({ context, product, close }: { context: PolicyContext; pr
       <h3 className="text-sm font-semibold">Pricing</h3>
       <div className="grid gap-3 sm:grid-cols-2">
         {cash ? <>
-          <PolicyInput label="Minimum rate (% per month)" inputMode="decimal" value={draft.rateMin}
+          <PolicyInput label={draft.methods.includes("upfront") ? "Minimum upfront rate (%)" : "Minimum rate (% per month)"} inputMode="decimal" value={draft.rateMin}
             error={errorFor("rateMin", "rateMin")} onChange={e => update("rateMin", e.target.value)} />
-          <PolicyInput label="Maximum rate (% per month)" inputMode="decimal" value={draft.rateMax}
+          <PolicyInput label={draft.methods.includes("upfront") ? "Maximum upfront rate (%)" : "Maximum rate (% per month)"} inputMode="decimal" value={draft.rateMax}
             error={errorFor("rateMax", "rateMax")} onChange={e => update("rateMax", e.target.value)} />
-          <PolicyInput label="Default rate (% per month)" inputMode="decimal" value={draft.rateDefault}
+          <PolicyInput label={draft.methods.includes("upfront") ? "Default upfront rate (%)" : "Default rate (% per month)"} inputMode="decimal" value={draft.rateDefault}
             error={errorFor("rateDefault", "rateMin", "rateMax", "rateDefault")} onChange={e => update("rateDefault", e.target.value)} />
         </> : <PolicyInput label="Markup on invoice (%)" inputMode="decimal" value={draft.markup}
           error={errorFor("markup", "markup")} onChange={e => update("markup", e.target.value)} />}
         <PolicyInput label="Processing fee (₱)" inputMode="decimal" value={draft.fee}
           error={errorFor("processingFee", "fee")} onChange={e => update("fee", e.target.value)} />
       </div>
-      {cash ? <MultiChoice title="Interest methods" options={{ diminishing: "Diminishing balance", flat: "Flat" }}
+      {cash ? <MultiChoice title="Interest methods" options={{ diminishing: "Diminishing balance", flat: "Flat", upfront: "Upfront interest" }}
         values={draft.methods} set={value => update("methods", value)} error={errorFor("methods", "methods")} /> : <div className="space-y-2">
         {draft.items.map((item, index) => <div className="grid gap-2 sm:grid-cols-[1fr_10rem_auto] sm:items-end" key={item.id ?? `item-${index}`}>
           <PolicyInput label={`Item ${index + 1} name`} value={item.name} onChange={e =>
@@ -217,6 +217,9 @@ function ProductEditor({ context, product, close }: { context: PolicyContext; pr
           {[
             ["Payments", preview.paymentCount], ["Regular payment", `₱${preview.regularPayment}`],
             ["Final payment", `₱${preview.finalPayment}`], ["Total payable", `₱${preview.totalPayable}`],
+            ...(valid.data.kind === "CASH" && valid.data.methods.includes("upfront") ? [
+              ["Interest withheld upfront", `₱${preview.upfrontInterest}`], ["Net payout", `₱${preview.netProceeds}`],
+            ] : []),
           ].map(([label, value]) => <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="font-semibold tabular-nums">{value}</dd></div>)}
         </dl> : <p className="text-sm text-muted-foreground">Enter a positive example principal.</p>}
       </> : <p className="text-sm text-muted-foreground">Complete the product fields to calculate an example.</p>}
@@ -261,7 +264,7 @@ export function LoanProducts({ context }: { context: PolicyContext }) {
             <TableCell><span className="font-medium">{product.name}</span><div className="font-mono text-xs text-muted-foreground">{product.prefix}-YYYY-NNNN</div></TableCell>
             <TableCell>{policyValue("kind", product.kind)}</TableCell>
             <TableCell>{product.kind === "GOODS" ? `${policyValue("markup", product.markup)} markup`
-              : `${policyValue("rateMin", product.rateMin)}–${policyValue("rateMax", product.rateMax)} / mo`}</TableCell>
+              : `${policyValue("rateMin", product.rateMin)}–${policyValue("rateMax", product.rateMax)}${product.methods.includes("upfront") ? " upfront" : " / mo"}`}</TableCell>
             <TableCell>{product.termsMonths.join(", ")} mo</TableCell>
             <TableCell>{product.limitType === "SAVINGS_MULTIPLE" ? `${Number(product.savingsMultiple)}× savings`
               : product.limitType === "FIXED" ? policyValue("fixedCeiling", product.fixedCeiling) : "No limit"}</TableCell>

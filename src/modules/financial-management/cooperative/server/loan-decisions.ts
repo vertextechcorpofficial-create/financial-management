@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { passesLoanChecks, type LoanAssessmentCheck } from "../loans/loan-assessment";
-import { amountToCents, buildLoanSchedule, type LoanInstallment } from "../loans/loan-schedule";
+import { amountToCents, buildLoanSchedule, type LoanInstallment, type LoanMethod } from "../loans/loan-schedule";
 import { money } from "../policies/policy-types";
 import { cooperativeAuditEvent, cooperativeAuditTime } from "./audit";
 import { nestedTransactionEntries } from "./transaction-index";
@@ -29,9 +29,10 @@ const signedTerms = z.object({
   productId: z.number().int().positive(), productCode: z.string().min(1), kind: z.enum(["CASH", "GOODS"]),
   principal: money, ratePercent: rate, term: z.number().int().min(1).max(120),
   frequency: z.enum(["monthly", "cutoff"]), mode: z.enum(["payroll", "otc"]),
-  method: z.enum(["diminishing", "flat", "markup"]), releaseMethod: z.enum(["CASH", "PAYROLL", "VENDOR"]),
+  method: z.enum(["diminishing", "flat", "markup", "upfront"]), releaseMethod: z.enum(["CASH", "PAYROLL", "VENDOR"]),
   processingFee: money, penaltyPercent: rate, graceDays: z.number().int().nonnegative(),
-  pricing: z.object({ paymentCount: z.number().int().positive(), regularPayment: money, finalPayment: money, totalPayable: money }),
+  pricing: z.object({ paymentCount: z.number().int().positive(), regularPayment: money, finalPayment: money, totalPayable: money,
+    upfrontInterest: money.optional(), netProceeds: money.optional() }),
   borrower: z.object({ membershipId: z.number().int().positive() }),
   documents: z.array(z.object({ documentTypeId: z.number().int().positive(), name: z.string().min(1), enforcement: z.enum(["WARN", "BLOCK"]) })),
   eligibilityRules: signedRules.optional(),
@@ -50,6 +51,7 @@ type Loan = Awaited<ReturnType<typeof readLoanForChange>>["loan"];
 type Action = z.infer<typeof actionSchema>;
 export type LoanDecisionResult = {
   id: number; status: string; journalId: number | null; journalNo: string | null; orNo: string | null;
+  upfrontPosting?: { unearnedAccountId: number; incomeAccountId: number; amount: string };
   date: string; payoutReference: string | null; feeChannel: "CASH" | "BANK" | null; feeReference: string | null;
 };
 
@@ -61,7 +63,7 @@ function stateActions(status: string): Action[] {
 function scheduleFromTerms(terms: Terms, date: string) {
   return buildLoanSchedule({
     principal: terms.principal, rate: terms.ratePercent, markup: terms.ratePercent,
-    method: terms.method.toUpperCase() as "DIMINISHING" | "FLAT" | "MARKUP", months: terms.term,
+    method: terms.method.toUpperCase() as LoanMethod, months: terms.term,
     frequency: terms.frequency === "cutoff" ? "CUTOFF" : "MONTHLY", releaseDate: date,
   });
 }
@@ -108,7 +110,9 @@ function termsAgreeWithLoan(terms: Terms, loan: Loan, schedule: ReturnType<typeo
     Number(terms.penaltyPercent) === Number(loan.penaltyPercent) && terms.graceDays === loan.graceDays &&
     terms.pricing.paymentCount === schedule.installments.length && terms.pricing.regularPayment === schedule.regularPayment &&
     terms.pricing.finalPayment === schedule.finalPayment && terms.pricing.totalPayable === schedule.totalPayable &&
-    amountToCents(terms.pricing.totalPayable) === amountToCents(loan.totalPayable);
+    amountToCents(terms.pricing.totalPayable) === amountToCents(loan.totalPayable) &&
+    (terms.method !== "upfront" || terms.pricing.upfrontInterest === schedule.upfrontInterest &&
+      terms.pricing.netProceeds === schedule.netProceeds && amountToCents(schedule.netProceeds) > 0n);
 }
 
 async function reviewLoan(id: number, date: string) {
@@ -126,6 +130,7 @@ async function reviewLoan(id: number, date: string) {
   const schedule = terms && scheduleFromTerms(terms, date);
   const signed = Boolean(terms && schedule && termsAgreeWithLoan(terms, loan, schedule));
   let accounts: ReturnType<typeof loanPostingAccounts> = new Map();
+  let interestAccounts: { unearnedAccountId: number; incomeAccountId: number } | undefined;
   let releaseIssue: string | null = null;
   const feeChannels: Array<"CASH" | "BANK"> = [];
   const principalPurpose = loan.productKind === "CASH" ? "CASH_LOAN_PRINCIPAL" : "GOODS_LOAN_PRINCIPAL";
@@ -145,7 +150,7 @@ async function reviewLoan(id: number, date: string) {
           Number(terms.ratePercent) >= Number(rules.rateMin) && Number(terms.ratePercent) <= Number(rules.rateMax);
         checks.push({ key: "rate", label: "Signed rate or markup", ok: rateOk,
           detail: terms.kind === "GOODS" ? `${terms.ratePercent}% signed markup.`
-            : `${terms.ratePercent}% per month · signed range ${rules.rateMin ?? "—"}% to ${rules.rateMax ?? "—"}%.` });
+            : `${terms.ratePercent}% ${terms.method === "upfront" ? "upfront" : "per month"} · signed range ${rules.rateMin ?? "—"}% to ${rules.rateMax ?? "—"}%.` });
         const borrower = await assessBorrower({
           memberId: loan.memberId, productId: loan.productId, settings: policy.settings, date, excludeLoanId: loan.id,
           principal: terms.principal, mode: terms.mode, frequency: terms.frequency, installments: schedule.installments, rules,
@@ -167,6 +172,14 @@ async function reviewLoan(id: number, date: string) {
         const principalAccount = requirePostingAccount(accounts, principalPurpose);
         const payoutAccount = requirePostingAccount(accounts, cashPurpose);
         if (principalAccount.id === payoutAccount.id) throw new LoanError(422, "Choose distinct principal and payout mappings in Policies.");
+        if (loan.method === "UPFRONT" && amountToCents(loan.upfrontInterest) > 0n) {
+          const unearned = requirePostingAccount(accounts, "UNEARNED_LOAN_INTEREST");
+          const income = requirePostingAccount(accounts, "LOAN_INTEREST_INCOME");
+          if (new Set([principalAccount.id, payoutAccount.id, unearned.id, income.id]).size !== 4) {
+            throw new LoanError(422, "Use distinct principal, payout, unearned interest, and income accounts.");
+          }
+          interestAccounts = { unearnedAccountId: unearned.id, incomeAccountId: income.id };
+        }
         if (amountToCents(loan.processingFee) > 0n) {
           requirePostingAccount(accounts, "LOAN_PROCESSING_FEE_INCOME");
           if (accounts.has("CASH_ON_HAND")) feeChannels.push("CASH");
@@ -184,12 +197,12 @@ async function reviewLoan(id: number, date: string) {
     revision, date, status: loan.status, actions, checks,
     canApprove: actions.includes("APPROVE") && valid,
     canRelease: valid && actions.some(action => action === "RELEASE" || action === "APPROVE_AND_RELEASE") && releaseIssue === null,
-    releaseIssue, principal: loan.principal, fee: loan.processingFee, releaseMethod: loan.releaseMethod,
+    releaseIssue, principal: loan.principal, netProceeds: loan.netProceeds, upfrontInterest: loan.upfrontInterest, fee: loan.processingFee, releaseMethod: loan.releaseMethod,
     firstDueDate: schedule?.installments[0]?.dueDate ?? null,
     feeChannels, warnings: loan.documents.warnings.map(row => row.name),
     blockedDocuments: loan.documents.blocks.map(row => row.name),
     fingerprint: loanDigest({
-      id, revision, date, status: loan.status, terms, releaseIssue,
+      id, revision, date, status: loan.status, terms, releaseIssue, interestAccounts,
       fee: loan.processingFee, releaseMethod: loan.releaseMethod,
       feeChannels: [...feeChannels].sort(),
       checks: checks.map(({ key, ok, severity }) => [key, ok, severity ?? null])
@@ -199,7 +212,7 @@ async function reviewLoan(id: number, date: string) {
       files: view.files.filter(row => !row.removed_at).map(row => String(row.id)).sort(),
     }),
   };
-  return { loan, date, schedule, accounts, principalPurpose, cashPurpose, preview } as const;
+  return { loan, date, schedule, accounts, principalPurpose, cashPurpose, preview, interestAccounts } as const;
 }
 
 export async function getLoanDecision(id: number) {
@@ -226,7 +239,7 @@ export async function decideLoan(id: number, payload: unknown, actor: LoanActor)
     key: input.requestKey, hash: loanDigest([id, actor.actorId, input]) };
   const prior = await findLoanCommand<LoanDecisionResult>(command);
   if (prior) return prior;
-  const { loan, date, schedule, accounts, principalPurpose, cashPurpose, preview } = await reviewLoan(id, todayManila());
+  const { loan, date, schedule, accounts, principalPurpose, cashPurpose, preview, interestAccounts } = await reviewLoan(id, todayManila());
   if (input.revision !== preview.revision || input.fingerprint !== preview.fingerprint) {
     const saved = await findLoanCommand<LoanDecisionResult>(command);
     if (saved) return saved;
@@ -251,6 +264,7 @@ export async function decideLoan(id: number, payload: unknown, actor: LoanActor)
   const result: LoanDecisionResult = {
     id, status, date, journalId: null, journalNo: null, orNo: null,
     payoutReference: release ? input.payoutReference ?? null : null,
+    ...(release && interestAccounts ? { upfrontPosting: { ...interestAccounts, amount: loan.upfrontInterest } } : {}),
     feeChannel: hasFee ? input.feeChannel ?? null : null, feeReference: hasFee ? input.feeReference ?? null : null,
   };
   return writeLoanCommand(command, preview.revision, actor, async now => {
@@ -262,6 +276,7 @@ export async function decideLoan(id: number, payload: unknown, actor: LoanActor)
         subject: { type: "LOAN", id }, action: release ? "LOAN_RELEASED" : input.action === "APPROVE" ? "LOAN_APPROVED" : "LOAN_REJECTED",
         before: { status: loan.status, approvedOn: loan.approvedOn },
         after: { status, approvedOn, ...(release ? { releasedOn: date, principal: loan.principal, releaseMethod: loan.releaseMethod,
+          netProceeds: loan.netProceeds, upfrontInterest: loan.upfrontInterest,
           processingFee: loan.processingFee, feeChannel: result.feeChannel, payoutReference: result.payoutReference,
           feeReference: result.feeReference, firstDueDate: preview.firstDueDate, ...posting } : {}) },
         reason: input.action === "REJECT" ? input.reason : undefined,
@@ -272,6 +287,7 @@ export async function decideLoan(id: number, payload: unknown, actor: LoanActor)
     if (!release) return { result, changes: { ...changes, last_event_id: audit() } };
     const pairs = [{
       debit: requirePostingAccount(accounts, principalPurpose), credit: requirePostingAccount(accounts, cashPurpose), amount: loan.principal,
+      ...(interestAccounts ? { additionalCredit: { accountId: interestAccounts.unearnedAccountId, amount: loan.upfrontInterest } } : {}),
     }];
     if (hasFee) pairs.push({
       debit: requirePostingAccount(accounts, input.feeChannel === "CASH" ? "CASH_ON_HAND" : "CASH_IN_BANK"),
@@ -286,7 +302,7 @@ export async function decideLoan(id: number, payload: unknown, actor: LoanActor)
       receipt: { ...posting.receipt, journal_id: {
         ...posting.receipt.journal_id,
         ...nestedTransactionEntries({ id: posting.numbers.journalId, date, postedAt: at }, [
-          { kind: "LOAN_RELEASE", memberId: loan.memberId, loanId: id, sourceReference: loan.loanNo, amount: loan.principal,
+          { kind: "LOAN_RELEASE", memberId: loan.memberId, loanId: id, sourceReference: loan.loanNo, amount: loan.netProceeds,
             channel: loan.releaseMethod === "CASH" ? "OTC" : "BANK", reference: result.payoutReference },
           ...(hasFee ? [{ kind: "PROCESSING_FEE", memberId: loan.memberId, loanId: id, sourceReference: loan.loanNo,
             amount: loan.processingFee, channel: result.feeChannel === "CASH" ? "OTC" : "BANK",

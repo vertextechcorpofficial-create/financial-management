@@ -153,7 +153,7 @@ export function AddMemberDialog({
       title="Add member"
       description="Enroll an active employee and record the signed membership agreement in one posting."
       wide
-      footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
+      footerClassName="backdrop-blur"
       footer={(
         <>
           <p className="mr-auto hidden max-w-xs text-left text-[11px] leading-4 text-muted-foreground sm:block">

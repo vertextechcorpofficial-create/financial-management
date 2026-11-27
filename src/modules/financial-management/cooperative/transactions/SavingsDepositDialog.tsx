@@ -114,7 +114,7 @@ export function SavingsDepositDialog({ onClose, onPosted }: {
       onOpenChange={open => { if (!open && !busy.current) onClose(); }}
       title="Savings deposit"
       description="Record cash received at the Cooperative counter."
-      footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
+      footerClassName="backdrop-blur"
       footer={result ? <Button onClick={onClose}>Close</Button> : <>
         <p className="mr-auto hidden max-w-48 text-left text-[11px] leading-4 text-muted-foreground sm:block">
           Posting the deposit updates savings, the journal, and the official receipt.

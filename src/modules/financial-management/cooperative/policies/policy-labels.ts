@@ -21,7 +21,7 @@ const enums: Record<string, string> = {
   PENALTIES_FIRST: "Penalties first", INSTALLMENTS_FIRST: "Installments first",
   WARN: "Warn", BLOCK: "Block", CHECK: "Checklist",
   cutoff: "Every cutoff", monthly: "Monthly", payroll: "Salary deduction", otc: "Over the counter",
-  diminishing: "Diminishing balance", flat: "Flat", markup: "Markup",
+  diminishing: "Diminishing balance", flat: "Flat", upfront: "Upfront interest", markup: "Markup",
   ASSET: "Asset", LIABILITY: "Liability", EQUITY: "Equity", INCOME: "Income", EXPENSE: "Expense",
 };
 

@@ -3,7 +3,8 @@ import "server-only";
 import type { MemberDetail, MemberStatement, PayrollReference } from "../members/types";
 import type { Product } from "../policies/policy-types";
 import { loanStatementForPeriod, type LoanStatementTotals } from "../loans/loan-activity";
-import { payrollHeadroom, payrollOverlap, payrollTermCommitment, salaryLoanRoom, type PayrollCommitment } from "../loans/loan-assessment";
+import { payrollHeadroom, payrollItemOverlap, payrollTermCommitment, salaryLoanRoom, type PayrollCommitment } from "../loans/loan-assessment";
+import { remapPostedPayrollItems } from "./payroll-record-links";
 import { nextCutoffDate } from "../loans/loan-schedule";
 import { amountToCents, readCooperativePayrollDeductions, signedCentsToAmount } from "./member-read";
 import { loanInstallmentAmount, readMemberLoans, type MemberLoanView } from "./loans";
@@ -83,7 +84,7 @@ export async function memberPayrollAssessment({
   const assessment = { ...base, loanDeduction: signedCentsToAmount(loanDeduction), assessmentCutoff: cutoff };
   try {
     const posted = await readCooperativePayrollDeductions(userId, payroll);
-    const overlap = posted ? payrollOverlap(posted, commitments) : null;
+    const overlap = posted ? payrollItemOverlap(await remapPostedPayrollItems(posted, userId), commitments) : null;
     if (overlap !== null && overlap <= amountToCents(payroll.totalDeductions)) {
       return { ...assessment, ...payrollHeadroom(payroll.netPay, floor, commitments, overlap) };
     }

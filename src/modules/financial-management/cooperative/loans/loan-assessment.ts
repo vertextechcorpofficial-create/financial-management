@@ -59,7 +59,15 @@ export type PayrollCommitment = { table: DeductionSource; id: number; cents: big
 type PostedCooperativeDeductions = {
   coop_savings: unknown;
   coop_loan: unknown;
+  loan_coop?: unknown;
   breakdown_json: unknown;
+};
+
+export type PostedPayrollItem = {
+  table: DeductionSource | "coop_savings_membership" | "employee_loan";
+  id: number;
+  key: string;
+  cents: bigint;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -71,49 +79,82 @@ function deductionAmount(value: unknown) {
   return amountToCents(String(value));
 }
 
-// Dedicated Cooperative rows and VOS employee loans can coexist in a posted pay result.
-// Use the matched portions of the dedicated deductions already carried in net pay.
-export function postedCooperativeItems(posted: PostedCooperativeDeductions) {
+// Dedicated Cooperative rows and Payroll-owned deductions can coexist in a posted result.
+export function readPostedCooperativeItems(posted: PostedCooperativeDeductions) {
   let snapshot = posted.breakdown_json;
   if (typeof snapshot === "string") {
     try { snapshot = JSON.parse(snapshot) as unknown; }
     catch { return null; }
   }
   const deductions = asRecord(asRecord(snapshot)?.deductions);
-  const totals = [
-    { field: "coop_savings", table: "cooperative_memberships", otherTable: "coop_savings_membership" },
-    { field: "coop_loan", table: "cooperative_loans", otherTable: "employee_loan" },
-  ] as const;
-  const verified: Array<PayrollCommitment & { key: string }> = [];
-  const seen = new Set<string>();
-  for (const { field, table, otherTable } of totals) {
-    const amount = deductionAmount(posted[field]);
-    if (amount === null) return null;
-    const items = deductions?.[field + "_items"];
-    if (amount === 0n && items === undefined) continue;
-    if (!Array.isArray(items)) return null;
-    let sum = 0n;
-    for (const item of items) {
+  const savings = parsePayrollItems(deductions?.coop_savings_items, "cooperative_memberships", "coop_savings_membership");
+  const loans = parsePayrollItems(deductions?.coop_loan_items, "cooperative_loans", "employee_loan");
+  const employeeLoans = deductions?.employee_loan_items;
+  if (employeeLoans !== undefined && !Array.isArray(employeeLoans)) return null;
+  const payrollLoans = parsePayrollItems(
+    employeeLoans?.filter(item => {
       const row = asRecord(item);
-      const cents = deductionAmount(row?.amount);
-      const sourceId = Number(row?.source_id);
-      const sourceTable = row?.source_table;
-      const key = row?.item_key;
-      if (cents === null || typeof key !== "string" || !key || seen.has(key) ||
-        (sourceTable !== table && sourceTable !== otherTable) ||
-        !Number.isSafeInteger(sourceId) || sourceId < 1) return null;
-      seen.add(key);
-      sum += cents;
-      if (sourceTable !== table) continue;
-      verified.push({ table, id: sourceId, key, cents });
-    }
-    if (sum !== amount) return null;
+      return String(row?.code ?? row?.loan_type ?? "").trim().toUpperCase() === "COOP";
+    }),
+    "employee_loan",
+    "employee_loan",
+  );
+  if (!savings || !loans || !payrollLoans) return null;
+  const total = (items: PostedPayrollItem[]) => items.reduce((sum, item) => sum + item.cents, 0n);
+  if (total(savings) !== deductionAmount(posted.coop_savings)) return null;
+
+  const dedicated = deductionAmount(posted.coop_loan);
+  const payroll = posted.loan_coop == null ? undefined : deductionAmount(posted.loan_coop);
+  if (dedicated === null && posted.coop_loan != null || payroll === null) return null;
+  const loanTotal = total(loans);
+  const payrollTotal = total(payrollLoans);
+  const exact = loanTotal === (dedicated ?? 0n) && payrollTotal === (payroll ?? 0n);
+  const mirrored = (loanTotal === 0n || payrollTotal === 0n) &&
+    (dedicated ?? payroll) === loanTotal + payrollTotal && (payroll ?? dedicated) === loanTotal + payrollTotal;
+  if (!exact && !mirrored) return null;
+
+  const results = [...savings, ...loans, ...payrollLoans];
+  const keys = new Set<string>();
+  const dedicatedPayrollLoans = new Set(loans.filter(item => item.table === "employee_loan").map(item => item.id));
+  if (payrollLoans.some(item => dedicatedPayrollLoans.has(item.id))) return null;
+  return results.every(item => {
+    const key = item.key.normalize("NFKC").trim().toUpperCase();
+    if (keys.has(key)) return false;
+    keys.add(key);
+    return true;
+  }) ? results : null;
+}
+
+function parsePayrollItems(raw: unknown, first: PostedPayrollItem["table"], second: PostedPayrollItem["table"]) {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return null;
+  const items: PostedPayrollItem[] = [];
+  for (const item of raw) {
+    const row = asRecord(item);
+    const source = row?.source_table;
+    const table = source === first ? first : source === second ? second : null;
+    const id = Number(row?.source_id);
+    const cents = deductionAmount(row?.amount);
+    const key = row?.item_key;
+    if (!table || !Number.isSafeInteger(id) || id < 1 ||
+      cents === null || typeof key !== "string" || !key.trim()) return null;
+    items.push({ table, id, cents, key });
   }
-  return verified;
+  return items;
+}
+
+export function postedCooperativeItems(posted: PostedCooperativeDeductions) {
+  return readPostedCooperativeItems(posted)?.filter(
+    (item): item is PayrollCommitment & { key: string } =>
+      item.table === "cooperative_memberships" || item.table === "cooperative_loans",
+  ) ?? null;
 }
 
 export function payrollOverlap(posted: PostedCooperativeDeductions, commitments: readonly PayrollCommitment[]) {
-  const items = postedCooperativeItems(posted);
+  return payrollItemOverlap(postedCooperativeItems(posted), commitments);
+}
+
+export function payrollItemOverlap(items: ReturnType<typeof postedCooperativeItems>, commitments: readonly PayrollCommitment[]) {
   if (items === null) return null;
   const byCommitment = new Map<string, bigint>();
   for (const item of items) {
