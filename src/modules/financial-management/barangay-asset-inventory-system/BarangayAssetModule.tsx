@@ -4,6 +4,7 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { call, type Lookups } from "./shared/ui";
+import styles from "./shared/affordance.module.css";
 import { SubTabs } from "./shared/SubTabs";
 import { AssetsTab } from "./assets/components/AssetsTab";
 import { CustodyTab } from "./custody/components/CustodyTab";
@@ -168,7 +169,7 @@ export function BarangayAssetModule({
 
   return (
     // the fm layout is a fixed height column with overflow hidden, so the screen owns its scroll
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-6">
+    <div className={styles.scope + " flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-6"}>
       <div className="-mx-2 -mt-2 flex flex-wrap items-start justify-between gap-3 bg-background/95 px-2 pt-2 pb-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 sticky top-0 z-30">
         <div>
           <div className="flex flex-wrap items-center gap-2">

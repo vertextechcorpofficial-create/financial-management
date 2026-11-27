@@ -459,31 +459,3 @@ html.dark .leaflet-tile {
 html.dark .leaflet-tile-pane {
   background-color: #222 !important;
 }
-/* ---------------------------------------------------------------- affordance
-
-   Tailwind 4 preflight leaves buttons and other controls with the default arrow
-   cursor, so clickable things look exactly like static text. This is the whole
-   fix: anything a person can press shows the hand, anything disabled shows that
-   it cannot be pressed. It is written once here instead of in every component. */
-
-button:not(:disabled),
-[role="button"]:not([aria-disabled="true"]),
-a[href],
-label[for],
-summary,
-select:not(:disabled),
-input[type="checkbox"]:not(:disabled),
-input[type="radio"]:not(:disabled),
-input[type="file"]:not(:disabled),
-[role="tab"]:not([aria-disabled="true"]),
-[role="option"]:not([aria-disabled="true"]) {
-  cursor: pointer;
-}
-
-button:disabled,
-[aria-disabled="true"],
-select:disabled,
-input:disabled {
-  cursor: not-allowed;
-}
-
