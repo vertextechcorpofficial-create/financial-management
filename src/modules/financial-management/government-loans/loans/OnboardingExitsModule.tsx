@@ -8,11 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { EmptyState, PersonAvatar, StatusChip } from "../components/ui";
+import { DetailSkeleton, EmptyState, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { centavos } from "../payroll-handoff/contract";
 import { amountFromCentavos } from "./position";
 import { loansApi, useLifecycleCommand, useLifecycleRead } from "./lifecycle-client";
@@ -34,13 +33,12 @@ function EmployeeReview({ mode, id, onSaved }: { mode: Mode; id: number; onSaved
   const command = useLifecycleCommand();
   const data = loaded?.data;
   const reload = () => setRefresh(value => value + 1);
-  if (!data) return <div className="space-y-2" aria-busy="true">
-    <p role={loaded?.error ? "alert" : "status"} className="text-sm text-muted-foreground">
-      {loaded?.error ?? "Loading employee…"}
-    </p>
-    {loaded?.error && <Button variant="outline" size="sm" onClick={reload}>Retry</Button>}
-    {!loaded?.error && <><Skeleton className="h-5 w-48" /><Skeleton className="h-20 w-full" /></>}
-  </div>;
+  if (!data) return loaded?.error
+    ? <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+      <span className="min-w-0 flex-1">{loaded.error}</span>
+      <Button variant="outline" size="sm" onClick={reload}>Retry</Button>
+    </div>
+    : <DetailSkeleton />;
   const { person, record, loans } = data;
   const save = (body: object, message: string) => command.run(endpoint, body, () => {
     toast.success(message); reload(); onSaved();
@@ -89,14 +87,6 @@ function EmployeeReview({ mode, id, onSaved }: { mode: Mode; id: number; onSaved
         onClick={() => void save({ kind: "CLEAR", employeeId: id }, "Loan clearance issued.")}>Issue loan clearance</Button>}
     </>}
   </div>;
-}
-
-function TableSkeleton({ columns }: { columns: number }) {
-  return <>{Array.from({ length: 5 }, (_, row) => <TableRow key={row}>
-    {Array.from({ length: columns }, (_, cell) => <TableCell key={cell}>
-      <Skeleton className={cell === 0 ? "h-4 w-40" : "h-4 w-24"} />
-    </TableCell>)}
-  </TableRow>)}</>;
 }
 
 export function OnboardingExitsModule() {
@@ -153,7 +143,7 @@ export function OnboardingExitsModule() {
           <TableHead>Employee</TableHead><TableHead>Hired</TableHead><TableHead>Declaration</TableHead><TableHead className="text-right">Action</TableHead>
         </TableRow></TableHeader>
         <TableBody>
-          {!hires?.data && <TableSkeleton columns={4} />}
+          {!hires?.data && <TableRowsSkeleton rows={5} columns={4} />}
           {hires?.data?.items.map(person => <TableRow key={person.id}>
             <TableCell>
               <div className="flex min-w-0 items-center gap-2.5">
@@ -201,7 +191,7 @@ export function OnboardingExitsModule() {
           <TableHead>Employee</TableHead><TableHead>Separation</TableHead><TableHead>Loans</TableHead><TableHead>Clearance</TableHead><TableHead className="text-right">Action</TableHead>
         </TableRow></TableHeader>
         <TableBody>
-          {!exits?.data && <TableSkeleton columns={5} />}
+          {!exits?.data && <TableRowsSkeleton rows={5} columns={5} />}
           {exits?.data?.items.map(person => {
             const open = person.loans.filter(loan => loan.blocked).length;
             const issued = person.status === "ISSUED";

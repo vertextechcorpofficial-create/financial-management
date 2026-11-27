@@ -212,12 +212,8 @@ export function AgenciesModule() {
       {(search || type || status) && <Button type="button" variant="ghost" size="sm"
         onClick={() => { setSearch(""); setType(""); setStatus(""); setPage(1); }}>Clear filters</Button>}
     </div>
-    {!current && <div className="space-y-2">
-      {[0, 1].map(index => <div key={index} className="space-y-3 rounded-lg border bg-card p-4">
-        <Skeleton className="h-6 w-56" />
-        <Skeleton className="h-4 w-72" />
-        <Skeleton className="h-24 w-full" />
-      </div>)}
+    {!current && <div className="space-y-3" aria-busy="true" aria-label="Loading agencies">
+      {[0, 1, 2].map(index => <Skeleton key={index} className="h-40 rounded-lg" />)}
     </div>}
     {current && "error" in current && <div className="space-y-2 rounded-lg border border-destructive/30 p-4">
       <p role="alert" className="text-sm text-destructive">{current.error}</p>

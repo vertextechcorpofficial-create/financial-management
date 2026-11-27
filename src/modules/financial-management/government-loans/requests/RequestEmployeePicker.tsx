@@ -5,6 +5,7 @@ import { ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Command, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ListRowsSkeleton } from "../components/ui";
 import { staffRequestApi } from "./request-api";
 import type { EmployeeChoice, Page } from "./types";
 
@@ -50,7 +51,7 @@ export function RequestEmployeePicker({ label, value, onChange, exclude, invalid
         <CommandInput placeholder={"Search " + label.toLowerCase() + " by name or ID"} value={q} maxLength={120}
           onValueChange={value => { setQuery(value); setPage(1); }} />
         <CommandList>
-          {!data && !error && <p className="p-3 text-sm text-muted-foreground">Loading employees…</p>}
+          {!data && !error && <ListRowsSkeleton rows={4} className="p-2" />}
           {error && <div role="alert" className="p-3 text-sm">{error}
             <Button type="button" variant="ghost" size="sm" onClick={() => retry(value => value + 1)}>Retry</Button>
           </div>}

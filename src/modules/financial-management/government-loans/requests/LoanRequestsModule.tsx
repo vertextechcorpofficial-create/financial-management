@@ -11,7 +11,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { EmptyState, MetricButton, MetricCard, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, DetailSkeleton, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { employeeRequestApi, staffRequestApi } from "./request-api";
 import { RequestEditor } from "./RequestEditor";
 import {
@@ -306,8 +306,7 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
       agencies={agencies.items} applicant={applicant} onBack={showList} onReload={id => { setSelected(id); setAttempt(value => value + 1); }} /> :
       <div className="space-y-3">
         <Button variant="ghost" onClick={() => showList()}>Back to requests</Button>
-        {record?.error ? <LoadError message={record.error} retry={() => setAttempt(value => value + 1)} /> :
-          <p role="status" className="text-sm text-muted-foreground">Loading request…</p>}
+        {record?.error ? <LoadError message={record.error} retry={() => setAttempt(value => value + 1)} /> : <DetailSkeleton />}
       </div>}
   </div>;
 
@@ -327,7 +326,7 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
     </header>
     {agencyError}
 
-    {summary && <section aria-label="Request queue summary" className="space-y-2">
+    {summary ? <section aria-label="Request queue summary" className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
         <SummaryCard label="Drafts" value={summary.DRAFT} active={summaryActive("drafts", "")} onClick={() => changeView("drafts")}
@@ -342,7 +341,10 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
           icon={RotateCcw} tone="rose" ringClass="ring-rose-500/40" detail="Needs correction"
           onClick={() => { setView("decided"); setFilters(previous => ({ ...previous, status: "RETURNED" })); setPage(1); setSort("updated"); }} />
       </div>
-    </section>}
+    </section> : !loaded?.error ? <div className="space-y-2" aria-busy="true">
+      <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
+      <MetricCardsSkeleton />
+    </div> : null}
 
     <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Loan request view">
       {(Object.keys(requestViews) as RequestView[]).map(item => <Button key={item} type="button" size="sm"

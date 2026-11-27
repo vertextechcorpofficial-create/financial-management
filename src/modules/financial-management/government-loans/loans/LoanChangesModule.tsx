@@ -37,13 +37,12 @@ function ChangeReview({ id, onSaved }: { id: number; onSaved: () => void }) {
   const loaded = useLifecycleRead<ChangeDetail>(url, refresh);
   const reload = () => setRefresh(value => value + 1);
   const data = loaded?.data;
-  if (!data) return <div className="space-y-3" aria-busy="true">
-    <p role={loaded?.error ? "alert" : "status"} className="text-sm text-muted-foreground">
-      {loaded?.error ?? "Loading loan changes…"}
-    </p>
-    {loaded?.error && <Button variant="outline" size="sm" onClick={reload}>Retry</Button>}
-    {!loaded?.error && <DetailSkeleton />}
-  </div>;
+  if (!data) return loaded?.error
+    ? <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+      <span className="min-w-0 flex-1">{loaded.error}</span>
+      <Button variant="outline" size="sm" onClick={reload}>Retry</Button>
+    </div>
+    : <DetailSkeleton />;
   const { loan, history, statements, openMonth, businessDate } = data;
   const canChangeTerms = loan.active && loan.status !== "FINAL_PAY_REQUESTED";
   const kind = canChangeTerms ? selectedKind : "REFUND";

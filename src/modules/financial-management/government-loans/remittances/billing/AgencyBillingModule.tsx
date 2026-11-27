@@ -16,7 +16,7 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { Textarea } from "@/components/ui/textarea";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
-import { EmptyState, MetricButton, MetricCard } from "../../components/ui";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, TableRowsSkeleton } from "../../components/ui";
 import { useLifecycleCommand, useLifecycleRead } from "../../loans/lifecycle-client";
 import type { getBillingContext, previewAgencyBilling, viewAgencyBilling } from "../../server/agency-billing";
 import { billingHeaders, billingMaxBytes } from "./csv";
@@ -340,10 +340,14 @@ export function AgencyBillingModule() {
     </div>
     {error && <div role="alert" className="flex items-center gap-2 text-sm text-destructive">{error}
       <Button variant="outline" size="sm" onClick={refresh}>Retry</Button></div>}
-    {!error && (!context?.data || agencyId && !data) && <div className="space-y-2">
-      <Skeleton className="h-24 w-full" />
-      <Skeleton className="h-9 w-full" />
-      <Skeleton className="h-56 w-full" />
+    {!error && (!context?.data || agencyId && !data) && <div className="space-y-3" aria-busy="true" aria-label="Loading billing reconciliation">
+      <MetricCardsSkeleton />
+      <div className="flex flex-wrap gap-2">
+        <Skeleton className="h-9 w-48" />
+        <Skeleton className="h-9 w-40" />
+        <Skeleton className="h-9 w-32" />
+      </div>
+      <div className="rounded-md border"><Table><TableBody><TableRowsSkeleton rows={6} columns={6} /></TableBody></Table></div>
     </div>}
     {context?.data && !context.data.agencies.length && <div className="flex flex-wrap items-center gap-2 rounded-md border p-4 text-sm">
       <p className="text-muted-foreground">No agencies are configured to send billing.</p>

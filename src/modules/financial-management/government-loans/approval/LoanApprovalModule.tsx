@@ -385,7 +385,7 @@ export function LoanApprovalModule() {
         <Button type="button" size="sm" onClick={() => setConfirmRows(selectedRows)}>Approve selected</Button>
       </div>}
       {queue?.error && <LoadError message={queue.error} retry={refreshLists} />}
-      {!queue && <div className="space-y-2 rounded-lg border p-3"><Skeleton className="h-9 w-full" />{[0, 1, 2, 3, 4].map(value => <Skeleton key={value} className="h-12 w-full" />)}</div>}
+      {!queue?.data && !queue?.error && <div className="space-y-2 rounded-lg border p-3"><Skeleton className="h-9 w-full" />{[0, 1, 2, 3, 4].map(value => <Skeleton key={value} className="h-12 w-full" />)}</div>}
       {queue?.data && <>
         <div className={cn("hidden overflow-x-auto rounded-lg border md:block", queue.pending && "opacity-60")}>
           <Table>
@@ -462,7 +462,7 @@ export function LoanApprovalModule() {
         </div>
       </div>
       {history?.error && <LoadError message={history.error} retry={() => setRefresh(value => value + 1)} />}
-      {!history && <div className="space-y-2 rounded-lg border p-3">{[0, 1, 2].map(value => <Skeleton key={value} className="h-10 w-full" />)}</div>}
+      {!history?.data && !history?.error && <div className="space-y-2 rounded-lg border p-3">{[0, 1, 2].map(value => <Skeleton key={value} className="h-10 w-full" />)}</div>}
       {history?.data && <>
         <DecisionsTable rows={history.data.items} onReview={setReviewId} />
         <Pager label="Decision history" page={historyPage} size={historySize} total={history.data.total}

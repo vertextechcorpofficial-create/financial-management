@@ -9,6 +9,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
+import { DetailSkeleton, ListRowsSkeleton } from "../components/ui";
 import type { Page } from "../requests/types";
 import { EnrollmentApiError, importBatch, importBatches, previewImport, saveImport } from "./api";
 import { enrollmentBatchReference, enrollmentCsvHeaders, enrollmentMappingError, paidColumn } from "./import-csv";
@@ -194,7 +195,7 @@ export function LoanImportHistoryDialog({ initialBatch, close, onSelect }: {
         <DialogDescription>{current?.detail ? current.detail.filename : "Existing loans submitted for verification in each batch."}</DialogDescription>
       </DialogHeader>
       {selected && <div><Button type="button" variant="outline" onClick={() => setSelected(null)}>Back to import history</Button></div>}
-      {!current && <p role="status" className="text-sm">Loading import history…</p>}
+      {!current && (selected ? <DetailSkeleton /> : <ListRowsSkeleton rows={5} />)}
       {current?.error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">
         {current.error} <Button type="button" variant="outline" size="sm" onClick={() => setRetry(value => value + 1)}>Retry</Button>
       </div>}
