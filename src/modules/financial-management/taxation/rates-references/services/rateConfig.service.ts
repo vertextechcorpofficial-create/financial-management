@@ -124,7 +124,23 @@ async function companies(): Promise<RateConfigCompany[]> {
 export async function loadRateConfig(companyId: number | null): Promise<RateConfig> {
   const list = await companies();
   const company = companyId == null ? (list[0] ?? null) : (list.find((entry) => entry.companyId === companyId) ?? null);
-  if (!company) return { companies: list, company: null, settings: [], withholding: [], notice: null };
+  if (!company) return { companies: list, company: null, vatRegistered: null, settings: [], withholding: [], notice: null };
+
+  let vatRegistered: boolean | null = null;
+  try {
+    const profileRes = await listItems<{ vat_registered?: number | string | null }>("tax_company_profile", {
+      fields: ["vat_registered"],
+      filter: { company_id: { _eq: company.companyId } },
+      sort: "-tax_year",
+      limit: 1,
+    });
+    const row = profileRes.rows[0];
+    if (row && row.vat_registered != null) {
+      vatRegistered = Number(row.vat_registered) === 1;
+    }
+  } catch {
+    vatRegistered = null;
+  }
 
   try {
     const settings = await listItems<Record<string, unknown>>("tax_rate_settings", {
@@ -142,6 +158,7 @@ export async function loadRateConfig(companyId: number | null): Promise<RateConf
     return {
       companies: list,
       company,
+      vatRegistered,
       settings: settings.rows.map(settingsRow),
       withholding: withholding.rows.map(withholdingRow),
       notice: null,
@@ -151,6 +168,7 @@ export async function loadRateConfig(companyId: number | null): Promise<RateConf
     return {
       companies: list,
       company,
+      vatRegistered,
       settings: [],
       withholding: [],
       notice:

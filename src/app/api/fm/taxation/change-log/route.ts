@@ -38,6 +38,7 @@ export async function GET(request: Request) {
 
   const input = parsed.data;
   const fresh = url.searchParams.get("refresh") === "1";
+  const all = url.searchParams.get("all") === "1";
 
   try {
     const [log, companies] = await Promise.all([
@@ -51,7 +52,7 @@ export async function GET(request: Request) {
           to: input.to || "",
           page: input.page,
         },
-        { fresh },
+        { fresh, all },
       ),
       listRegistryCompanies().catch(() => []),
     ]);

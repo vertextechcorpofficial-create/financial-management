@@ -54,7 +54,7 @@ export function NilFilingDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           companyId: obligation.companyId,
-          taxYear,
+          year: taxYear,
           periodKey: obligation.periodKey,
           formCode: obligation.formCode,
           paidOn: filedOn,

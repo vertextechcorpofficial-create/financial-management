@@ -164,6 +164,7 @@ export function deriveStatus(input: {
 }): CertificateStatus {
   if (!input.known) return "UNKNOWN";
   if (input.count === 0) return input.past ? "NOT_ENTERED" : "UPCOMING";
+  if (Math.abs(input.expected) <= MATCH_TOLERANCE && input.recorded > 0) return "UNKNOWN";
   const difference = roundMoney(input.recorded - input.expected);
   if (Math.abs(difference) <= MATCH_TOLERANCE) return "MATCHED";
   return difference < 0 ? "SHORT" : "OVER";
@@ -617,8 +618,8 @@ export async function prefillCertificates(
     for (const row of purchases) {
       const index = quarterOf(asString(row.date));
       if (index === null) continue;
-      const income = asNumber(row.total_amount) - asNumber(row.vat_amount);
       const withheld = asNumber(row.withholding_tax_amount);
+      const income = asNumber(row.total_amount) - asNumber(row.vat_amount) + withheld;
       if (income <= 0 || withheld <= 0) continue;
 
       // Some instances store a supplier number in supplier_name and refuse the supplier register

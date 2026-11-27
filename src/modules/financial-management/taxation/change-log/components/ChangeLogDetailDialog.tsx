@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 
 import { entityLabel, fieldLabel } from "../constants";
 import { phtDisplayStamp } from "../pht";
+import { formatChangeValue } from "../utils/formatValue";
 import type { ChangeLogRow } from "../types";
 
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
@@ -43,27 +44,26 @@ export function ChangeLogDetailDialog({
           {row ? (
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
               <dl className="grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
-                <Detail label="When (PHT)">{phtDisplayStamp(row.occurredAt)}</Detail>
-                <Detail label="Who">{row.actor ?? "Not recorded"}</Detail>
+                <Detail label="Date">{phtDisplayStamp(row.occurredAt)}</Detail>
+                <Detail label="Modified By">{row.actor ?? "Not recorded"}</Detail>
                 <Detail label="Company">
                   {companyName ?? `Company ${row.companyId}`}
                   {row.taxYear ? ` · ${row.taxYear}` : ""}
                 </Detail>
-                <Detail label="Entity">{entityLabel(row.entity)}</Detail>
+                <Detail label="Transaction Type">{entityLabel(row.entity)}</Detail>
                 <Detail label="What changed">{fieldLabel(row.field)}</Detail>
-                <Detail label="Reference">{row.entityRef ?? "—"}</Detail>
               </dl>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-xl border border-border/50 bg-muted/30 p-3">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Before</p>
-                  <p className="mt-1 break-words text-sm">{row.beforeValue?.trim() ? row.beforeValue : "—"}</p>
+                  <p className="mt-1 break-words text-sm">{formatChangeValue(row.beforeValue, row.field)}</p>
                 </div>
                 <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/30">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
                     After
                   </p>
-                  <p className="mt-1 break-words text-sm">{row.afterValue?.trim() ? row.afterValue : "—"}</p>
+                  <p className="mt-1 break-words text-sm">{formatChangeValue(row.afterValue, row.field)}</p>
                 </div>
               </div>
 

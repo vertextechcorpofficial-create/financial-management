@@ -328,8 +328,11 @@ async function loadCertificateCredits(
     const { rows } = await listItems<{
       period_key?: string | null;
       tax_withheld?: number | string | null;
+      counterparty_tin?: string | null;
+      source_ref?: string | null;
+      date_received?: string | null;
     }>("tax_2307", {
-      fields: ["period_key", "tax_withheld"],
+      fields: ["period_key", "tax_withheld", "counterparty_tin", "source_ref", "date_received"],
       filter: {
         _and: [
           { company_id: { _eq: company.companyId } },
@@ -342,6 +345,7 @@ async function loadCertificateCredits(
     const byQuarter = [0, 0, 0, 0];
     let count = 0;
     for (const row of rows) {
+      if (!row.counterparty_tin || !row.source_ref || !row.date_received) continue;
       const index = ["Q1", "Q2", "Q3", "Q4"].indexOf(String(row.period_key ?? "").toUpperCase());
       if (index < 0) continue;
       byQuarter[index] += Number(row.tax_withheld ?? 0) || 0;
@@ -647,7 +651,7 @@ export async function loadFigures(
     notices.push(
       `The sales detail lines could not be read (${plain(
         error instanceof Error ? error.message : String(error),
-      )}), so product standard cost is zero and line 5 uses purchase orders.`,
+      )}), so product standard cost is zero (line 5 uses ledger cost of sales when available, otherwise purchase orders).`,
     );
   }
 

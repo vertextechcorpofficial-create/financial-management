@@ -38,16 +38,21 @@ const SettingsSchema = z.object({
   notes: z.string().max(500).nullable(),
 });
 
-const WithholdingSchema = z.object({
-  kind: z.literal("WITHHOLDING"),
-  companyId: z.coerce.number().int().positive(),
-  rateId: z.coerce.number().int().positive().nullable(),
-  incomeType: z.enum(["RENT", "FEE", "SERVICES", "CONSTRUCTION", "GOODS", "OTHER"]),
-  rateTier: z.enum(["LARGE", "MEDIUM", "SMALL"]).nullable(),
-  rate,
-  requiresTopWithholdingAgent: z.boolean(),
-  effectiveFrom: iso,
-});
+const WithholdingSchema = z
+  .object({
+    kind: z.literal("WITHHOLDING"),
+    companyId: z.coerce.number().int().positive(),
+    rateId: z.coerce.number().int().positive().nullable(),
+    incomeType: z.enum(["RENT", "FEE", "SERVICES", "CONSTRUCTION", "GOODS", "OTHER"]),
+    rateTier: z.enum(["LARGE", "MEDIUM", "SMALL"]).nullable(),
+    rate,
+    requiresTopWithholdingAgent: z.boolean(),
+    effectiveFrom: iso,
+  })
+  .refine(
+    (v) => v.incomeType !== "FEE" || [0.05, 0.1, 0.15].some((r) => Math.abs(v.rate - r) < 1e-6),
+    { message: "Professional fee EWT rate must be 5%, 10%, or 15% under RR 11-2018." },
+  );
 
 const BodySchema = z.discriminatedUnion("kind", [SettingsSchema, WithholdingSchema]);
 

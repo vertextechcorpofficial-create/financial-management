@@ -227,8 +227,15 @@ export function RateConfigPanel({ controller }: { controller: RateController }) 
   const withholding = rates.config?.withholding ?? [];
   const draftFor = (row: WithholdingRateRow): WithholdingDraft => drafts[rowKey(row)] ?? draftOf(row);
   const dirtyRows = withholding.filter((row) => isDirty(row, draftFor(row)));
+  const invalidFeeRows = dirtyRows.filter((row) => isNonStatutoryFee(row, draftFor(row)));
+  const [matrixError, setMatrixError] = useState<string | null>(null);
 
   async function saveMatrix() {
+    if (invalidFeeRows.length > 0) {
+      setMatrixError("Professional fee EWT rate must be 5%, 10%, or 15% under RR 11-2018.");
+      return;
+    }
+    setMatrixError(null);
     // Saves one row at a time: each write is its own audit entry, and a failure stops the run
     // with the remaining rows still marked unsaved so nothing is silently dropped.
     for (const row of dirtyRows) {
@@ -310,18 +317,25 @@ export function RateConfigPanel({ controller }: { controller: RateController }) 
                 <Button
                   type="button"
                   size="sm"
-                  disabled={dirtyRows.length === 0 || readOnly || rates.isSaving}
+                  disabled={dirtyRows.length === 0 || invalidFeeRows.length > 0 || readOnly || rates.isSaving}
                   onClick={() => void saveMatrix()}
                   title={
-                    dirtyRows.length === 0
-                      ? "Edit a rate or a top-agent flag first"
-                      : `Save ${dirtyRows.length} ${dirtyRows.length === 1 ? "row" : "rows"}`
+                    invalidFeeRows.length > 0
+                      ? "Fix non-statutory professional fee rates (5%, 10%, or 15%) before saving"
+                      : dirtyRows.length === 0
+                        ? "Edit a rate or a top-agent flag first"
+                        : `Save ${dirtyRows.length} ${dirtyRows.length === 1 ? "row" : "rows"}`
                   }
                 >
                   {rates.isSaving ? "Saving" : "Save withholding matrix"}
                 </Button>
               </div>
             </header>
+            {matrixError && (
+              <p className="border-b border-destructive/20 bg-destructive/10 px-4 py-2 text-xs text-destructive">
+                {matrixError}
+              </p>
+            )}
 
             {(rates.config?.withholding.length ?? 0) === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-muted-foreground">

@@ -104,7 +104,7 @@ export function BasisComparison({ scenarios, year }: { scenarios: TaxScenario[];
         <p className="border-t px-4 py-3 text-xs text-muted-foreground">
           MCIT is dormant for {year}: the 2% minimum is charged from the fourth year of operations, and
           this company is still inside its first three. At 2% of gross income it would be{" "}
-          {formatCurrency(primary.mcitOnGross)}, so the regular tax above is what the return carries.
+          {formatCurrency(Math.max(0, primary.mcitOnGross))}, so the regular tax above is what the return carries.
         </p>
       ) : null}
     </section>

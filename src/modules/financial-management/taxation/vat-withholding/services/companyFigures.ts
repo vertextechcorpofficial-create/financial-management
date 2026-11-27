@@ -256,6 +256,7 @@ export async function loadFigures(
       : { sales: null, reason: "no Spring session token was forwarded" as string | null };
     const stt = springSales.sales ? springSales : await loadSttSales(company, taxYear);
     if (stt.sales) {
+      const yearRegister = figures.reduce((total, quarter) => total + quarter.sales + quarter.salesVat, 0);
       const gross = stt.sales.quarters;
       const net = gross.map((value) => value / (1 + vatRate));
       figures.forEach((quarter, index) => {
@@ -265,11 +266,12 @@ export async function loadFigures(
         }
       });
       const yearGross = gross.reduce((total, value) => total + value, 0);
-      const yearRegister = figures.reduce((total, quarter) => total + quarter.sales + quarter.salesVat, 0);
+      const rawDiff = yearRegister - yearGross;
+      const diff = Math.abs(rawDiff) < 0.005 ? 0 : rawDiff;
       salesSource = "STT_VIEW";
       notices.push(
         `Sales come from the itemized sales view: ${stt.sales.lines.toLocaleString("en-PH")} product lines on ${stt.sales.invoices.toLocaleString("en-PH")} invoices. ` +
-          `The invoice register carries ${formatPeso(yearRegister)} for the same year, so the two bases differ by ${formatPeso(yearRegister - yearGross)}.`,
+          `The invoice register carries ${formatPeso(yearRegister)} for the same year, so the two bases differ by ${formatPeso(diff)}.`,
       );
       if (stt.reason) notices.push(`Only part of the year came from that view: ${stt.reason}.`);
     } else if (stt.reason) {

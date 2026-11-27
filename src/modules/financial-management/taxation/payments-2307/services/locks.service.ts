@@ -122,7 +122,7 @@ export async function loadLockTrail(
   periodKey: PeriodKey,
 ): Promise<LockTrailEntry[]> {
   const { rows } = await listItems<Record<string, unknown>>("tax_change_log", {
-    fields: ["id", "occurred_at", "actor_name", "field", "before_value", "after_value", "reason"],
+    fields: ["id", "occurred_at", "actor_id", "actor_name", "field", "before_value", "after_value", "reason"],
     filter: {
       _and: [
         { company_id: { _eq: companyId } },
@@ -134,15 +134,19 @@ export async function loadLockTrail(
     sort: "-occurred_at,-id",
     limit: 100,
   });
-  return rows.map((raw) => ({
-    id: asNumber(raw.id),
-    occurredAt: asString(raw.occurred_at),
-    actorName: asString(raw.actor_name) || null,
-    action: asString(raw.field) || "CHANGED",
-    reason: asString(raw.reason) || null,
-    beforeValue: asString(raw.before_value) || null,
-    afterValue: asString(raw.after_value) || null,
-  }));
+  const actors = await loadUserNames(rows.map((raw) => (raw.actor_id == null ? null : asNumber(raw.actor_id))));
+  return rows.map((raw) => {
+    const actorId = raw.actor_id == null ? null : asNumber(raw.actor_id);
+    return {
+      id: asNumber(raw.id),
+      occurredAt: asString(raw.occurred_at),
+      actorName: (actorId === null ? null : (actors.get(actorId) ?? null)) || asString(raw.actor_name) || null,
+      action: asString(raw.field) || "CHANGED",
+      reason: asString(raw.reason) || null,
+      beforeValue: asString(raw.before_value) || null,
+      afterValue: asString(raw.after_value) || null,
+    };
+  });
 }
 
 async function findLock(companyId: number, taxYear: number, periodKey: PeriodKey): Promise<PeriodLockRow | null> {

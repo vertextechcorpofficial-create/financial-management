@@ -76,13 +76,13 @@ const changeLogCache = new Map<string, { at: number; data: ChangeLogPage }>();
  */
 export async function listChangeLog(
   filter: ChangeLogFilter,
-  options: { fresh?: boolean } = {},
+  options: { fresh?: boolean; all?: boolean } = {},
 ): Promise<ChangeLogPage> {
-  const key = JSON.stringify(filter);
+  const key = JSON.stringify({ ...filter, all: Boolean(options.all) });
   const hit = changeLogCache.get(key);
   if (!options.fresh && hit && Date.now() - hit.at < CHANGE_LOG_CACHE_TTL_MS) return hit.data;
 
-  const page = await buildChangeLogPage(filter);
+  const page = await buildChangeLogPage(filter, options.all);
   // The unreadable-table notice is a failure, not a result; caching it would pin the error for the TTL.
   if (!page.notice) {
     // Every filter combination is its own key, so the map is capped: a session that pages and
@@ -96,14 +96,14 @@ export async function listChangeLog(
   return page;
 }
 
-async function buildChangeLogPage(filter: ChangeLogFilter): Promise<ChangeLogPage> {
+async function buildChangeLogPage(filter: ChangeLogFilter, all = false): Promise<ChangeLogPage> {
   try {
     const { rows, total } = await listItems<RawRow>(COLLECTION, {
       fields: FIELDS,
       filter: buildFilter(filter),
       sort: "-occurred_at,-id",
-      limit: CHANGE_LOG_PAGE_SIZE,
-      page: filter.page,
+      limit: all ? -1 : CHANGE_LOG_PAGE_SIZE,
+      ...(all ? {} : { page: filter.page }),
     });
     return { rows: rows.map(toRow), total };
   } catch (error) {

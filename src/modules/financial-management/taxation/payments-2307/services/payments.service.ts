@@ -121,7 +121,7 @@ export async function loadPayments(companyId: number, taxYear: number): Promise<
     return {
       payments: payments.map((row) => ({
         ...row,
-        createdByName: names.get(row.id) ?? (row.createdBy === null ? null : (actors.get(row.createdBy) ?? null)),
+        createdByName: (row.createdBy === null ? null : (actors.get(row.createdBy) ?? null)) ?? names.get(row.id) ?? null,
       })),
       notices,
     };

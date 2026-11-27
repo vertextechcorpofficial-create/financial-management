@@ -40,13 +40,20 @@ export function RatesReferencesModule() {
   const year = new Date().getFullYear();
   const live = useMemo(() => ratesInForce(rates.config, year), [rates.config, year]);
 
+  const vatRegistered = rates.config?.vatRegistered ?? null;
   const groups = useMemo(() => {
     const resolved = withLiveRates(REFERENCE_GROUPS, live);
     return resolved.map((group) => ({
       ...group,
-      entries: group.entries.filter((entry) => matches(entry, needle, group.title)),
+      entries: group.entries.filter((entry) => {
+        if (group.key === "forms" && vatRegistered !== null) {
+          if (vatRegistered && entry.key.toLowerCase() === "2551q") return false;
+          if (!vatRegistered && entry.key.toLowerCase() === "2550q") return false;
+        }
+        return matches(entry, needle, group.title);
+      }),
     }));
-  }, [live, needle]);
+  }, [live, needle, vatRegistered]);
 
   const total = groups.reduce((sum, group) => sum + group.entries.length, 0);
   const firstWithEntries = groups.find((group) => group.entries.length > 0)?.key ?? REFERENCE_GROUPS[0].key;

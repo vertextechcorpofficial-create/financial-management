@@ -177,6 +177,7 @@ export interface RateConfigCompany {
 export interface RateConfig {
   companies: RateConfigCompany[];
   company: RateConfigCompany | null;
+  vatRegistered: boolean | null;
   settings: RateSettingRow[];
   withholding: WithholdingRateRow[];
   /** Set when the instance has no rate tables, or refused the read. */

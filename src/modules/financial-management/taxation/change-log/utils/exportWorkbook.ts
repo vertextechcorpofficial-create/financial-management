@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 
 import { entityLabel, fieldLabel } from "../constants";
 import { phtDisplayStamp, phtToday } from "../pht";
+import { formatChangeValue } from "./formatValue";
 import type { ChangeLogRow } from "../types";
 
 type Cell = string | number | null;
@@ -39,14 +40,14 @@ export function downloadChanges(
     row.occurredAt ? phtDisplayStamp(row.occurredAt) : "—",
     companyLabel(row, companies),
     transactionTypeLabel(row),
-    row.beforeValue && row.beforeValue.trim() ? row.beforeValue : "—",
-    row.afterValue && row.afterValue.trim() ? row.afterValue : "—",
+    formatChangeValue(row.beforeValue, row.field),
+    formatChangeValue(row.afterValue, row.field),
     row.actor && row.actor.trim() ? row.actor : "—",
     row.reason && row.reason.trim() ? row.reason : "—",
   ]);
 
   const sheet = XLSX.utils.aoa_to_sheet([header, ...body]);
-  sheet["!cols"] = [20, 26, 26, 22, 22, 20, 36].map((wch) => ({ wch }));
+  sheet["!cols"] = [20, 26, 26, 30, 30, 20, 36].map((wch) => ({ wch }));
 
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "Changes");
@@ -76,8 +77,8 @@ export function downloadChangesPdf(
       row.occurredAt ? phtDisplayStamp(row.occurredAt) : "—",
       companyLabel(row, companies),
       transactionTypeLabel(row),
-      row.beforeValue && row.beforeValue.trim() ? row.beforeValue : "—",
-      row.afterValue && row.afterValue.trim() ? row.afterValue : "—",
+      formatChangeValue(row.beforeValue, row.field),
+      formatChangeValue(row.afterValue, row.field),
       row.actor && row.actor.trim() ? row.actor : "—",
       row.reason && row.reason.trim() ? row.reason : "—",
     ]),

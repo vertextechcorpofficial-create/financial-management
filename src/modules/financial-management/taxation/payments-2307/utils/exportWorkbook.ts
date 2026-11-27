@@ -38,7 +38,7 @@ export function downloadCertificates(certificates: CertificateRow[]) {
     fileName("certificates", taxYear),
     "Certificates",
     [
-      "Issuer / payee",
+      "Payor / supplier",
       "TIN",
       "Direction",
       "Period",

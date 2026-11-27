@@ -22,7 +22,9 @@ import { OptionCombobox } from "./OptionCombobox";
 import { TablePager } from "./TablePager";
 import { CHANGE_LOG_ENTITIES, entityLabel, fieldLabel } from "../constants";
 import { phtDisplayStamp } from "../pht";
+import { fetchAllChangeLog } from "../providers/changeLogApi";
 import { downloadChanges, downloadChangesPdf } from "../utils/exportWorkbook";
+import { formatChangeValue } from "../utils/formatValue";
 import type { ChangeLogFilter, ChangeLogRow } from "../types";
 
 const COLUMNS = 7;
@@ -66,8 +68,24 @@ export function ChangeLogTable({
   onPageChange: (page: number) => void;
 }) {
   const [openRow, setOpenRow] = useState<ChangeLogRow | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   /** A filtered view can span years; the workbook is named for the year the rows carry. */
   const exportYear = filters.year ?? rows[0]?.taxYear ?? new Date().getFullYear();
+
+  async function exportAll(kind: "excel" | "pdf") {
+    if (rows.length === 0 || isExporting) return;
+    setIsExporting(true);
+    try {
+      const targetRows = total > rows.length ? await fetchAllChangeLog(filters) : rows;
+      if (kind === "excel") {
+        downloadChanges(targetRows, companies, exportYear);
+      } else {
+        downloadChangesPdf(targetRows, companies, exportYear);
+      }
+    } finally {
+      setIsExporting(false);
+    }
+  }
 
   const dirty =
     filters.companyId !== null ||
@@ -110,8 +128,8 @@ export function ChangeLogTable({
             size="sm"
             variant="outline"
             className="min-h-11 md:min-h-0"
-            onClick={() => downloadChanges(rows, companies, exportYear)}
-            disabled={rows.length === 0}
+            onClick={() => void exportAll("excel")}
+            disabled={rows.length === 0 || isExporting}
             title="Download these rows as an Excel workbook"
           >
             <Download className="mr-2 size-4" />
@@ -122,8 +140,8 @@ export function ChangeLogTable({
             size="sm"
             variant="outline"
             className="min-h-11 md:min-h-0"
-            onClick={() => downloadChangesPdf(rows, companies, exportYear)}
-            disabled={rows.length === 0}
+            onClick={() => void exportAll("pdf")}
+            disabled={rows.length === 0 || isExporting}
             title="Download these rows as a PDF report"
           >
             <FileText className="mr-2 size-4" />
@@ -202,9 +220,9 @@ export function ChangeLogTable({
             <TableRow>
               <TableHead className="w-[155px]">Date</TableHead>
               <TableHead className="w-[180px]">Company</TableHead>
-              <TableHead className="w-[180px]">Transaction Type</TableHead>
-              <TableHead className="w-[150px]">Before</TableHead>
-              <TableHead className="w-[150px]">After</TableHead>
+              <TableHead className="w-[175px]">Transaction Type</TableHead>
+              <TableHead className="w-[220px]">Before</TableHead>
+              <TableHead className="w-[220px]">After</TableHead>
               <TableHead className="w-[140px]">Modified By</TableHead>
               <TableHead className="w-[160px]">Reason</TableHead>
             </TableRow>
@@ -262,13 +280,13 @@ export function ChangeLogTable({
                     </div>
                   </TableCell>
                   <TableCell className="text-xs">
-                    <div className="line-clamp-2 max-w-[140px] break-words" title={display(row.beforeValue)}>
-                      {display(row.beforeValue)}
+                    <div className="max-w-[240px] whitespace-normal break-words" title={display(row.beforeValue)}>
+                      {formatChangeValue(row.beforeValue, row.field)}
                     </div>
                   </TableCell>
                   <TableCell className="text-xs">
-                    <div className="line-clamp-2 max-w-[140px] break-words" title={display(row.afterValue)}>
-                      {display(row.afterValue)}
+                    <div className="max-w-[240px] whitespace-normal break-words" title={display(row.afterValue)}>
+                      {formatChangeValue(row.afterValue, row.field)}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -328,9 +346,9 @@ export function ChangeLogTable({
               <p className="truncate text-sm">
                 <span className="font-medium">{fieldLabel(row.field)}</span>
               </p>
-              <p className="truncate text-xs">
-                <span className="text-muted-foreground">Before</span> {display(row.beforeValue)}
-                <span className="text-muted-foreground"> → After</span> {display(row.afterValue)}
+              <p className="text-xs whitespace-normal break-words">
+                <span className="text-muted-foreground">Before</span> {formatChangeValue(row.beforeValue, row.field)}
+                <span className="text-muted-foreground"> → After</span> {formatChangeValue(row.afterValue, row.field)}
               </p>
               <p className="truncate text-xs text-muted-foreground">
                 {display(row.actor)}

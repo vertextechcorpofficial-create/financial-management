@@ -37,5 +37,18 @@ export async function fetchChangeLog(filter: ChangeLogFilter, fresh = false): Pr
   return body.data;
 }
 
+export async function fetchAllChangeLog(filter: ChangeLogFilter): Promise<ChangeLogRow[]> {
+  const query = toQuery({ ...filter, page: 1 });
+  const response = await fetch(`/api/fm/taxation/change-log?${query}&all=1`, { cache: "no-store" });
+  const body = (await response.json().catch(() => ({}))) as
+    | { success: true; data: ChangeLogPayload }
+    | { success: false; error?: string };
+
+  if (!response.ok || !("success" in body) || !body.success) {
+    throw new Error(("error" in body && body.error) || "Could not read the change log.");
+  }
+  return body.data.rows;
+}
+
 export const PAGE_SIZE = CHANGE_LOG_PAGE_SIZE;
 
