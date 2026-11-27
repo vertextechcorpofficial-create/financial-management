@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Brgy, BrgyTransfer } from "../../types";
 import { SubTabs } from "../../shared/SubTabs";
+import { toast } from "sonner";
 
 const API = "/api/fm/barangay-asset-inventory-system";
 
@@ -32,12 +33,11 @@ async function call(path: string, init?: RequestInit) {
  * the LGU register is another team's file, so the control lives here and the data comes
  * through the API seam in server/lguFeed.ts.
  */
-export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy[]; setError: (v: string | null) => void; setNotice: (v: string | null) => void }) {
+export function LguConsole({ barangays, barangayId }: { barangays: Brgy[]; barangayId: number | null }) {
   const [assets, setAssets] = React.useState<LguAsset[]>([]);
   const [returns, setReturns] = React.useState<BrgyTransfer[]>([]);
   const [assetNames, setAssetNames] = React.useState<Record<number, string>>({});
   const [q, setQ] = React.useState("");
-  const [toBarangay, setToBarangay] = React.useState<string>(barangays[0] ? String(barangays[0].id) : "");
   const [remark, setRemark] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [feedError, setFeedError] = React.useState<string | null>(null);
@@ -71,24 +71,25 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
     void loadReturns();
   }, [loadAssets, loadReturns]);
 
+  // the receiving barangay is whatever the header switcher says, never a second control
+  const toBarangay = barangayId ? String(barangayId) : "";
+  const target = barangays.find((b) => b.id === barangayId) ?? null;
+
   async function assign(asset: LguAsset) {
     setBusy(true);
-    setError(null);
     try {
       const res = await call("/lgu/assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lguAssetId: asset.id, toBarangayId: Number(toBarangay), remark }),
       });
-      setNotice(
-        res.lguRecordUpdated
-          ? "Sent to the barangay. The LGU record was marked transferred."
-          : "Sent to the barangay. The LGU register still counts it until their side marks the handoff."
-      );
+      toast.success(target ? "Sent to " + target.code + " " + target.name : "Sent to the barangay", {
+        description: asset.description + (res.lguRecordUpdated ? ". The LGU record is marked transferred." : ". It waits there until they receive it."),
+      });
       setRemark("");
       await Promise.all([loadAssets(), loadReturns()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -96,7 +97,6 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
 
   async function decide(transferId: number, decision: "confirm_return" | "decline_return") {
     setBusy(true);
-    setError(null);
     try {
       const reason = decision === "decline_return" ? window.prompt("Why decline this return?") ?? "" : "";
       if (decision === "decline_return" && !reason.trim()) return;
@@ -105,10 +105,10 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transferId, decision, remark: reason }),
       });
-      setNotice(decision === "confirm_return" ? "Return confirmed." : "Return declined.");
+      toast.success(decision === "confirm_return" ? "Return confirmed" : "Return declined");
       await loadReturns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -116,10 +116,9 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-md border p-3 text-sm">
-        Assets owned by the municipal office that can be handed to a barangay. Sending one moves it to that barangay&apos;s
-        incoming list, where they accept or reject it.
-      </div>
+      <p className="text-sm text-muted-foreground">
+        Municipal assets that can be handed to a barangay. Choose the receiving barangay first, then send a row.
+      </p>
 
       <SubTabs
         value={pane}
@@ -134,13 +133,6 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
         <>
       <div className="flex flex-wrap items-center gap-2">
         <Input className="max-w-sm" placeholder="Search the LGU register" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="h-9 rounded-md border bg-background px-3 text-sm" value={toBarangay} onChange={(e) => setToBarangay(e.target.value)}>
-          {barangays.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.code} {b.name}
-            </option>
-          ))}
-        </select>
         <Input className="max-w-xs" placeholder="Transfer reference or remark" value={remark} onChange={(e) => setRemark(e.target.value)} />
         <Button size="sm" variant="outline" onClick={() => void loadAssets()}>Refresh</Button>
       </div>
@@ -148,7 +140,14 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
       {feedError ? <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{feedError}</div> : null}
 
       <div className="rounded-md border">
-        <div className="border-b bg-muted/40 p-2 text-sm font-medium">LGU assets available</div>
+        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 p-2 text-sm font-medium">
+          LGU assets available
+          {target ? (
+            <Badge variant="secondary" className="font-normal">
+              sending to {target.code} {target.name}, from the picker at the top right
+            </Badge>
+          ) : null}
+        </div>
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-background">
             <tr className="border-b bg-muted/20 text-left">
@@ -169,7 +168,9 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
                 <td className="p-2">{a.acquisitionDate ?? ""}</td>
                 <td className="p-2 text-right">{peso(a.cost)}</td>
                 <td className="p-2 text-right">
-                  <Button size="sm" disabled={busy || !toBarangay} onClick={() => void assign(a)}>Assign to barangay</Button>
+                  <Button size="sm" disabled={busy || !toBarangay} onClick={() => void assign(a)}>
+                    {target ? "Assign to " + target.code : "Assign to barangay"}
+                  </Button>
                 </td>
               </tr>
             ))}

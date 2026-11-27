@@ -1,4 +1,4 @@
-import { enc, get, num, patch, post, text } from "../../shared/api";
+import { enc, forget, get, num, patch, post, text } from "../../shared/api";
 
 /**
  * Section 2 and Table 5 of the guide: the System Admin sets up the barangays, the offices and
@@ -167,6 +167,8 @@ function sameEmail(a: string, b: string): boolean {
  * fetching the candidates and comparing the trimmed values.
  */
 export async function saveRole(input: { email: string; role: string; barangayId: number | null }): Promise<AdminRole> {
+  // the role cache lives for a minute, so a grant lands on the next request after this call
+  forget("roles:");
   const email = text(input.email).trim();
   if (!email) throw new Error("An email is required to assign a role.");
   if (!email.includes("@")) throw new Error("That does not look like an email address: " + email + ".");
@@ -195,6 +197,7 @@ export async function saveRole(input: { email: string; role: string; barangayId:
 export async function deactivateRole(id: number): Promise<void> {
   if (!Number.isFinite(id) || id <= 0) throw new Error("A role row is required to deactivate.");
   await patch("/items/brgy_user_role/" + id, { status: "inactive" });
+  forget("roles:");
 }
 
 /* --------------------------------------------------------------- the reference lists */
@@ -327,6 +330,8 @@ function saved(kind: ReferenceKind, row: Row | null, fallbackId: number | null, 
  * otherwise. Nothing is ever deleted, because the guide keeps history for audit.
  */
 export async function saveReference(input: ReferenceInput): Promise<SavedReference> {
+  // the lists feed every screen, so they cannot outlive a change to them
+  forget("lookups:");
   const kind = readKind(input.kind);
   const id = num(input.id);
   if (input.id !== undefined && input.id !== null && input.id !== "" && !id) {

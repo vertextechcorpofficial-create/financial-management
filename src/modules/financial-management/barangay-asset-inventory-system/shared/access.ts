@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { enc, get } from "./api";
+import { enc, get, memo } from "./api";
 import type { BrgyRole } from "../types";
 
 /**
@@ -14,6 +14,9 @@ import type { BrgyRole } from "../types";
 export type BrgyPermission =
   | "view"
   | "register"
+  // editing and cancelling are their own rights, so a registrar cannot rewrite history
+  | "editRecord"
+  | "cancelRecord"
   | "assign"
   | "condition"
   | "disposeRequest"
@@ -23,14 +26,19 @@ export type BrgyPermission =
   | "users";
 
 const MATRIX: Record<BrgyRole, BrgyPermission[]> = {
-  barangay_admin: ["view", "register", "assign", "condition", "disposeRequest", "disposeApprove", "count", "reports"],
-  property_custodian: ["view", "register", "assign", "condition", "disposeRequest", "count", "reports"],
+  barangay_admin: [
+    "view", "register", "editRecord", "cancelRecord", "assign", "condition", "disposeRequest", "disposeApprove", "count", "reports",
+  ],
+  property_custodian: ["view", "register", "editRecord", "cancelRecord", "assign", "condition", "disposeRequest", "count", "reports"],
+  // the encoder records what exists. Correcting or cancelling a record is the custodian's job
   encoder: ["view", "register", "reports"],
   viewer: ["view", "reports"],
   // Table 5 gives municipal "assign to a barangay only": that path is the LGU console, which uses
   // requireLguStaff, not the barangay custody action. Section 5 forbids editing a barangay's records.
   municipal: ["view", "reports"],
-  system_admin: ["view", "register", "assign", "condition", "disposeRequest", "disposeApprove", "count", "reports", "users"],
+  system_admin: [
+    "view", "register", "editRecord", "cancelRecord", "assign", "condition", "disposeRequest", "disposeApprove", "count", "reports", "users",
+  ],
 };
 
 export interface Access {
@@ -79,10 +87,15 @@ export async function resolveAccess(): Promise<Access> {
     const or: Record<string, unknown>[] = [];
     if (email) or.push({ user_email: { _icontains: email } });
     if (hasNumericId) or.push({ user_id: { _eq: numericId } });
-    const rows = await get<{ user_email: string | null; role: string; barangay_id: number | null }[]>(
-      "/items/brgy_user_role?filter=" + enc({ _and: [{ _or: or }, { status: { _eq: "active" } }] }) +
-        "&fields=user_email,role,barangay_id&limit=20"
-    ).catch(() => []);
+    // 60 seconds: this query runs in front of every request in the module, and a role
+    // change taking a minute to land is a fair trade for removing a hop from all of them
+    const roleKey = "roles:" + (email ?? "id:" + numericId);
+    const rows = await memo<{ user_email: string | null; role: string; barangay_id: number | null }[]>(roleKey, 60_000, () =>
+      get<{ user_email: string | null; role: string; barangay_id: number | null }[]>(
+        "/items/brgy_user_role?filter=" + enc({ _and: [{ _or: or }, { status: { _eq: "active" } }] }) +
+          "&fields=user_email,role,barangay_id&limit=20"
+      ).catch(() => [])
+    );
     const wanted = (email ?? "").toLowerCase();
     const matched = (rows ?? []).filter((r) => (wanted ? (r.user_email ?? "").trim().toLowerCase() === wanted : true));
     const held = matched.map((r) => r.role as BrgyRole).filter((r) => Boolean(MATRIX[r]));

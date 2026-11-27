@@ -1,0 +1,23 @@
+/* Clickable things inside this module show the hand.
+ *
+ * Tailwind 4 leaves buttons and selects with the default arrow, so they read as static
+ * text. The global stylesheet and the shared Button are protected paths (R1), so the rule
+ * lives here, scoped to this module's own container, and cannot leak into anyone else. */
+
+.scope :global(button:not(:disabled)),
+.scope :global([role="button"]:not([aria-disabled="true"])),
+.scope :global(a[href]),
+.scope :global(label[for]),
+.scope :global(summary),
+.scope :global(select:not(:disabled)),
+.scope :global(input[type="checkbox"]:not(:disabled)),
+.scope :global([role="tab"]:not([aria-disabled="true"])) {
+  cursor: pointer;
+}
+
+.scope :global(button:disabled),
+.scope :global([aria-disabled="true"]),
+.scope :global(select:disabled),
+.scope :global(input:disabled) {
+  cursor: not-allowed;
+}

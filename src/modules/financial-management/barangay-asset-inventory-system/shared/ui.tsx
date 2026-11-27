@@ -6,6 +6,8 @@ import type { Brgy, BrgyClassification, BrgyCustodian, BrgyItemType, BrgyOffice,
 export const API = "/api/fm/barangay-asset-inventory-system";
 
 export const peso = (n: number) => "PHP " + n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Dense tables drop the currency word, which costs four characters in every numeric column. */
+export const money = (n: number) => n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 import { officeDate } from "./dates";
 
 export { officeDate };

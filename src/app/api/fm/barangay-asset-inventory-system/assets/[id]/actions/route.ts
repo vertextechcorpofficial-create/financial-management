@@ -22,10 +22,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const body = await req.json();
     const access = await resolveAccess();
     const detail = await fetchAsset(assetId);
-    const isEdit = body?.action === "cancel" || body?.action === "update";
-    requireBarangayScope(access, detail.asset.barangay_id, isEdit ? "register" : "assign");
+    const isCancel = body?.action === "cancel";
+    const isEdit = isCancel || body?.action === "update";
+    requireBarangayScope(access, detail.asset.barangay_id, isCancel ? "cancelRecord" : isEdit ? "editRecord" : "assign");
 
-    if (isEdit) requirePermission(access, "register", "edit a record");
+    // recording an asset, correcting one and erasing one from the working list are three rights
+    if (isCancel) requirePermission(access, "cancelRecord", "cancel a record");
+    else if (isEdit) requirePermission(access, "editRecord", "edit a record");
     else requirePermission(access, "assign", "change an assignment, condition or status");
 
     switch (body?.action) {

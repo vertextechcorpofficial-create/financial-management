@@ -1,4 +1,4 @@
-import { bool, enc, get, list, num, patch, post, text } from "../../shared/api";
+import { bool, enc, forget, get, list, memo, num, patch, post, text } from "../../shared/api";
 import { officeDate } from "../../shared/dates";
 import type {
   Brgy,
@@ -58,6 +58,12 @@ export interface BrgyLookups {
 }
 
 export async function fetchLookups(barangayId?: number | null): Promise<BrgyLookups> {
+  // five minutes: barangays, classifications, item types, offices, custodians and settings are
+  // edited from two screens behind the System Admin, and every screen needs them to show a name
+  return memo<BrgyLookups>("lookups:" + (barangayId ?? "all"), 5 * 60_000, () => loadLookups(barangayId));
+}
+
+async function loadLookups(barangayId?: number | null): Promise<BrgyLookups> {
   const officeFilter = barangayId ? "&filter=" + enc({ barangay_id: { _eq: barangayId } }) : "";
   const custodianFilter = officeFilter;
   const [barangays, classifications, itemTypes, offices, custodians, settings] = await Promise.all([
@@ -99,6 +105,8 @@ export interface AssetListResult {
   total: number;
   asOf: string;
   salvagePercent: number;
+  /** how many assets sit in each status, so the toolbar needs no second request */
+  statusCounts: Record<string, number>;
 }
 
 export async function listAssets(params: {
@@ -137,13 +145,30 @@ export async function listAssets(params: {
   );
   const rows = pageResult.data;
   const total = pageResult.count;
-  const lookups = await fetchLookups(params.barangayId);
+  const [lookups, statusCounts] = await Promise.all([
+    fetchLookups(params.barangayId),
+    statusTotals(params.barangayId),
+  ]);
   return {
     assets: rows.map(mapAsset),
     total,
     asOf: officeDate(),
     salvagePercent: lookups.settings?.salvage_percent ?? 0,
+    statusCounts,
   };
+}
+
+/** One aggregate for the whole barangay, remembered for half a minute: it changes only on a write. */
+async function statusTotals(barangayId: number): Promise<Record<string, number>> {
+  return memo<Record<string, number>>("statusCounts:" + barangayId, 30_000, async () => {
+    const res = await list<{ status?: string; count?: { id?: number | string } }>(
+      "/items/brgy_asset?filter=" + enc({ _and: [{ barangay_id: { _eq: barangayId } }, { cancelled: { _eq: false } }] }) +
+        "&groupBy[]=status&aggregate[count]=id&limit=-1"
+    );
+    const counts: Record<string, number> = {};
+    for (const row of res.data) counts[text(row.status) || "unknown"] = Number(row.count?.id ?? 0);
+    return counts;
+  });
 }
 
 /** Section 4.1: item names are picked from existing choices first. */
@@ -432,6 +457,9 @@ export async function recordHistory(
   actor: string | null,
   remarks?: string | null
 ): Promise<void> {
+  // every mutation passes through here, so both remembered reads are dropped exactly here
+  forget("countAssets:");
+  forget("statusCounts:");
   await post("/items/brgy_asset_history", {
     asset_id: assetId,
     action,
@@ -592,6 +620,8 @@ export async function updateSettings(input: {
   };
   if (rows?.length) await patch("/items/brgy_settings/" + rows[0].id, body);
   else await post("/items/brgy_settings", body);
+  // the saved rates must be the ones the next screen reads back
+  forget("lookups:");
   const lookups = await fetchLookups();
   return lookups.settings as BrgySettings;
 }

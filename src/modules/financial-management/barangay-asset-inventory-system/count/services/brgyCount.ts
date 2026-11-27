@@ -1,4 +1,4 @@
-import { enc, get, list, num, patch, post, text } from "../../shared/api";
+import { enc, get, list, memo, num, patch, post, text } from "../../shared/api";
 import { mapAsset } from "../../assets/services/brgyAssets";
 import type { BrgyAsset, BrgyCondition, BrgyCount, BrgyCountLine } from "../../types";
 
@@ -28,10 +28,20 @@ export async function listCounts(barangayId: number): Promise<BrgyCount[]> {
   return res.data.map(mapCount);
 }
 
-/** Section 4.7: only one count can be open per barangay at a time. */
+/** Section 4.7: only one count can be open per barangay at a time, and a year is counted once. */
 export async function openCount(input: { barangayId: number; year: number; actor?: string | null; remarks?: string | null }): Promise<BrgyCount> {
   const open = await list<Row>("/items/brgy_count?filter=" + enc({ _and: [{ barangay_id: { _eq: input.barangayId } }, { status: { _eq: "open" } }] }) + "&limit=1");
   if (open.data.length) throw new Error("A count for this barangay is already open. Close it before opening a new one.");
+  // rule 94: a closed count is final, so the year itself is used up, not only the open slot
+  const sameYear = await list<Row>(
+    "/items/brgy_count?filter=" + enc({ _and: [{ barangay_id: { _eq: input.barangayId } }, { year: { _eq: input.year } }] }) + "&limit=1"
+  );
+  if (sameYear.data.length) {
+    const existing = mapCount(sameYear.data[0]);
+    throw new Error(
+      "This barangay already has a " + existing.status + " count for " + input.year + ". A year is counted once, and a closed count cannot be changed."
+    );
+  }
   const created = await post<Row>("/items/brgy_count", {
     barangay_id: input.barangayId,
     year: input.year,
@@ -50,17 +60,26 @@ export interface CountDetail {
   closed: boolean;
 }
 
+/** One row, for the guard in front of an action. It never loads a sheet. */
+export async function fetchCountHeader(countId: number): Promise<BrgyCount> {
+  const rows = await get<Row[]>("/items/brgy_count?filter=" + enc({ id: { _eq: countId } }) + "&limit=1&fields=id,barangay_id,year,status,opened_by,closed_by,remarks");
+  if (!rows?.length) throw new Error("Count " + countId + " not found");
+  return mapCount(rows[0]);
+}
+
 export async function fetchCount(countId: number): Promise<CountDetail> {
-  const countRows = await get<Row[]>("/items/brgy_count?filter=" + enc({ id: { _eq: countId } }) + "&limit=1");
-  if (!countRows?.length) throw new Error("Count " + countId + " not found");
-  const count = mapCount(countRows[0]);
+  const count = await fetchCountHeader(countId);
 
   const [lineRows, assetRows] = await Promise.all([
     list<Row>("/items/brgy_count_line?filter=" + enc({ count_id: { _eq: countId } }) + "&sort=id&limit=-1"),
-    list<Row>(
-      "/items/brgy_asset?filter=" +
-        enc({ _and: [{ barangay_id: { _eq: count.barangay_id } }, { cancelled: { _eq: false } }, { is_draft: { _eq: false } }] }) +
-        "&sort=asset_code&limit=-1&fields=id,asset_code,barangay_id,owner_type,name,classification_id,item_type_id,barcode,tag_no,security_tag,serial_no,office_id,custodian_id,date_acquired,cost,quantity,life_span_years,condition,status,photo,remarks,is_draft,cancelled,cancel_reason,source,created_by"
+    // the barangay's asset list does not change while a sheet is being worked on, so it is
+    // remembered for 30 seconds: that is what turns one full sheet load per mark into none
+    memo<{ data: Row[]; count: number }>("countAssets:" + count.barangay_id, 30_000, () =>
+      list<Row>(
+        "/items/brgy_asset?filter=" +
+          enc({ _and: [{ barangay_id: { _eq: count.barangay_id } }, { cancelled: { _eq: false } }, { is_draft: { _eq: false } }] }) +
+          "&sort=asset_code&limit=-1&fields=id,asset_code,barangay_id,owner_type,name,classification_id,item_type_id,barcode,tag_no,security_tag,serial_no,office_id,custodian_id,date_acquired,cost,quantity,life_span_years,condition,status,photo,remarks,is_draft,cancelled,cancel_reason,source,created_by"
+      )
     ),
   ]);
 
@@ -97,10 +116,14 @@ export async function markCountLine(input: {
   remarks?: string | null;
   actor?: string | null;
 }): Promise<CountDetail> {
-  const detail = await fetchCount(input.countId);
-  if (detail.closed) throw new Error("This count is closed and can no longer be edited.");
+  const header = await fetchCountHeader(input.countId);
+  if (header.status === "closed") throw new Error("This count is closed and can no longer be edited.");
 
-  const existing = detail.lines.find((l) => l.asset_id === input.assetId);
+  // only the line being marked is read here, not the whole sheet
+  const lineRows = await list<Row>(
+    "/items/brgy_count_line?filter=" + enc({ _and: [{ count_id: { _eq: input.countId } }, { asset_id: { _eq: input.assetId } }] }) + "&limit=1"
+  );
+  const existing = lineRows.data.length ? mapLine(lineRows.data[0]) : null;
   const body = {
     count_id: input.countId,
     asset_id: input.assetId,
@@ -123,8 +146,8 @@ export async function markUnrecorded(input: {
   remarks?: string | null;
   actor?: string | null;
 }): Promise<CountDetail> {
-  const detail = await fetchCount(input.countId);
-  if (detail.closed) throw new Error("This count is closed and can no longer be edited.");
+  const header = await fetchCountHeader(input.countId);
+  if (header.status === "closed") throw new Error("This count is closed and can no longer be edited.");
   if (!input.name || !input.name.trim()) throw new Error("Name the item that was found but is not on the list");
   await post("/items/brgy_count_line", {
     count_id: input.countId,

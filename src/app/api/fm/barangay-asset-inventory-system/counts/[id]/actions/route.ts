@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { closeCount, fetchCount, markCountLine, markUnrecorded } from "@/modules/financial-management/barangay-asset-inventory-system/count/services/brgyCount";
+import { closeCount, fetchCountHeader, markCountLine, markUnrecorded } from "@/modules/financial-management/barangay-asset-inventory-system/count/services/brgyCount";
 import type { BrgyCondition } from "@/modules/financial-management/barangay-asset-inventory-system/types";
 
 import { requireBarangayScope, requirePermission, resolveAccess, AccessError } from "@/modules/financial-management/barangay-asset-inventory-system/shared/access";
@@ -13,8 +13,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const countId = Number(id);
     const body = await req.json();
     const access = await resolveAccess();
-    const existing = await fetchCount(countId);
-    requireBarangayScope(access, existing.count.barangay_id, "count");
+    const existing = await fetchCountHeader(countId);
+    requireBarangayScope(access, existing.barangay_id, "count");
     requirePermission(access, "count", "work on a count");
     switch (body?.action) {
       case "mark":

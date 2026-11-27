@@ -147,7 +147,7 @@ function AccountsCard({ setNotice, setError }: { setNotice: (v: string | null) =
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Input className="max-w-xs" placeholder="Filter by name or email" value={query} onChange={(e) => setQuery(e.target.value)} />
         <select
-          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
         >
@@ -215,7 +215,7 @@ function AccountsCard({ setNotice, setError }: { setNotice: (v: string | null) =
                   </td>
                   <td className="p-2">
                     <select
-                      className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                       value={drafts[account.email] ?? ""}
                       onChange={(e) => setDrafts({ ...drafts, [account.email]: e.target.value })}
                     >
@@ -318,7 +318,7 @@ function ListCard({
               <span className="text-muted-foreground">{column.label}</span>
               {column.kind === "select" ? (
                 <select
-                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  className="cursor-pointer h-9 w-full rounded-md border bg-background px-2 text-sm"
                   value={valueOf(fresh, column.field)}
                   onChange={(e) => setFresh({ ...fresh, [column.field]: e.target.value })}
                 >
@@ -365,7 +365,7 @@ function ListCard({
                     <td key={column.field} className="p-2 align-top">
                       {column.kind === "select" ? (
                         <select
-                          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                          className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                           value={valueOf(values, column.field)}
                           onChange={(e) => setEdits({ ...edits, [row.id]: { ...(edits[row.id] ?? {}), [column.field]: e.target.value } })}
                         >

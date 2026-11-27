@@ -45,6 +45,37 @@ export async function list<T>(path: string): Promise<{ data: T[]; count: number 
   return { data, count: Number(body?.meta?.filter_count ?? data.length) };
 }
 
+/* ------------------------------------------------------------------- cache
+
+   Measured cost in this module is round trips, not rows, so anything that is read
+   far more often than it is written is remembered for a short while. Times are
+   short on purpose: a stale minute is acceptable, a stale hour is not. */
+
+interface MemoEntry {
+  at: number;
+  value: unknown;
+}
+
+const memoStore = new Map<string, MemoEntry>();
+
+export async function memo<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const hit = memoStore.get(key);
+  if (hit && now - hit.at < ttlMs) return hit.value as T;
+  const value = await load();
+  memoStore.set(key, { at: now, value });
+  // keep the map bounded, so a long lived process cannot accumulate keys
+  if (memoStore.size > 400) {
+    for (const [k, entry] of memoStore) if (now - entry.at > ttlMs) memoStore.delete(k);
+  }
+  return value;
+}
+
+/** A write that changes what a cached read would return calls this. */
+export function forget(prefix: string): void {
+  for (const key of [...memoStore.keys()]) if (key.startsWith(prefix)) memoStore.delete(key);
+}
+
 export function text(v: unknown): string {
   return typeof v === "string" ? v : "";
 }

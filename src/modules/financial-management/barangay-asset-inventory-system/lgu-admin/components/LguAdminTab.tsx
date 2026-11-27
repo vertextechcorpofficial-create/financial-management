@@ -140,7 +140,7 @@ function ReferenceCard({
               <Field label={column.label}>
                 {column.kind === "select" ? (
                   <select
-                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    className="cursor-pointer h-9 w-full rounded-md border bg-background px-2 text-sm"
                     value={valueOf(fresh, column.field)}
                     onChange={(e) => setFresh({ ...fresh, [column.field]: e.target.value })}
                   >
@@ -188,7 +188,7 @@ function ReferenceCard({
                     <td key={column.field} className="p-2 align-top">
                       {column.kind === "select" ? (
                         <select
-                          className="h-9 rounded-md border bg-background px-2 text-sm"
+                          className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm"
                           value={valueOf(values, column.field)}
                           disabled={!canEdit}
                           onChange={(e) => setEdit(row.id, column.field, e.target.value)}

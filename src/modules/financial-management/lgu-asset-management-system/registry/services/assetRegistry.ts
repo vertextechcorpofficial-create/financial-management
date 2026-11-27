@@ -9,6 +9,7 @@ import type {
   RegistryLookups,
 } from "../../types";
 import { ASSET_SORT_FIELDS, computeResidual, isSemiExpendable, splitBatchTotal } from "../../types";
+import { forget, memo } from "../../shared/cache";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 const TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -97,6 +98,12 @@ async function directusGet(path: string): Promise<unknown> {
 }
 
 export async function fetchLookups(): Promise<RegistryLookups> {
+  // five minutes: classes, offices, fund sources and conditions are edited from the admin
+  // screen only, and every screen needs them to show a name instead of an id
+  return memo<RegistryLookups>("lgu:lookups", 5 * 60_000, loadLookups);
+}
+
+async function loadLookups(): Promise<RegistryLookups> {
   const active = JSON.stringify({ status: { _eq: "active" } });
   const q = "?filter=" + encodeURIComponent(active) + "&sort=sort&limit=-1";
 
@@ -197,9 +204,11 @@ export async function listAssets(
   const json = (await directusGet(path)) as { data: Record<string, unknown>[]; meta?: { filter_count?: number } };
 
   // what the whole register holds, not just the filtered page, so a disposal is visible
-  const countsJson = (await directusGet(
-    "/items/lgu_asset?groupBy[]=record_status&aggregate[count]=id&limit=-1"
-  )) as { data?: { record_status?: string; count?: { id?: number | string } }[] };
+  const countsJson = await memo<{ data?: { record_status?: string; count?: { id?: number | string } }[] }>(
+    "lgu:statusCounts",
+    30_000,
+    () => directusGet("/items/lgu_asset?groupBy[]=record_status&aggregate[count]=id&limit=-1") as Promise<{ data?: { record_status?: string; count?: { id?: number | string } }[] }>
+  );
   const statusCounts: RegistryStatusCounts = {};
   let all = 0;
   for (const row of countsJson.data ?? []) {
@@ -273,6 +282,7 @@ function serializeInput(input: LguAssetInput): Record<string, unknown> {
 }
 
 export async function createAsset(input: LguAssetInput): Promise<LguAsset> {
+  forget("lgu:statusCounts");
   const payload = serializeInput(input);
 
   // A supplied number is a legacy paper number and must pass through untouched.
@@ -415,6 +425,7 @@ export async function getAsset(id: number): Promise<LguAsset | null> {
 }
 
 export async function updateAsset(id: number, input: Partial<LguAssetInput>): Promise<LguAsset> {
+  forget("lgu:statusCounts");
   const patch: Record<string, unknown> = {};
   const keys: (keyof LguAssetInput)[] = [
     "description", "class_id", "cost", "acquisition_date", "available_for_use_date",
@@ -446,6 +457,7 @@ export async function updateAsset(id: number, input: Partial<LguAssetInput>): Pr
 
 /** Soft retire. Nothing is ever hard deleted from a PPE register. */
 export async function retireAsset(id: number): Promise<LguAsset> {
+  forget("lgu:statusCounts");
   const res = await fetch(itemsUrl("lgu_asset") + "/" + id, {
     method: "PATCH",
     headers: headers(),

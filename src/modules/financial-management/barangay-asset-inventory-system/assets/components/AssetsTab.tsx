@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import type { BrgyAsset, BrgyCondition, BrgyHistoryEntry, BrgySettings, BrgyStatus } from "../../types";
 import { BRGY_CONDITIONS, BRGY_STATUSES, projectedTotal, projectedValue } from "../../types";
-import { call, Field, peso, today, type Lookups } from "../../shared/ui";
+import { call, Field, money, peso, today, type Lookups } from "../../shared/ui";
 import { printAssetLabel } from "../../shared/brgyLabel";
 import { Pager } from "../../shared/Pager";
 
@@ -41,6 +41,8 @@ export function AssetsTab({
   const [total, setTotal] = React.useState(0);
   const [q, setQ] = React.useState("");
   const [status, setStatus] = React.useState("all");
+  // how many assets need attention, shown as a filter chip so it stays readable at any number
+  const [missing, setMissing] = React.useState(0);
   const [condition, setCondition] = React.useState("all");
   const [loading, setLoading] = React.useState(false);
   const [page, setPage] = React.useState(1);
@@ -65,6 +67,8 @@ export function AssetsTab({
       const data = await call("/assets?" + params);
       setRows(data.assets ?? []);
       setTotal(data.total ?? 0);
+      // the response carries the status totals, so the Missing chip costs nothing extra
+      setMissing(Number(data.statusCounts?.Missing ?? 0));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -97,26 +101,47 @@ export function AssetsTab({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, code, barcode, serial..." className="w-full max-w-sm" />
-        <select className="h-9 rounded-md border bg-background px-3 text-sm" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <select className="cursor-pointer h-9 rounded-md border bg-background px-3 text-sm" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="all">Any status</option>
           {BRGY_STATUSES.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
-        <select className="h-9 rounded-md border bg-background px-3 text-sm" value={condition} onChange={(e) => setCondition(e.target.value)}>
+        <select className="cursor-pointer h-9 rounded-md border bg-background px-3 text-sm" value={condition} onChange={(e) => setCondition(e.target.value)}>
           <option value="all">Any condition</option>
           {BRGY_CONDITIONS.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
         <Badge variant="secondary">{total} on record</Badge>
+        {missing > 0 ? (
+          <button
+            type="button"
+            aria-pressed={status === "Missing"}
+            onClick={() => {
+              setStatus(status === "Missing" ? "all" : "Missing");
+              setPage(1);
+            }}
+            className={
+              "inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 " +
+              (status === "Missing"
+                ? "border-amber-500 bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                : "border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300")
+            }
+            title="Show only the assets marked Missing"
+          >
+            Missing
+            <span className="tabular-nums">{missing}</span>
+          </button>
+        ) : null}
         <div className="ml-auto">
           {allow("register") ? <Button onClick={() => setAddOpen(true)}>Add asset</Button> : null}
         </div>
       </div>
 
       <div className="rounded-md border">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[70rem] text-sm">
           <thead className="sticky top-0 z-10 bg-background">
             <tr className="border-b bg-muted/40 text-left">
               <th className="p-2">Code</th>
@@ -126,26 +151,30 @@ export function AssetsTab({
               <th className="p-2">Custodian</th>
               <th className="p-2">Condition</th>
               <th className="p-2">Status</th>
-              <th className="p-2 text-right">Cost</th>
-              <th className="p-2 text-right">Projected</th>
-              <th className="p-2 text-right">Total</th>
-              <th className="p-2" />
+              <th className="whitespace-nowrap p-2 text-right">Cost</th>
+              <th className="whitespace-nowrap p-2 text-right">Projected</th>
+              <th className="whitespace-nowrap p-2 text-right">Total</th>
+              <th className="sticky right-0 z-10 w-24 bg-muted/40 p-2 text-right">Action</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((a) => (
               <tr key={a.id} className="border-b last:border-0">
                 <td className="p-2 font-mono text-xs">{a.asset_code}</td>
-                <td className="p-2">{a.name}{a.is_draft ? <Badge variant="outline" className="ml-2">draft</Badge> : null}</td>
+                <td className="max-w-[20rem] truncate p-2" title={a.name}>{a.name}{a.is_draft ? <Badge variant="outline" className="ml-2">draft</Badge> : null}</td>
                 <td className="p-2">{itemTypeName(a.item_type_id)}</td>
                 <td className="p-2">{officeName(a.office_id)}</td>
                 <td className="p-2">{custodianName(a.custodian_id)}</td>
                 <td className="p-2">{a.condition}</td>
                 <td className="p-2"><Badge variant="outline">{a.status}</Badge></td>
-                <td className="p-2 text-right">{peso(a.cost)}</td>
-                <td className="p-2 text-right">{peso(projectedValue(a, today(), salvage))}</td>
-                <td className="p-2 text-right">{peso(projectedTotal(a, today(), salvage))}</td>
-                <td className="p-2 text-right">
+                <td className="whitespace-nowrap p-2 text-right tabular-nums" title={peso(a.cost)}>{money(a.cost)}</td>
+                <td className="whitespace-nowrap p-2 text-right tabular-nums" title={peso(projectedValue(a, today(), salvage))}>
+                  {money(projectedValue(a, today(), salvage))}
+                </td>
+                <td className="whitespace-nowrap p-2 text-right tabular-nums" title={peso(projectedTotal(a, today(), salvage))}>
+                  {money(projectedTotal(a, today(), salvage))}
+                </td>
+                <td className="sticky right-0 z-10 w-24 bg-background p-2 text-right">
                   <Button size="sm" variant="ghost" onClick={() => void openDetail(a)}>Open</Button>
                 </td>
               </tr>
@@ -159,6 +188,7 @@ export function AssetsTab({
             ) : null}
           </tbody>
         </table>
+        </div>
       </div>
 
       <Pager page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} />
@@ -391,7 +421,7 @@ function AddAssetDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Classification">
               <select
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm"
                 value={form.classificationId}
                 onChange={(e) => {
                   const life = lifeFor(e.target.value);
@@ -407,7 +437,7 @@ function AddAssetDialog({
             </Field>
             <Field label="Item type">
               <select
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm"
                 value={form.itemTypeId}
                 onChange={(e) => setForm({ ...form, itemTypeId: e.target.value })}
               >
@@ -422,7 +452,7 @@ function AddAssetDialog({
             </Field>
             <Field label="Condition">
               <select
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm"
                 value={form.condition}
                 onChange={(e) => setForm({ ...form, condition: e.target.value as BrgyCondition })}
               >
@@ -432,7 +462,7 @@ function AddAssetDialog({
               </select>
             </Field>
             <Field label="Office">
-              <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={form.officeId} onChange={(e) => setForm({ ...form, officeId: e.target.value })}>
+              <select className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm" value={form.officeId} onChange={(e) => setForm({ ...form, officeId: e.target.value })}>
                 <option value="">None</option>
                 {lookups.offices.map((o) => (
                   <option key={o.id} value={o.id}>{o.name}</option>
@@ -440,7 +470,7 @@ function AddAssetDialog({
               </select>
             </Field>
             <Field label="Custodian">
-              <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={form.custodianId} onChange={(e) => setForm({ ...form, custodianId: e.target.value })}>
+              <select className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm" value={form.custodianId} onChange={(e) => setForm({ ...form, custodianId: e.target.value })}>
                 <option value="">Unassigned</option>
                 {lookups.custodians.map((c) => (
                   <option key={c.id} value={c.id}>{c.full_name}</option>
@@ -562,7 +592,7 @@ function AssetDetailDialog({
 
         <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-6 py-2">
           <div className="flex flex-wrap gap-2">
-            {allow("register") ? (
+            {allow("editRecord") ? (
               <Button size="sm" variant="outline" onClick={() => onEdit(asset)}>
                 Edit
               </Button>
@@ -594,7 +624,7 @@ function AssetDetailDialog({
             >
               Print label
             </Button>
-            {allow("register") ? (
+            {allow("cancelRecord") ? (
               <Button size="sm" variant="ghost" onClick={() => setAction("cancel")}>
                 Cancel record
               </Button>
@@ -604,7 +634,7 @@ function AssetDetailDialog({
           {action === "assign" ? (
             <div className="grid gap-2 rounded-md border p-3">
               <Field label="Custodian">
-                <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={custodianId} onChange={(e) => setCustodianId(e.target.value)}>
+                <select className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm" value={custodianId} onChange={(e) => setCustodianId(e.target.value)}>
                   <option value="">Choose one</option>
                   {lookups.custodians.map((c) => (
                     <option key={c.id} value={c.id}>{c.full_name}</option>
@@ -612,7 +642,7 @@ function AssetDetailDialog({
                 </select>
               </Field>
               <Field label="Office">
-                <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={officeId} onChange={(e) => setOfficeId(e.target.value)}>
+                <select className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm" value={officeId} onChange={(e) => setOfficeId(e.target.value)}>
                   <option value="">None</option>
                   {lookups.offices.map((o) => (
                     <option key={o.id} value={o.id}>{o.name}</option>
@@ -632,7 +662,7 @@ function AssetDetailDialog({
           {action === "condition" ? (
             <div className="grid gap-2 rounded-md border p-3">
               <Field label="New condition">
-                <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={condition} onChange={(e) => setCondition(e.target.value as BrgyCondition)}>
+                <select className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm" value={condition} onChange={(e) => setCondition(e.target.value as BrgyCondition)}>
                   {BRGY_CONDITIONS.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
@@ -663,7 +693,7 @@ function AssetDetailDialog({
           {action === "status" ? (
             <div className="grid gap-2 rounded-md border p-3">
               <Field label="New status">
-                <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={toStatus} onChange={(e) => setToStatus(e.target.value as BrgyStatus)}>
+                <select className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm" value={toStatus} onChange={(e) => setToStatus(e.target.value as BrgyStatus)}>
                   {BRGY_STATUSES.map((s) => (
                     <option key={s} value={s}>{s}</option>
                   ))}
@@ -677,7 +707,7 @@ function AssetDetailDialog({
               {toStatus === "Active" ? (
                 <Field label="Condition after the repair">
                   <select
-                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    className="cursor-pointer h-9 w-full rounded-md border bg-background px-3 text-sm"
                     value={repairCondition}
                     onChange={(e) => setRepairCondition(e.target.value as BrgyCondition)}
                   >

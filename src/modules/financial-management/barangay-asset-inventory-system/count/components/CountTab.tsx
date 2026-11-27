@@ -13,11 +13,14 @@ import { officeYear } from "../../shared/dates";
 export function CountTab({
   barangayId,
   lookups,
+  canCount,
   setError,
   setNotice,
 }: {
   barangayId: number;
   lookups?: { barangays: Brgy[] };
+  /** the sheet is readable by every role, marking and closing need the count right */
+  canCount: boolean;
   setError: (v: string | null) => void;
   setNotice: (v: string | null) => void;
 }) {
@@ -109,20 +112,24 @@ export function CountTab({
             {openCount ? ", and " + openCount.year + " is still open" : ""}.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setDialogError(null);
-            setNewYear(freeYears[0] ?? String(officeYear()));
-            setDialogOpen(true);
-          }}
-        >
-          Open a new count
-        </Button>
+        {canCount ? (
+          <Button
+            onClick={() => {
+              setDialogError(null);
+              setNewYear(freeYears[0] ?? String(officeYear()));
+              setDialogOpen(true);
+            }}
+          >
+            Open a new count
+          </Button>
+        ) : (
+          <span className="self-center text-xs text-muted-foreground">Read only for your role</span>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <select
-          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           value={yearFilter}
           onChange={(e) => setYearFilter(e.target.value)}
         >
@@ -134,7 +141,7 @@ export function CountTab({
           ))}
         </select>
         <select
-          className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
         >
@@ -164,7 +171,7 @@ export function CountTab({
             <label className="grid gap-1 text-sm">
               <span className="text-muted-foreground">Year to count</span>
               <select
-                className="h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className="cursor-pointer h-9 rounded-md border bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 value={newYear}
                 onChange={(e) => setNewYear(e.target.value)}
               >
@@ -256,12 +263,26 @@ export function CountTab({
         </table>
       </div>
 
-      {openId ? <CountSheet countId={openId} onClose={() => setOpenId(null)} setError={setError} onChanged={load} /> : null}
+      {openId ? (
+        <CountSheet countId={openId} canCount={canCount} onClose={() => setOpenId(null)} setError={setError} onChanged={load} />
+      ) : null}
     </div>
   );
 }
 
-function CountSheet({ countId, onClose, setError, onChanged }: { countId: number; onClose: () => void; setError: (v: string | null) => void; onChanged: () => Promise<void> | void }) {
+function CountSheet({
+  countId,
+  canCount,
+  onClose,
+  setError,
+  onChanged,
+}: {
+  countId: number;
+  canCount: boolean;
+  onClose: () => void;
+  setError: (v: string | null) => void;
+  onChanged: () => Promise<void> | void;
+}) {
   const [detail, setDetail] = React.useState<{
     count: BrgyCount;
     expected: { line: { asset_id: number | null; result: string; condition: BrgyCondition | null }; asset: BrgyAsset | null }[];
@@ -307,13 +328,13 @@ function CountSheet({ countId, onClose, setError, onChanged }: { countId: number
   async function act(body: Record<string, unknown>) {
     try {
       setError(null);
-      await call("/counts/" + countId + "/actions", {
+      const updated = await call("/counts/" + countId + "/actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      // the action returns one line, not the sheet: reload so the summary and the rows agree
-      await load();
+      // the action returns the whole sheet already, so rendering it beats fetching it again
+      if (updated && updated.count) setDetail(updated);
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -330,8 +351,12 @@ function CountSheet({ countId, onClose, setError, onChanged }: { countId: number
           {detail.summary.pending} pending | {detail.summary.notYetRecorded} not yet recorded
         </div>
         <div className="flex items-center gap-2">
-          {detail.closed ? <Badge variant="outline">closed</Badge> : (
+          {detail.closed ? (
+            <Badge variant="outline">closed</Badge>
+          ) : canCount ? (
             <Button size="sm" onClick={() => void act({ action: "close" })}>Close count</Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">Read only for your role</span>
           )}
           <Button size="sm" variant="ghost" onClick={onClose}>Hide</Button>
         </div>
@@ -385,8 +410,8 @@ function CountSheet({ countId, onClose, setError, onChanged }: { countId: number
                 <td className="p-2 text-right">
                   {detail.closed ? null : (
                     <span className="flex justify-end gap-1">
-                      <Button size="sm" variant="outline" disabled={!asset} onClick={() => asset && void act({ action: "mark", assetId: asset.id, result: "found" })}>Found</Button>
-                      <Button size="sm" variant="ghost" disabled={!asset} onClick={() => asset && void act({ action: "mark", assetId: asset.id, result: "not_found" })}>Not found</Button>
+                      <Button size="sm" variant="outline" disabled={!asset || !canCount} onClick={() => asset && canCount && void act({ action: "mark", assetId: asset.id, result: "found" })}>Found</Button>
+                      <Button size="sm" variant="ghost" disabled={!asset || !canCount} onClick={() => asset && canCount && void act({ action: "mark", assetId: asset.id, result: "not_found" })}>Not found</Button>
                     </span>
                   )}
                 </td>

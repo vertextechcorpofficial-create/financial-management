@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { ArrowRight, Boxes, CheckCircle2, FolderTree, Globe, Server } from "lucide-react";
+import styles from "./shared/affordance.module.css";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -90,7 +91,7 @@ const UPCOMING: FeatureLink[] = [
 
 export default function LguAssetManagementModule() {
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className={styles.scope + " flex flex-col gap-6 p-6"}>
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-xl border bg-muted">

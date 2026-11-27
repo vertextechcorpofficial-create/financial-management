@@ -12,10 +12,12 @@ export function CustodyTab(props: {
   barangayId: number;
   lookups: Lookups;
   settings: BrgySettings | null;
+  /** reading custody is for everyone, moving an asset to another person is not */
+  canAssign: boolean;
   setError: (v: string | null) => void;
   setNotice: (v: string | null) => void;
 }) {
-  const { barangayId, lookups, settings, setError } = props;
+  const { barangayId, lookups, settings, canAssign, setError } = props;
   const [rows, setRows] = React.useState<BrgyAsset[]>([]);
   const [busy, setBusy] = React.useState(false);
 
@@ -84,7 +86,11 @@ export function CustodyTab(props: {
                   <td className="p-2">{a.status}</td>
                   <td className="p-2 text-right">{peso(projectedTotal(a, today(), salvage))}</td>
                   <td className="p-2 text-right">
-                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => void reassign(a.id)}>Reassign</Button>
+                    {canAssign ? (
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void reassign(a.id)}>Reassign</Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Read only</span>
+                    )}
                   </td>
                 </tr>
               ))}

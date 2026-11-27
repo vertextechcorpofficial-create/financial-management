@@ -76,7 +76,7 @@ export function ReportsTab({ barangayId, setError }: { barangayId: number; setEr
           </Button>
         ))}
         {kind === "count" ? (
-          <select className="h-9 rounded-md border bg-background px-3 text-sm" value={countId} onChange={(e) => setCountId(e.target.value)}>
+          <select className="cursor-pointer h-9 rounded-md border bg-background px-3 text-sm" value={countId} onChange={(e) => setCountId(e.target.value)}>
             {counts.length === 0 ? <option value="">No count yet</option> : null}
             {counts.map((c) => (
               <option key={c.id} value={c.id}>
