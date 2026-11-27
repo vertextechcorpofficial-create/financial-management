@@ -24,7 +24,7 @@ type Props = {
   asset: UndepositedAsset | null;
   selected: boolean;
   onOpenChange: (open: boolean) => void;
-  onToggle: (id: number) => void;
+  onToggle: (key: string) => void;
 };
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
@@ -95,6 +95,7 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
                   {asset.collectionDate ? toPhtDateString(asset.collectionDate) : "—"}
                 </Detail>
                 <Detail label="Customer">{asset.customer ?? "—"}</Detail>
+                {asset.invoiceNo ? <Detail label="Invoice no.">{asset.invoiceNo}</Detail> : null}
                 {asset.collectionReference && asset.collectionReference !== asset.documentNumber ? (
                   <Detail label="Source">{asset.collectionReference}</Detail>
                 ) : null}
@@ -135,7 +136,7 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
                 variant={selected ? "outline" : "default"}
                 disabled={blockReason !== null && !selected}
                 title={blockReason ?? undefined}
-                onClick={() => onToggle(asset.collectionInvoiceId)}
+                onClick={() => onToggle(asset.rowKey)}
               >
                 {selected ? "Remove from slip" : "Add to slip"}
               </Button>
