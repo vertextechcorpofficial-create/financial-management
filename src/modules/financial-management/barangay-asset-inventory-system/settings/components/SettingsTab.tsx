@@ -3,17 +3,7 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type {
-  Brgy,
-  BrgyAsset,
-  BrgyCondition,
-  BrgyCount,
-  BrgyDisposal,
-  BrgyHistoryEntry,
-  BrgySettings,
-  BrgyStatus,
-  BrgyTransfer,
-} from "../../types";
+import type { BrgySettings } from "../../types";
 import { call, Field } from "../../shared/ui";
 
 /* -------------------------------------------------------------- settings */

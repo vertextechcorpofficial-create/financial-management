@@ -3,17 +3,7 @@
 import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type {
-  Brgy,
-  BrgyAsset,
-  BrgyCondition,
-  BrgyCount,
-  BrgyDisposal,
-  BrgyHistoryEntry,
-  BrgySettings,
-  BrgyStatus,
-  BrgyTransfer,
-} from "../../types";
+import type { BrgyAsset, BrgyDisposal } from "../../types";
 import { call } from "../../shared/ui";
 
 /* -------------------------------------------------------------- disposal */

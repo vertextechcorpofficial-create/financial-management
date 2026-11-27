@@ -2,17 +2,7 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import type {
-  Brgy,
-  BrgyAsset,
-  BrgyCondition,
-  BrgyCount,
-  BrgyDisposal,
-  BrgyHistoryEntry,
-  BrgySettings,
-  BrgyStatus,
-  BrgyTransfer,
-} from "../../types";
+import type { BrgyAsset, BrgyCount } from "../../types";
 import { call, peso } from "../../shared/ui";
 
 /* --------------------------------------------------------------- reports */
