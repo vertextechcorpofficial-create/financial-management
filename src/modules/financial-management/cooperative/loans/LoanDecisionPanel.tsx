@@ -264,7 +264,8 @@ export function LoanDecisionPanel({ endpoint, approveAndRelease, onChanged, init
               {action === "APPROVE" && <p className="text-muted-foreground">Approve the signed loan and move it to For release.</p>}
               {release && <>
                 <Kv rows={[
-                  ["Payout", peso(preview.principal)], ["Release date", date(preview.date)], ["First due date", date(preview.firstDueDate)],
+                  ["Payout", peso(preview.netProceeds)],
+                  ...(preview.upfrontInterest !== "0.00" ? [["Gross repayment", peso(preview.principal)], ["Interest withheld upfront", peso(preview.upfrontInterest)]] as [string, string][] : []), ["Release date", date(preview.date)], ["First due date", date(preview.firstDueDate)],
                   ...(hasFee ? [["Processing fee collected separately", peso(preview.fee)] as [string, string]] : []),
                 ]} />
                 {bankTransfer && (

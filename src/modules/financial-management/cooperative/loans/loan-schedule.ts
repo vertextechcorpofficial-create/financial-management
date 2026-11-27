@@ -1,7 +1,7 @@
 import { calculateLoanExample } from "../policies/loan-terms";
 
 export type LoanFrequency = "CUTOFF" | "MONTHLY";
-export type LoanMethod = "DIMINISHING" | "FLAT" | "MARKUP";
+export type LoanMethod = "DIMINISHING" | "FLAT" | "MARKUP" | "UPFRONT";
 export type InstallmentStatus = "UNPAID" | "PARTIAL" | "PAID";
 
 export type LoanInstallment = {
@@ -132,7 +132,7 @@ export function buildLoanSchedule(input: {
   if (!Number.isSafeInteger(input.months) || input.months < 1 || input.months > 120) {
     throw new Error("Choose a term between 1 and 120 months.");
   }
-  const method = input.method === "MARKUP" ? "markup" : input.method.toLowerCase() as "diminishing" | "flat";
+  const method = input.method.toLowerCase() as Lowercase<LoanMethod>;
   const rate = input.method === "MARKUP" ? input.markup ?? "0.00" : input.rate;
   const example = calculateLoanExample(
     input.principal,
@@ -159,9 +159,18 @@ export function buildLoanSchedule(input: {
     installments,
     regularPayment: example.regularPayment,
     finalPayment: example.finalPayment,
+    upfrontInterest: example.upfrontInterest,
+    netProceeds: example.netProceeds,
     totalInterest: example.totalInterest,
     totalPayable: example.totalPayable,
   };
+}
+
+// Cumulative rounding assigns the full discount by the final due date.
+export function upfrontInterestForInstallment(upfrontInterest: string, installment: number, count: number) {
+  const cents = amountToCents(upfrontInterest);
+  return divideRoundHalfUp(cents * BigInt(installment), BigInt(count)) -
+    divideRoundHalfUp(cents * BigInt(installment - 1), BigInt(count));
 }
 
 export function installmentStatus(installment: LoanInstallment): InstallmentStatus {

@@ -115,7 +115,7 @@ export function LoanPaymentDialog({ endpoint, loanId, onClose, onPosted }: {
       wide
       title={result ? "Payment posted" : review ? "Review loan payment" : "Loan payment"}
       description={summary ? `${summary.loanNo} · ${summary.memberName}` : "Choose a released loan with a balance."}
-      footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
+      footerClassName="backdrop-blur"
       footer={result ? (
         <>
           {result.orNo && (

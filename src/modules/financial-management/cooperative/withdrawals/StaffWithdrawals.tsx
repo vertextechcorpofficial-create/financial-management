@@ -306,7 +306,7 @@ function RecordWithdrawalDialog({ onClose, onFiled }: { onClose: () => void; onF
       title="Record withdrawal request"
       description="File a savings withdrawal for approval and reserve the amount."
       onOpenChange={open => { if (!open && !busy.current) onClose(); }}
-      footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
+      footerClassName="backdrop-blur"
       footer={<>
         <p className="mr-auto hidden max-w-48 text-left text-[11px] leading-4 text-muted-foreground sm:block">
           The request reserves the amount until it is released or rejected in Approvals.
@@ -426,7 +426,7 @@ function CancelWithdrawalDialog({ request, onClose, onCancelled, onStale }: {
       title="Cancel withdrawal request"
       description={`${request.reference} · ${request.memberName}`}
       onOpenChange={open => { if (!open && !busy.current) onClose(); }}
-      footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
+      footerClassName="backdrop-blur"
       footer={<>
         <Button variant="outline" onClick={onClose} disabled={saving}>Close</Button>
         <Button variant="destructive" disabled={!reason.trim() || saving || stale} onClick={() => void cancel()}>

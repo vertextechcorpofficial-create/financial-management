@@ -1,7 +1,14 @@
 import PoliciesModule from "@/modules/financial-management/cooperative/policies/PoliciesModule";
+import { CooperativePageHeader } from "@/modules/financial-management/cooperative/components/CooperativePageHeader";
 import { requireCooperativePage } from "@/modules/financial-management/cooperative/server/page-access";
 
 export default async function PoliciesPage() {
-  await requireCooperativePage("policies");
-  return <PoliciesModule />;
+  const { actorName, actorEmail } = await requireCooperativePage("policies");
+
+  return (
+    <>
+      <CooperativePageHeader workspace="policies" actorName={actorName} actorEmail={actorEmail} />
+      <PoliciesModule />
+    </>
+  );
 }

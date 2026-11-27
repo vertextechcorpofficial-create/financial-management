@@ -31,7 +31,7 @@ type Draft = {
 };
 
 const endpoint = "/api/fm/cooperative/loans/enrollment";
-const methodLabels = { diminishing: "Diminishing balance", flat: "Flat", markup: "Markup" };
+const methodLabels = { diminishing: "Diminishing balance", flat: "Flat", upfront: "Upfront interest", markup: "Markup" };
 const frequencyLabels = { cutoff: "Every cutoff", monthly: "Monthly" };
 const modeLabels = { payroll: "Salary deduction", otc: "Over the counter" };
 
@@ -160,7 +160,7 @@ export function LoanEnrollmentDialog({ onClose, onSaved }: {
       title="Enroll loan"
       description="Record a signed loan agreement and send it to Approvals."
       wide
-      footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
+      footerClassName="backdrop-blur"
       footer={<>
         <p className="mr-auto hidden max-w-xs text-left text-[11px] leading-4 text-muted-foreground sm:block">
           Enrolling files the signed agreement and sends the loan to Approvals.
@@ -219,7 +219,7 @@ export function LoanEnrollmentDialog({ onClose, onSaved }: {
               <div className="grid gap-3 sm:grid-cols-2">
                 {selectedProduct.kind === "CASH" ? <>
                   <Field label="Loan amount (₱)"><Input inputMode="decimal" value={draft.principal} onChange={event => update("principal", event.target.value)} disabled={saving} /></Field>
-                  <Field label="Interest per month (%)"><Input inputMode="decimal" value={draft.rate} onChange={event => update("rate", event.target.value)} disabled={saving} /></Field>
+                  <Field label={draft.method === "upfront" ? "Upfront interest for the full term (%)" : "Interest per month (%)"}><Input inputMode="decimal" value={draft.rate} onChange={event => update("rate", event.target.value)} disabled={saving} /></Field>
                   <Field label="Interest method">
                     <NativeSelect className="w-full" disabled={saving} value={draft.method} onChange={event => update("method", event.target.value as Draft["method"])}>
                       {selectedProduct.methods.map(method => <option key={method} value={method}>{methodLabels[method]}</option>)}
@@ -331,7 +331,10 @@ function Assessment({ preview }: { preview: LoanEnrollmentPreview }) {
     <div className="space-y-4">
       <Kv rows={[
         ["Principal", peso(snapshot.principal)], ["Payments", pricing.paymentCount], ["Regular installment", peso(pricing.regularPayment)],
-        ["Final installment", peso(pricing.finalPayment)], ["Interest or markup", peso(pricing.totalInterest)],
+        ["Final installment", peso(pricing.finalPayment)],
+        ...(snapshot.method === "upfront"
+          ? [["Interest withheld upfront", peso(pricing.upfrontInterest)], ["Net payout", peso(pricing.netProceeds)]] as [string, string][]
+          : [["Interest or markup", peso(pricing.totalInterest)]] as [string, string][]),
         ["Processing fee on release", peso(snapshot.processingFee)], ["Total payable", peso(pricing.totalPayable), "total"],
       ]} />
       <details className="rounded-lg border bg-muted/20 p-3 text-sm">
