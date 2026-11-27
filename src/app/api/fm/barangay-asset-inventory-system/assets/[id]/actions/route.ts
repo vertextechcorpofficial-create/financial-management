@@ -3,10 +3,14 @@ import {
   assignCustodian,
   cancelAsset,
   changeStatus,
+  fetchAsset,
+  updateAsset,
   updateCondition,
 } from "@/modules/financial-management/barangay-asset-inventory-system/assets/services/brgyAssets";
 import { requestReturn } from "@/modules/financial-management/barangay-asset-inventory-system/transfers/services/brgyTransfers";
 import type { BrgyCondition, BrgyStatus } from "@/modules/financial-management/barangay-asset-inventory-system/types";
+
+import { requireBarangayScope, requirePermission, resolveAccess } from "@/modules/financial-management/barangay-asset-inventory-system/shared/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +20,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const { id } = await ctx.params;
     const assetId = Number(id);
     const body = await req.json();
+    const access = await resolveAccess();
+    const detail = await fetchAsset(assetId);
+    const isEdit = body?.action === "cancel" || body?.action === "update";
+    requireBarangayScope(access, detail.asset.barangay_id, isEdit ? "register" : "assign");
+
+    if (isEdit) requirePermission(access, "register", "edit a record");
+    else requirePermission(access, "assign", "change an assignment, condition or status");
 
     switch (body?.action) {
       case "assign": {
@@ -24,7 +35,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           custodianId: Number(body.custodianId),
           officeId: body.officeId ? Number(body.officeId) : null,
           remarks: body.remarks ?? null,
-          actor: body.actor ?? null,
+          actor: access.userId ?? body.actor ?? null,
         });
         return NextResponse.json(detail);
       }
@@ -33,7 +44,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           assetId,
           condition: body.condition as BrgyCondition,
           remarks: String(body.remarks ?? ""),
-          actor: body.actor ?? null,
+          actor: access.userId ?? body.actor ?? null,
         });
         return NextResponse.json(detail);
       }
@@ -44,16 +55,38 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           reason: body.reason ?? null,
           repairNote: body.repairNote ?? null,
           condition: (body.condition ?? null) as BrgyCondition | null,
-          actor: body.actor ?? null,
+          actor: access.userId ?? body.actor ?? null,
+        });
+        return NextResponse.json(detail);
+      }
+      case "update": {
+        const detail = await updateAsset({
+          assetId,
+          name: body.name,
+          classificationId: body.classificationId === undefined ? undefined : body.classificationId ? Number(body.classificationId) : null,
+          itemTypeId: body.itemTypeId === undefined ? undefined : body.itemTypeId ? Number(body.itemTypeId) : null,
+          barcode: body.barcode,
+          tagNo: body.tagNo,
+          securityTag: body.securityTag,
+          serialNo: body.serialNo,
+          officeId: body.officeId === undefined ? undefined : body.officeId ? Number(body.officeId) : null,
+          dateAcquired: body.dateAcquired,
+          cost: body.cost === undefined ? undefined : Number(body.cost),
+          quantity: body.quantity === undefined ? undefined : Number(body.quantity),
+          lifeSpanYears: body.lifeSpanYears === undefined ? undefined : Number(body.lifeSpanYears),
+          condition: body.condition,
+          remarks: body.remarks,
+          isDraft: body.isDraft,
+          actor: access.userId ?? body.actor ?? null,
         });
         return NextResponse.json(detail);
       }
       case "cancel": {
-        await cancelAsset({ assetId, reason: String(body.reason ?? ""), actor: body.actor ?? null });
+        await cancelAsset({ assetId, reason: String(body.reason ?? ""), actor: access.userId ?? body.actor ?? null });
         return NextResponse.json({ ok: true });
       }
       case "return": {
-        return NextResponse.json(await requestReturn({ assetId, defect: String(body.defect ?? ""), actor: body.actor ?? null }), { status: 201 });
+        return NextResponse.json(await requestReturn({ assetId, defect: String(body.defect ?? ""), actor: access.userId ?? body.actor ?? null }), { status: 201 });
       }
       default:
         return NextResponse.json({ message: "Unknown action" }, { status: 400 });
