@@ -25,15 +25,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
             result: body.result === "not_found" ? "not_found" : "found",
             condition: (body.condition ?? null) as BrgyCondition | null,
             remarks: body.remarks ?? null,
-            actor: body.actor ?? null,
+            actor: access.userId ?? body.actor ?? null,
           })
         );
       case "unrecorded":
         return NextResponse.json(
-          await markUnrecorded({ countId, name: String(body.name ?? ""), remarks: body.remarks ?? null, actor: body.actor ?? null })
+          await markUnrecorded({ countId, name: String(body.name ?? ""), remarks: body.remarks ?? null, actor: access.userId ?? body.actor ?? null })
         );
       case "close":
-        return NextResponse.json(await closeCount({ countId, actor: body.actor ?? null }));
+        return NextResponse.json(await closeCount({ countId, actor: access.userId ?? body.actor ?? null }));
       default:
         return NextResponse.json({ message: "Unknown action" }, { status: 400 });
     }

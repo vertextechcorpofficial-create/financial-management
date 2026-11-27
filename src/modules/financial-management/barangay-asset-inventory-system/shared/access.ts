@@ -27,18 +27,28 @@ const MATRIX: Record<BrgyRole, BrgyPermission[]> = {
   property_custodian: ["view", "register", "assign", "condition", "disposeRequest", "count", "reports"],
   encoder: ["view", "register", "reports"],
   viewer: ["view", "reports"],
-  municipal: ["view", "assign", "reports"],
+  // Table 5 gives municipal "assign to a barangay only": that path is the LGU console, which uses
+  // requireLguStaff, not the barangay custody action. Section 5 forbids editing a barangay's records.
+  municipal: ["view", "reports"],
   system_admin: ["view", "register", "assign", "condition", "disposeRequest", "disposeApprove", "count", "reports", "users"],
 };
 
 export interface Access {
   userId: string | null;
+  /** the login email from the session token, the key a role row is matched on */
+  email: string | null;
+  /** the highest ranked role held, for the badge and for messages */
   role: BrgyRole;
+  /** every role held, because rule 18 lets one person hold several */
+  roles: BrgyRole[];
   barangayId: number | null;
   authDisabled: boolean;
   /** true when no role has ever been assigned, so the module is still being set up */
   unconfigured?: boolean;
 }
+
+/** Rule 18: one person may hold several roles, so the highest ranked one names them. */
+const ROLE_RANK: BrgyRole[] = ["system_admin", "municipal", "barangay_admin", "property_custodian", "encoder", "viewer"];
 
 function decodeJwt(token: string): Record<string, unknown> | null {
   try {
@@ -59,34 +69,57 @@ export async function resolveAccess(): Promise<Access> {
   const payload = token ? decodeJwt(token) : null;
   const rawId = payload?.id ?? payload?.user_id ?? payload?.sub ?? null;
   const userId = rawId == null ? null : String(rawId);
+  // platform user ids are UUIDs, so a role row is matched by email; the numeric column is only a fallback
+  const rawEmail = typeof payload?.email === "string" ? payload.email.trim() : null;
+  const email = rawEmail && rawEmail.includes("@") ? rawEmail : null;
+  const numericId = Number(userId ?? "");
+  const hasNumericId = Number.isFinite(numericId) && numericId > 0;
 
-  if (userId) {
-    const rows = await get<{ role: string; barangay_id: number | null }[]>(
-      "/items/brgy_user_role?filter=" + enc({ _and: [{ user_id: { _eq: Number(userId) } }, { status: { _eq: "active" } }] }) + "&fields=role,barangay_id&limit=1"
+  if (email || hasNumericId) {
+    const or: Record<string, unknown>[] = [];
+    if (email) or.push({ user_email: { _icontains: email } });
+    if (hasNumericId) or.push({ user_id: { _eq: numericId } });
+    const rows = await get<{ user_email: string | null; role: string; barangay_id: number | null }[]>(
+      "/items/brgy_user_role?filter=" + enc({ _and: [{ _or: or }, { status: { _eq: "active" } }] }) +
+        "&fields=user_email,role,barangay_id&limit=20"
     ).catch(() => []);
-    const row = rows?.[0];
-    if (row) {
-      const role = (row.role as BrgyRole) ?? "viewer";
-      return { userId, role: MATRIX[role] ? role : "viewer", barangayId: row.barangay_id == null ? null : Number(row.barangay_id), authDisabled };
+    const wanted = (email ?? "").toLowerCase();
+    const matched = (rows ?? []).filter((r) => (wanted ? (r.user_email ?? "").trim().toLowerCase() === wanted : true));
+    const held = matched.map((r) => r.role as BrgyRole).filter((r) => Boolean(MATRIX[r]));
+    // rule 18: every role held counts, and its permissions are added together
+    const roles = ROLE_RANK.filter((r) => held.includes(r));
+    if (roles.length) {
+      const pinned =
+        matched.find((r) => r.role === roles[0] && r.barangay_id != null) ??
+        matched.find((r) => r.barangay_id != null) ??
+        null;
+      return {
+        userId,
+        email,
+        role: roles[0],
+        roles,
+        barangayId: pinned?.barangay_id == null ? null : Number(pinned.barangay_id),
+        authDisabled,
+      };
     }
   }
 
   if (authDisabled) {
-    return { userId, role: "system_admin", barangayId: null, authDisabled: true };
+    return { userId, email, role: "system_admin", roles: ["system_admin"], barangayId: null, authDisabled: true };
   }
 
   // Section 2: the System Admin sets each user's role and barangay. Until the first assignment
   // exists, the module reports itself unconfigured and stays open, so setup is possible at all.
   const configured = await get<{ id: number }[]>("/items/brgy_user_role?fields=id&limit=1").catch(() => []);
   if (!configured || configured.length === 0) {
-    return { userId, role: "system_admin", barangayId: null, authDisabled, unconfigured: true };
+    return { userId, email, role: "system_admin", roles: ["system_admin"], barangayId: null, authDisabled, unconfigured: true };
   }
 
-  return { userId, role: "viewer", barangayId: null, authDisabled };
+  return { userId, email, role: "viewer", roles: ["viewer"], barangayId: null, authDisabled };
 }
 
 export function can(access: Access, permission: BrgyPermission): boolean {
-  return MATRIX[access.role].includes(permission);
+  return access.roles.some((role) => MATRIX[role].includes(permission));
 }
 
 export class AccessError extends Error {
@@ -99,14 +132,14 @@ export class AccessError extends Error {
 
 /** Section 4.9: only LGU staff may send an asset to a barangay, or move it between barangays. */
 export function requireLguStaff(access: Access, what: string): void {
-  if (access.role === "municipal" || access.role === "system_admin") return;
+  if (access.roles.includes("municipal") || access.roles.includes("system_admin")) return;
   throw new AccessError("Only LGU staff can " + what + ".", 403);
 }
 
 /** Every route checks this before it touches data. */
 export function requirePermission(access: Access, permission: BrgyPermission, what: string): void {
   if (can(access, permission)) return;
-  throw new AccessError("Your role (" + access.role + ") cannot " + what + ".", 403);
+  throw new AccessError("Your role (" + access.roles.join(", ") + ") cannot " + what + ".", 403);
 }
 
 /**
@@ -117,8 +150,18 @@ export function requireBarangayScope(access: Access, requested: number, permissi
   if (!Number.isFinite(requested) || requested <= 0) {
     throw new AccessError("A barangay is required.", 400);
   }
-  const readsAnyBarangay = access.role === "municipal" || access.role === "system_admin";
-  if (readsAnyBarangay && permission === "view") return requested;
+  const isSystemAdmin = access.roles.includes("system_admin");
+  const isMunicipal = access.roles.includes("municipal");
+  // System Admin is Vertex, not barangay staff: it works in any barangay, read or write, which is
+  // what section 2 and rule 92 mean by "system setup". Without this, a system admin with no pinned
+  // barangay was refused on every action that is not a plain read.
+  if (isSystemAdmin) return requested;
+  if (isMunicipal) {
+    if (permission !== "view") {
+      throw new AccessError("Municipal staff can view every barangay but cannot change a barangay's own records.", 403);
+    }
+    return requested;
+  }
   if (access.barangayId == null) {
     throw new AccessError("No barangay is assigned to your account. Ask the System Admin to set your role and barangay.", 403);
   }

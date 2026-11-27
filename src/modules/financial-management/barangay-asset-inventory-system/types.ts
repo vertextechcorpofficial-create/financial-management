@@ -6,6 +6,8 @@
  * the guide's projected value model, its condition and status sets, and its roles.
  */
 
+import { monthsBetween } from "./shared/dates";
+
 export type BrgyRole = "barangay_admin" | "property_custodian" | "encoder" | "viewer" | "municipal" | "system_admin";
 
 export const BRGY_ROLE_LABELS: Record<BrgyRole, string> = {
@@ -76,6 +78,14 @@ export interface BrgyClassification {
   status: string;
 }
 
+/** Table 2: item type belongs to one classification. */
+export interface BrgyItemType {
+  id: number;
+  name: string;
+  classification_id: number | null;
+  status: string;
+}
+
 export interface BrgyOffice {
   id: number;
   barangay_id: number;
@@ -99,6 +109,7 @@ export interface BrgyAsset {
   owner_type: "barangay" | "lgu";
   name: string;
   classification_id: number | null;
+  item_type_id: number | null;
   barcode: string | null;
   tag_no: string | null;
   security_tag: string | null;
@@ -211,12 +222,8 @@ export interface BrgySettings {
 /** Whole months between two dates, the way a year of use is counted on paper. */
 function monthsUsed(from: string | null, to: string): number {
   if (!from) return 0;
-  const a = new Date(from);
-  const b = new Date(to);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
-  let months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-  if (b.getDate() < a.getDate()) months -= 1;
-  return Math.max(0, months);
+  // string arithmetic, so a machine in another time zone cannot shift a month boundary
+  return monthsBetween(from, to);
 }
 
 export function projectedValue(asset: Pick<BrgyAsset, "cost" | "life_span_years" | "date_acquired">, asOf: string, salvagePercent = 0): number {

@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     const count = await openCount({
       barangayId: Number(body.barangayId),
       year: Number(body.year ?? new Date().getFullYear()),
-      actor: body.actor ?? null,
+      actor: access.userId ?? body.actor ?? null,
       remarks: body.remarks ?? null,
     });
     return NextResponse.json(count, { status: 201 });

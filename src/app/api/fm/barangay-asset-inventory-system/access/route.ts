@@ -9,6 +9,8 @@ export async function GET() {
   const access = await resolveAccess();
   return NextResponse.json({
     role: access.role,
+    roles: access.roles,
+    email: access.email,
     barangayId: access.barangayId,
     userId: access.userId,
     authDisabled: access.authDisabled,

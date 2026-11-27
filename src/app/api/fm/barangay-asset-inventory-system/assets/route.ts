@@ -47,6 +47,7 @@ export async function POST(req: Request) {
       barangayId: Number(body.barangayId),
       name: String(body.name ?? ""),
       classificationId: body.classificationId ? Number(body.classificationId) : null,
+      itemTypeId: body.itemTypeId ? Number(body.itemTypeId) : null,
       barcode: body.barcode ?? null,
       tagNo: body.tagNo ?? null,
       securityTag: body.securityTag ?? null,

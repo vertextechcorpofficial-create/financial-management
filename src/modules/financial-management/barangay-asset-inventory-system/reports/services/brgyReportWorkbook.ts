@@ -29,6 +29,7 @@ export async function buildMasterlistWorkbook(input: {
   sheet.columns = [
     { header: "Asset ID", key: "code", width: 18 },
     { header: "Description", key: "name", width: 34 },
+    { header: "Item type", key: "itemType", width: 22 },
     { header: "Office", key: "office", width: 24 },
     { header: "Custodian", key: "custodian", width: 26 },
     { header: "Condition", key: "condition", width: 16 },
@@ -43,6 +44,7 @@ export async function buildMasterlistWorkbook(input: {
     sheet.addRow({
       code: row.asset.asset_code,
       name: row.asset.name,
+      itemType: row.itemType,
       office: row.office,
       custodian: row.custodian || "Unassigned",
       condition: row.asset.condition,
@@ -59,10 +61,10 @@ export async function buildMasterlistWorkbook(input: {
 
   styleHeader(sheet);
   sheet.addRow([]);
-  stampRow(sheet, 9, "Barangay", input.barangay);
-  stampRow(sheet, 9, "As of", input.asOf);
-  stampRow(sheet, 9, "Assets", String(input.rows.length));
-  stampRow(sheet, 9, "Total value", input.totalValue.toFixed(2));
+  stampRow(sheet, 11, "Barangay", input.barangay);
+  stampRow(sheet, 11, "As of", input.asOf);
+  stampRow(sheet, 11, "Assets", String(input.rows.length));
+  stampRow(sheet, 11, "Total value", input.totalValue.toFixed(2));
 
   return Buffer.from(await book.xlsx.writeBuffer());
 }

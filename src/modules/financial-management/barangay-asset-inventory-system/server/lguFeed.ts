@@ -12,7 +12,7 @@ import "server-only";
  */
 
 /** The only collections this module may read outside its own tables. */
-type Allowed = "lgu_asset" | "lgu_asset_class" | "lgu_asset_condition";
+type Allowed = "lgu_asset" | "lgu_asset_class" | "lgu_condition";
 
 export type LguFeedMode = "direct" | "http" | "off";
 
@@ -67,8 +67,8 @@ interface RawLguAsset {
 
 async function classNames(): Promise<Map<number, string>> {
   try {
-    const rows = await read<{ id: number; name?: string; class_name?: string }>("lgu_asset_class", "fields=id,name,class_name&limit=-1");
-    return new Map(rows.map((r) => [Number(r.id), String(r.name ?? r.class_name ?? "")]));
+    const rows = await read<{ id: number; name?: string }>("lgu_asset_class", "fields=id,name&limit=-1");
+    return new Map(rows.map((r) => [Number(r.id), String(r.name ?? "")]));
   } catch {
     return new Map();
   }
@@ -76,8 +76,10 @@ async function classNames(): Promise<Map<number, string>> {
 
 async function conditionNames(): Promise<Map<number, string>> {
   try {
-    const rows = await read<{ id: number; name?: string; condition_name?: string }>("lgu_asset_condition", "fields=id,name,condition_name&limit=-1");
-    return new Map(rows.map((r) => [Number(r.id), String(r.name ?? r.condition_name ?? "")]));
+    // conditions live in lgu_condition, not lgu_asset_condition: the class and condition columns
+    // were silently empty until this was corrected on 2026-11-27
+    const rows = await read<{ id: number; name?: string }>("lgu_condition", "fields=id,name&limit=-1");
+    return new Map(rows.map((r) => [Number(r.id), String(r.name ?? "")]));
   } catch {
     return new Map();
   }

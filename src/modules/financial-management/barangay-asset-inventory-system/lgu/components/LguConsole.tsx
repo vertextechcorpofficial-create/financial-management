@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Brgy, BrgyTransfer } from "../../types";
+import { SubTabs } from "../../shared/SubTabs";
 
 const API = "/api/fm/barangay-asset-inventory-system";
 
@@ -40,6 +41,8 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
   const [remark, setRemark] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [feedError, setFeedError] = React.useState<string | null>(null);
+  // section 4.9 and 4.10 are two different jobs, so they get one pane each, never one long scroll
+  const [pane, setPane] = React.useState<"assets" | "returns">("assets");
 
   const loadAssets = React.useCallback(async () => {
     setFeedError(null);
@@ -114,9 +117,20 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded-md border p-3 text-sm">
-        This is the LGU side of section 4.9, duplicated here so the LGU register is not edited. Data is read through one seam.
+        This is the LGU side of section 4.9 and 4.10, duplicated here so the LGU register is not edited. Data is read through one seam.
       </div>
 
+      <SubTabs
+        value={pane}
+        onChange={setPane}
+        tabs={[
+          { id: "assets", label: "LGU assets", count: assets.length },
+          { id: "returns", label: "Incoming returns", count: returns.length },
+        ]}
+      />
+
+      {pane === "assets" ? (
+        <>
       <div className="flex flex-wrap items-center gap-2">
         <Input className="max-w-sm" placeholder="Search the LGU register" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="h-9 rounded-md border bg-background px-3 text-sm" value={toBarangay} onChange={(e) => setToBarangay(e.target.value)}>
@@ -135,7 +149,7 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
       <div className="rounded-md border">
         <div className="border-b bg-muted/40 p-2 text-sm font-medium">LGU assets available</div>
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10 bg-background">
             <tr className="border-b bg-muted/20 text-left">
               <th className="p-2">Description</th>
               <th className="p-2">Class</th>
@@ -169,6 +183,10 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
         </table>
       </div>
 
+        </>
+      ) : null}
+
+      {pane === "returns" ? (
       <div className="rounded-md border">
         <div className="border-b bg-muted/40 p-2 text-sm font-medium">Incoming returns from barangays</div>
         <table className="w-full text-sm">
@@ -194,6 +212,7 @@ export function LguConsole({ barangays, setError, setNotice }: { barangays: Brgy
           </tbody>
         </table>
       </div>
+      ) : null}
     </div>
   );
 }
