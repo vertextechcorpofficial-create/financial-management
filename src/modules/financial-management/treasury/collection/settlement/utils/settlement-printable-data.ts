@@ -61,7 +61,10 @@ export interface SettlementPrintableWalletItem {
     balanceTypeId?: number;
     isLocal?: boolean;
     invoiceId?: number;
+    overageSourceId?: string;
 }
+
+export const invoiceOveragePrefix = "adj-overage:";
 
 export interface SettlementPrintableData {
     wallet: SettlementPrintableWalletItem[];
@@ -87,7 +90,10 @@ export function mapRawPouchToSettlementPrintableData(
             || referenceNo === "cash_summary"
             || referenceNo === "physical cash";
 
-        if (isCash) type = "CASH";
+        const overageSourceId = bucket.tempId?.startsWith(invoiceOveragePrefix)
+            ? bucket.tempId.split(":").slice(2).join(":") : undefined;
+        if (overageSourceId) type = "ADJUSTMENT";
+        else if (isCash) type = "CASH";
         else if (tempId.startsWith("chk") || bucket.paymentMethodId === 2) type = "CHECK";
         else if (tempId.startsWith("ewt") || bucket.paymentMethodId === 10 || bucket.coaId === 11) type = "EWT";
         else if (bucket.paymentMethodId == null && bucket.coaId != null) type = "ADJUSTMENT";
@@ -115,7 +121,8 @@ export function mapRawPouchToSettlementPrintableData(
             wallet.push({
                 id,
                 type,
-                label: bucket.referenceNo || "Adjustment",
+                label: overageSourceId ? "Overage" : bucket.referenceNo || "Adjustment",
+                overageSourceId,
                 originalAmount: safeAmount,
                 customerName: bucket.customerName,
                 balanceTypeId: bucket.balanceTypeId || 1,

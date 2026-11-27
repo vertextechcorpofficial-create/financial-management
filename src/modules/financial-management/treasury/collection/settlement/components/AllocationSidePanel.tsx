@@ -11,16 +11,19 @@ import {
     capSettlementAllocation,
     formatSettlementAmount,
     parseSettlementAmount,
+    roundCurrency,
     getInvoiceAllocationCapacity,
     getInvoiceRequiredBalance,
     getSourceAllocationCapacity,
 } from "../utils/settlement-balance";
 import { cn } from "@/lib/utils";
 
-function AllocationInput({ label, amount, max, disabled, credit, onApply }: {
+function AllocationInput({ label, amount, max, sourceMax, disabled, credit, onApply, onOverage }: {
     label: string;
     amount: number;
     max: number;
+    sourceMax?: number;
+    onOverage?: (gross: number, excess: number) => void;
     disabled?: boolean;
     credit?: boolean;
     onApply: (amount: number) => void;
@@ -29,11 +32,19 @@ function AllocationInput({ label, amount, max, disabled, credit, onApply }: {
     const [draft, setDraft] = useState<string | null>(null);
     const [error, setError] = useState("");
 
+    const parsedDraft = draft === null ? null : parseSettlementAmount(draft);
+    const proposedOverage = !disabled && sourceMax !== undefined && parsedDraft !== null && parsedDraft > max && parsedDraft <= sourceMax
+        ? { gross: parsedDraft, excess: roundCurrency(parsedDraft - max) } : null;
+
     function change(value: string) {
         setDraft(value);
         const parsed = value === "" ? 0 : parseSettlementAmount(value);
         if (parsed === null) {
             setError("Enter a non-negative amount with up to three decimal places.");
+        } else if (sourceMax !== undefined && parsed > sourceMax) {
+            setError(`Available funds: ₱${formatSettlementAmount(sourceMax)}.`);
+        } else if (sourceMax !== undefined && parsed > max) {
+            setError("");
         } else if (parsed > max) {
             setError(`Maximum available: ₱${formatSettlementAmount(max)}.`);
         } else {
@@ -51,14 +62,14 @@ function AllocationInput({ label, amount, max, disabled, credit, onApply }: {
                     inputMode="decimal"
                     aria-label={`${label} allocation amount`}
                     aria-invalid={Boolean(error)}
-                    aria-describedby={error ? errorId : undefined}
+                    aria-describedby={error || proposedOverage ? errorId : undefined}
                     disabled={disabled}
                     className="h-8 pl-6 pr-12 text-xs font-black text-right shadow-inner bg-background"
                     placeholder="0.000"
                     value={draft ?? (amount ? amount.toFixed(3) : "")}
                     onChange={event => change(event.target.value)}
                     onBlur={() => {
-                        setDraft(null);
+                        if (!proposedOverage) setDraft(null);
                         setError("");
                     }}
                 />
@@ -76,6 +87,13 @@ function AllocationInput({ label, amount, max, disabled, credit, onApply }: {
                     MAX
                 </Button>
             </div>
+            {proposedOverage && <div id={errorId} className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+                <span role="status">₱{formatSettlementAmount(proposedOverage.excess)} exceeds the invoice balance.</span>
+                <Button size="sm" variant="outline" onClick={() => {
+                    setDraft(null);
+                    onOverage?.(proposedOverage.gross, proposedOverage.excess);
+                }}>Record overage</Button>
+            </div>}
             {error && <p id={errorId} role="alert" className="mt-1 text-[10px] text-destructive">{error}</p>}
         </div>
     );
@@ -83,6 +101,8 @@ function AllocationInput({ label, amount, max, disabled, credit, onApply }: {
 
 interface AllocationSidePanelProps {
     activeInvoiceId: number | null;
+    isPosted: boolean;
+    onOverage: (invoiceId: number, sourceId: string, gross: number, excess: number) => void;
     cartInvoices: UnpaidInvoice[];
     wallet: WalletItem[];
     credits: WalletItem[];
@@ -94,6 +114,8 @@ interface AllocationSidePanelProps {
 
 export default function AllocationSidePanel({
                                                 activeInvoiceId,
+                                                isPosted,
+                                                onOverage,
                                                 cartInvoices,
                                                 wallet,
                                                 credits,
@@ -146,9 +168,10 @@ export default function AllocationSidePanel({
 
                     {wallet.length === 0 ? (
                         <p className="text-[10px] text-muted-foreground italic">No funds available.</p>
-                    ) : wallet.map(w => {
+                    ) : wallet.filter(item => !item.overageSourceId).map(w => {
                         const existingAlloc = allocations.find(a => a.invoiceId === inv.id && a.sourceTempId === w.id);
-                        const usedElsewhere = getUsedAmount(w.id) - (existingAlloc?.amountApplied || 0);
+                        const overage = wallet.find(item => item.invoiceId === inv.id && item.overageSourceId === w.id);
+                        const usedElsewhere = getUsedAmount(w.id) - (existingAlloc?.amountApplied || 0) - (overage?.originalAmount ?? 0);
                         const remaining = getSourceAllocationCapacity(w.originalAmount, usedElsewhere);
                         const invoiceAvailable = getInvoiceAllocationCapacity(
                             requiredBalance,
@@ -175,9 +198,11 @@ export default function AllocationSidePanel({
                                 </div>
                                 <AllocationInput
                                     label={w.label}
-                                    amount={existingAlloc?.amountApplied ?? 0}
+                                    amount={roundCurrency((existingAlloc?.amountApplied ?? 0) + (overage?.originalAmount ?? 0))}
                                     max={targetMax}
-                                    disabled={isEWTDisabled}
+                                    sourceMax={w.type === "CASH" || w.type === "CHECK" ? remaining : undefined}
+                                    onOverage={(gross, excess) => onOverage(inv.id, w.id, gross, excess)}
+                                    disabled={isPosted || isEWTDisabled}
                                     onApply={amount => handleAllocate(inv.id, w.id, amount)}
                                 />
                             </div>
@@ -225,6 +250,7 @@ export default function AllocationSidePanel({
                                     label={c.label}
                                     amount={existingAlloc?.amountApplied ?? 0}
                                     max={targetMax}
+                                    disabled={isPosted}
                                     credit
                                     onApply={amount => handleAllocate(inv.id, c.id, amount)}
                                 />
