@@ -4,7 +4,8 @@ import { assertFutureBalances } from "./financial-engine.mjs";
 export type CashAction = "transfer" | "fee" | "interest" | "taxpay" | "expaccrue" | "exppay" |
   "accrueDividend" | "accrueInterest" | "collectIncome" | "subcollect" | "dividend" | "contribution";
 export type CashCommand = { type: CashAction; date: string; amount: number; account: string; target?: string; memo: string; payDate?: string;
-  source?: string; sym?: string; fwtRate?: number };
+  source?: string; sym?: string; fwtRate?: number; paymentChannel?: string; transactionReference?: string;
+  evidenceFileId?: string; paymentEvidence?: { id: string; filename: string; type: string; size: number } };
 const cash = ["1000", "1010", "1020"];
 
 export function buildCashEntry(
@@ -102,9 +103,11 @@ export function buildCashEntry(
       break;
     }
     case "taxpay":
+      if (!command.paymentChannel?.trim() || !command.transactionReference?.trim() || !command.paymentEvidence?.id || command.paymentEvidence.id !== command.evidenceFileId) throw new Error("Record BIR Tax Payment requires a channel, reference and server-verified payment evidence.");
       if (!target || amount > -balance(entries, "2200", target, date)) throw new Error("Payment exceeds the outstanding BIR item.");
       add("2200", amount, 0, target);
       data.taxId = target;
+      Object.assign(data, { paymentChannel: command.paymentChannel, transactionReference: command.transactionReference, paymentEvidence: structuredClone(command.paymentEvidence) });
       break;
     case "subcollect":
       if (!target || amount > balance(entries, "3020", target, date)) throw new Error("Payment exceeds the unpaid subscription balance.");
@@ -125,7 +128,7 @@ export function buildCashEntry(
     type: type === "interest" || type === "dividend" || type === "collectIncome" ? "receive" :
       type === "accrueDividend" || type === "accrueInterest" ? "accrue" : type,
     memo: memo.trim() || ({ interest: "Bank interest received", fee: "Investment fee paid", transfer: "Cash transfer",
-      taxpay: "Tax payment", expaccrue: "Investment fee accrued", exppay: "Accrued investment fee paid",
+      taxpay: "Record BIR Tax Payment", expaccrue: "Investment fee accrued", exppay: "Accrued investment fee paid",
       accrueDividend: "Investment dividend accrued", accrueInterest: "Investment interest accrued",
       collectIncome: "Accrued investment income collected", subcollect: "Subscription installment received",
       dividend: "Investment dividend received", contribution: "Capital deposit or advance" })[type],

@@ -10,12 +10,13 @@ export function validateProofUpload(filename, type, bytes) {
   if (!signature.every((byte, index) => bytes[index] === byte)) throw new Error("The file contents do not match its PDF, JPEG or PNG type.");
 }
 
-export function validateStoredProof(file, actor, serviceUser) {
+export function validateStoredProof(file, actor, serviceUser, purpose = "filing") {
+  if (!["filing", "payment"].includes(purpose)) throw new Error("Invalid evidence purpose.");
   let metadata;
   try { metadata = typeof file?.description === "string" ? JSON.parse(file.description) : null; } catch { metadata = null; }
   if (!proofUuid(serviceUser)) throw new Error("Manual filing requires the configured Directus endpoint service user.");
   if (!file || !proofUuid(file.id) || String(file.uploaded_by).toLowerCase() !== serviceUser.toLowerCase() ||
-      metadata?.scope !== "cgl-filing-evidence" || metadata?.actor !== actor || file.title !== "CGL filing evidence" ||
+      metadata?.scope !== `cgl-${purpose}-evidence` || metadata?.actor !== actor || file.title !== `CGL ${purpose} evidence` ||
       !extensions[file.type]?.test(file.filename_download ?? "") || !Number.isSafeInteger(Number(file.filesize)) ||
       Number(file.filesize) <= 0 || Number(file.filesize) > MAX_PROOF_BYTES || !file.storage || !file.filename_disk) {
     throw new Error("Upload valid supporting evidence for this signed-in user before marking filed.");

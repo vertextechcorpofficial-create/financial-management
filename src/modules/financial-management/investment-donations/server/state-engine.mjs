@@ -18,6 +18,8 @@ import { buildTrade } from "../trades.ts";
 import { buildCashDonation, pooledBalance, vetDonee } from "../donations.ts";
 import { reverseFinancialEntry } from "./financial-reversal.mjs";
 import { applyMasterCommand, applyPrices } from "./master-data.mjs";
+import { annualEvidenceFingerprint } from "./annual-evidence.mjs";
+import { buildCashEntry } from "../cash-commands.ts";
 const clone = value => structuredClone(value);
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const fail = message => { throw new StateEngineError(message); };
@@ -177,13 +179,19 @@ function cashEntry(state, input) {
       const tax = amount(value * rate / 100); Object.assign(data, { gross: value, fwt: tax, net: value - tax, rate });
       addLine(lines, account, value - tax, 0); addLine(lines, "5300", tax, 0, input.sym ?? ""); addLine(lines, type === "interest" ? "4010" : "4000", 0, value, input.sym ?? ""); break;
     }
-    case "taxpay": if (!target || cents(value) > -balance(state.journal, "2200", target, input.date)) fail("Payment exceeds the outstanding BIR item."); addLine(lines, "2200", value, 0, target); addLine(lines, account, 0, value); data.taxId = target; break;
+    case "taxpay":
+      if (!key(input.paymentChannel) || !key(input.transactionReference) || !input.paymentEvidence?.id || input.paymentEvidence.id !== input.evidenceFileId) fail("Record BIR Tax Payment requires a channel, reference and server-verified payment evidence.");
+      if (!target || cents(value) > -balance(state.journal, "2200", target, input.date)) fail("Payment exceeds the outstanding BIR item.");
+      addLine(lines, "2200", value, 0, target); addLine(lines, account, 0, value);
+      Object.assign(data, { taxId: target, paymentChannel: input.paymentChannel, transactionReference: input.transactionReference, paymentEvidence: clone(input.paymentEvidence) }); break;
     case "expaccrue": addLine(lines, "5100", value, 0); addLine(lines, "2110", 0, value, input.commandId ?? ""); data.payId = input.commandId ?? ""; break;
     case "exppay": if (!target || cents(value) > -balance(state.journal, "2110", target, input.date)) fail("Payment exceeds the outstanding fee."); addLine(lines, "2110", value, 0, target); addLine(lines, account, 0, value); break;
     case "accrueDividend": case "accrueInterest": addLine(lines, type === "accrueDividend" ? "1200" : "1210", value, 0, input.commandId ?? ""); addLine(lines, type === "accrueDividend" ? "4000" : "4010", 0, value, input.sym ?? ""); data.payDate = input.payDate ?? null; break;
     case "collectIncome": {
-      if (!target) fail("Select an income receivable."); const acct = state.journal.find(row => row.type === "accrue" && row.lines.some(line => line.tag === target && ["1200", "1210"].includes(line.acct)))?.lines.find(line => line.tag === target && ["1200", "1210"].includes(line.acct))?.acct;
-      if (!acct || cents(value) > balance(state.journal, acct, target, input.date)) fail("Payment exceeds the outstanding income receivable."); addLine(lines, account, value, 0); addLine(lines, acct, 0, value, target); break;
+      const policy = register(state, "policy", {});
+      const entry = buildCashEntry(state.journal, [...closedMonths(state)], { ...input, memo: input.memo ?? "" }, `${input.commandId}:entry`, Number(policy.intFwt ?? policy.interestFwt ?? 20), Number(policy.divFwt ?? 0));
+      entry.data.commandId = input.commandId;
+      return entry;
     }
     case "subcollect": if (!target || cents(value) > balance(state.journal, "3020", target, input.date)) fail("Payment exceeds the unpaid subscription balance."); addLine(lines, account, value, 0); addLine(lines, "3020", 0, value, target); data.subId = target; break;
     case "borrow": addLine(lines, account, value, 0); addLine(lines, "2000", 0, value, target ?? input.commandId ?? ""); break;
@@ -203,7 +211,7 @@ function cashEntry(state, input) {
     }
     default: fail("Unsupported cash operation.", "unsupported-operation");
   }
-  const entry = nextEntry(state, input, ["interest", "dividend"].includes(type) ? "receive" : ["accrueDividend", "accrueInterest"].includes(type) ? "accrue" : type === "cashDonation" ? "donation" : type, lines, data);
+  const entry = nextEntry(state, input, ["interest", "dividend"].includes(type) ? "receive" : ["accrueDividend", "accrueInterest"].includes(type) ? "accrue" : type === "cashDonation" ? "donation" : type, lines, data, type === "taxpay" ? "Record BIR Tax Payment" : type);
   assertFutureBalances(state.journal, entry); return entry;
 }
 
@@ -312,6 +320,7 @@ function applyRecon(state, input, actor) {
   if (input.type === "reopen" && (!old?.signed_at || !input.reason?.trim())) fail("Select a signed reconciliation and enter a reason.");
   if (input.type === "sign" && (!old || old.signed_at || !Number.isSafeInteger(Number(old.prepared_by)) || Number(old.prepared_by) < 1)) fail("A saved draft must be prepared before approval.");
   if (input.type === "sign") {
+    if (Number(old.prepared_by) === actor) fail("A different authenticated actor must approve this reconciliation.");
     const error = reconciliationApprovalError(month, state.journal, state.registers.lots ?? [], old.payload);
     if (error) fail(error);
   }
@@ -332,8 +341,15 @@ function applyAnnual(state, input, actor) {
   if (Number(latest?.revision ?? 0) !== revision) fail("The review changed. Refresh before continuing.");
   if (input.type === "draft" && (!Array.isArray(input.checks) || input.checks.length !== 5 || !input.checks.every(value => typeof value === "boolean") || latest?.action === "sign")) fail("Reopen the signed review before editing its checklist.");
   if (input.type === "sign" && (!latest || latest.action === "sign" || !Array.isArray(latest.checks) || latest.checks.length !== 5 || !latest.checks.every(value => value === true))) fail("Complete the saved checklist before approval.");
+  if (input.type === "sign") {
+    if (Number(latest.prepared_by) === actor) fail("A different authenticated actor must approve this annual review.");
+    const end = new Date(`${fiscalStart}T00:00:00Z`);
+    end.setUTCFullYear(end.getUTCFullYear() + 1);
+    if (today < end.toISOString().slice(0, 10)) fail("The financial year has not ended.");
+    if (latest.evidenceFingerprint !== annualEvidenceFingerprint(state)) fail("Annual review evidence changed. Save a fresh checklist before signing.");
+  }
   if (input.type === "reopen" && (latest?.action !== "sign" || typeof input.reason !== "string" || !input.reason.trim() || input.reason.trim().length > 500)) fail("Select a signed review and enter a reason.");
-  const event = { id: state.annualReviewEvents.length + 1, fiscal_start: fiscalStart, revision: revision + 1, actor, commandId: input.commandId ?? null, prepared_by: input.type === "sign" ? latest.prepared_by : actor, action: input.type, checks: input.type === "draft" ? input.checks : latest.checks, reason: input.type === "reopen" ? input.reason.trim() : null, occurred_at: new Date().toISOString() };
+  const event = { id: state.annualReviewEvents.length + 1, fiscal_start: fiscalStart, revision: revision + 1, actor, commandId: input.commandId ?? null, prepared_by: input.type === "sign" ? latest.prepared_by : actor, action: input.type, checks: input.type === "draft" ? input.checks : latest.checks, evidenceFingerprint: annualEvidenceFingerprint(state), reason: input.type === "reopen" ? input.reason.trim() : null, occurred_at: new Date().toISOString() };
   return { state: { ...state, annualReviewEvents: [...state.annualReviewEvents, event] }, result: { ok: true, revision: event.revision } };
 }
 
@@ -365,7 +381,9 @@ function applyDocument(state, input, actor, cgt) {
   if (input.status !== undefined && !["reference-only", "filed-manually"].includes(input.status)) fail("Invalid filing status.");
   if (!key(input.reference) || (input.status === "filed-manually" && (!dateOK(input.filedOn) || !key(input.receiptReference) || !key(input.evidenceFileId)))) fail("A manual filing requires a valid filing date, receipt reference and evidence file upload.");
   if (input.status === "filed-manually" && input.filedOn < target.date) fail("The filing date cannot precede the transaction.");
+  if (input.status === "filed-manually" && input.evidenceFile?.id !== input.evidenceFileId) fail("Upload server-verified filing evidence before marking filed.");
   const audit = { id: state.auditEvents.length + 1, entry_id: target.id, actor, commandId: input.commandId, action: cgt ? "cgt_filing" : "gift_document", after_state: { form: target.data?.taxForm ?? "Donation documents", journalNo: target.no, reference: input.reference.trim(), status: input.status ?? "reference-only", filedOn: input.filedOn ?? null, receiptReference: input.receiptReference ?? null, evidenceReference: input.evidenceReference ?? null, evidenceFileId: input.evidenceFileId ?? null, documents: input.documents ?? {} }, occurred_at: new Date().toISOString() };
+  if (input.evidenceFile) audit.after_state.evidenceFile = clone(input.evidenceFile);
   return { state: { ...state, auditEvents: [...state.auditEvents, audit] }, result: { ok: true, id: target.id } };
 }
 

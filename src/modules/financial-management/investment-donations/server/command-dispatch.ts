@@ -60,7 +60,10 @@ const cash = z.object({ type: z.enum(["transfer", "fee", "interest", "dividend",
   secCriteriaMet: z.boolean().optional(), confirmCriteria: z.boolean().optional(), secApplicationRef: z.string().trim().max(200).optional(),
   requestedShares: z.number().int().positive().max(1e12).optional(), proceeds: z.enum(["existing", "cash"]).optional(), scheduled: z.boolean().optional(),
   fwtRate: z.number().min(0).max(100).optional(), sym: z.string().max(64).optional(),
-  principal: z.number().nonnegative().max(1e12).optional(), interest: z.number().nonnegative().max(1e12).optional() });
+  principal: z.number().nonnegative().max(1e12).optional(), interest: z.number().nonnegative().max(1e12).optional(),
+  paymentChannel: z.string().trim().min(1).max(100).optional(), transactionReference: z.string().trim().min(1).max(200).optional(),
+  evidenceFileId: z.string().uuid().optional() }).refine(value => value.type !== "taxpay" ||
+    Boolean(value.paymentChannel && value.transactionReference && value.evidenceFileId), "Record BIR Tax Payment requires a payment channel, transaction reference and uploaded payment evidence.");
 // Directus journal rows use the persisted UUID plus the `:entry` discriminator
 // in some deployments; both forms identify the same immutable source row.
 const reversal = z.object({ id: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?::entry)?$/i), date, reason: z.string().trim().min(1).max(200) });

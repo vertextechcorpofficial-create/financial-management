@@ -24,6 +24,7 @@ import { prepareLedgerCommand, CommandValidationError } from "./command-dispatch
 import { applyLedgerCommand, createLedgerState, StateEngineError } from "./state-engine.mjs";
 import { executeLocalLedgerCommand, checkLocalLedgerCommandStatus } from "./local-command-client";
 import type { LedgerCommandStatus } from "../client-idempotency";
+import { verifyPaymentEvidence } from "./filing-evidence";
 
 type CommandResult = { ok: false; message: string; state?: "unknown" | "failed" } | { ok: true; number?: number | null; revision?: number; id?: string };
 const failure = (message: string): { ok: false; message: string } => ({ ok: false, message });
@@ -66,6 +67,12 @@ export async function executeLedgerCommand(input: unknown): Promise<CommandResul
         return { ok: true, id: String(existing.id), revision: Number(existing.state_revision), replayed: true } as CommandResult & { replayed: boolean };
       }
       directusPostingAbsent = true;
+      if (request.data.operation === "cash" && prepared.payload.type === "taxpay") {
+        prepared.payload.paymentEvidence = await verifyPaymentEvidence(String(prepared.payload.evidenceFileId), access.id);
+      }
+      if (["cgt-filing", "donation-document"].includes(request.data.operation) && prepared.payload.status === "filed-manually") {
+        prepared.payload.evidenceFile = await verifyPaymentEvidence(String(prepared.payload.evidenceFileId), access.id, "filing");
+      }
       const registerSnapshot = current.registers as typeof current.registers & { periods?: unknown; recons?: unknown };
       if (request.data.operation === "reconciliation" && prepared.payload.type === "sign") {
         const saved = parseReconciliations(currentWithPosting.recons ?? registerSnapshot.recons ?? [])

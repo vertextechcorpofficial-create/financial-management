@@ -36,9 +36,10 @@ export function AnnualReviewForm({ fiscalStart, record, mode, canPrepare, canApp
     finally { setSaving(false); }
   }
   return <div className="space-y-3">
-    <p className="text-sm text-muted-foreground">{mode === "prepare" ? "Review the ledger evidence for all five items and save the checklist. Sign-off is available in the annual-review approver workspace." : "Review the saved checklist and evidence, then sign off or reopen the review. Approval workspace membership authorizes sign-off, including when you prepared the checklist."} Actions are recorded under the authenticated user.</p>
+    <p className="text-sm text-muted-foreground">{mode === "prepare" ? "Review the ledger evidence for all five items and save the checklist. Sign-off is available in the annual-review approver workspace." : "Review the saved checklist and evidence, then sign off or reopen the review. A different authenticated actor must approve the checklist after the financial year has ended."} Actions are recorded under the authenticated user.</p>
     {record && <p className="text-sm">{signed ? `Signed by ${Number(record.actor) === actor && actorName ? `${actorName} (you)` : "Finance team member"} on ${record.occurred_at.slice(0, 10)}` :
       "Checklist draft saved"} · Revision {record.revision}</p>}
+    {record?.stale && <p role="alert" className="text-sm text-destructive">Stale review: ledger evidence has changed or its saved fingerprint is missing. {signed ? "Reopen and prepare a fresh checklist; the prior signature does not attest to current evidence." : "Save a fresh checklist before approval."}</p>}
     <form key={record?.revision ?? 0} onSubmit={submit} className="space-y-2">
       <fieldset disabled={mode !== "prepare" || signed || !canPrepare || saving} className="space-y-1">
         <legend className="font-medium">Review checklist</legend>
@@ -48,7 +49,7 @@ export function AnnualReviewForm({ fiscalStart, record, mode, canPrepare, canApp
       </fieldset>
        {mode === "prepare" && !signed && <Button type="submit" value="draft" disabled={saving || !canPrepare} title={!canPrepare ? "Transactional posting service or prepare permission is unavailable." : undefined}><Save aria-hidden="true" /> Save checklist</Button>}
     </form>
-    {mode === "approve" && !signed && <form onSubmit={submit}><Button type="submit" value="sign" disabled={saving || !canApprove || !complete || !record}
+    {mode === "approve" && !signed && <form onSubmit={submit}><Button type="submit" value="sign" disabled={saving || !canApprove || !complete || !record || record.stale || Number(record.prepared_by) === actor}
       title={!record || !complete ? "Save all five review items in the preparer workspace first." : !canApprove ? "Transactional posting service or approval permission is unavailable." : undefined}><Check aria-hidden="true" /> Sign off saved checklist</Button></form>}
     {!signed && !complete && <p className="text-sm text-muted-foreground">All five reviewed items must be saved in the preparer workspace before sign-off.</p>}
     {mode === "approve" && canApprove && signed && <form onSubmit={submit} className="flex flex-wrap items-end gap-2">

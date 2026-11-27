@@ -15,6 +15,8 @@ export type ReviewEvent = {
   checks: boolean[];
   reason: string | null;
   occurred_at: string;
+  evidenceFingerprint?: string;
+  stale?: boolean;
 };
 
 /** Select the saved revision independently for each financial year. */

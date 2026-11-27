@@ -3,7 +3,7 @@
 import { Fragment, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, BarChart3, Check, Download, HeartHandshake, Landmark, LockKeyhole, Plus, RefreshCcw, ReceiptText, Save, ShieldCheck, WalletCards } from "lucide-react";
+import { BarChart3, Check, Download, HeartHandshake, Landmark, LockKeyhole, RefreshCcw, ReceiptText, Save, ShieldCheck, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,7 +47,7 @@ import { loanInterest } from "./loans";
 const cashCodes = ["1000", "1010", "1020"];
 const lineLabels: Record<string, string> = {
   subscribe: "Share subscription", transfer: "Cash transfer", debt: "Borrowing", buy: "Purchase",
-  issue: "Certificate issued", accrual: "Month-end interest accrual", taxpay: "Tax payment",
+  issue: "Certificate issued", accrual: "Month-end interest accrual", taxpay: "Record BIR Tax Payment",
   debtpay: "Loan payment", accrue: "Income accrued", receive: "Income received",
   subcollect: "Subscription payment", donation: "Donation", sell: "Sale", expaccrue: "Fee accrued",
   exppay: "Accrued fee paid", closing: "Year-end closing", fee: "Fee paid", reversal: "Reversal",
@@ -65,7 +65,7 @@ const workspaceTabs: Partial<Record<WorkspaceKey, string[]>> = {
 const friendlyActions: Record<string, string> = {
   accrue: "Interest posted", close: "Month closed", reopen: "Month reopened",
   draft: "Draft saved", sign: "Reconciliation signed", buy: "Purchase", sell: "Sale",
-  donation: "Donation", reversal: "Reversal", taxpay: "Tax payment",
+  donation: "Donation", reversal: "Reversal", taxpay: "Record BIR Tax Payment",
 };
 
 function StatusBadge({ status, tone }: { status: string; tone?: "success" | "warning" | "danger" | "info" | "neutral" }) {
@@ -124,21 +124,14 @@ export function IncomeEntryFields({ securities }: { securities: LedgerRegisters[
 
 function MonthNavigation({ value, first, onChange }: { value: string; first: string; onChange: (value: string) => void }) {
   const year = Number(value.slice(0, 4));
-  const change = (offset: number) => {
-    const date = new Date(`${value}-01T00:00:00Z`);
-    date.setUTCMonth(date.getUTCMonth() + offset);
-    onChange(date.toISOString().slice(0, 7));
-  };
   return <div className="flex flex-wrap items-end gap-2 text-sm">
-     <Button type="button" variant="outline" onClick={() => change(-1)}><ArrowLeft aria-hidden="true" /> Prev</Button>
-    <label>Year<select className="ml-2 h-9 rounded-md border bg-background px-2" aria-label="Year" value={year} onChange={event => onChange(`${event.target.value}-${value.slice(5)}`)}>
+     <label>Year<select className="ml-2 h-9 rounded-md border bg-background px-2" aria-label="Year" value={year} onChange={event => onChange(`${event.target.value}-${value.slice(5)}`)}>
       {Array.from({ length: Math.max(3, year + 2 - Number(first.slice(0, 4))) }, (_, i) => Number(first.slice(0, 4)) + i).map(item => <option key={item}>{item}</option>)}
     </select></label>
     <label>Month<select className="ml-2 h-9 rounded-md border bg-background px-2" aria-label="Month" value={value.slice(5)} onChange={event => onChange(`${year}-${event.target.value}`)}>
        {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0")).map(item => <option key={item} value={item}>{new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date(Date.UTC(2020, Number(item) - 1, 1)))}</option>)}
      </select></label>
-     <Button type="button" variant="outline" onClick={() => change(1)}>Next <ArrowRight aria-hidden="true" /></Button>
-  </div>;
+   </div>;
 }
 
 function Grid({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
@@ -285,7 +278,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
     ...(receivables.length ? [["collectIncome", "Collect accrued income"]] : [])]
     : workspace === "portfolio-rebalancing" ? [["fee", "Pay investment fee"], ["expaccrue", "Accrue investment fee"],
       ...(fees.length ? [["exppay", "Settle accrued fee"]] : [])]
-      : workspace === "tax-compliance" ? [["taxpay", "Pay tax to BIR"]]
+      : workspace === "tax-compliance" ? [["taxpay", "Record BIR Tax Payment"]]
         : workspace === "charitable-giving" ? [["cashDonation", "Record cash donation"]] : [];
   const approved = reconciliationRole === "approve";
   const restriction = ["prepare", "approve"].includes(reconciliationRole) ?
@@ -337,10 +330,23 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
     const fields = new FormData(event.currentTarget);
     setSaving(true);
     try {
+      let evidenceFileId: string | undefined;
+      if (action === "taxpay") {
+        const { uploadFilingEvidence } = await import("./server/filing-evidence");
+        const upload = new FormData();
+        upload.set("purpose", "payment");
+        const file = fields.get("paymentEvidence");
+        if (!(file instanceof File) || !file.size) { mutationError("Upload payment evidence before recording the payment."); return; }
+        upload.set("file", file);
+        const result = await uploadFilingEvidence(upload);
+        if (!result.ok) { mutationError(result.message); return; }
+        evidenceFileId = result.file.id;
+      }
       const result = await submitLedger("cash", {
         type: action, date: String(fields.get("date")), amount: Number(fields.get("amount")),
         account: String(fields.get("account") ?? "1000"), target: String(fields.get("target") ?? ""), memo: String(fields.get("memo") ?? ""),
         payDate: String(fields.get("payDate") ?? "") || undefined,
+        ...(action === "taxpay" ? { paymentChannel: String(fields.get("paymentChannel") ?? ""), transactionReference: String(fields.get("transactionReference") ?? ""), evidenceFileId } : {}),
          name: fields.has("name") ? String(fields.get("name")) : undefined,
          rate: fields.has("rate") ? Number(fields.get("rate")) : undefined,
          proceeds: fields.get("proceeds") ?? undefined, scheduled: fields.has("scheduled"),
@@ -439,7 +445,6 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
   for (let date = new Date(`${firstMonth}-01T00:00:00Z`); date.toISOString().slice(0, 7) <= calendarMonth; date.setUTCMonth(date.getUTCMonth() + 1)) {
     allMonths.push(date.toISOString().slice(0, 7));
   }
-  const oldestOpen = allMonths.find(key => !registers.periods[key]?.closedAt);
   const periodRows = Array.from(new Set([...allMonths, ...Object.keys(registers.periods)])).sort().reverse()
     .map(key => [key, registers.periods[key] ?? { closedAt: null }] as const);
   const reconciledMonths = allMonths.filter(key => monthStatus(key) === "Signed").length;
@@ -512,7 +517,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
            <Button disabled={!canPost || !taxItems.length} onClick={() => {
             setFeedback(undefined);
             setShowForm(true);
-           }}>Pay tax to BIR</Button>
+           }}>Record BIR Tax Payment</Button>
            {!canPost && <p className="mt-2 text-sm text-muted-foreground">{restriction}</p>}
            {!taxItems.length && <p className="mt-2 text-sm text-muted-foreground">No outstanding BIR items.</p>}
         </div>}
@@ -577,17 +582,23 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                 {fees.map(fee => <option key={fee.tag} value={fee.tag}>{fee.label} · {peso(fee.outstanding)}</option>)}
               </select>
             </label>}
-             {action === "taxpay" && <label className="grid gap-1">Outstanding BIR item
+              {action === "taxpay" && <label className="grid gap-1">Outstanding BIR item
                <select name="target" required defaultValue={rowTarget} className="h-9 rounded-md border bg-background px-2">
                 {taxItems.map(item => <option key={item.tag} value={item.tag}>{item.label} · {peso(item.outstanding)}</option>)}
               </select>
-            </label>}
+             </label>}
+             {action === "taxpay" && <>
+               <p className="text-xs text-muted-foreground sm:col-span-2">Record an authorized BIR payment already completed outside this application. This action does not send money or mark a return filed.</p>
+               <label>Payment channel<Input name="paymentChannel" required maxLength={100} /></label>
+               <label>Transaction reference<Input name="transactionReference" required maxLength={200} /></label>
+               <label className="sm:col-span-2">Uploaded payment evidence (PDF, JPEG or PNG, up to 1 MB)<Input name="paymentEvidence" type="file" required accept="application/pdf,image/jpeg,image/png" /></label>
+             </>}
              {["interest", "dividend", "accrueInterest", "accrueDividend", "collectIncome"].includes(action) && <IncomeEntryFields securities={securities} />}
               {action === "cashDonation" && <div className="sm:col-span-2"><DonationPreview {...cashPreview} charity={registers.charities.find(row => row.id === cashPreview.target)} policy={policy} entries={entries} /></div>}
              <label>Memo<Input name="memo" maxLength={250} /></label>
             <div className="flex gap-2 sm:col-span-2">
               <Button type="button" variant="outline" onClick={() => { closeEntry(); setFeedback(undefined); }}>Back</Button>
-              <Button type="submit" disabled={saving}>{saving ? "Posting…" : "Post entry"}</Button>
+               <Button type="submit" disabled={saving}>{saving ? "Posting…" : action === "taxpay" ? "Record BIR Tax Payment" : "Post entry"}</Button>
             </div>
            </form>
           </LedgerDialog>}
@@ -914,16 +925,18 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
              rows={entries.flatMap(entry => entry.lines.filter(line => line.acct === "2200" && line.cr > 0 && -balance(entries, "2200", line.tag) > 0.004).map(line =>
                [entry.date, String(entry.data.taxForm ?? "—"), `${String(entry.data.taxDue ?? "—")}${entry.data.taxDue && String(entry.data.taxDue) < asOf ? " (overdue)" : ""}`,
                  peso(line.cr), peso(-balance(entries, "2200", line.tag)), canPost ? <div key={line.tag} className="flex flex-wrap gap-2">
-                   <Button size="sm" variant="outline" onClick={() => rowEntry("cash:taxpay", line.tag)}>Pay</Button>
+                    <Button size="sm" variant="outline" onClick={() => rowEntry("cash:taxpay", line.tag)}>Record BIR Tax Payment</Button>
                    {approved && <Button size="sm" variant="outline" onClick={() => setFilingEntry(entry)}>Record filing</Button>}
                  </div> : "View only"]))} />
             <h3 className="font-medium">Returns and certificates outstanding</h3>
            <Grid headers={["Journal", "Form", "Status", "Action"]} rows={entries.filter(entry => { const filing = donationDocuments?.[entry.id] ?? donationDocuments?.[`journal:${entry.no}`]; return entry.data.taxForm && !entry.reversedBy && filing?.status !== "filed-manually"; }).map(entry => { const filing = donationDocuments?.[entry.id] ?? donationDocuments?.[`journal:${entry.no}`]; return [`JE-${entry.no}`, String(entry.data.taxForm), filing?.reference ? "Reference recorded; filing not confirmed" : "Not recorded",
                  canPost && approved ? <Button key={entry.id} size="sm" variant="outline" onClick={() => setFilingEntry(entry)}>Mark filed / record certificate</Button> : "View only"];})} />
             <h3 className="font-medium">BIR payment history</h3>
-            <Grid headers={["Journal", "Date", "BIR item", "Amount", "Status"]} rows={entries.filter(entry => entry.type === "taxpay").map(entry => [
+             <Grid headers={["Journal", "Date", "BIR item", "Amount", "Channel", "Transaction reference", "Payment evidence", "Status"]} rows={entries.filter(entry => entry.type === "taxpay").map(entry => [
               `JE-${entry.no}`, entry.date, String(entry.data.taxId ?? entry.lines.find(line => line.acct === "2200")?.tag ?? ""),
-              peso(entry.lines.filter(line => line.acct === "2200").reduce((sum, line) => sum + line.dr, 0)),
+               peso(entry.lines.filter(line => line.acct === "2200").reduce((sum, line) => sum + line.dr, 0)),
+               String(entry.data.paymentChannel ?? "Not recorded"), String(entry.data.transactionReference ?? "Not recorded"),
+               String((entry.data.paymentEvidence as { filename?: string } | undefined)?.filename ?? "Not recorded"),
               entry.reversedBy || entries.some(row => row.data.reverses === entry.id) ? "Reversed" : "Posted",
             ])} />
             <h3 className="font-medium">Filing register and completed history</h3>
@@ -979,7 +992,6 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Each month, match the ledger to bank and broker statements. Every difference needs an explanation before the month can be signed off.</p></div>
               <StatusBadge status={`${reconciledMonths} of ${completedMonthTotal} months signed off`} tone={reconciledMonths === completedMonthTotal ? "success" : "warning"} /></div></CardHeader><CardContent className="space-y-3">
             <MonthNavigation value={month} first={firstMonth} onChange={selectMonth} />
-           {oldestOpen && <Button variant="outline" onClick={() => selectMonth(oldestOpen)}>Oldest open month ({oldestOpen})</Button>}
            {month && <nav aria-label="Reconciliation month status" className="flex flex-wrap gap-2">
               {Array.from({ length: 12 }, (_, index) => `${month.slice(0, 4)}-${String(index + 1).padStart(2, "0")}`).map(key => {
                 const status = monthStatus(key);

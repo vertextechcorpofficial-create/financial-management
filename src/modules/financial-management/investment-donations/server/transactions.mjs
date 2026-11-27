@@ -34,6 +34,12 @@ export async function updateAnnualReview(database, input) {
     if (type === "draft" && (!validChecks(checks) || latest?.action === "sign")) invalid("Reopen the signed review before editing its checklist.");
     if (type === "sign" && (!latest || latest.action === "sign" ||
         !validChecks(json(latest.checks)) || !json(latest.checks).every(Boolean))) invalid("Complete the saved checklist before approval.");
+    if (type === "sign") {
+      if (Number(latest.prepared_by) === actor) invalid("A different authenticated actor must approve this annual review.");
+      const end = new Date(`${fiscalStart}T00:00:00Z`);
+      end.setUTCFullYear(end.getUTCFullYear() + 1);
+      if (today < end.toISOString().slice(0, 10)) invalid("The financial year has not ended.");
+    }
     if (type === "reopen" && (latest?.action !== "sign" || typeof reason !== "string" || !reason.trim() || reason.trim().length > 500)) {
       invalid("Select a signed review and enter a reason.");
     }
@@ -281,6 +287,7 @@ export async function reconcile(trx, input) {
     payload[bucket][key] = value ?? null;
     if (note?.trim()) payload.notes[key] = note.trim();
   }
+  if (type === "sign" && Number(old.prepared_by) === actor) invalid("A different authenticated actor must approve this reconciliation.");
   const next = { month_start, revision: revision + 1, prepared_by: type === "draft" ? actor : old.prepared_by,
     approved_by: type === "sign" ? actor : null,
     signed_at: type === "sign" ? new Date().toISOString().replace("T", " ").replace("Z", "") : null,
@@ -619,6 +626,12 @@ export async function transact(database, input) {
         }
       }
       try {
+        if (type === "taxpay") {
+          const { validateStoredProof } = await import("./proof-validator.mjs");
+          const settings = await trx("cgl_endpoint_settings").where({ id: 1 }).forUpdate().first();
+          const file = await trx("directus_files").where({ id: input.evidenceFileId }).forUpdate().first();
+          input = { ...input, paymentEvidence: validateStoredProof(file, actor, settings?.service_user, "payment") };
+        }
         entry = buildCashEntry(entries, closed, input, id, rate, policy.divFwt);
         if (type === "contribution" && ["deposit", "Deposit for future stock subscription"].includes(input.source)) {
           Object.assign(entry.data, { secCriteriaMet: true, secApplicationRef: input.secApplicationRef.trim(), requestedShares: input.requestedShares });
