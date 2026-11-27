@@ -48,7 +48,6 @@ export function SettlementReversalDialog({ id, onClose, onPosted }: {
 
   return <ConsoleDialog open wide title="Reverse settlement" description={preview?.reference ?? "Review the entries linked to this settlement."}
     onOpenChange={open => { if (!open && !busy) onClose(); }}
-    footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background px-6 py-3"
     footer={<>
       <Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button>
       <Button variant={preview ? "destructive" : "default"} disabled={busy || (Boolean(preview) && !reason.trim())}

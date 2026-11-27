@@ -1,4 +1,5 @@
 import { getRemittanceDetail, postRemittanceFile } from "@/modules/financial-management/cooperative/server/payroll-remittances";
+import { confirmRemittanceLink } from "@/modules/financial-management/cooperative/server/payroll-remittance-review";
 import { getRemittanceReversalPreview, reverseRemittance } from "@/modules/financial-management/cooperative/server/payroll-remittance-reversal";
 import { LoanError } from "@/modules/financial-management/cooperative/server/loans";
 import { withLoans } from "../../../loans/_response";
@@ -16,6 +17,10 @@ export async function POST(request: Request, { params }: Context) {
   return withLoans(async actor => {
     const id = Number((await params).id);
     const body = await request.json().catch(() => null);
+    if (body?.action === "link") {
+      await confirmRemittanceLink(id, body, actor);
+      return getRemittanceDetail(id, true);
+    }
     if (body?.action === "post") return postRemittanceFile(id, body, actor);
     if (body?.action === "review-reversal") return getRemittanceReversalPreview(id);
     if (body?.action === "reverse") return reverseRemittance(id, body, actor);

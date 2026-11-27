@@ -41,7 +41,9 @@ type LoanRow = {
   principal: string;
   rate: string;
   markup: string;
-  method: "DIMINISHING" | "FLAT" | "MARKUP";
+  method: "DIMINISHING" | "FLAT" | "MARKUP" | "UPFRONT";
+  upfrontInterest: string;
+  netProceeds: string;
   months: number;
   frequency: "CUTOFF" | "MONTHLY";
   mode: "PAYROLL" | "OTC";
@@ -612,7 +614,7 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, i
         </span>
       )}
       description={loan ? `${loan.productName} · Agreement ${loan.agreementNo}` : undefined}
-      footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
+      footerClassName="backdrop-blur"
       footer={<>
         <Button variant="outline" className="sm:mr-auto" onClick={onClose}>Close</Button>
         {paymentEndpoint && status === "ACTIVE" && !loading && !error && (
@@ -660,7 +662,7 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, i
               <MetricCard
                 icon={TrendingUp}
                 label={loan.productKind === "GOODS" ? "Markup" : "Interest"}
-                value={loan.productKind === "GOODS" ? `${loan.markup}%` : `${loan.rate}% / mo`}
+                value={loan.productKind === "GOODS" ? `${loan.markup}%` : `${loan.rate}%${loan.method === "UPFRONT" ? " upfront" : " / mo"}`}
                 detail={loan.productKind === "GOODS" ? "Catalog price markup" : statusText(loan.method)}
                 tone="sky"
               />
@@ -733,7 +735,8 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, i
                   ["Regular installment", peso(loan.signedPricing.regularPayment)],
                   ["Final installment", peso(loan.signedPricing.finalPayment)],
                 ] as [string, string | number][] : []),
-                [loan.productKind === "GOODS" ? "Markup" : "Monthly interest", loan.productKind === "GOODS" ? loan.markup + "%" : loan.rate + "% · " + statusText(loan.method)],
+                [loan.productKind === "GOODS" ? "Markup" : loan.method === "UPFRONT" ? "Upfront interest rate" : "Monthly interest", loan.productKind === "GOODS" ? loan.markup + "%" : loan.rate + "% · " + statusText(loan.method)],
+                ...(loan.method === "UPFRONT" ? [["Upfront interest withheld", peso(loan.upfrontInterest)], ["Net payout", peso(loan.netProceeds)]] as [string, string][] : []),
                 ["Processing fee on release", peso(loan.processingFee)],
                 ["Late penalty", loan.penaltyPercent + "% after " + loan.graceDays + " days"],
                 ["Applied", date(loan.appliedOn)],
@@ -811,6 +814,7 @@ export function LoanDialog({ id, endpoint = "/api/fm/cooperative/loans/" + id, i
                           ) : item.officialReceiptNo ?? item.referenceNo ?? item.journalNo ?? "—"}
                         </div>
                         {item.journalNo && (item.officialReceiptNo || item.referenceNo) && <div className="text-muted-foreground">{item.journalNo}</div>}
+                        {item.channel === "PAYROLL" && item.status === "POSTED" && <div className="text-muted-foreground">Payment ID {item.id}</div>}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">{peso(item.principal)}</TableCell>
                       <TableCell className="text-right font-mono tabular-nums">{peso(item.interest)}</TableCell>

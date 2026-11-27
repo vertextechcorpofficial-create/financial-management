@@ -220,6 +220,9 @@ function StatementLoans({ loans, onRetry }: { loans: Statement["loans"]; onRetry
                         <TableCell className="font-mono">{item.loanNo}</TableCell>
                         <TableCell>
                           {item.kind}
+                          {item.netProceeds !== undefined && <div className="text-xs text-muted-foreground">
+                            {peso(item.netProceeds)} paid out · {peso(item.upfrontInterest ?? "0.00")} interest withheld
+                          </div>}
                           {item.channel && <div className="text-xs text-muted-foreground">{loanActivityChannels[item.channel]}</div>}
                         </TableCell>
                         <TableCell className="font-mono">{item.reference}</TableCell>

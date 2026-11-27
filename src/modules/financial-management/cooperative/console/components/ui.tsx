@@ -213,13 +213,15 @@ export function ConsoleDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`max-h-[92dvh] overflow-x-hidden overflow-y-auto ${wide ? "sm:max-w-4xl" : "sm:max-w-xl"}`}>
-        <DialogHeader>
+      <DialogContent className={`flex max-h-[92dvh] flex-col gap-0 overflow-hidden p-0 ${wide ? "sm:max-w-4xl" : "sm:max-w-xl"}`}>
+        <DialogHeader className="shrink-0 px-6 pb-3 pr-12 pt-6">
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
-        {children}
-        {footer && <DialogFooter className={`flex-wrap ${footerClassName}`}>{footer}</DialogFooter>}
+        <div className="min-h-0 grow overflow-y-auto px-6 pb-6 pt-1">
+          {children}
+        </div>
+        {footer && <DialogFooter className={`shrink-0 flex-wrap gap-2 border-t bg-background/95 px-6 py-3 ${footerClassName}`}>{footer}</DialogFooter>}
       </DialogContent>
     </Dialog>
   );

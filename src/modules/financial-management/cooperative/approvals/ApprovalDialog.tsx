@@ -87,7 +87,6 @@ export function ApprovalDialog({ row, onChanged, onClose }: {
         </span>
       )}
       description={`${typeLabel} request · Filed ${date(row.filedAt)}`}
-      footerClassName="mt-4 border-t pt-3"
       footer={<Button variant="outline" onClick={onClose}>Close</Button>}
       wide
     >

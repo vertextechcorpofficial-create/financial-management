@@ -1,6 +1,6 @@
 import { money, type DocumentType, type Product } from "./policy-types";
 
-type Method = "diminishing" | "flat" | "markup";
+type Method = "diminishing" | "flat" | "markup" | "upfront";
 type Frequency = "cutoff" | "monthly";
 
 function units(value: string, scale: number): bigint {
@@ -22,6 +22,7 @@ export function calculateLoanExample(
   const count = frequency === "cutoff" ? months * 2 : months;
   const rate = units(ratePercent, 6);
   const base = 100_000_000n;
+  const upfrontInterest = method === "upfront" ? round(original * rate, base) : 0n;
   const periodicBase = frequency === "cutoff" ? base * 2n : base;
   const n = BigInt(count);
   const interest = method === "flat" ? round(original * rate * BigInt(months), base)
@@ -49,6 +50,7 @@ export function calculateLoanExample(
   return {
     paymentCount: count, regularPayment: installments[0].total, finalPayment: installments[count - 1].total,
     totalInterest: decimal(totalInterest), totalPayable: decimal(original + totalInterest), installments,
+    upfrontInterest: decimal(upfrontInterest), netProceeds: decimal(original - upfrontInterest),
   };
 }
 
@@ -75,6 +77,9 @@ export function createLoanTermsSnapshot(
   if (!/^\d{1,3}(?:\.\d{1,6})?$/.test(rate) ||
       product.kind === "CASH" && (units(rate, 6) < units(product.rateMin, 6) || units(rate, 6) > units(product.rateMax, 6))) {
     throw new Error("Choose a rate within the product range.");
+  }
+  if (selection.method === "upfront" && round(units(principal, 2) * units(rate, 6), 100_000_000n) >= units(principal, 2)) {
+    throw new Error("Upfront interest must leave positive net proceeds.");
   }
   const documents = product.documentRules.map(rule => {
     const type = documentTypes.find(doc => doc.id === rule.documentTypeId && doc.isActive);

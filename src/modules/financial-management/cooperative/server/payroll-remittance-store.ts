@@ -11,7 +11,7 @@ import { withdrawalId as id } from "./withdrawal-store";
 export const batchCollection = "cooperative_payroll_remittance_batches";
 const lineCollection = "cooperative_payroll_remittance_lines";
 export const remittanceDecimal = z.union([z.string(), z.number()]).transform(String).pipe(money);
-export const remittanceState = z.enum(["READY", "INVALID", "UNMATCHED", "AMBIGUOUS", "DUPLICATE", "SHORT", "POSTED", "REVERSED"]);
+export const remittanceState = z.enum(["READY", "INVALID", "UNMATCHED", "AMBIGUOUS", "DUPLICATE", "SHORT", "POSTED", "REVERSED", "RECONCILED"]);
 
 const batch = z.object({
   id, origin: z.enum(["FILE", "INDIVIDUAL"]), state: z.enum(["REVIEW", "POSTED", "REVERSED"]),
@@ -29,6 +29,7 @@ const line = z.object({
   input_error: z.string().nullable(), state: remittanceState, message: z.string().nullable(),
   member_name: z.string().nullable(), loan_no: z.string().nullable(), membership_id: id.nullable(), loan_id: id.nullable(),
   deduction_key: z.string().nullable(), journal_id: id.nullable(), journal_no: z.string().nullable(),
+  payroll_period_key: z.string().nullable(), payroll_source: z.unknown(),
   payment_id: id.nullable(), reversal_journal_id: id.nullable(), reversal_journal_no: z.string().nullable(),
 });
 export type RemittanceBatch = z.output<typeof batch>;
@@ -105,12 +106,13 @@ export async function listRemittanceRuns(params: URLSearchParams) {
   return { rows: runs.slice(0, pageSize), page, hasMore: runs.length > pageSize };
 }
 
-export async function claimedRemittanceDeductions(keys: string[]) {
+export async function claimedRemittanceDeductions(keys: string[], field: "deduction_key" | "payroll_period_key" = "deduction_key") {
   const claimed = new Set<string>();
+  const key = z.object({ [field]: z.string() });
   for (let start = 0; start < keys.length; start += 40) {
-    const filter = { deduction_key: { _in: keys.slice(start, start + 40) } };
-    const rows = await remittanceRows(lineCollection, z.object({ deduction_key: z.string() }), "deduction_key", filter, 40);
-    rows.forEach(row => claimed.add(row.deduction_key));
+    const filter = { [field]: { _in: keys.slice(start, start + 40) } };
+    const rows = await remittanceRows(lineCollection, key, field, filter, 40);
+    rows.forEach(row => claimed.add(row[field]));
   }
   return claimed;
 }

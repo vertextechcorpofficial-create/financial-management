@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
-  loanProductRoom, passesLoanChecks, payrollHeadroom, payrollOverlap, payrollTermCommitment,
+  loanProductRoom, passesLoanChecks, payrollHeadroom, payrollItemOverlap, payrollTermCommitment,
   type LoanAssessmentCheck, type PayrollCommitment,
 } from "../loans/loan-assessment";
 import { lastDayOfMonth, loanDueDates } from "../loans/loan-schedule";
@@ -14,6 +14,7 @@ import { readDirectusItems } from "./directus";
 import { loanPostingEnabled } from "./loan-commands";
 import { LoanError, loanInstallmentAmount, readLoanAssessmentRecords, type MemberLoanView } from "./loans";
 import { amountToCents, latestPayrollReference, percentOfCents, readCooperativePayrollDeductions, signedCentsToAmount, todayManila } from "./member-read";
+import { remapPostedPayrollItems } from "./payroll-record-links";
 import { getPolicies } from "./policies";
 
 const id = z.number().int().positive().max(4_294_967_295);
@@ -33,7 +34,7 @@ export const loanDraftSchema = z.object({
   itemId: id.optional(),
   quantity: z.number().int().min(1).max(10).optional(),
   rate: z.string().trim().regex(/^\d{1,3}(?:\.\d{1,6})?$/).optional(),
-  method: z.enum(["diminishing", "flat", "markup"]),
+  method: z.enum(["diminishing", "flat", "markup", "upfront"]),
   term: z.number().int().min(1).max(120),
   frequency: z.enum(["cutoff", "monthly"]),
   mode: z.enum(["payroll", "otc"]),
@@ -112,6 +113,7 @@ async function assessPayroll(
   if (payroll.state !== "verified") return payroll;
 
   const recorded = await readCooperativePayrollDeductions(member.user_id, payroll).catch(() => null);
+  const payrollItems = recorded ? await remapPostedPayrollItems(recorded, member.user_id).catch(() => null) : null;
   const unavailable = { state: "unavailable" as const, message: "The deductions included in posted payroll could not be verified. Ask Payroll to review the result." };
   if (!recorded) return unavailable;
   const floor = settings.floorMode === "FIXED" ? amountToCents(settings.floorFixedAmount) : percentOfCents(payroll.grossPay, settings.floorPercent);
@@ -136,7 +138,7 @@ async function assessPayroll(
       if (current === null) return { state: "unavailable" as const, message: "A salary-deducted loan is missing verified installment terms." };
       if (current > 0n) commitments.push({ table: "cooperative_loans", id: loan.id, cents: current });
     }
-    const overlap = payrollOverlap(recorded, commitments);
+    const overlap = payrollItemOverlap(payrollItems, commitments);
     if (overlap === null || overlap > amountToCents(payroll.totalDeductions)) return unavailable;
     const { headroom } = payrollHeadroom(payroll.netPay, floor, commitments, overlap);
     cutoffs.push({ cutoff, payment, headroom, ok: amountToCents(payment) <= amountToCents(headroom) });

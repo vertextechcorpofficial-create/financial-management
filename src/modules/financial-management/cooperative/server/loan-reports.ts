@@ -10,7 +10,7 @@ import { blockedReport, reportProducts, reportDepartments, reportTotals, textMat
 const loanColumns: ReportColumn[] = [{ label: "Loan" }, { label: "Member" }, { label: "Department" }, { label: "Product" }];
 const portfolioColumns: ReportColumn[] = [
   ...loanColumns, { label: "Released", kind: "date" }, { label: "Terms" }, { label: "Repayment" }, { label: "Status" },
-  { label: "Principal", kind: "money" }, { label: "Balance", kind: "money" },
+  { label: "Principal", kind: "money" }, { label: "Upfront interest", kind: "money" }, { label: "Net payout", kind: "money" }, { label: "Balance", kind: "money" },
   { label: "Past due", kind: "money" }, { label: "Penalties", kind: "money" },
 ];
 const agingColumns: ReportColumn[] = [
@@ -41,7 +41,8 @@ function portfolioRow(view: MemberLoanView, status: string): ReportRow {
   return { id: loan.id, cells: [
     ...loanCells(view), ledger?.release.date ?? null, terms,
     loan.mode === "OTC" ? "Over the counter" : "Payroll remittance", statusLabel(status),
-    position ? loan.principal : null, position?.remaining ?? null, position?.pastDue ?? null, position?.penalties ?? null,
+    position ? loan.principal : null, ledger && loan.method === "UPFRONT" ? loan.upfrontInterest : null,
+    ledger && loan.productKind === "CASH" ? loan.netProceeds : null, position?.remaining ?? null, position?.pastDue ?? null, position?.penalties ?? null,
   ] };
 }
 

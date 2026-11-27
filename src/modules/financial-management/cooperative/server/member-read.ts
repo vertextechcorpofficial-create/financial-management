@@ -435,8 +435,8 @@ export async function latestPayrollReference(userId: number, assessmentDate: str
 }
 
 export async function readCooperativePayrollDeductions(userId: number, reference: Extract<PayrollReference, { state: "verified" }>) {
-  const [row] = await rows("payroll_run_employee", "coop_savings,coop_loan,breakdown_json", z.object({
-    coop_savings: z.unknown(), coop_loan: z.unknown(), breakdown_json: z.unknown(),
+  const [row] = await rows("payroll_run_employee", "coop_savings,coop_loan,loan_coop,breakdown_json", z.object({
+    coop_savings: z.unknown(), coop_loan: z.unknown(), loan_coop: z.unknown(), breakdown_json: z.unknown(),
   }), {
     filter: {
       id: { _eq: reference.resultId }, user_id: { _eq: userId },
@@ -448,7 +448,7 @@ export async function readCooperativePayrollDeductions(userId: number, reference
 }
 
 const payrollDeductionFields = payrollResultSchema.extend({
-  coop_savings: z.unknown(), coop_loan: z.unknown(), breakdown_json: z.unknown(),
+  coop_savings: z.unknown(), coop_loan: z.unknown(), loan_coop: z.unknown(), breakdown_json: z.unknown(),
 });
 
 export async function readPostedPayrollRun(runId: number) {
