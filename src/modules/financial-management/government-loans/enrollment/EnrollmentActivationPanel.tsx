@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
   AlertDialogTitle, AlertDialogTrigger,
@@ -22,31 +23,24 @@ export function EnrollmentActivationPanel({ review, onSaved, reload }: {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
-  const [error, setError] = useState<{ message: string; conflict: boolean }>();
   const activationKey = useRef<string | null>(null);
 
   async function run(save: () => Promise<string>) {
     if (busy) return;
     setBusy(true);
-    setError(undefined);
     try {
       const notice = await save();
       setOpen(false);
       onSaved(notice);
     } catch (cause) {
-      setError({
-        message: cause instanceof Error ? cause.message : "The Payroll handoff could not be updated. Try again.",
-        conflict: cause instanceof RequestApiError && cause.status === 409,
-      });
+      const conflict = cause instanceof RequestApiError && cause.status === 409;
+      if (conflict) setOpen(false);
+      toast.error(cause instanceof Error ? cause.message : "The Payroll handoff could not be updated. Try again.",
+        conflict ? { action: { label: "Reload review", onClick: reload } } : undefined);
     } finally {
       setBusy(false);
     }
   }
-
-  const errorMessage = error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">
-    <span>{error.message}</span>
-    {error.conflict && <Button type="button" variant="outline" size="sm" onClick={reload}>Reload review</Button>}
-  </div>;
 
   if (canActivate) return <RequestSection title="Finish activation">
     <AlertDialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}>
@@ -58,10 +52,9 @@ export function EnrollmentActivationPanel({ review, onSaved, reload }: {
           <AlertDialogTitle>Activate {record.reference}?</AlertDialogTitle>
           <AlertDialogDescription>Financial Management will activate the loan and record its Payroll instructions.</AlertDialogDescription>
         </AlertDialogHeader>
-        {errorMessage}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-          <Button type="button" disabled={busy || error?.conflict} onClick={() => void run(async () => {
+          <Button type="button" disabled={busy} onClick={() => void run(async () => {
             activationKey.current ??= consignmentRequestId();
             await activateEnrollment(id, revision, activationKey.current);
             return "Enrollment activated. Payroll instructions are ready to download.";
@@ -89,11 +82,9 @@ export function EnrollmentActivationPanel({ review, onSaved, reload }: {
       <span className="block font-medium">Payroll acknowledgement CSV</span>
       <Input className="max-w-md" type="file" accept=".csv,text/csv" disabled={busy} onChange={event => {
         setFile(event.target.files?.[0] ?? null);
-        if (!error?.conflict) setError(undefined);
       }} />
     </label>
-    {errorMessage}
-    <Button type="button" disabled={!file || busy || error?.conflict} onClick={() => {
+    <Button type="button" disabled={!file || busy} onClick={() => {
       if (file) void run(async () => {
         await importPayrollAcknowledgement(id, revision, file);
         return "Payroll acknowledgement recorded.";

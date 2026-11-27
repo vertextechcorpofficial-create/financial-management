@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowLeft, FileText } from "lucide-react";
+import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -78,8 +79,6 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
   const [previewAttempt, retryPreview] = useState(0);
   const [files, setFiles] = useState<Partial<Record<DocumentKind, PendingFile>>>({});
   const [busy, setBusy] = useState(false);
-  const [feedback, setFeedback] = useState("");
-  const [actionError, setActionError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const actionLock = useRef(false);
@@ -130,8 +129,6 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
 
   function change<K extends keyof RequestForm>(key: K, value: RequestForm[K]) {
     setForm(current => changeRequestField(current, key, value));
-    setFeedback("");
-    setActionError("");
     setFieldErrors({});
   }
 
@@ -151,8 +148,6 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
     }
     actionLock.current = true;
     setBusy(true);
-    setActionError("");
-    setFeedback("");
     try {
       let saved = record;
       if (!saved || JSON.stringify(saved.form) !== serialized) {
@@ -177,11 +172,11 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
         await submitDraft(saved, actionKey("submit", saved.id + ":" + saved.revision));
         onBack("in-progress", `${saved.reference} submitted for approval.`);
       } else {
-        setFeedback("Draft saved.");
+        toast.success("Draft saved.");
         setFieldErrors(saved.missing);
       }
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "The request could not be saved.");
+      toast.error(error instanceof Error ? error.message : "The request could not be saved.");
       if (error instanceof RequestApiError) setFieldErrors(error.fieldErrors ?? {});
     } finally {
       setBusy(false);
@@ -307,10 +302,9 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
                 event.currentTarget.value = "";
                 if (!file) return;
                 if (file.size > 5 * 1024 * 1024) {
-                  setActionError("Choose a file of 5 MB or less.");
+                  toast.error("Choose a file of 5 MB or less.");
                   return;
                 }
-                setActionError("");
                 setFiles(current => ({ ...current, [kind]: { file, key: consignmentRequestId() } }));
               }} />
             </div>;
@@ -350,8 +344,6 @@ export function RequestEditor({ initial, agencies, applicant, onBack, onReload }
           {Object.entries(missing).map(([key, error]) => <li key={key}>{error}</li>)}
         </ul>
       </div>}
-      {feedback && <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">{feedback}</p>}
-      {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" disabled={busy} onClick={() => void finish(false)}>Save draft</Button>
         <Button type="button" disabled={busy || !ready} onClick={() => setConfirmSubmit(true)}>{busy ? "Saving…" : "Submit for approval"}</Button>

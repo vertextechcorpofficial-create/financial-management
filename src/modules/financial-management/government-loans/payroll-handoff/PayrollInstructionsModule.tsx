@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, FileSpreadsheet } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -26,7 +27,6 @@ export function PayrollInstructionsModule({ canOpenSetup }: { canOpenSetup?: boo
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [refresh, setRefresh] = useState(0);
-  const [notice, setNotice] = useState("");
   const [expanded, setExpanded] = useState<string>();
   const [loaded, setLoaded] = useState<{ key: string; data?: Page<PayrollInstructionRow>; error?: string }>();
   const query = new URLSearchParams({ q: search.trim(), page: String(page), ...(status ? { state: status } : {}) }).toString();
@@ -82,7 +82,6 @@ export function PayrollInstructionsModule({ canOpenSetup }: { canOpenSetup?: boo
             : "Loading…"}</span>
         </div>
 
-        {notice && <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p>}
         {current?.error && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
           <span className="min-w-0 flex-1">{current.error}</span>
           <Button size="sm" variant="outline" onClick={() => setRefresh(value => value + 1)}>Retry</Button>
@@ -130,7 +129,7 @@ export function PayrollInstructionsModule({ canOpenSetup }: { canOpenSetup?: boo
                         <div className="flex flex-wrap items-center gap-3">
                           {item.fileExchange && (item.state === "QUEUED" || item.state === "RETRYABLE") &&
                             <PayrollDownload item={item} onDownloaded={() => {
-                              setNotice(`${item.reference} · CSV downloaded. Awaiting Payroll acknowledgement.`);
+                              toast.success(`${item.reference} · CSV downloaded. Awaiting Payroll acknowledgement.`);
                               setRefresh(value => value + 1);
                             }} />}
                           {item.state !== "ACCEPTED" && <a className="inline-block text-sm text-primary underline" download="payroll-acknowledgement-template.csv"
@@ -162,13 +161,11 @@ export function PayrollInstructionsModule({ canOpenSetup }: { canOpenSetup?: boo
 
 function PayrollDownload({ item, onDownloaded }: { item: PayrollInstructionRow; onDownloaded: () => void }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const key = useRef<string | null>(null);
 
   async function download() {
     if (busy) return;
     setBusy(true);
-    setError("");
     key.current ??= consignmentRequestId();
     try {
       const response = await fetch(`/api/fm/government-loans/loans/payroll-instructions/${item.payload.enrollmentId}`, {
@@ -189,14 +186,14 @@ function PayrollDownload({ item, onDownloaded }: { item: PayrollInstructionRow; 
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       onDownloaded();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Payroll instructions could not be downloaded.");
+      toast.error(cause instanceof Error ? cause.message : "Payroll instructions could not be downloaded.",
+        { action: { label: "Retry", onClick: () => void download() } });
     } finally {
       setBusy(false);
     }
   }
 
   return <div className="space-y-2">
-    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <Button type="button" size="sm" disabled={busy} onClick={() => void download()}>
       {busy ? "Downloading…" : item.state === "RETRYABLE" ? "Download original CSV for retry" : "Download instructions CSV"}
     </Button>

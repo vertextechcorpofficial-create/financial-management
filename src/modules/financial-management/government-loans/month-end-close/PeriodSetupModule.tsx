@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, CircleAlert, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
@@ -55,7 +56,10 @@ function PeriodSection({ data, onChanged }: { data: PeriodSetupView; onChanged: 
     return command.run(endpoint, {
       action: changing ? "CHANGE_PERIOD" : "INITIALIZE_PERIOD",
       month, reason: reason.trim(), expectedOpenMonth: data.openMonth,
-    }, () => { setOpen(false); setReason(""); setConfirmation(""); onChanged(); });
+    }, () => {
+      toast.success(changing ? `Open period changed to ${monthLabel(month)}.` : `${monthLabel(month)} initialized as the open period.`);
+      setOpen(false); setReason(""); setConfirmation(""); onChanged();
+    });
   }
 
   const counts = ([
@@ -129,7 +133,6 @@ function PeriodSection({ data, onChanged }: { data: PeriodSetupView; onChanged: 
         {changing ? (unchanged ? "Current period" : "Change period") : "Initialize period"}
       </Button>
     </div>
-    {command.error && <p role="alert" className="text-sm text-destructive">{command.error}</p>}
 
     <AlertDialog open={open} onOpenChange={next => { if (!command.busy) setOpen(next); }}>
       <AlertDialogContent>
@@ -145,7 +148,6 @@ function PeriodSection({ data, onChanged }: { data: PeriodSetupView; onChanged: 
           <span>Type <strong>{month}</strong> to confirm.</span>
           <Input value={confirmation} disabled={command.busy} onChange={event => setConfirmation(event.target.value)} placeholder={month} />
         </label>
-        {command.error && <p role="alert" className="text-sm text-destructive">{command.error}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={command.busy}>Cancel</AlertDialogCancel>
           <Button type="button" disabled={command.busy || confirmation.trim() !== month} onClick={() => void submit()}>

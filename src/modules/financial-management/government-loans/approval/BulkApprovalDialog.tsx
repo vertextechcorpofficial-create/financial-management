@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -17,7 +18,6 @@ export function BulkApprovalDialog({ rows, onClose, onComplete }: {
 }) {
   const remarksId = useId();
   const [remarks, setRemarks] = useState("");
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const attempt = useRef<{ text: string; key: string } | null>(null);
@@ -28,12 +28,11 @@ export function BulkApprovalDialog({ rows, onClose, onComplete }: {
     if (attempt.current?.text !== text) attempt.current = { text, key: consignmentRequestId() };
     inFlight.current = true;
     setBusy(true);
-    setError("");
     try {
       const items = rows.map(row => ({ id: row.id, expectedRevision: row.revision }));
       onComplete(await bulkApprove(items, text, attempt.current.key));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The approval batch could not be completed. Try again.");
+      toast.error(cause instanceof Error ? cause.message : "The approval batch could not be completed. Try again.");
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -57,7 +56,6 @@ export function BulkApprovalDialog({ rows, onClose, onComplete }: {
           <Label htmlFor={remarksId}>Shared remarks (optional)</Label>
           <Textarea id={remarksId} maxLength={500} value={remarks} disabled={busy} onChange={event => setRemarks(event.target.value)} />
         </div>
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       </div>
       <DialogFooter className="shrink-0">
         <Button variant="outline" type="button" disabled={busy} onClick={onClose}>Cancel</Button>

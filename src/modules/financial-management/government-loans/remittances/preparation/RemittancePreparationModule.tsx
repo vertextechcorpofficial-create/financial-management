@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, Inbox, SearchX } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -266,7 +267,7 @@ function PreparationDialog({ selected, openMonth, close, saved }: {
         })}
         {dateClosed && <p role="alert" className="text-sm text-destructive">The payment date falls in a closed accounting period.</p>}
         {!validOverrides && <p role="alert" className="text-sm text-destructive">Enter penalties with at most two decimal places.</p>}
-        {(proofError || command.error) && <p role="alert" className="text-sm text-destructive">{proofError || command.error}</p>}
+        {proofError && <p role="alert" className="text-sm text-destructive">{proofError}</p>}
         {!preview && <MissingFields missing={reviewMissing} />}
         {preview && <p role="status" className="text-sm">Preview ready. Confirm the details and proof before submitting.</p>}
         {preview && !proof && <p role="status" className="text-xs text-muted-foreground">Attach proof of payment to submit.</p>}
@@ -352,7 +353,6 @@ export function RemittancePreparationModule() {
   const [detailId, setDetailId] = useState<string>();
   const [listRow, setListRow] = useState<Item>();
   const [refresh, setRefresh] = useState(0);
-  const [notice, setNotice] = useState("");
   const skipUrlWrite = useRef(true);
   const grouped = viewMode === "cards";
   const query = new URLSearchParams({ page: String(page), ...(month ? { month } : {}), ...(agencyId ? { agencyId } : {}), ...(status ? { status } : {}),
@@ -431,7 +431,6 @@ export function RemittancePreparationModule() {
   }
 
   function openPreparing() {
-    setNotice("");
     setPreparing(true);
   }
 
@@ -452,7 +451,6 @@ export function RemittancePreparationModule() {
         <Button variant="outline" onClick={reload}>Refresh</Button>
       </div>
     </div>
-    {notice && <div className="rounded-md border bg-muted/30 p-3 text-sm"><p role="status">{notice}</p></div>}
     {data && <SummaryPills data={data} />}
     <div className="flex flex-wrap items-end gap-2">
       <Button type="button" variant="outline" size="sm" className="md:hidden" aria-expanded={filtersOpen} aria-controls="remittance-filters"
@@ -613,7 +611,7 @@ export function RemittancePreparationModule() {
     </div>}
     {preparing && data && <PreparationDialog selected={selection} openMonth={data.openMonth}
       close={() => setPreparing(false)} saved={() => {
-        setPreparing(false); setSelection([]); setNotice("Remittances submitted for approval."); reload();
+        setPreparing(false); setSelection([]); toast.success("Remittances submitted for approval."); reload();
       }} />}
     {detailId && <SavedRemittanceDialog id={detailId} close={() => setDetailId(undefined)} />}
     {listRow && <DeductionsDialog row={listRow} close={() => setListRow(undefined)} />}

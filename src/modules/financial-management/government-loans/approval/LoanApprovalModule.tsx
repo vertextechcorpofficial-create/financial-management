@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronsUpDown, Clock3, SearchX } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -194,7 +195,6 @@ export function LoanApprovalModule() {
   const [selected, setSelected] = useState<number[]>([]);
   const [confirmRows, setConfirmRows] = useState<ApprovalQueueItem[] | null>(null);
   const [batchResult, setBatchResult] = useState<BulkApprovalResult | null>(null);
-  const [notice, setNotice] = useState("");
   const skipUrlWrite = useRef(true);
 
   const query = new URLSearchParams({ page: String(page), sort, direction, size: String(size) });
@@ -312,7 +312,7 @@ export function LoanApprovalModule() {
       onBack={() => setReviewId(null)} onReload={() => setReviewRefresh(value => value + 1)} onDecision={message => {
         setReviewId(null);
         setBatchResult(null);
-        setNotice(message);
+        toast.success(message);
         refreshLists();
       }} />;
     return <div className="space-y-3">
@@ -329,10 +329,9 @@ export function LoanApprovalModule() {
     {confirmRows && <BulkApprovalDialog rows={confirmRows} onClose={() => setConfirmRows(null)} onComplete={result => {
       setConfirmRows(null);
       setBatchResult(result);
-      setNotice("");
+      toast.success(`${result.approved} approved · ${result.skipped} skipped`);
       refreshLists();
     }} />}
-    {notice && <p role="status" className="rounded-lg border p-3 text-sm">{notice}</p>}
     {batchResult && <section aria-label="Bulk approval results" className="space-y-2 rounded-lg border p-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p role="status" className="font-medium">{batchResult.approved} approved · {batchResult.skipped} skipped</p>
