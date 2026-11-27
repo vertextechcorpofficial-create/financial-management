@@ -67,9 +67,11 @@ export async function endpointAccess(database, request, settings, fetchIdentity 
     if (!parent)
         throw new EndpointError(403, "The ledger module registration is invalid.");
     const grants = admin ? null : new Set((await database("user_access_modules").where({ user_id: id }).select("module_id")).map(row => Number(row.module_id)));
+    const isChild = (row) => Number(row.parent_module_id) === Number(parent.id) || String(row.base_path ?? "").startsWith(`${parent.base_path}/`);
+    const parentGranted = admin || grants.has(Number(parent.id)) || registry.some(row => isChild(row) && grants.has(Number(row.id)));
     const workspaces = INVESTMENT_DONATIONS_WORKSPACES.filter(definition => {
         const row = find(definition, Number(parent.id));
-        return row && (!grants || grants.has(Number(row.id)));
+        return row && (parentGranted || grants.has(Number(row.id)));
     }).map(row => row.key);
     const access = { id, admin, workspaces };
     // Database-controlled policy, not client-supplied roles or a static token's admin flag.

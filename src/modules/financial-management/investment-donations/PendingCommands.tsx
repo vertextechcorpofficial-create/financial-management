@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { checkLedgerCommandStatus, listPendingLedgerCommands, subscribePendingLedgerCommands } from "./ledger-api";
 
@@ -19,11 +20,12 @@ export function PendingCommands({ actor }: { actor: number }) {
     return subscribePendingLedgerCommands(refresh);
   }, [actor]);
   if (!pending.length && !message && !storageError) return null;
-  return <Card><CardHeader><CardTitle>Posting status</CardTitle></CardHeader><CardContent className="space-y-3">
+  const labels: Record<string, string> = { period: "Period update", reconciliation: "Reconciliation", trade: "Investment transaction", donation: "Donation", master: "Reference data update", "annual-review": "Annual review" };
+  return <Card><CardHeader><CardTitle>Request status</CardTitle></CardHeader><CardContent className="space-y-3">
     {storageError && <p role="alert">Browser session storage is unavailable. Posting stays disabled until requests can be tracked safely.</p>}
     {pending.length > 0 && <p className="text-sm">These requests do not yet have a confirmed outcome. Check their status before creating any replacement entry. To retry, submit the exact same form values.</p>}
     {pending.map(command => <div key={command.commandId} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm">
-      <div><div className="font-medium">{command.operation}</div><code className="break-all text-xs">{command.commandId}</code></div>
+       <div><div className="font-medium">{labels[command.operation] ?? "Financial request"} <Badge variant="outline" className="ml-2 border-amber-200 bg-amber-50 text-amber-700">Awaiting confirmation</Badge></div><code className="break-all text-xs text-muted-foreground">Reference: {command.commandId}</code></div>
       <Button type="button" variant="outline" disabled={Boolean(loading)} onClick={async () => {
         setLoading(command.commandId); setMessage(undefined);
         try {

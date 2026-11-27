@@ -10,12 +10,14 @@
 const DEBIT_NORMAL = new Set(["1000", "1010", "1020", "1100", "1110", "1120", "1130", "1140", "1200", "1210", "1220", "3020"]);
 const CREDIT_NORMAL = new Set(["2000", "2100", "2110", "2200", "2300", "2310", "3000", "3010", "3100", "3150"]);
 const CASH = new Set(["1000", "1010", "1020"]);
-const INVESTMENTS = { dom: "1100", intl: "1110", fi: "1120", cash: "1130", alt: "1140" };
 const ACCOUNTS = new Set(["1000", "1010", "1020", "1100", "1110", "1120", "1130", "1140", "1200", "1210", "1220", "2000", "2100", "2110", "2200", "2300", "2310", "3000", "3010", "3020", "3100", "3150", "3800", "3900", "4000", "4010", "4100", "4110", "5000", "5100", "5200", "5300", "5310", "5320", "5330"]);
 import { postDividend, transferShares } from "./capital-register.mjs";
-import { loanInterest, assertPriorLoanAccruals } from "../loans.ts";
-import { reconciliationLines } from "../reconciliation.ts";
-const MASTER_ENTITIES = new Set(["classes", "securities", "charities", "holders", "corp", "policy", "subs", "lots", "debts", "certs", "transfers", "dividends", "grants", "calls", "capitalIncreases", "accountMappings"]);
+import { loanInterest, assertPriorLoanAccruals, buildLoanEntry } from "../loans.ts";
+import { reconciliationLines, reconciliationApprovalError } from "../reconciliation.ts";
+import { buildTrade } from "../trades.ts";
+import { buildCashDonation, pooledBalance, vetDonee } from "../donations.ts";
+import { reverseFinancialEntry } from "./financial-reversal.mjs";
+import { applyMasterCommand, applyPrices } from "./master-data.mjs";
 const clone = value => structuredClone(value);
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const fail = message => { throw new StateEngineError(message); };
@@ -90,7 +92,15 @@ function validateJournal(journal) {
     const total = lines => lines.reduce((map, line) => {
       const k = `${line.acct}|${line.tag ?? ""}`; map[k] = (map[k] ?? 0) + cents(line.dr) - cents(line.cr); return map;
     }, {});
-    const a = total(original.lines), b = total(entry.lines);
+    // A settled donation/sale tax is reversed into a refund receivable, not a debit payable.
+    const comparable = entry.lines.map(line => {
+      if (line.acct !== "1220" || !["sell", "donation"].includes(original.type) || !line.dr || line.cr) return line;
+      const tax = original.lines.filter(row => row.acct === "2200" && row.tag === line.tag).reduce((sum, row) => sum + cents(row.cr), 0);
+      const outstanding = Math.max(0, -balance(journal.filter(row => row.no < entry.no), "2200", line.tag, entry.date));
+      if (cents(line.dr) !== Math.max(0, tax - Math.min(tax, outstanding))) fail("Tax refund must equal the settled source tax.");
+      return { ...line, acct: "2200" };
+    });
+    const a = total(original.lines), b = total(comparable);
     if ([...new Set([...Object.keys(a), ...Object.keys(b)])].some(k => (a[k] ?? 0) !== -(b[k] ?? 0))) fail("Reversal lines must exactly offset the source.");
   }
 }
@@ -167,15 +177,15 @@ function cashEntry(state, input) {
       const tax = amount(value * rate / 100); Object.assign(data, { gross: value, fwt: tax, net: value - tax, rate });
       addLine(lines, account, value - tax, 0); addLine(lines, "5300", tax, 0, input.sym ?? ""); addLine(lines, type === "interest" ? "4010" : "4000", 0, value, input.sym ?? ""); break;
     }
-    case "taxpay": if (!target || value > -balance(state.journal, "2200", target, input.date)) fail("Payment exceeds the outstanding BIR item."); addLine(lines, "2200", value, 0, target); addLine(lines, account, 0, value); data.taxId = target; break;
+    case "taxpay": if (!target || cents(value) > -balance(state.journal, "2200", target, input.date)) fail("Payment exceeds the outstanding BIR item."); addLine(lines, "2200", value, 0, target); addLine(lines, account, 0, value); data.taxId = target; break;
     case "expaccrue": addLine(lines, "5100", value, 0); addLine(lines, "2110", 0, value, input.commandId ?? ""); data.payId = input.commandId ?? ""; break;
-    case "exppay": if (!target || value > -balance(state.journal, "2110", target, input.date)) fail("Payment exceeds the outstanding fee."); addLine(lines, "2110", value, 0, target); addLine(lines, account, 0, value); break;
+    case "exppay": if (!target || cents(value) > -balance(state.journal, "2110", target, input.date)) fail("Payment exceeds the outstanding fee."); addLine(lines, "2110", value, 0, target); addLine(lines, account, 0, value); break;
     case "accrueDividend": case "accrueInterest": addLine(lines, type === "accrueDividend" ? "1200" : "1210", value, 0, input.commandId ?? ""); addLine(lines, type === "accrueDividend" ? "4000" : "4010", 0, value, input.sym ?? ""); data.payDate = input.payDate ?? null; break;
     case "collectIncome": {
       if (!target) fail("Select an income receivable."); const acct = state.journal.find(row => row.type === "accrue" && row.lines.some(line => line.tag === target && ["1200", "1210"].includes(line.acct)))?.lines.find(line => line.tag === target && ["1200", "1210"].includes(line.acct))?.acct;
-      if (!acct || value > balance(state.journal, acct, target, input.date)) fail("Payment exceeds the outstanding income receivable."); addLine(lines, account, value, 0); addLine(lines, acct, 0, value, target); break;
+      if (!acct || cents(value) > balance(state.journal, acct, target, input.date)) fail("Payment exceeds the outstanding income receivable."); addLine(lines, account, value, 0); addLine(lines, acct, 0, value, target); break;
     }
-    case "subcollect": if (!target || value > balance(state.journal, "3020", target, input.date)) fail("Payment exceeds the unpaid subscription balance."); addLine(lines, account, value, 0); addLine(lines, "3020", 0, value, target); data.subId = target; break;
+    case "subcollect": if (!target || cents(value) > balance(state.journal, "3020", target, input.date)) fail("Payment exceeds the unpaid subscription balance."); addLine(lines, account, value, 0); addLine(lines, "3020", 0, value, target); data.subId = target; break;
     case "borrow": addLine(lines, account, value, 0); addLine(lines, "2000", 0, value, target ?? input.commandId ?? ""); break;
     case "repay": if (!target || value > -balance(state.journal, "2000", target, input.date)) fail("Payment exceeds the outstanding debt."); addLine(lines, "2000", value, 0, target); addLine(lines, account, 0, value); break;
     case "contribution": {
@@ -185,23 +195,11 @@ function cashEntry(state, input) {
       break;
     }
     case "cashDonation": {
-      const charity = register(state, "charities", []).find(row => row.id === target);
-      if (!charity || charity.active === false || charity.inactive || !["government", "accredited", "nonaccredited"].includes(charity.donee)) fail("Select an active registered organization.");
-      if (charity.donee === "accredited" && (!dateOK(charity.accredUntil) || charity.accredUntil < input.date)) fail("The organization's accreditation has expired or is missing.");
-      const checks = charity.checks ?? {};
-      if (![checks.reg, checks.gov, checks.pay].every(day => dateOK(day) && day <= input.date)) fail("Complete all three vetting checks before the gift date.");
-      if (value > balance(state.journal, account, undefined, input.date)) fail("Payment exceeds the cash account balance.");
-      const policy = register(state, "policy", {}), exempt = charity.donee === "government" || (charity.donee === "accredited" && Number(charity.expenseRatio) <= 30);
-       const year = input.date.slice(0, 4);
-       const priorGifts = state.journal.filter(row => row.type === "donation" && !row.reversedBy && row.date.slice(0, 4) === year && !row.data?.exempt);
-       const priorAmount = priorGifts.reduce((sum, row) => sum + Number(row.data?.amount ?? 0), 0);
-       const priorBooked = priorGifts.reduce((sum, row) => sum + Number(row.data?.donorTax ?? 0), 0);
-       const cumulative = priorAmount + (exempt ? 0 : value);
-       const totalDue = exempt ? 0 : amount(Math.max(0, cumulative - Number(policy.donorExempt ?? 0)) * Number(policy.donorRate ?? 0) / 100);
-       const tax = exempt ? 0 : Math.max(0, amount(totalDue - priorBooked));
-      addLine(lines, "5000", value, 0, charity.id); addLine(lines, account, 0, value); if (tax) { addLine(lines, "5330", tax, 0, input.commandId); addLine(lines, "2200", 0, tax, input.commandId); }
-       Object.assign(data, { charityId: charity.id, amount: value, deductBasis: value, exempt, donorTax: tax, taxYear: input.date.slice(0, 4), vehicle: charity.isDAF ? "DAF" : "Cash", taxForm: exempt ? null : "1800" });
-      break;
+      const entry = buildCashDonation(state.journal, [...closedMonths(state)], { ...input, memo: input.memo ?? "" }, input.commandId,
+        register(state, "charities", []).find(row => row.id === target), register(state, "policy", {})).entry;
+      entry.id = `${input.commandId}:entry`;
+      entry.data.commandId = input.commandId;
+      return entry;
     }
     default: fail("Unsupported cash operation.", "unsupported-operation");
   }
@@ -213,27 +211,16 @@ function register(state, name, fallback) { return clone(state.registers[name] ??
 
 function tradeEntry(state, input) {
   assertPostingDate(state, input.date);
-  if (!key(input.sym) || !["buy", "sell", "gift"].includes(input.type) || !CASH.has(input.account) || !["Taxable", "PERA"].includes(input.acctType) || input.qty <= 0 || Math.round(input.qty * 1e6) / 1e6 !== input.qty || input.price <= 0 || cents(input.price) / 100 !== input.price) fail("Enter valid trade details.");
-  const securities = register(state, "securities", {}), security = securities[input.sym];
-  if (!security || security.active === false || security.inactive) fail("Select an active security.");
-  const acct = security.account ?? INVESTMENTS[security.cls]; if (!acct) fail("Security account mapping is missing.");
-  const gross = amount(input.qty * input.price), fees = amount(input.fees ?? 0), lines = [], data = { sym: input.sym, acctType: input.acctType, qty: input.qty, price: input.price, gross, fees, taxClass: security.taxClass };
-  const lots = register(state, "lots", []);
-  if (input.type === "buy") { if (gross + fees > balance(state.journal, input.account, undefined, input.date)) fail("Payment exceeds the cash account balance."); addLine(lines, acct, gross + fees, 0, input.sym); addLine(lines, input.account, 0, gross + fees); data.lotId = `${input.commandId}:entry`; lots.push({ id: `${input.commandId}:entry`, sym: input.sym, acctType: input.acctType, date: input.date, qty: input.qty, openQty: input.qty, cost: gross + fees, openCost: gross + fees, seq: state.journal.length + 1, txnId: `${input.commandId}:entry` });
-  } else {
-    let left = input.qty, cost = 0; const consumed = [];
-    for (const lot of lots.filter(row => row.sym === input.sym && row.acctType === input.acctType && row.date <= input.date && row.openQty > 0).sort((a, b) => a.date.localeCompare(b.date) || a.seq - b.seq)) {
-      if (!left) break; const use = Math.min(left, lot.openQty), lotCost = amount((lot.openCost ?? lot.cost) * use / lot.openQty); lot.openQty = amount(lot.openQty - use); lot.openCost = amount((lot.openCost ?? lot.cost) - lotCost); left = amount(left - use); cost = amount(cost + lotCost); consumed.push({ lotId: lot.id, qty: use, cost: lotCost });
-    }
-    if (left > 0.000001) fail("Selected lots must cover exactly the number of units sold."); data.consumed = consumed; addLine(lines, acct, 0, cost, input.sym);
-    if (input.type === "gift") {
-      const charity = register(state, "charities", []).find(row => row.id === input.target);
-      if (!charity || charity.active === false || charity.inactive) fail("Select an active registered organization.");
-      addLine(lines, "5000", gross, 0, charity.id); addLine(lines, "4110", Math.max(0, cost - gross), Math.max(0, gross - cost), input.sym);
-      data.charityId = charity.id; data.amount = gross; data.deductBasis = cost; data.vehicle = "Securities";
-    } else { addLine(lines, input.account, gross - fees, 0); addLine(lines, "4100", Math.max(0, cost - gross + fees), Math.max(0, gross - fees - cost), input.sym); }
+  const id = `${input.commandId}:entry`, policy = register(state, "policy", {});
+  const change = buildTrade(state.journal, [...closedMonths(state)], register(state, "securities", {}), register(state, "lots", []),
+    { ...input, memo: input.memo ?? "" }, id, policy);
+  if (change.gift) {
+    const charity = register(state, "charities", []).find(row => row.id === input.target);
+    change.entry = buildCashDonation(state.journal, [...closedMonths(state)], { ...input, amount: change.gift.fairValue, memo: input.memo ?? "" }, id,
+      charity, policy, { cost: change.gift.cost, lines: change.entry.lines, data: change.entry.data, valuation: input.valuation ?? "Trade-date fair value" }).entry;
   }
-  const entry = nextEntry(state, input, input.type === "gift" ? "donation" : input.type, lines, data); assertFutureBalances(state.journal, entry); return { entry, lots };
+  change.entry.data.commandId = input.commandId;
+  return change;
 }
 
 function simpleEntry(state, input, type, lines, data = {}) { assertPostingDate(state, input.date); const entry = nextEntry(state, input, type, lines, data); assertFutureBalances(state.journal, entry); return entry; }
@@ -324,6 +311,10 @@ function applyRecon(state, input, actor) {
   if (input.type === "draft" && old?.signed_at) fail("Reopen the signed reconciliation before editing.");
   if (input.type === "reopen" && (!old?.signed_at || !input.reason?.trim())) fail("Select a signed reconciliation and enter a reason.");
   if (input.type === "sign" && (!old || old.signed_at || !Number.isSafeInteger(Number(old.prepared_by)) || Number(old.prepared_by) < 1)) fail("A saved draft must be prepared before approval.");
+  if (input.type === "sign") {
+    const error = reconciliationApprovalError(month, state.journal, state.registers.lots ?? [], old.payload);
+    if (error) fail(error);
+  }
   const next = { ...(old ?? {}), month_start: `${month}-01`, revision: Number(input.revision ?? 0) + 1, prepared_by: input.type === "draft" ? actor : old.prepared_by, approved_by: input.type === "sign" ? actor : null, signed_at: input.type === "sign" ? new Date().toISOString() : null, payload: input.type === "draft" ? input.statement ?? null : old?.payload ?? null };
   if (input.type === "reopen") Object.assign(next, { prepared_by: actor, approved_by: null, signed_at: null, reason: input.reason.trim() });
   if (index < 0) recons.push(next); else recons[index] = next;
@@ -333,39 +324,31 @@ function applyRecon(state, input, actor) {
 
 function applyAnnual(state, input, actor) {
   const fiscalStart = input.fiscalStart; if (!dateOK(fiscalStart) || !fiscalStart.endsWith("-01") || !["draft", "sign", "reopen"].includes(input.type)) fail("Invalid annual review request.");
+  const fyStart = state.registers.policy?.fyStart;
+  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  if (!Number.isInteger(fyStart) || fyStart < 1 || fyStart > 12 || Number(fiscalStart.slice(5, 7)) !== fyStart || fiscalStart > today) fail("Select a valid financial year.");
   const history = state.annualReviewEvents.filter(row => row.fiscal_start === fiscalStart), latest = history.at(-1); const revision = Number(input.revision ?? 0);
+  if (!Number.isSafeInteger(revision) || revision < 0) fail("Invalid annual review request.");
   if (Number(latest?.revision ?? 0) !== revision) fail("The review changed. Refresh before continuing.");
-  if (input.type === "draft" && (!Array.isArray(input.checks) || input.checks.length !== 5 || !input.checks.every(value => typeof value === "boolean"))) fail("Complete the review checklist.");
-  if (input.type === "sign" && (!latest || latest.action === "sign" || latest.prepared_by === actor || !Array.isArray(latest.checks) || !latest.checks.every(Boolean))) fail("Complete and independently approve the review.");
-  if (input.type === "reopen" && (latest?.action !== "sign" || !input.reason?.trim())) fail("Select a signed review and enter a reason.");
+  if (input.type === "draft" && (!Array.isArray(input.checks) || input.checks.length !== 5 || !input.checks.every(value => typeof value === "boolean") || latest?.action === "sign")) fail("Reopen the signed review before editing its checklist.");
+  if (input.type === "sign" && (!latest || latest.action === "sign" || !Array.isArray(latest.checks) || latest.checks.length !== 5 || !latest.checks.every(value => value === true))) fail("Complete the saved checklist before approval.");
+  if (input.type === "reopen" && (latest?.action !== "sign" || typeof input.reason !== "string" || !input.reason.trim() || input.reason.trim().length > 500)) fail("Select a signed review and enter a reason.");
   const event = { id: state.annualReviewEvents.length + 1, fiscal_start: fiscalStart, revision: revision + 1, actor, commandId: input.commandId ?? null, prepared_by: input.type === "sign" ? latest.prepared_by : actor, action: input.type, checks: input.type === "draft" ? input.checks : latest.checks, reason: input.type === "reopen" ? input.reason.trim() : null, occurred_at: new Date().toISOString() };
   return { state: { ...state, annualReviewEvents: [...state.annualReviewEvents, event] }, result: { ok: true, revision: event.revision } };
 }
 
 function applyMaster(state, input, actor) {
-  const command = input.type === "master" || input.type === "prices" ? input : { ...input, type: "master" };
-  const registers = clone(state.registers), entity = command.entity ?? (command.type === "prices" ? "prices" : undefined), revision = Number(command.revision ?? 0), revisions = registers.masterRevisions ?? {};
-  if (command.type !== "prices" && !MASTER_ENTITIES.has(entity)) fail("Unsupported master register.", "unsupported-operation");
-  if (command.operation !== undefined && !["upsert", "delete"].includes(command.operation)) fail("Unsupported master operation.", "unsupported-operation");
-  if (command.operation === "delete" && ["policy", "corp"].includes(entity)) fail("Singleton master registers cannot be deleted.");
-  if (!entity || Number(revisions[entity] ?? 0) !== revision) fail("The master register changed. Refresh before continuing.");
-  let id = command.id ?? command.value?.id ?? entity;
-  if (command.type === "prices" || entity === "prices") {
-    const rows = command.prices ?? (typeof command.csv === "string" ? command.csv.trim().split(/\r?\n/).slice(1).map(row => { const [sym, price, date, source] = row.split(","); return { sym, price: Number(price), date, source }; }) : []);
-    if (!rows.length) fail("Provide price rows."); const history = clone(registers.priceHist ?? {});
-    for (const row of rows) { if (!key(row.sym) || !dateOK(row.date) || !Number.isFinite(row.price) || row.price <= 0 || !key(row.source)) fail("Invalid price values."); (history[row.sym] ??= []).push({ date: row.date, price: amount(row.price), src: row.source, source: row.source }); }
-    registers.priceHist = history; id = "prices";
-  } else if (command.operation === "delete") {
-    if (Array.isArray(registers[entity])) registers[entity] = registers[entity].filter(row => row.id !== id); else if (isObject(registers[entity])) delete registers[entity][id];
-  } else {
-    const value = clone(command.value ?? command.after ?? {}); if (!isObject(value)) fail("Master value must be an object.");
-    if (entity === "policy" || entity === "corp") registers[entity] = { ...(registers[entity] ?? {}), ...value };
-    else if (entity === "securities") registers[entity] = { ...(registers[entity] ?? {}), [value.sym ?? id]: value };
-    else if (Array.isArray(registers[entity])) { const i = registers[entity].findIndex(row => row.id === id); if (i < 0) registers[entity].push({ ...value, id }); else registers[entity][i] = { ...registers[entity][i], ...value, id }; }
-    else registers[entity] = { ...(registers[entity] ?? {}), [id]: value };
-  }
-  const nextRevision = revision + 1; registers.masterRevisions = { ...revisions, [entity]: nextRevision };
-  const event = { id: state.masterEvents.length + 1, actor, commandId: input.commandId ?? null, entity, entity_id: String(id), action: command.operation ?? "prices", revision: nextRevision, before_state: state.registers[entity] ?? null, after_state: registers[entity] ?? null, occurred_at: new Date().toISOString() };
+  // Transport metadata is audited here, not part of the domain command schema.
+  const { commandId, ...command } = input;
+  const source = { ...state.registers, periods: { ...state.registers.periods, ...Object.fromEntries(state.periods.map(row => [row.month_start.slice(0, 7), { closedAt: row.closed_at ?? row.closedAt }])) },
+    periodEvents: state.periodEvents.map(row => ({ ...row, month: row.month ?? row.month_start?.slice(0, 7) })) };
+  const change = command.type === "prices" ? applyPrices(source, command) : applyMasterCommand(source, command, state.journal);
+  const { entity, id, revision: nextRevision, before, after } = change;
+  const registers = { ...change.registers };
+  delete registers.periodEvents;
+  if (state.registers.periods === undefined) delete registers.periods;
+  else registers.periods = clone(state.registers.periods);
+  const event = { id: state.masterEvents.length + 1, actor, commandId: commandId ?? null, entity, entity_id: String(id), action: command.operation ?? "prices", revision: nextRevision, before_state: before, after_state: after, occurred_at: new Date().toISOString() };
   return { state: { ...state, registers, masterEvents: [...state.masterEvents, event] }, result: { ok: true, revision: nextRevision, id } };
 }
 
@@ -378,7 +361,10 @@ function appendEntry(state, entry, actor, operation) {
 function applyDocument(state, input, actor, cgt) {
   const target = state.journal.find(row => input.journalNo != null && row.no === input.journalNo) ?? state.journal.find(row => row.id === input.id);
   if (!target || (cgt ? !target.data?.taxForm : target.type !== "donation")) fail("Journal entry does not have the required tax treatment.");
+  if (target.reversedBy || state.journal.some(row => row.data?.reverses === target.id)) fail("This entry has been reversed.");
+  if (input.status !== undefined && !["reference-only", "filed-manually"].includes(input.status)) fail("Invalid filing status.");
   if (!key(input.reference) || (input.status === "filed-manually" && (!dateOK(input.filedOn) || !key(input.receiptReference) || !key(input.evidenceFileId)))) fail("A manual filing requires a valid filing date, receipt reference and evidence file upload.");
+  if (input.status === "filed-manually" && input.filedOn < target.date) fail("The filing date cannot precede the transaction.");
   const audit = { id: state.auditEvents.length + 1, entry_id: target.id, actor, commandId: input.commandId, action: cgt ? "cgt_filing" : "gift_document", after_state: { form: target.data?.taxForm ?? "Donation documents", journalNo: target.no, reference: input.reference.trim(), status: input.status ?? "reference-only", filedOn: input.filedOn ?? null, receiptReference: input.receiptReference ?? null, evidenceReference: input.evidenceReference ?? null, evidenceFileId: input.evidenceFileId ?? null, documents: input.documents ?? {} }, occurred_at: new Date().toISOString() };
   return { state: { ...state, auditEvents: [...state.auditEvents, audit] }, result: { ok: true, id: target.id } };
 }
@@ -426,7 +412,7 @@ function capitalSubscribe(state, input, actor, operation) {
   const lines = [];
   addLine(lines, "3020", total, 0, input.commandId); addLine(lines, "3010", 0, total, input.commandId);
   addLine(lines, input.account, paid, 0); addLine(lines, "3020", 0, paid, input.commandId);
-  const entry = simpleEntry(state, input, "subscribe", lines, { holderId: input.holderId, shares: input.shares, price: input.price, paid });
+  const entry = simpleEntry(state, input, "subscribe", lines, { subId: input.commandId, holderId: input.holderId, shares: input.shares, price: input.price, paid });
   const subs = register(state, "subs", []);
   const next = appendEntry({ ...state, registers: { ...state.registers, subs: [...subs, { id: input.commandId, date: input.date,
     holderId: input.holderId, shares: input.shares, price: input.price, txnId: entry.id, issuedAt: null, cancelled: false }] } }, entry, actor, operation);
@@ -602,7 +588,15 @@ export function applyLedgerCommand(state, command) {
   if (prior) { const result = { ok: true, idempotent: true, id: prior.entry_id ?? prior.entity_id }; return { nextState: state, snapshot: snapshotOf(state, result), result }; }
   let transitioned = state, result;
   const op = command.operation;
-  if (op === "cash") { assertPostingDate(state, input.date); transitioned = appendEntry(state, cashEntry(state, input), actor, op); result = { ok: true, number: transitioned.journal.at(-1).no }; }
+  if (op === "cash") {
+    assertPostingDate(state, input.date);
+    if (["borrow", "repay"].includes(input.type)) {
+      const change = buildLoanEntry(state.journal, [...closedMonths(state)], register(state, "debts", []), { ...input, memo: input.memo ?? "" }, commandId, state.registers.policy?.dayCount);
+      change.entry.id = `${commandId}:entry`; change.entry.data.commandId = commandId;
+      transitioned = appendEntry({ ...state, registers: { ...state.registers, debts: change.nextLoans ?? register(state, "debts", []) } }, change.entry, actor, op);
+    } else transitioned = appendEntry(state, cashEntry(state, input), actor, op);
+    result = { ok: true, number: transitioned.journal.at(-1).no };
+  }
   else if (op === "trade") { const change = tradeEntry(state, input); transitioned = appendEntry({ ...state, registers: { ...state.registers, lots: change.lots } }, change.entry, actor, op); result = { ok: true, number: change.entry.no, id: change.entry.id }; }
   else if (op === "issue-certificate") {
     const change = capitalIssueCertificate(state, input, actor, op); transitioned = change.nextState; result = change.result;
@@ -658,11 +652,35 @@ export function applyLedgerCommand(state, command) {
     else fail("Unsupported capital operation.", "unsupported-operation");
   }
   else if (op === "giving" || op === "grant") {
-    if (input.type === "grant" || op === "grant") { assertPostingDate(state, input.date); const entry = simpleEntry(state, input, "grant", [{ acct: "5000", dr: input.amount, cr: 0, tag: input.recipient }, { acct: "1000", dr: 0, cr: input.amount, tag: "" }], { fund: input.fund, recipient: input.recipient, amount: input.amount }); const grants = register(state, "grants", []); transitioned = appendEntry({ ...state, registers: { ...state.registers, grants: [...grants, { id: input.commandId, date: input.date, dafId: input.fund, toId: input.recipient, amount: input.amount }] } }, entry, actor, op); result = { ok: true, number: entry.no, id: entry.id }; }
+    if (input.type === "grant" || op === "grant") {
+      assertPostingDate(state, input.date);
+      const charities = register(state, "charities", []), grants = register(state, "grants", []);
+      const fund = vetDonee(charities.find(row => row.id === input.fund), input.date);
+      const recipient = vetDonee(charities.find(row => row.id === input.recipient), input.date);
+      if (!fund.isDAF || recipient.isDAF || fund.id === recipient.id || !(input.amount > 0) || cents(input.amount) / 100 !== input.amount) fail("Enter a valid pooled fund, recipient, and grant amount.");
+      if ([input.date, ...grants.filter(row => row.dafId === fund.id && row.date > input.date).map(row => row.date)].some(day =>
+        input.amount > pooledBalance(state.journal, grants, fund.id, day))) fail("Grant exceeds the available pooled-fund balance on this or a later grant date.");
+      const grant = { id: commandId, date: input.date, dafId: fund.id, toId: recipient.id, amount: input.amount };
+      transitioned = { ...state, registers: { ...state.registers, grants: [...grants, grant] }, auditEvents: capitalAudit(state, actor, input, "pooled_grant", grant) };
+      result = { ok: true, id: commandId };
+    }
     else if (input.type === "gift") { const change = tradeEntry(state, input); transitioned = appendEntry({ ...state, registers: { ...state.registers, lots: change.lots } }, change.entry, actor, op); result = { ok: true, number: change.entry.no, id: change.entry.id }; }
     else fail("Unsupported giving operation.", "unsupported-operation");
   }
-  else if (op === "reverse") { assertPostingDate(state, input.date); const original = state.journal.find(row => row.id === input.id); if (!original || original.type === "reversal" || state.journal.some(row => row.data?.reverses === input.id)) fail("Entry is missing or already reversed."); const entry = nextEntry(state, input, "reversal", original.lines.map(line => ({ acct: line.acct, dr: line.cr, cr: line.dr, tag: line.tag })), { reverses: original.id, reason: input.reason }); transitioned = appendEntry(state, entry, actor, op); result = { ok: true, number: entry.no, id: entry.id }; }
+  else if (op === "reverse") {
+    assertPostingDate(state, input.date);
+    const original = state.journal.find(row => row.id === input.id);
+    if (!original || original.type === "reversal" || state.journal.some(row => row.data?.reverses === input.id)) fail("Entry is missing or already reversed.");
+    if (!key(input.reason)) fail("Enter a reversal reason.");
+    const registers = { lots: [], subs: [], certs: [], dividends: [], debts: [], ...state.registers };
+    const change = reverseFinancialEntry({ entries: state.journal, original, input, id: `${commandId}:entry`, registers });
+    change.entry.data.commandId = commandId;
+    if (original.data.vehicle === "DAF" && [input.date, ...register(state, "grants", []).filter(row => row.dafId === original.data.charityId && row.date > input.date).map(row => row.date)]
+      .some(day => pooledBalance([...state.journal, change.entry], register(state, "grants", []), original.data.charityId, day) < 0)) fail("Reverse dependent pooled grants first.");
+    transitioned = appendEntry({ ...state, journal: state.journal.map(row => row.id === original.id ? { ...row, reversedBy: change.entry.id } : row),
+      registers: { ...state.registers, ...change.registers, ...(change.lots ? { lots: change.lots } : {}) } }, change.entry, actor, op);
+    result = { ok: true, number: change.entry.no, id: change.entry.id };
+  }
   else if (op === "period") { const change = applyPeriod(state, input, actor); transitioned = change.state; result = change.result; }
   else if (["recon", "reconciliation"].includes(op)) { const change = applyRecon(state, input, actor); transitioned = change.state; result = change.result; }
   else if (op === "annual-review") { const change = applyAnnual(state, input, actor); transitioned = change.state; result = change.result; }

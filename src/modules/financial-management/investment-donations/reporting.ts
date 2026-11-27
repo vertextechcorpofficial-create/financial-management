@@ -75,7 +75,7 @@ export function financialStatementExport(entries: readonly Entry[], registers: L
       const fallback = security?.priceDate <= date ? security : undefined;
       const value = price?.price ?? fallback?.price;
       marketMemo.push([month, row.sym, row.account, Number(row.qty.toFixed(6)), value ?? "Missing month-end price",
-        price?.date ?? fallback?.priceDate ?? "", price?.source ?? (fallback ? "master" : ""),
+        price?.date ?? fallback?.priceDate ?? "", price?.source ?? price?.src ?? (fallback ? "master" : ""),
         value == null ? "" : centavos(value * row.qty) / 100, row.cost / 100]);
     }
   }
@@ -137,8 +137,10 @@ export function taxReports(entries: readonly Entry[], registers: LedgerRegisters
       tax.push([entry.no, entry.date, String(entry.data.taxForm ?? ""), String(entry.data.taxDue ?? ""), line.tag,
         typeof entry.data.gain === "number" ? entry.data.gain : undefined,
         typeof entry.data.dstRate === "number" ? entry.data.dstRate : undefined, line.cr,
-        -balance(entries, "2200", line.tag), filings?.[entry.id]?.reference,
-        filings?.[entry.id]?.status ?? "Not recorded", filings?.[entry.id]?.filedOn, filings?.[entry.id]?.receiptReference]);
+        -balance(entries, "2200", line.tag), (filings?.[entry.id] ?? filings?.[`journal:${entry.no}`])?.reference,
+        (filings?.[entry.id] ?? filings?.[`journal:${entry.no}`])?.status ?? "Not recorded",
+        (filings?.[entry.id] ?? filings?.[`journal:${entry.no}`])?.filedOn,
+        (filings?.[entry.id] ?? filings?.[`journal:${entry.no}`])?.receiptReference]);
     }
     if (entry.type === "donation") {
       giving.push([entry.no, entry.date, registers.charities.find(row => row.id === entry.data.charityId)?.name,

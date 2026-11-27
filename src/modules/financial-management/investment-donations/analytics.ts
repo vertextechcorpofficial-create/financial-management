@@ -143,6 +143,7 @@ export function annualReviewEvidence(entries: readonly Entry[], registers: Ledge
   const gifts = entries.filter(row => row.type === "donation" && !row.reversedBy && row.date >= fy.from && row.date <= fy.to);
   const missing = gifts.filter(row => requiredDonationDocs(row, documents?.[row.id]).some(doc => !doc.ok)).length;
   const target = givingTarget(registers.policy, entries, fy.from, fy.to);
+  const capitalTarget = Number(registers.policy.savingsTarget ?? 0);
   const format = (amount: number) => amount.toLocaleString("en-PH", { style: "currency", currency: "PHP" });
   const portfolio = registers.lots.reduce((sum, row) => sum + row.openQty * (registers.securities[row.sym]?.price ?? 0), 0);
   const drift = registers.classes.filter(group => {
@@ -150,7 +151,7 @@ export function annualReviewEvidence(entries: readonly Entry[], registers: Ledge
     return portfolio > 0 && Math.abs(amount / portfolio * 100 - group.target) > group.band;
   }).length;
   return [
-    `${format(raised)} raised; ${reconciled}/12 months signed and unchanged`,
+    `${format(raised)} raised against the ${format(capitalTarget)} annual target; ${reconciled}/12 months signed and unchanged`,
     `${format(-balance(activity, "4100"))} realized gain/loss; ${format(balance(activity, "5100"))} fees; ${drift} classes currently outside policy bands`,
     `${giftCandidates(registers, new Date().toISOString().slice(0, 10)).length} currently held taxable lots with gains`,
     `${format(balance(activity, "5000"))} given; ${format(target)} target; ${missing} gifts with missing documents`,
@@ -162,7 +163,7 @@ type DocumentEvidence = { reference?: string; status?: string; documents?: { cer
 export function requiredDonationDocs(entry: Entry, evidence?: DocumentEvidence) {
   const receipt = entry.data.receipt as { cert?: boolean; f1800?: boolean; deed?: boolean } | undefined;
   const form = entry.data.exempt ? { key: "cert" as const, label: "Certificate of Donation (Form 2322)",
-    ok: evidence?.documents?.cert ?? Boolean(evidence?.reference || receipt?.cert) } : { key: "f1800" as const,
+    ok: evidence?.documents?.cert ?? Boolean(receipt?.cert) } : { key: "f1800" as const,
     label: "Donor's tax return filed (Form 1800)", ok: evidence?.documents?.f1800 ?? Boolean(evidence?.status === "filed-manually" || receipt?.f1800) };
   return [form, ...(entry.data.consumed ? [{ key: "deed" as const, label: "Deed and securities transfer confirmation",
     ok: evidence?.documents?.deed ?? Boolean(receipt?.deed) }] : [])];
@@ -235,7 +236,7 @@ export function buildOverviewAlerts(entries: readonly Entry[], registers: Ledger
   for (const start of reviewYears) {
     const year = Number(start.slice(0, 4)) + (policy.reviewMonth + 1 < policy.fyStart ? 1 : 0);
     const deadline = new Date(Date.UTC(year, policy.reviewMonth + 1, 0)).toISOString().slice(0, 10);
-    if (asOf > deadline && !reviews?.some(row => row.fiscal_start === start && row.action === "sign")) add("annual-review", `The annual SOP review for the financial year starting ${start} is overdue.`);
+    if (asOf > deadline && !reviews?.some(row => row.fiscal_start === start && row.action === "sign")) add("annual-review-preparer", `The annual SOP review for the financial year starting ${start} is overdue.`);
   }
   if (centavos(balance(entries)) !== 0) add("transactions", "The trial balance is out of balance.");
   return output;

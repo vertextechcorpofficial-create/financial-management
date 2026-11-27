@@ -106,7 +106,8 @@ export function prepareLedgerCommand(operation: string, input: unknown, access: 
     case "annual-review": {
       const value = parse(annualReview, raw, "Invalid annual review request.");
       permissionMessage = "You do not have permission for this review action.";
-      payload = value; requiredWorkspace = "annual-review"; requiredRole = value.type === "draft" ? "prepare" : "approve"; break;
+      payload = value; requiredWorkspace = value.type === "draft" ? "annual-review-preparer" : "annual-review-approver";
+      requiredRole = value.type === "draft" ? "prepare" : "approve"; break;
     }
     case "donation-document": case "cgt-filing":
       permissionMessage = "Approval permission is required.";

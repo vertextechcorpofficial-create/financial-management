@@ -93,7 +93,7 @@ export function prepareLedgerCommand(operation, input, access) {
             const value = parse(annualReview, raw, "Invalid annual review request.");
             permissionMessage = "You do not have permission for this review action.";
             payload = value;
-            requiredWorkspace = "annual-review";
+            requiredWorkspace = value.type === "draft" ? "annual-review-preparer" : "annual-review-approver";
             requiredRole = value.type === "draft" ? "prepare" : "approve";
             break;
         }

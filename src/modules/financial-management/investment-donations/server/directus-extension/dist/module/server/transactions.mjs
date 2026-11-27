@@ -36,9 +36,9 @@ export async function updateAnnualReview(database, input) {
         const validChecks = list => Array.isArray(list) && list.length === reviewItems.length && list.every(item => typeof item === "boolean");
         if (type === "draft" && (!validChecks(checks) || latest?.action === "sign"))
             invalid("Reopen the signed review before editing its checklist.");
-        if (type === "sign" && (!latest || latest.action === "sign" || Number(latest.prepared_by) === actor ||
+        if (type === "sign" && (!latest || latest.action === "sign" ||
             !validChecks(json(latest.checks)) || !json(latest.checks).every(Boolean)))
-            invalid("Complete the saved checklist and have a different approver sign it.");
+            invalid("Complete the saved checklist before approval.");
         if (type === "reopen" && (latest?.action !== "sign" || typeof reason !== "string" || !reason.trim() || reason.trim().length > 500)) {
             invalid("Select a signed review and enter a reason.");
         }

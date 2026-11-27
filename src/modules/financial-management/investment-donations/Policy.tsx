@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { Building2, TrendingUp, Receipt, Heart, Database, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ import { accounts, type Entry } from "./ledger";
 
 const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const tabs = ["Corporation", "Investing", "Tax", "Giving", "Data"] as const;
+const tabIcons = { Corporation: Building2, Investing: TrendingUp, Tax: Receipt, Giving: Heart, Data: Database };
 type Field = { key: keyof LedgerRegisters["policy"]; label: string; type?: "text" | "date"; options?: readonly (readonly [string | number, string])[] };
 const documentFields: Field[] = [
   { key: "docVersion", label: "Document version", type: "text" }, { key: "effectiveDate", label: "Effective date", type: "date" },
@@ -106,14 +108,14 @@ export function Policy({ registers, revision = 0, entries = [], canEdit = true, 
   return <Card>
     <CardHeader><CardTitle>Policy and targets</CardTitle></CardHeader>
     <CardContent className="space-y-4">
-      <div role="tablist" aria-label="Policy sections" className="flex flex-wrap gap-2" onKeyDown={event => {
+      <nav role="tablist" aria-label="Policy sections" className="flex gap-2 overflow-x-auto border-b pb-2" onKeyDown={event => {
         const current = tabs.indexOf(tab);
         const next = event.key === "ArrowRight" ? (current + 1) % tabs.length : event.key === "ArrowLeft" ? (current + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
         if (next < 0) return;
         event.preventDefault(); setTab(tabs[next]); setFeedback(undefined);
         document.getElementById(`policy-tab-${tabs[next]}`)?.focus();
-      }}>{tabs.map(value => <Button key={value} type="button" role="tab" id={`policy-tab-${value}`} aria-controls={`policy-panel-${value}`} tabIndex={tab === value ? 0 : -1}
-        aria-selected={tab === value} variant={tab === value ? "default" : "outline"} onClick={() => { setTab(value); setFeedback(undefined); }}>{value}</Button>)}</div>
+      }}>{tabs.map(value => { const Icon = tabIcons[value]; return <Button key={value} type="button" role="tab" id={`policy-tab-${value}`} aria-controls={`policy-panel-${value}`} tabIndex={tab === value ? 0 : -1}
+        aria-selected={tab === value} variant="ghost" className={tab === value ? "border-b-2 border-primary bg-muted font-semibold text-foreground shadow-none" : "text-muted-foreground"} onClick={() => { setTab(value); setFeedback(undefined); }}><Icon className="h-4 w-4" aria-hidden="true" />{value}</Button>; })}</nav>
       <div role="tabpanel" id={`policy-panel-${tab}`} aria-labelledby={`policy-tab-${tab}`} className="space-y-4">
         {tab !== "Data" && <form key={`${tab}:${revisions?.policy ?? revision}`} onSubmit={event => save(event, "policy")} className="space-y-3">
           <fieldset disabled={!canEdit || saving} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><legend className="mb-3 font-medium">{tab === "Corporation" ? "Document control" : tab === "Investing" ? "Pre-investment and deployment" : tab === "Tax" ? "Philippine tax settings" : "Philanthropic budget and governance"}</legend>
@@ -126,7 +128,7 @@ export function Policy({ registers, revision = 0, entries = [], canEdit = true, 
             </label>)}
             {tab === "Corporation" && <><label>Reporting currency<Input disabled value="PHP - Philippine peso" /></label><label>Accounting basis<Input disabled value="Accrual" /></label></>}
           </fieldset>
-           <Button type="submit" disabled={saving || !canEdit} title={!canEdit ? "Approval permission or the posting source is unavailable." : undefined}>Save {tab === "Corporation" ? "document control" : tab.toLowerCase()} policy</Button>
+           <Button type="submit" disabled={saving || !canEdit} title={!canEdit ? "Approval permission or the posting source is unavailable." : undefined}><Save className="h-4 w-4" aria-hidden="true" />Save {tab === "Corporation" ? "document control" : tab.toLowerCase()} policy</Button>
         </form>}
         {tab === "Corporation" && <form key={`corp:${revisions?.corp ?? revision}`} onSubmit={event => save(event, "corp")} className="space-y-3 border-t pt-4">
           <fieldset disabled={!canEdit || saving} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><legend className="mb-3 font-medium">Articles of incorporation</legend>
@@ -138,7 +140,7 @@ export function Policy({ registers, revision = 0, entries = [], canEdit = true, 
             <label>Authorized shares<Input disabled value={registers.corp.authorized} /></label>
           </fieldset>
           <p className="text-sm text-muted-foreground">Change authorized capital through Record capital increase, after SEC approval. Original-issue DST attaches when a subscription is accepted, even when unpaid.</p>
-          {canEdit && <Button type="submit" disabled={saving}>Save corporation</Button>}
+          {canEdit && <Button type="submit" disabled={saving}><Save className="h-4 w-4" aria-hidden="true" />Save corporation</Button>}
         </form>}
         {tab === "Investing" && <form key={`classes:${revisions?.classes ?? revision}`} onSubmit={event => save(event, "classes")} className="space-y-3 border-t pt-4"
           onChange={event => { const data = new FormData(event.currentTarget); setAllocationTotal(registers.classes.reduce((sum, row) => sum + Number(data.get(`${row.id}-target`)), 0)); }}>
@@ -150,7 +152,7 @@ export function Policy({ registers, revision = 0, entries = [], canEdit = true, 
               <td className="p-2"><Input name={`${row.id}-target`} aria-label={`${row.name} target`} className="min-w-24" type="number" min="0" max="100" step="any" required defaultValue={row.target} /></td>
               <td className="p-2"><Input name={`${row.id}-band`} aria-label={`${row.name} band`} className="min-w-24" type="number" min="0" max="50" step="any" required defaultValue={row.band} /></td>
               <td className="p-2"><Input name={`${row.id}-vehicles`} aria-label={`${row.name} vehicles`} className="min-w-60" maxLength={500} defaultValue={row.vehicles} /></td></tr>)}</tbody></table></div></fieldset>
-          {canEdit && <Button type="submit" disabled={saving}>Save allocation targets</Button>}
+          {canEdit && <Button type="submit" disabled={saving}><Save className="h-4 w-4" aria-hidden="true" />Save allocation targets</Button>}
         </form>}
         {tab === "Tax" && <p className="text-sm text-muted-foreground">Defaults reflect a domestic corporation. Change statutory rates only for a verified law or BIR issuance; retain the supporting reference. Withholding and share taxes are calculated by posting date.</p>}
         {tab === "Data" && <>
@@ -162,7 +164,7 @@ export function Policy({ registers, revision = 0, entries = [], canEdit = true, 
                 <td className="p-2"><Input key={`${code}:${revisions?.accountMappings ?? revision}`} name="coaCode" form={`coa-map-${code}`} className="min-w-36" aria-label={`Main COA code for ${code}`} maxLength={64} required
                   defaultValue={mappings.find(row => row.id === code)?.coaCode ?? ""} disabled={!canEdit || saving} /></td>
                 <td className="p-2"><form id={`coa-map-${code}`} onSubmit={event => saveMapping(event, code)}>
-                  <Button type="submit" variant="outline" size="sm" disabled={!canEdit || saving}>Save mapping</Button></form></td>
+                  <Button type="submit" variant="outline" size="sm" disabled={!canEdit || saving}><Save className="h-4 w-4" aria-hidden="true" />Save mapping</Button></form></td>
               </tr>)}</tbody></table></div>
           </section>
         </>}

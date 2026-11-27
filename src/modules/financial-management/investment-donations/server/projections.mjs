@@ -93,6 +93,7 @@ export function projectOverviewAlerts(alerts, registers, { giving = false, inflo
 }
 
 export function projectLedger(workspace, journal, registers) {
+  const annual = workspace === "annual-review-preparer" || workspace === "annual-review-approver";
   const reconciliation = workspace === "monthly-reconciliation-reconciliator" || workspace === "monthly-reconciliation-approver";
   const policy = Object.fromEntries(Object.entries(registers.policy).map(([key, value]) => [key, typeof value === "number" ? 0 : ""]));
   Object.assign(policy, { fyStart: registers.policy.fyStart, dayCount: registers.policy.dayCount, currency: "PHP", costMethod: "specific", giveMode: "income" });
@@ -119,7 +120,7 @@ export function projectLedger(workspace, journal, registers) {
     out.securities = Object.fromEntries(Object.values(registers.securities).map(row => [row.sym, pick(row, ["sym", "name", "cls", "taxClass", "active", "inactive"])]));
     return { journal: [], registers: out };
   }
-  const analytics = ["overview", "annual-review"].includes(workspace);
+  const analytics = workspace === "overview" || annual;
   const investment = analytics || reconciliation || ["inflows-investing", "portfolio-rebalancing", "charitable-giving", "period-close"].includes(workspace);
   if (investment) copy("classes", "securities");
   if (["portfolio-rebalancing", "charitable-giving"].includes(workspace)) copy("lots", "priceHist");
@@ -158,7 +159,7 @@ export function projectLedger(workspace, journal, registers) {
   }
   if (["charitable-giving", "tax-compliance"].includes(workspace)) copy("charities", "grants");
   else if (analytics) out.charities = registers.charities.map(row => ({ ...pick(row, ["id", "isDAF", "donee", "accredUntil", "expenseRatio", "checks"]), name: "Organization", reg: "", jurisdiction: "", focus: "", notes: "" }));
-  if (reconciliation || ["overview", "annual-review", "period-close"].includes(workspace)) {
+  if (reconciliation || annual || ["overview", "period-close"].includes(workspace)) {
     copy("periods");
     out.periodEvents = (registers.periodEvents ?? []).map(event => ({ ...event, actor: workspace === "period-close" ? event.actor : 0, reason: workspace === "period-close" ? event.reason : null }));
     if (workspace !== "period-close") for (const period of Object.values(out.periods)) { delete period.closedBy; delete period.accruedBy; delete period.reopenReason; }
@@ -167,7 +168,7 @@ export function projectLedger(workspace, journal, registers) {
     copy("recons");
     if (!reconciliation) for (const row of Object.values(out.recons)) { row.notes = {}; row.by = ""; }
   }
-  if (workspace === "annual-review") copy("review");
+  if (annual) copy("review");
   if (["capital-stock", "portfolio-rebalancing", "charitable-giving"].includes(workspace)) {
     const entities = workspace === "capital-stock" ? ["holders", "calls", "capitalIncreases"] : workspace === "portfolio-rebalancing" ? ["securities", "prices"] : ["charities"];
     out.masterRevisions = pick(registers.masterRevisions, entities);

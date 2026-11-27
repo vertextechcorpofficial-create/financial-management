@@ -18,7 +18,8 @@ const definitions = [
   ["monthly-reconciliation-reconciliator", "Monthly reconciliation - Reconciliator", "Compliance", "Scale"],
   ["monthly-reconciliation-approver", "Monthly reconciliation - Approver", "Compliance", "ClipboardCheck"],
   ["period-close", "Period close", "Compliance", "Lock"],
-  ["annual-review", "Annual review", "Compliance", "ClipboardCheck"],
+  ["annual-review-preparer", "Annual review - Preparer / reviewer", "Compliance", "ClipboardList"],
+  ["annual-review-approver", "Annual review - Approver", "Compliance", "ClipboardCheck"],
   ["policy-targets", "Policy & targets", "Setup", "Settings"],
 ] as const;
 

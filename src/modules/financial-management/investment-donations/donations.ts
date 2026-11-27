@@ -1,4 +1,4 @@
-import { balance, centavos, type Entry, type Line } from "./ledger";
+import { balance, centavos, type Entry, type Line } from "./ledger.ts";
 import { assertFutureBalances, validPostingDate } from "./financial-engine.mjs";
 
 type Charity = { id: string; name: string; isDAF: boolean; donee: string; accredUntil: string;

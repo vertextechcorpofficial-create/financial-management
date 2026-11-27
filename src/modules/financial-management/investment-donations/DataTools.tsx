@@ -2,7 +2,9 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Download, DatabaseBackup, History, Upload, FlaskConical, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { exportFinancialStatements, exportFullJournal, exportLedgerBackup, loadLedgerSample, restoreLedgerBackup, readLedgerActivity } from "./server/commands";
 import { mutationError, mutationToast } from "./mutation-toast";
@@ -10,6 +12,7 @@ import { mutationError, mutationToast } from "./mutation-toast";
 export function DataTools({ maintenanceEnabled = false, canExport = true, onExportJournal }: {
   maintenanceEnabled?: boolean; canExport?: boolean; onExportJournal?: () => void;
 }) {
+  const actionLabels: Record<string, string> = { create: "Created", update: "Updated", delete: "Removed", restore: "Restored", export: "Exported" };
   const router = useRouter();
   const [mode, setMode] = useState<"restore" | "sample" | null>(null);
   const [backup, setBackup] = useState<unknown>();
@@ -63,8 +66,8 @@ export function DataTools({ maintenanceEnabled = false, canExport = true, onExpo
   return <section className="space-y-3" aria-label="Data and backups">
     <h3 className="font-medium">Data and backups</h3>
     <div className="flex flex-wrap gap-2">
-      {canExport && <Button type="button" variant="outline" disabled={saving} onClick={onExportJournal ?? (() => exportCsv(false))}>Export journal CSV</Button>}
-      {canExport && <Button type="button" variant="outline" disabled={saving} onClick={exportBackup}>Back up all records</Button>}
+       {canExport && <Button type="button" variant="outline" disabled={saving} onClick={onExportJournal ?? (() => exportCsv(false))}><Download className="h-4 w-4" aria-hidden="true" />Export journal CSV</Button>}
+       {canExport && <Button type="button" variant="outline" disabled={saving} onClick={exportBackup}><DatabaseBackup className="h-4 w-4" aria-hidden="true" />Back up all records</Button>}
       {canExport && <Button type="button" variant="outline" disabled={saving} onClick={async () => {
         setSaving(true); setFeedback(undefined);
         try {
@@ -73,15 +76,15 @@ export function DataTools({ maintenanceEnabled = false, canExport = true, onExpo
           else setFeedback({ ok: false, text: result.message });
         } catch { setFeedback({ ok: false, text: "Activity could not be loaded." }); }
         finally { setSaving(false); }
-      }}>Activity log</Button>}
-      <Button type="button" variant="outline" disabled={saving || !maintenanceAllowed} onClick={() => { setMode("restore"); setConfirmation(""); setFeedback(undefined); }}>Restore backup</Button>
-      <Button type="button" variant="outline" disabled={saving || !maintenanceAllowed} onClick={() => { setMode("sample"); setConfirmation(""); setFeedback(undefined); }}>Load sample records</Button>
+       }}><History className="h-4 w-4" aria-hidden="true" />Activity log</Button>}
+       <Button type="button" variant="outline" disabled={saving || !maintenanceAllowed} onClick={() => { setMode("restore"); setConfirmation(""); setFeedback(undefined); }}><Upload className="h-4 w-4" aria-hidden="true" />Restore backup</Button>
+       <Button type="button" variant="outline" disabled={saving || !maintenanceAllowed} onClick={() => { setMode("sample"); setConfirmation(""); setFeedback(undefined); }}><FlaskConical className="h-4 w-4" aria-hidden="true" />Load sample records</Button>
     </div>
     {canExport && <div className="grid max-w-2xl gap-3 rounded-md border p-3 sm:grid-cols-2">
       <h4 className="font-medium sm:col-span-2">Mapped financial-statement export</h4>
       <label>After JE number (0 = all entries)<Input type="number" min="0" step="1" value={afterEntry} disabled={saving} onChange={event => setAfterEntry(Number(event.target.value))} /></label>
       <label className="flex items-center gap-2"><input type="checkbox" checked={includeClosing} disabled={saving} onChange={event => setIncludeClosing(event.target.checked)} />Include year-end closing entries</label>
-      <Button type="button" variant="outline" disabled={saving || !Number.isSafeInteger(afterEntry) || afterEntry < 0} onClick={() => exportCsv(true)}>Export mapped financial statements CSV</Button>
+       <Button type="button" variant="outline" disabled={saving || !Number.isSafeInteger(afterEntry) || afterEntry < 0} onClick={() => exportCsv(true)}><Download className="h-4 w-4" aria-hidden="true" />Export mapped financial statements CSV</Button>
       <p className="text-sm text-muted-foreground sm:col-span-2">Maintain all required main-COA mappings below. Use the checkpoint to avoid exporting entries already imported into the main ledger. Exporting never records an import or changes the journal.</p>
     </div>}
     <p className="text-sm text-muted-foreground">Full-ledger exports require permission to view all workspaces. Restore and sample loading are disabled in production, require server configuration and full administrator approval permissions, and only accept an empty ledger. Existing records are never replaced or cleared.</p>
@@ -99,14 +102,14 @@ export function DataTools({ maintenanceEnabled = false, canExport = true, onExpo
       }} /></label>}
       {fileName && mode === "restore" && <p className="text-sm">Selected {fileName}. The server verifies the checksum, schema, balances, and empty destination before restoring.</p>}
       <label className="grid gap-1">Type <span className="font-mono">{phrase}</span> to confirm<Input required value={confirmation} disabled={saving} onChange={event => setConfirmation(event.target.value)} autoComplete="off" /></label>
-      <div className="flex flex-wrap gap-2"><Button type="submit" disabled={saving || confirmation !== phrase || (mode === "restore" && !backup)}>{saving ? "Working..." : mode === "restore" ? "Restore into empty ledger" : "Load sample into empty ledger"}</Button>
-        <Button type="button" variant="outline" disabled={saving} onClick={() => { setMode(null); setConfirmation(""); }}>Cancel</Button></div>
+       <div className="flex flex-wrap gap-2"><Button type="submit" disabled={saving || confirmation !== phrase || (mode === "restore" && !backup)}><Upload className="h-4 w-4" aria-hidden="true" />{saving ? "Working..." : mode === "restore" ? "Restore into empty ledger" : "Load sample into empty ledger"}</Button>
+         <Button type="button" variant="outline" disabled={saving} onClick={() => { setMode(null); setConfirmation(""); }}><X className="h-4 w-4" aria-hidden="true" />Cancel</Button></div>
     </form>}
     {feedback && <p role={feedback.ok ? "status" : "alert"}>{feedback.text}</p>}
     {activity && <div className="space-y-2"><h4 className="font-medium">Latest activity</h4>
       {activity.length === 0 && <p className="text-sm text-muted-foreground">No activity records.</p>}
-      {activity.map(event => <details className="rounded-md border p-3 text-sm" key={event.id}>
-        <summary className="cursor-pointer">{event.at} · User {event.actor} · {event.action} · {event.entity}</summary>
+       {activity.map(event => <details className="rounded-md border p-3 text-sm" key={event.id}>
+         <summary className="flex cursor-pointer flex-wrap items-center gap-2"><span>{new Date(event.at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</span><Badge variant="outline">Finance team member</Badge><span>{actionLabels[event.action] ?? "Activity recorded"}</span><span className="text-muted-foreground">{event.entity}</span></summary>
         <div className="mt-2 grid gap-3 md:grid-cols-2"><div>Before<pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(event.before, null, 2)}</pre></div>
           <div>After<pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(event.after, null, 2)}</pre></div></div>
       </details>)}

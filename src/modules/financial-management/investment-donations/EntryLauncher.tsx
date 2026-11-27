@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 export type EntryOption = { id: string; label: string; description?: string; disabled?: boolean };
 
@@ -10,7 +11,7 @@ export function EntryLauncher({ options, onSelect, disabled = false, disabledRea
 }) {
   const [open, setOpen] = useState(false);
   return <div className="space-y-3">
-    <Button type="button" disabled={disabled || !options.length} title={disabledReason} aria-expanded={open} onClick={() => setOpen(!open)}>New entry</Button>
+    <Button type="button" disabled={disabled || !options.length} title={disabledReason} aria-expanded={open} onClick={() => setOpen(!open)}><Plus aria-hidden="true" /> New entry</Button>
     {disabled && disabledReason && <p className="text-sm text-muted-foreground">{disabledReason}</p>}
     {open && <section aria-label="Choose new entry" className="rounded-lg border bg-card p-3">
       <div className="mb-3 flex items-center justify-between gap-2"><h2 className="font-medium">Choose an entry type</h2>

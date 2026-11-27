@@ -3,7 +3,7 @@
 import { Fragment, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Download, Landmark } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Check, Download, HeartHandshake, Landmark, LockKeyhole, Plus, RefreshCcw, ReceiptText, Save, ShieldCheck, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +62,53 @@ const workspaceTabs: Partial<Record<WorkspaceKey, string[]>> = {
   "tax-compliance": ["Payable to BIR", "Donations", "Investments & capital"],
 };
 
+const friendlyActions: Record<string, string> = {
+  accrue: "Interest posted", close: "Month closed", reopen: "Month reopened",
+  draft: "Draft saved", sign: "Reconciliation signed", buy: "Purchase", sell: "Sale",
+  donation: "Donation", reversal: "Reversal", taxpay: "Tax payment",
+};
+
+function StatusBadge({ status, tone }: { status: string; tone?: "success" | "warning" | "danger" | "info" | "neutral" }) {
+  const colors = {
+    success: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300",
+    warning: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300",
+    danger: "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300",
+    info: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300",
+    neutral: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300",
+  };
+  return <Badge variant="outline" className={colors[tone ?? "neutral"]}>{status}</Badge>;
+}
+
+const allocationStyles = {
+  within: { label: "Within range", tone: "success", bar: "bg-emerald-600 dark:bg-emerald-400" },
+  near: { label: "Near edge", tone: "warning", bar: "bg-amber-600 dark:bg-amber-400" },
+  outside: { label: "Outside range", tone: "danger", bar: "bg-red-600 dark:bg-red-400" },
+} as const;
+
+function friendlyDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function actorLabel(actor: unknown, currentActor: number, currentName: string) {
+  if (Number(actor) === currentActor && currentName) return `${currentName} (you)`;
+  if (typeof actor === "string" && actor.trim() && !/^\d+$/.test(actor)) return actor;
+  return "Finance team member";
+}
+
+function friendlyTaxClass(value: string) {
+  return ({ listed: "Listed security", fund: "Investment fund", govsec: "Government security" } as Record<string, string>)[value] ?? value;
+}
+
+function tabIcon(label: string) {
+  if (label.includes("Capital") || label.includes("Stockholders") || label.includes("Subscriptions") || label.includes("Dividends")) return <WalletCards aria-hidden="true" />;
+  if (label.includes("Portfolio") || label.includes("Allocation") || label.includes("Holdings") || label.includes("Securities")) return <BarChart3 aria-hidden="true" />;
+  if (label.includes("donation") || label.includes("Organizations")) return <HeartHandshake aria-hidden="true" />;
+  if (label.includes("Tax") || label.includes("BIR")) return <ReceiptText aria-hidden="true" />;
+  return <ShieldCheck aria-hidden="true" />;
+}
+
 function Panel({ active, children }: { active: boolean; children: ReactNode }) {
   return <div hidden={!active} className="space-y-4" role="tabpanel">{children}</div>;
 }
@@ -83,14 +130,14 @@ function MonthNavigation({ value, first, onChange }: { value: string; first: str
     onChange(date.toISOString().slice(0, 7));
   };
   return <div className="flex flex-wrap items-end gap-2 text-sm">
-    <Button type="button" variant="outline" onClick={() => change(-1)}>Prev</Button>
+     <Button type="button" variant="outline" onClick={() => change(-1)}><ArrowLeft aria-hidden="true" /> Prev</Button>
     <label>Year<select className="ml-2 h-9 rounded-md border bg-background px-2" aria-label="Year" value={year} onChange={event => onChange(`${event.target.value}-${value.slice(5)}`)}>
       {Array.from({ length: Math.max(3, year + 2 - Number(first.slice(0, 4))) }, (_, i) => Number(first.slice(0, 4)) + i).map(item => <option key={item}>{item}</option>)}
     </select></label>
     <label>Month<select className="ml-2 h-9 rounded-md border bg-background px-2" aria-label="Month" value={value.slice(5)} onChange={event => onChange(`${year}-${event.target.value}`)}>
-      {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0")).map(item => <option key={item}>{item}</option>)}
-    </select></label>
-    <Button type="button" variant="outline" onClick={() => change(1)}>Next</Button>
+       {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0")).map(item => <option key={item} value={item}>{new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date(Date.UTC(2020, Number(item) - 1, 1)))}</option>)}
+     </select></label>
+     <Button type="button" variant="outline" onClick={() => change(1)}>Next <ArrowRight aria-hidden="true" /></Button>
   </div>;
 }
 
@@ -137,23 +184,25 @@ function downloadCsv(filename: string, content: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export default function InvestmentDonationsModule({ workspace, canPost, canReverse, journal, registers, reconciliations, reconciliationRole, actor, donationDocuments, annualReviews, recentEntries, projectionNotice, annualEvidence }: {
+export default function InvestmentDonationsModule({ workspace, canPost, canReverse, journal, registers, reconciliations, reconciliationRole, actor, actorName = "", donationDocuments, annualReviews, annualHistory, recentEntries, projectionNotice, annualEvidence, attention, evaluatedAt }: {
   workspace: WorkspaceKey; canPost: boolean; canReverse: boolean; journal: Entry[]; registers: LedgerRegisters;
-  reconciliations: ReconciliationRecord[] | null; reconciliationRole: "none" | "view" | "prepare" | "approve"; actor: number;
+  reconciliations: ReconciliationRecord[] | null; reconciliationRole: "none" | "view" | "prepare" | "approve"; actor: number; actorName?: string;
   donationDocuments: Record<string, DonationDocument> | null;
   annualReviews: ReviewEvent[] | null;
+  annualHistory?: ReviewEvent[] | null;
   recentEntries?: Entry[]; projectionNotice?: string;
   annualEvidence?: Record<string, string[]>;
+  attention?: import("./attention").AttentionPayload; evaluatedAt?: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const section = INVESTMENT_DONATIONS_WORKSPACES.find(item => item.key === workspace)!.title;
-  const [selectedTab, setSelectedTab] = useState({ workspace, index: 0 });
+  const [selectedTab, setSelectedTab] = useState({ workspace, index: Math.max(0, Math.min((workspaceTabs[workspace]?.length ?? 1) - 1, Number(searchParams.get("tab")) || 0)) });
   const activeTab = selectedTab.workspace === workspace ? selectedTab.index : 0;
   const tabs = workspaceTabs[workspace];
   const entries = [...journal].sort((a, b) => b.date.localeCompare(a.date) || b.no - a.no);
   const { policy } = registers;
-  const asOf = [new Date().toISOString().slice(0, 10), entries[0]?.date ?? ""].sort().at(-1)!;
+  const asOf = (evaluatedAt ?? new Date().toISOString()).slice(0, 10);
   const fy = fiscalDates(asOf, policy.fyStart);
   const securities = Object.values(registers.securities);
   const holdings = registers.lots.filter(lot => lot.openQty > 0).flatMap(lot => {
@@ -172,6 +221,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
     const value = holdings.filter(lot => lot.security.cls === group.id).reduce((sum, lot) => sum + lot.market, 0);
     return { ...group, value, actual: market ? value * 100 / market : 0 };
   });
+  const [attentionExpanded, setAttentionExpanded] = useState(false);
   const [deploymentAmount, setDeploymentAmount] = useState("");
   const plan = planDeployment(Number(deploymentAmount), policy.lumpThreshold, policy.tranches, allocation);
   const reserveNeed = policy.reserveMonths * policy.monthlyExpenses;
@@ -347,10 +397,11 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
     }
   }
   const transactionYear = fiscalDates(entries[0]?.date > asOf ? entries[0].date : asOf, policy.fyStart);
-  const [reviewStart, setReviewStart] = useState(fy.from);
+  const [reviewStart, setReviewStart] = useState(/^\d{4}-\d{2}-01$/.test(searchParams.get("fiscalStart") ?? "") ? searchParams.get("fiscalStart")! : fy.from);
   const reportYear = fiscalDates(reviewStart, policy.fyStart);
-  const reportEntries = workspace === "annual-review" ? fiscalActivity(entries, reviewStart, policy.fyStart) : [];
-  const reviewYears = workspace === "annual-review" ? Array.from(new Set([fy.from,
+  const isAnnualReview = workspace === "annual-review-preparer" || workspace === "annual-review-approver";
+  const reportEntries = isAnnualReview ? fiscalActivity(entries, reviewStart, policy.fyStart) : [];
+  const reviewYears = isAnnualReview ? Array.from(new Set([fy.from,
     ...entries.map(row => fiscalDates(row.date, policy.fyStart).from),
     ...(annualReviews ?? []).map(row => row.fiscal_start),
   ])).sort().reverse() : [];
@@ -360,7 +411,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
   const [type, setType] = useState("");
   const [ticker, setTicker] = useState("");
   const [includeReversed, setIncludeReversed] = useState(false);
-  const [month, setMonth] = useState(asOf.slice(0, 7));
+  const [month, setMonth] = useState(/^\d{4}-(0[1-9]|1[0-2])$/.test(searchParams.get("month") ?? "") ? searchParams.get("month")! : asOf.slice(0, 7));
   const snapshot = Object.entries(registers.recons).find(([key]) => key === month)?.[1];
   const recon = reconciliations?.find(row => row.month_start.slice(0, 7) === month);
   const isReconciliation = workspace.startsWith("monthly-reconciliation-");
@@ -440,8 +491,9 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
          <PendingCommands key={actor} actor={actor} />
          {projectionNotice && <p className="text-sm text-muted-foreground">{projectionNotice}</p>}
          {tabs && <nav aria-label={`${section} views`} className="flex gap-2 overflow-x-auto border-b pb-2" role="tablist">
-           {tabs.map((label, index) => <Button key={label} role="tab" aria-selected={activeTab === index} variant={activeTab === index ? "default" : "ghost"}
-             onClick={() => setSelectedTab({ workspace, index })}>{label}</Button>)}
+            {tabs.map((label, index) => <Button key={label} role="tab" aria-selected={activeTab === index} variant="ghost"
+              className={activeTab === index ? "border-b-2 border-primary bg-muted font-semibold text-foreground shadow-none" : "text-muted-foreground"}
+              onClick={() => setSelectedTab({ workspace, index })}>{tabIcon(label)} {label}</Button>)}
          </nav>}
          {entryOptions.length > 0 && !entrySelection && <EntryLauncher options={entryOptions} onSelect={chooseEntry} disabled={!canPost} disabledReason={!canPost ? restriction : undefined} />}
          {entrySelection?.startsWith("trade:") || entrySelection?.startsWith("capital:") || entrySelection?.startsWith("master:") || entrySelection === "prices" ? <LedgerDialog open onOpenChange={open => { if (!open) closeEntry(); }}
@@ -548,21 +600,55 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
               <Button type="submit" disabled={saving || !canReverse} title={!canReverse ? "Transactions approval permission or the posting source is unavailable." : undefined}>Post reversal</Button>
               {feedback && <p role={feedback.error ? "alert" : "status"} className="w-full text-sm">{feedback.text}</p>}
              </form></LedgerDialog>}
-         {section === "Overview" && <>
+          {searchParams.get("record") && <Card><CardHeader><CardTitle>Linked record</CardTitle></CardHeader><CardContent>
+            {entries.some(row => row.id === searchParams.get("record")) ? <Journal rows={entries.filter(row => row.id === searchParams.get("record"))} reverseAllowed={false} onReverse={() => {}} /> :
+              <p className="text-sm">{registers.charities.find(row => row.id === searchParams.get("record"))?.name ??
+                (registers.subs.some(row => row.id === searchParams.get("record")) ? `Subscription ${searchParams.get("record")}` : "This record is unavailable in this workspace.")}</p>}
+          </CardContent></Card>}
+          {section === "Overview" && <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[["Portfolio market value", peso(market), `Cost ${peso(cost)} · unrealized ${peso(market - cost)}`],
               ["Cash across 3 accounts", peso(cash), "Operating and reserve accounts"],
               ["Giving this financial year", peso(giving), `Target ${peso(givingTarget)}`],
-              ["Net worth at book value", peso(assets - liabilities), `Liabilities ${peso(liabilities)} · ${balance(entries) === 0 ? "Trial balance OK" : "Out of balance"}`]]
+               ["Net worth at book value", peso(assets - liabilities), <>Liabilities {peso(liabilities)} · <StatusBadge status={balance(entries) === 0 ? "Books balanced" : "Check balances"} tone={balance(entries) === 0 ? "success" : "danger"} /></>]]
               .map(([label, value, note]) => <Card key={label}><CardHeader><CardTitle className="text-sm">{label}</CardTitle></CardHeader>
                 <CardContent><p className="text-lg font-semibold">{value}</p><p className="text-xs text-muted-foreground">{note}</p></CardContent></Card>)}
           </div>
-          <Card><CardHeader><CardTitle>Allocation at market value</CardTitle></CardHeader><CardContent className="space-y-3">
-            {allocation.map(group => <div key={group.id} className="grid gap-1 text-sm">
-              <span>{group.name} · {group.actual.toFixed(1)}% / {group.target}% target</span>
-              <progress aria-label={group.name} className="h-2 w-full" max={100} value={group.actual} />
-            </div>)}
-          </CardContent></Card>
+           <div className="grid items-start gap-4 lg:grid-cols-2">
+             <Card><CardHeader><CardTitle>Needs Attention <span className="text-muted-foreground">({attention?.alerts.length ?? 0})</span></CardTitle></CardHeader>
+               <CardContent className="space-y-3">
+                 {!attention && <p role="status">Attention evaluation unavailable.</p>}
+                 {attention?.unavailable.map(message => <p key={message} role="status" className="text-sm text-muted-foreground">{message}</p>)}
+                 {attention && !attention.alerts.length && <p className="text-sm text-muted-foreground">No items need attention in your authorized workspaces.</p>}
+                  <div id="overview-attention-alerts" className="space-y-2">
+                  {attention?.alerts.slice(0, attentionExpanded ? undefined : 3).map(alert => <article key={alert.id} className={`rounded-md border border-l-4 p-3 ${alert.severity === "critical" ? "border-l-red-600 dark:border-l-red-400" : alert.severity === "warning" ? "border-l-amber-600 dark:border-l-amber-400" : "border-l-sky-600 dark:border-l-sky-400"}`}>
+                    <div className="flex items-start justify-between gap-3"><div className="min-w-0 space-y-1"><h3 className="break-words text-sm font-semibold">{alert.title}</h3><StatusBadge status={alert.severity} tone={alert.severity === "critical" ? "danger" : alert.severity === "warning" ? "warning" : "info"} /></div>
+                    <a className="shrink-0 text-sm font-medium text-primary underline underline-offset-4" href={alert.link}>Open<span className="sr-only"> {alert.title}</span></a></div>
+                   <p className="mt-1 text-sm text-muted-foreground">{alert.message}</p>
+                   <details className="mt-2 text-xs"><summary className="cursor-pointer">Rule details</summary><dl className="mt-2 space-y-1">
+                     {Object.entries({ rule: alert.policyReference, evaluatedAt: alert.evaluatedAt, ...alert.details }).map(([key, value]) => <div key={key}><dt className="inline font-medium">{key}: </dt><dd className="inline">{String(value)}</dd></div>)}
+                   </dl></details>
+                  </article>)}
+                  </div>
+                  {attention && attention.alerts.length > 3 && <Button type="button" variant="outline" size="sm" aria-expanded={attentionExpanded} aria-controls="overview-attention-alerts" onClick={() => setAttentionExpanded(value => !value)}>
+                    {attentionExpanded ? "Show less" : `Show more (${attention.alerts.length - 3} more)`}
+                  </Button>}
+               </CardContent></Card>
+             <Card><CardHeader><CardTitle>Allocation Against Target</CardTitle></CardHeader><CardContent className="space-y-5">
+               {!attention?.allocation.length && <p className="text-sm text-muted-foreground">Allocation is unavailable without portfolio viewing access or configured asset classes.</p>}
+                <div className="flex flex-wrap gap-2" aria-label="Allocation status legend">{Object.values(allocationStyles).map(style => <StatusBadge key={style.label} status={style.label} tone={style.tone} />)}</div>
+                {attention?.allocation.map(group => <div key={group.id} className="space-y-2 text-sm">
+                  <div className="flex flex-wrap justify-between gap-2"><span>{group.name}</span><span>{group.actual.toFixed(1)}% / {group.target}% target</span></div>
+                  <StatusBadge status={allocationStyles[group.status].label} tone={allocationStyles[group.status].tone} />
+                  <div className="relative h-4 overflow-hidden rounded bg-muted" role="img" aria-label={`${group.name}: ${allocationStyles[group.status].label}, actual ${group.actual.toFixed(1)}%, target ${group.target}%, permitted range ${group.minimum} to ${group.maximum}%`}>
+                    <span className="absolute inset-y-0 bg-primary/20" style={{ left: `${group.minimum}%`, width: `${group.maximum - group.minimum}%` }} />
+                    <span className={`absolute inset-y-1 left-0 ${allocationStyles[group.status].bar}`} style={{ width: `${Math.min(100, Math.max(0, group.actual))}%` }} />
+                   <span className="absolute inset-y-0 border-l-2 border-foreground" style={{ left: `${group.target}%` }} />
+                  </div><p className="text-xs text-muted-foreground">Allowed range {group.minimum}% to {group.maximum}%</p>
+               </div>)}
+                <p className="text-xs text-muted-foreground">Solid bar: actual · Shaded band: permitted range · Vertical line: target. Near edge: outer 20% of the permitted range on either side; exact bounds are permitted.</p>
+             </CardContent></Card>
+           </div>
            <Card><CardHeader><CardTitle>Latest six entries</CardTitle></CardHeader><CardContent>
                <Journal rows={(recentEntries ?? entries).slice(0, 6)} reverseAllowed={canReverse} onReverse={entry => { setReversal(entry); setFeedback(undefined); }} />
            </CardContent></Card>
@@ -610,8 +696,8 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
            </Panel><Panel active={activeTab === 3}>
              <Card><CardHeader><CardTitle>Securities and price history</CardTitle></CardHeader><CardContent>
                <Grid headers={["Ticker", "Name", "Class", "Tax class", "Latest price", "Date", "Status"]} rows={securities.map(row => [row.sym, row.name,
-                 registers.classes.find(group => group.id === row.cls)?.name ?? row.cls, row.taxClass, peso(row.price), row.priceDate,
-                 "inactive" in row && row.inactive ? "Inactive" : "Active"])} />
+                  registers.classes.find(group => group.id === row.cls)?.name ?? row.cls, friendlyTaxClass(row.taxClass), peso(row.price), friendlyDate(row.priceDate),
+                  "inactive" in row && row.inactive ? <StatusBadge status="Inactive" tone="neutral" /> : <StatusBadge status="Active" tone="success" />])} />
                {securities.map(row => <details key={row.sym} className="my-2 rounded-md border p-3"><summary>{row.sym} price history</summary>
                  <Grid headers={["Date", "Price", "Source"]} rows={(registers.priceHist[row.sym] ?? []).map(price => [price.date, peso(price.price), price.source])} />
                </details>)}
@@ -640,8 +726,8 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                   peso(Number(row.data.amount ?? row.data.fmv ?? 0)),
                   peso(donationDeductionBasis(row.data)),
                   row.data.exempt ? "Exempt" : peso(Number(row.data.donorTax ?? 0)),
-                  <div className="space-y-1" key={row.id}>
-                    {requiredDonationDocs(row, donationDocuments?.[row.id]).map(doc => <div key={doc.key}>{doc.label}: {doc.ok ? "Recorded" : "Missing"}</div>)}
+                   <div className="space-y-1" key={row.id}>
+                     {requiredDonationDocs(row, donationDocuments?.[row.id]).map(doc => <div key={doc.key}>{doc.label}: <StatusBadge status={doc.ok ? "Recorded" : "Missing"} tone={doc.ok ? "success" : "warning"} /></div>)}
                     {donationDocuments?.[row.id] && <div>Reference: {donationDocuments[row.id].reference}</div>}
                     {typeof row.data.exempt === "boolean" && <Button size="sm" variant="outline" disabled={!canPost || reconciliationRole !== "approve"}
                       title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Charitable-giving approval permission is required." : undefined}
@@ -709,7 +795,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
            </Panel><Panel active={activeTab === 2}>
            <Card id="pre-investment"><CardHeader><CardTitle>Pre-investment checks</CardTitle></CardHeader><CardContent>
             <Grid headers={["Requirement", "Status", "Evidence"]}
-              rows={checks.map(check => [check.name, check.ok ? "Pass" : "Needs attention", check.detail])} />
+                rows={checks.map(check => [check.name, <StatusBadge key={check.name} status={check.ok ? "Ready" : "Needs attention"} tone={check.ok ? "success" : "warning"} />, check.detail])} />
           </CardContent></Card>
            </Panel><Panel active={activeTab === 3}>
            <Card><CardHeader><CardTitle>Deployment planner</CardTitle></CardHeader><CardContent className="space-y-3">
@@ -749,7 +835,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                ["Paid-up (PHP)", capital.paid], ["Issued", capital.issued], ["Outstanding", capital.outstanding]].map(([label, value]) =>
                <Card key={String(label)}><CardHeader><CardTitle className="text-sm">{label}</CardTitle></CardHeader><CardContent>{Number(value).toLocaleString()}</CardContent></Card>)}</div>
              <Card><CardHeader><CardTitle>SEC checks and equity</CardTitle></CardHeader><CardContent>
-               <Grid headers={["Check", "Status"]} rows={capital.checks.map(row => [row.label, row.ok ? "Pass" : "Needs attention"])} />
+                 <Grid headers={["Check", "Status"]} rows={capital.checks.map(row => [row.label, <StatusBadge key={row.label} status={row.ok ? "Ready" : "Needs attention"} tone={row.ok ? "success" : "warning"} />])} />
                <Grid headers={["Equity account", "Balance"]} rows={Object.keys(accounts).filter(code => code.startsWith("3"))
                  .map(code => [accounts[code], peso(-balance(entries, code))])} />
              </CardContent></Card>
@@ -774,7 +860,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
            </div>
             <Panel active={activeTab === 4}><Card><CardHeader><CardTitle>Dividend register</CardTitle></CardHeader><CardContent>
               <Grid headers={["Declared", "Payment date", "Gross", "Status", "Action"]} rows={registers.dividends.map(row =>
-                [row.date, row.payDate, peso(row.gross), row.cancelled ? "Cancelled" : row.paidAt ? `Paid · ${row.paidAt}` : "Unpaid",
+                 [row.date, row.payDate, peso(row.gross), row.cancelled ? <StatusBadge status="Cancelled" tone="neutral" /> : row.paidAt ? <StatusBadge status={`Paid · ${row.paidAt}`} tone="success" /> : <StatusBadge status="Awaiting payment" tone="warning" />,
                   canPost && approved && !row.cancelled && !row.paidAt ? <Button key={row.id} variant="outline" size="sm" onClick={() => rowEntry("capital:payDividend", row.id)}>Pay</Button> : !row.cancelled && !row.paidAt ? "Approve permission required" : ""])} />
            </CardContent></Card>
            </Panel><Panel active={activeTab === 3}><Card><CardHeader><CardTitle>Subscriptions</CardTitle></CardHeader><CardContent>
@@ -831,10 +917,24 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                    <Button size="sm" variant="outline" onClick={() => rowEntry("cash:taxpay", line.tag)}>Pay</Button>
                    {approved && <Button size="sm" variant="outline" onClick={() => setFilingEntry(entry)}>Record filing</Button>}
                  </div> : "View only"]))} />
-           <h3 className="font-medium">Returns and certificates outstanding</h3>
+            <h3 className="font-medium">Returns and certificates outstanding</h3>
            <Grid headers={["Journal", "Form", "Status", "Action"]} rows={entries.filter(entry => { const filing = donationDocuments?.[entry.id] ?? donationDocuments?.[`journal:${entry.no}`]; return entry.data.taxForm && !entry.reversedBy && filing?.status !== "filed-manually"; }).map(entry => { const filing = donationDocuments?.[entry.id] ?? donationDocuments?.[`journal:${entry.no}`]; return [`JE-${entry.no}`, String(entry.data.taxForm), filing?.reference ? "Reference recorded; filing not confirmed" : "Not recorded",
                  canPost && approved ? <Button key={entry.id} size="sm" variant="outline" onClick={() => setFilingEntry(entry)}>Mark filed / record certificate</Button> : "View only"];})} />
-           </CardContent></Card></Panel><Panel active={activeTab === 1}>
+            <h3 className="font-medium">BIR payment history</h3>
+            <Grid headers={["Journal", "Date", "BIR item", "Amount", "Status"]} rows={entries.filter(entry => entry.type === "taxpay").map(entry => [
+              `JE-${entry.no}`, entry.date, String(entry.data.taxId ?? entry.lines.find(line => line.acct === "2200")?.tag ?? ""),
+              peso(entry.lines.filter(line => line.acct === "2200").reduce((sum, line) => sum + line.dr, 0)),
+              entry.reversedBy || entries.some(row => row.data.reverses === entry.id) ? "Reversed" : "Posted",
+            ])} />
+            <h3 className="font-medium">Filing register and completed history</h3>
+            <Grid headers={["Journal", "Form", "Status", "Filing reference", "Filed on", "Receipt", "Evidence"]} rows={entries.filter(entry => entry.data.taxForm).map(entry => {
+              const filing = donationDocuments?.[entry.id] ?? donationDocuments?.[`journal:${entry.no}`];
+              return [`JE-${entry.no}`, String(entry.data.taxForm),
+                entry.reversedBy || entries.some(row => row.data.reverses === entry.id) ? "Reversed source" : filing?.status === "filed-manually" ? "Filed manually (external)" : filing?.reference ? "Reference only; not confirmed filed" : "Not recorded",
+                filing?.reference ?? "—", filing?.filedOn ?? "—", filing?.receiptReference ?? "—",
+                filing?.evidenceFile?.filename ?? filing?.evidenceFileId ?? "—"];
+            })} />
+            </CardContent></Card></Panel><Panel active={activeTab === 1}>
              <Card><CardHeader><CardTitle>Donor&apos;s tax: calendar year {asOf.slice(0, 4)}</CardTitle></CardHeader><CardContent>
                <Grid headers={["Date", "Journal", "Taxable gift", "Cumulative gifts", "Incremental donor's tax"]}
                  rows={donorYear(entries, asOf.slice(0, 4), policy.donorRate, policy.donorExempt).map(row =>
@@ -877,21 +977,23 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
           </CardContent></Card></Panel></>}
            {isReconciliation && <Card><CardHeader><div className="flex flex-wrap items-start justify-between gap-3"><div><CardTitle>{section}</CardTitle>
              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Each month, match the ledger to bank and broker statements. Every difference needs an explanation before the month can be signed off.</p></div>
-             <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-800">{reconciledMonths} of {completedMonthTotal} completed months reconciled</span></div></CardHeader><CardContent className="space-y-3">
+              <StatusBadge status={`${reconciledMonths} of ${completedMonthTotal} months signed off`} tone={reconciledMonths === completedMonthTotal ? "success" : "warning"} /></div></CardHeader><CardContent className="space-y-3">
             <MonthNavigation value={month} first={firstMonth} onChange={selectMonth} />
            {oldestOpen && <Button variant="outline" onClick={() => selectMonth(oldestOpen)}>Oldest open month ({oldestOpen})</Button>}
            {month && <nav aria-label="Reconciliation month status" className="flex flex-wrap gap-2">
-             {Array.from({ length: 12 }, (_, index) => `${month.slice(0, 4)}-${String(index + 1).padStart(2, "0")}`).map(key =>
-               <Button key={key} size="sm" variant={key === month ? "default" : "outline"} aria-current={key === month ? "date" : undefined}
-                  onClick={() => selectMonth(key)}>{key.slice(5)} · {monthStatus(key) === "Signed" ? "Done" : monthStatus(key)}</Button>)}
+              {Array.from({ length: 12 }, (_, index) => `${month.slice(0, 4)}-${String(index + 1).padStart(2, "0")}`).map(key => {
+                const status = monthStatus(key);
+                return <Button key={key} size="sm" variant={key === month ? "default" : "outline"} aria-current={key === month ? "date" : undefined}
+                  onClick={() => selectMonth(key)}><span>{key.slice(5)} ·</span><StatusBadge status={status === "Signed" ? "Done" : status} tone={status === "Signed" ? "success" : status === "Changed" ? "danger" : status === "Draft" ? "warning" : status === "Future" ? "neutral" : "info"} /></Button>;
+              })}
             </nav>}
              <h3 className="font-medium">{reconReview ? "Independent approval" : "Draft preparation"}</h3>
              <p className="text-sm text-muted-foreground">{reconReview ? "Review saved statement figures and explanations, then approve. Draft editing is separate in the reconciliator view." : "Enter bank and broker statement figures, explain differences, and save a draft."}</p>
             {reconciliations === null && <p className="text-sm text-muted-foreground">Reconciliation is read-only: draft storage is unavailable.</p>}
-            {recon ? <p className="text-sm">{recon.signed_at ? `Signed by user ${recon.approved_by} on ${recon.signed_at.slice(0, 10)}` :
-              `Draft prepared by user ${recon.prepared_by}`}</p> : snapshot?.at ? <p className="text-sm">Signed by {snapshot.by} on {snapshot.at.slice(0, 10)}</p>
-              : <p className="text-sm text-muted-foreground">No signed statement snapshot for this month.</p>}
-             {month && <div className="flex flex-wrap items-center justify-between rounded-md border px-3 py-2"><span className="font-medium">{month} · statement date {statementDate}</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800">{reconSigned ? "Reconciled" : "Open"}</span></div>}
+             {recon ? <p className="text-sm">{recon.signed_at ? <>Signed by <strong>{actorLabel(recon.approved_by, actor, actorName)}</strong> on {friendlyDate(recon.signed_at)}</> :
+               <>Draft saved and ready for review</>}</p> : snapshot?.at ? <p className="text-sm">Signed by <strong>{actorLabel(snapshot.by, actor, actorName)}</strong> on {friendlyDate(snapshot.at)}</p>
+               : <p className="text-sm text-muted-foreground">No signed statement snapshot for this month.</p>}
+              {month && <div className="flex flex-wrap items-center justify-between rounded-md border px-3 py-2"><span className="font-medium">{month} · statement date {statementDate}</span><StatusBadge status={reconSigned ? "Reconciled" : recon ? "Draft saved" : "Open"} tone={reconSigned ? "success" : recon ? "warning" : "info"} /></div>}
             <div className="space-y-3"><h3 className="font-medium">Cash accounts and units held</h3>
               <Grid headers={["Account / Security", "Ledger balance", "Statement balance", "Difference", "Explanation"]}
                 rows={reconLines.map(line => {
@@ -924,11 +1026,11 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                  reconEditable ? <Input aria-label={`${label} explanation`} name={`note-${index}`} maxLength={500}
                    defaultValue={line.note ?? ""} /> : line.note || "—"];
              })} />
-             {reconEditable && <Button type="submit" value="draft" disabled={saving}>Save draft</Button>}
+             {reconEditable && <Button type="submit" value="draft" disabled={saving}><Save aria-hidden="true" /> Save draft</Button>}
              </form></LedgerDialog>}
               {!reconSigned && <div className="flex flex-wrap gap-2">
-                {reconReview && <Button type="button" onClick={() => setReconciliationSignoffOpen(true)}>Review approval for {month}</Button>}
-                {!reconReview && reconEditable && <Button type="button" variant="outline" onClick={() => setReconciliationOpen(true)}>Open reconciliation form</Button>}
+                 {reconReview && <Button type="button" onClick={() => setReconciliationSignoffOpen(true)}><Check aria-hidden="true" /> Review approval for {month}</Button>}
+                 {!reconReview && reconEditable && <Button type="button" variant="outline" onClick={() => setReconciliationOpen(true)}><Landmark aria-hidden="true" /> Open reconciliation form</Button>}
               </div>}
               {reconReview && !reconSigned && <LedgerDialog open={reconciliationSignoffOpen} onOpenChange={setReconciliationSignoffOpen} title={`Sign off reconciliation: ${month}`}>
                <div className="space-y-3">
@@ -945,7 +1047,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                       {reconciliations === null && <p>Reconciliation storage is unavailable. Refresh before continuing.</p>}
                     </div>
                       <Button type="submit" value="sign" disabled={saving || !reconEditable || Boolean(reconApprovalIssue) || reconciliationRole !== "approve"}
-                      title={!reconEditable ? "The reconciliation is not available for approval." : reconChanged ? "Save a fresh draft after the ledger changed." : reconciliationRole !== "approve" ? "Monthly-reconciliation approval permission is required." : undefined}>Sign off saved draft</Button>
+                      title={!reconEditable ? "The reconciliation is not available for approval." : reconChanged ? "Save a fresh draft after the ledger changed." : reconciliationRole !== "approve" ? "Monthly-reconciliation approval permission is required." : undefined}><Check aria-hidden="true" /> Sign off saved draft</Button>
                  </form>}
                </div>
              </LedgerDialog>}
@@ -961,8 +1063,8 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
         </CardContent></Card>}
          {section === "Period close" && <Card><CardHeader><CardTitle>Period close</CardTitle></CardHeader><CardContent className="space-y-4">
            <MonthNavigation value={month} first={firstMonth} onChange={selectMonth} />
-            <Grid headers={["Selected month checklist", "Requirement", "Status"]} rows={closeChecklist.map(row => [row.label,
-              row.required ? "Required" : "Review only (does not block close)", row.ok ? "Complete" : "Needs attention"])} />
+             <Grid headers={["Selected month checklist", "Requirement", "Status"]} rows={closeChecklist.map(row => [row.label,
+                row.required ? "Required" : "Review only (does not block close)", <StatusBadge key={row.label} status={row.ok ? "Complete" : "Needs attention"} tone={row.ok ? "success" : "warning"} />])} />
               <form className="flex flex-wrap items-end gap-2" onSubmit={async event => {
             event.preventDefault();
             if (saving) return;
@@ -978,21 +1080,21 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
           }}>
               {monthClosed ? <>
                <label>Reopen reason<Input name="reason" required maxLength={500} /></label>
-               <Button value="reopen" type="submit" disabled={saving || !canPost || reconciliationRole !== "approve"} title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Period-close approval permission is required." : undefined}>Reopen month</Button>
+                <Button value="reopen" type="submit" disabled={saving || !canPost || reconciliationRole !== "approve"} title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Period-close approval permission is required." : undefined}><RefreshCcw aria-hidden="true" /> Reopen month</Button>
              </> : <>
-               <Button value="accrue" type="submit" disabled={saving || !canPost} title={!canPost ? "Transactional posting service is unavailable." : undefined}>Post loan interest</Button>
+                <Button value="accrue" type="submit" disabled={saving || !canPost} title={!canPost ? "Transactional posting service is unavailable." : undefined}><Save aria-hidden="true" /> Post loan interest</Button>
                 <Button value="close" type="submit" disabled={saving || !canPost || reconciliationRole !== "approve" || closeChecklist.some(row => row.required && !row.ok)}
-                  title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Period-close approval permission is required." : undefined}>Close month</Button>
+                   title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Period-close approval permission is required." : undefined}><LockKeyhole aria-hidden="true" /> Close month</Button>
               </>}
               </form>
             {!canPost && <p className="text-sm text-muted-foreground">Period actions are locked: {reconciliationRole === "none" || reconciliationRole === "view" ? "period-close permission is required" : "the transactional posting service is unavailable"}.</p>}
-           <Grid headers={["Month", "Accrual status", "Closed on", "Closed by"]}
-             rows={periodRows.map(([key, row]) => [key, row.accruedAt ? "Recorded" : "Pending", row.closedAt?.slice(0, 10) ?? "Open", row.closedBy ?? "—"])} />
-           <h3 className="font-medium">Close and reopen history</h3>
-           <Grid headers={["Month", "Action", "When", "User", "Reason"]} rows={(registers.periodEvents ?? []).map(item =>
-             [item.month, item.action, item.occurredAt, item.actor, item.reason ?? ""])} />
+            <Grid headers={["Month", "Accrual status", "Closed on", "Closed by"]}
+              rows={periodRows.map(([key, row]) => [key, row.accruedAt ? <StatusBadge status="Recorded" tone="success" /> : <StatusBadge status="Pending" tone="warning" />, row.closedAt ? friendlyDate(row.closedAt) : <StatusBadge status="Open" tone="info" />, row.closedBy ? actorLabel(row.closedBy, actor, actorName) : "—"])} />
+            <h3 className="font-medium">Close and reopen history</h3>
+            <Grid headers={["Month", "Action", "When", "User", "Reason"]} rows={(registers.periodEvents ?? []).map(item =>
+               [item.month, <StatusBadge key={`${item.month}:${item.occurredAt}`} status={friendlyActions[item.action] ?? "Period updated"} tone={item.action === "close" ? "success" : item.action === "reopen" ? "warning" : "info"} />, friendlyDate(item.occurredAt), actorLabel(item.actor, actor, actorName), item.reason ?? "—"])} />
         </CardContent></Card>}
-        {section === "Annual review" && <Card><CardHeader><CardTitle>Annual review evidence · {reportYear.from} to {reportYear.to}</CardTitle></CardHeader><CardContent className="space-y-4">
+        {isAnnualReview && <Card><CardHeader><CardTitle>Annual review evidence · {reportYear.from} to {reportYear.to}</CardTitle></CardHeader><CardContent className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
             <label className="grid gap-1">Financial year starts
               <select className="h-9 rounded-md border bg-background px-2" value={reviewStart} onChange={event => setReviewStart(event.target.value)}>
@@ -1003,12 +1105,20 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
           </div>
            <Grid headers={["Review item", "Ledger evidence"]} rows={["Capital raised and reconciliations", "Performance and fees", "Gifting candidates", "Giving target and documents", "Targets reviewed"]
              .map((label, index) => [label, annualEvidence?.[reviewStart]?.[index] ?? "Evidence is unavailable; refresh the authenticated workspace."])} />
-          {annualReviews === null && <p className="text-sm text-muted-foreground">Review storage is unavailable. Evidence is read-only.</p>}
+           {annualReviews === null && <p className="text-sm text-muted-foreground">Review storage is unavailable. Evidence is read-only.</p>}
+           {annualHistory && <Card className="border-dashed"><CardHeader><CardTitle className="text-base">Review history</CardTitle></CardHeader><CardContent>
+             {annualHistory.filter(row => row.fiscal_start === reviewStart).length === 0 ? <p className="text-sm text-muted-foreground">No changes recorded for this financial year.</p> :
+               <Grid headers={["Revision", "Change", "User", "When", "Reason (reopen only)"]} rows={annualHistory.filter(row => row.fiscal_start === reviewStart).map(row => [
+                 row.revision, row.action === "sign" ? <StatusBadge key={`${row.revision}:action`} status="Approved" tone="success" /> : row.action === "reopen" ? <StatusBadge key={`${row.revision}:action`} status="Reopened" tone="warning" /> : <StatusBadge key={`${row.revision}:action`} status="Draft saved" tone="info" />,
+                 actorLabel(row.actor, actor, actorName), friendlyDate(row.occurred_at), row.reason ?? "—"])} />}
+           </CardContent></Card>}
            <Button type="button" variant="outline" onClick={() => setAnnualReviewOpen(true)}>Open annual-review actions</Button>
            {annualReviewOpen && <LedgerDialog open onOpenChange={setAnnualReviewOpen} title={`Annual review: ${reviewStart}`}>
-             <AnnualReviewForm key={reviewStart} fiscalStart={reviewStart} actor={actor}
-               record={annualReviews?.find(row => row.fiscal_start === reviewStart)} canPrepare={canPost && annualReviews !== null}
-               canApprove={canPost && annualReviews !== null && reconciliationRole === "approve"} />
+               <AnnualReviewForm key={`${workspace}:${reviewStart}`} fiscalStart={reviewStart} actor={actor} actorName={actorName}
+                mode={workspace === "annual-review-approver" ? "approve" : "prepare"}
+                record={annualReviews?.find(row => row.fiscal_start === reviewStart)} canPrepare={canPost && annualReviews !== null && workspace === "annual-review-preparer"}
+                canApprove={canPost && annualReviews !== null && workspace === "annual-review-approver" && reconciliationRole === "approve"}
+                history={annualHistory?.filter(row => row.fiscal_start === reviewStart)} />
            </LedgerDialog>}
         </CardContent></Card>}
          {section === "Policy & targets" && <Policy registers={registers} entries={entries} canEdit={canPost && approved}

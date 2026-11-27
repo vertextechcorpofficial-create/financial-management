@@ -2,7 +2,8 @@ import "server-only";
 import { z } from "zod";
 import { ledgerDatabase } from "./database";
 import { ledgerClient, ledgerRows } from "./directus-ledger.mjs";
-import { reviewItems, type ReviewEvent } from "../annual-review";
+import { latestPostingSnapshot } from "./read-postings.mjs";
+import { latestReviewEvents, reviewItems, type ReviewEvent } from "../annual-review";
 
 const review = z.object({
   fiscal_start: z.string(), revision: z.coerce.number().int().positive(), actor: z.coerce.number(),
@@ -10,17 +11,41 @@ const review = z.object({
   checks: z.array(z.boolean()).length(reviewItems.length), reason: z.string().nullable(), occurred_at: z.string(),
 });
 
-export async function readAnnualReviews(): Promise<ReviewEvent[] | null> {
+async function readAnnualReviewEvents(): Promise<ReviewEvent[] | null> {
   try {
-    const events = process.env.CGL_MYSQL_URL ? await ledgerDatabase()("cgl_annual_review_events").orderBy("revision").select("*") :
-      await ledgerRows(ledgerClient(), "cgl_annual_review_events", "fiscal_start,revision,id");
-    const latest = new Map<string, ReviewEvent>();
-    for (const event of events) {
-      const parsed = review.parse({ ...event, checks: typeof event.checks === "string" ? JSON.parse(event.checks) : event.checks });
-      latest.set(parsed.fiscal_start, parsed);
+    let events: Array<Record<string, unknown>>;
+    if (process.env.CGL_MYSQL_URL) {
+      events = await ledgerDatabase()("cgl_annual_review_events").orderBy("revision").select("*");
+    } else {
+      const request = ledgerClient();
+      let snapshot: Awaited<ReturnType<typeof latestPostingSnapshot>> = null;
+      try {
+        snapshot = await latestPostingSnapshot(request);
+      } catch (error) {
+        // Older Directus deployments may not expose cgl_postings yet.
+        if (!/HTTP (403|404)/.test(error instanceof Error ? error.message : "")) throw error;
+      }
+      const snapshotEvents = snapshot?.annualReviewEvents ??
+        (snapshot?.events && typeof snapshot.events === "object" && !Array.isArray(snapshot.events) ?
+          (snapshot.events as { annualReviewEvents?: unknown }).annualReviewEvents : undefined);
+      // cgl_postings is the authoritative source for the Directus posting path.
+      // Fall back to the normalized event collection during migration/legacy reads.
+      events = Array.isArray(snapshotEvents) ? snapshotEvents as Array<Record<string, unknown>> :
+        await ledgerRows(request, "cgl_annual_review_events", "fiscal_start,revision,id");
     }
-    return [...latest.values()];
+    const parsed = events.map(event => review.parse({ ...event, checks: typeof event.checks === "string" ? JSON.parse(event.checks) : event.checks }));
+    return parsed;
   } catch {
     return null;
   }
+}
+
+export async function readAnnualReviews(): Promise<ReviewEvent[] | null> {
+  const events = await readAnnualReviewEvents();
+  return events ? latestReviewEvents(events) : null;
+}
+
+export async function readAnnualReviewHistory(): Promise<ReviewEvent[] | null> {
+  const events = await readAnnualReviewEvents();
+  return events?.sort((a, b) => a.fiscal_start.localeCompare(b.fiscal_start) || a.revision - b.revision) ?? null;
 }
