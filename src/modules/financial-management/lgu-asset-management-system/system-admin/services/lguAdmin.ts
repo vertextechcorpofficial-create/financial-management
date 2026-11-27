@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cookies } from "next/headers";
+import { forget, memo } from "../../shared/cache";
 
 /**
  * The LGU asset management system's own administration. Section 2 of the guide gives the System
@@ -73,11 +74,14 @@ export async function resolveLguAdminAccess(): Promise<LguAdminAccess> {
   const rawEmail = typeof payload?.email === "string" ? payload.email.trim() : null;
   const email = rawEmail && rawEmail.includes("@") ? rawEmail : null;
   if (!email) return { email: null, roles: [], canOpenModule: false, systemAdmin: false };
-  const rows = await get<Row[]>(
-    "/items/brgy_user_role?filter=" +
-      encodeURIComponent(JSON.stringify({ _and: [{ user_email: { _icontains: email } }, { status: { _eq: "active" } }] })) +
-      "&fields=user_email,role&limit=10"
-  ).catch(() => []);
+  // this read sits in front of every request in the module, so it is remembered for a minute
+  const rows = await memo<Row[]>("lgu:roles:" + email.toLowerCase(), 60_000, () =>
+    get<Row[]>(
+      "/items/brgy_user_role?filter=" +
+        encodeURIComponent(JSON.stringify({ _and: [{ user_email: { _icontains: email } }, { status: { _eq: "active" } }] })) +
+        "&fields=user_email,role&limit=10"
+    ).catch(() => [])
+  );
   const wanted = email.toLowerCase();
   const mine = (rows ?? []).filter((row) => text(row.user_email).trim().toLowerCase() === wanted);
   const roles = mine.map((row) => text(row.role));
@@ -160,6 +164,7 @@ export async function saveLguRole(input: { id?: number | null; email: string; ro
     throw new Error("This screen assigns only the municipal and system admin roles.");
   }
   const body: Row = { user_email: email, role, status: "active" };
+  forget("lgu:roles:");
   const saved = input.id
     ? await send<Row>("/items/brgy_user_role/" + input.id, "PATCH", body)
     : await send<Row>("/items/brgy_user_role", "POST", body);
@@ -220,6 +225,8 @@ export async function saveLguReference(input: {
   id?: number | null;
   values: Record<string, string>;
 }): Promise<{ kind: LguKind; id: number; name: string }> {
+  // the reference lists are cached for five minutes, so a change must drop them now
+  forget("lgu:lookups");
   const kinds: LguKind[] = ["class", "condition", "office"];
   const kind = input.kind as LguKind;
   if (!kinds.includes(kind)) throw new Error("Unknown list: " + (input.kind || "(none)") + ".");

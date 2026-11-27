@@ -12,6 +12,7 @@ import type {
   MovementType,
 } from "../../types";
 import { custodyFormFor } from "../../types";
+import { forget, memo } from "../../shared/cache";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 const TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -150,6 +151,10 @@ function mapMovement(row: Record<string, unknown>): LguAssetMovement {
 }
 
 async function fetchOffices(): Promise<LguOffice[]> {
+  return memo<LguOffice[]>("lgu:offices", 5 * 60_000, loadOffices);
+}
+
+async function loadOffices(): Promise<LguOffice[]> {
   const filter = encodeURIComponent(JSON.stringify({ status: { _eq: "active" } }));
   const json = await get("/items/lgu_office?filter=" + filter + "&sort=sort&limit=-1&fields=id,code,name,sort,status");
   return ((json.data ?? []) as Record<string, unknown>[]).map((r: Record<string, unknown>) => ({
@@ -163,6 +168,12 @@ async function fetchOffices(): Promise<LguOffice[]> {
 
 /** Autocomplete source: names already used on assets and on past movements. */
 async function fetchOfficerNames(): Promise<string[]> {
+  // two 500 row reads on every custody load, so they are remembered for a minute and the
+  // custody actions drop them
+  return memo<string[]>("lgu:officers", 60_000, loadOfficerNames);
+}
+
+async function loadOfficerNames(): Promise<string[]> {
   const [fromAssets, fromMovements] = await Promise.all([
     get("/items/lgu_asset?filter=" + encodeURIComponent(JSON.stringify({ accountable_officer_name: { _nnull: true } })) + "&limit=500&fields=accountable_officer_name"),
     get("/items/lgu_asset_movements?sort=-movement_date&limit=500&fields=to_officer"),
@@ -181,22 +192,19 @@ async function fetchOfficerNames(): Promise<string[]> {
 
 const CUSTODY_PAGE_SIZE = 50;
 
-let prefixCache: { at: number; data: string[] } | null = null;
-
-/** Property prefixes come from the asset classes, cached for a minute. */
+/** Property prefixes come from the asset classes, cached for five minutes. */
 async function fetchPrefixes(): Promise<string[]> {
-  const now = Date.now();
-  if (prefixCache && now - prefixCache.at < 60_000) return prefixCache.data;
-  const json = await get("/items/lgu_asset_class?filter=" + encodeURIComponent(JSON.stringify({ status: { _eq: "active" } })) + "&fields=property_prefix&limit=-1");
-  const seen = new Set<string>();
-  for (const row of (json.data ?? []) as Record<string, unknown>[]) {
-    const p = typeof row.property_prefix === "string" ? row.property_prefix.trim() : "";
-    if (p) seen.add(p);
-  }
-  const data = Array.from(seen).sort();
-  prefixCache = { at: now, data };
-  return data;
+  return memo<string[]>("lgu:prefixes", 5 * 60_000, async () => {
+    const json = await get("/items/lgu_asset_class?filter=" + encodeURIComponent(JSON.stringify({ status: { _eq: "active" } })) + "&fields=property_prefix&limit=-1");
+    const seen = new Set<string>();
+    for (const row of (json.data ?? []) as Record<string, unknown>[]) {
+      const p = typeof row.property_prefix === "string" ? row.property_prefix.trim() : "";
+      if (p) seen.add(p);
+    }
+    return Array.from(seen).sort();
+  });
 }
+
 
 export type CustodySortKey = "property_no" | "is_semi_expendable" | "accountable_officer_name";
 
@@ -476,6 +484,8 @@ async function loadAsset(assetId: number): Promise<LguAsset> {
 }
 
 export async function issueAsset(input: CustodyTransferInput): Promise<AssetHistory> {
+  // a move adds an officer name and a movement row, so the remembered lists are dropped
+  forget("lgu:officers");
   const asset = await loadAsset(input.assetId);
   if (asset.status !== "active") throw new Error("Asset is retired and cannot be issued");
 
@@ -519,6 +529,8 @@ export async function issueAsset(input: CustodyTransferInput): Promise<AssetHist
 }
 
 export async function transferAsset(input: CustodyTransferInput): Promise<AssetHistory> {
+  // a move adds an officer name and a movement row, so the remembered lists are dropped
+  forget("lgu:officers");
   const asset = await loadAsset(input.assetId);
   if (asset.status !== "active") throw new Error("Asset is retired and cannot be transferred");
   if (!(input.toOfficer ?? "").trim()) throw new Error("The receiving officer is required");
@@ -558,6 +570,8 @@ export async function transferAsset(input: CustodyTransferInput): Promise<AssetH
 }
 
 export async function returnAsset(input: CustodyReturnInput): Promise<AssetHistory> {
+  // a move adds an officer name and a movement row, so the remembered lists are dropped
+  forget("lgu:officers");
   const asset = await loadAsset(input.assetId);
   if (asset.status !== "active") throw new Error("Asset is retired");
 
