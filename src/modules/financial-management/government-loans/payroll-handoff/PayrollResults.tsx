@@ -6,10 +6,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
+import { TableRowsSkeleton } from "../components/ui";
 import { centavos } from "./contract";
 import { amountFromCentavos } from "../loans/position";
 import { StatusChip } from "../components/ui";
@@ -154,7 +156,15 @@ export function PayrollResults({ canOpenSetup }: { canOpenSetup?: boolean } = {}
     </div>
     {error ? <div role="alert" className="flex items-center gap-2 text-sm text-destructive">{error}
       <Button size="sm" variant="outline" onClick={reload}>Retry</Button></div>
-      : !data && <p role="status" className="text-sm text-muted-foreground">Loading Payroll deductions…</p>}
+      : !data && <div className="space-y-3" aria-busy="true" aria-label="Loading Payroll deductions">
+        <div className="space-y-2 rounded-md border p-3">
+          <Skeleton className="h-5 w-56" />
+          <Skeleton className="h-4 w-72 max-w-full" />
+        </div>
+        <div className="rounded-md border"><Table>
+          <TableBody><TableRowsSkeleton rows={6} columns={6} /></TableBody>
+        </Table></div>
+      </div>}
     {data && <>
       <PayrollReceipt key={key} view={data} refresh={reload} canOpenSetup={canOpenSetup} />
       <div className="rounded-md border"><Table>

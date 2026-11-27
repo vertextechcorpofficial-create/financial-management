@@ -12,7 +12,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { EmptyState, MetricButton, MetricCard, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, DetailSkeleton, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { agencyOptions, requestDocumentUrl } from "../requests/request-api";
 import { applicationPageSizes, requestStatusLabels, type AgencyChoice, type EmployeeChoice } from "../requests/types";
 import { getEnrollment, importBatches, listEnrollments } from "./api";
@@ -324,7 +324,7 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
     return <div className="space-y-3">
       <Button type="button" variant="ghost" onClick={back}>Back to enrollment</Button>
       {record?.error && <LoadError message={record.error} retry={() => reloadDetail(value => value + 1)} />}
-      {!record && <p role="status" className="text-sm text-muted-foreground">Loading enrollment…</p>}
+      {!record && <DetailSkeleton />}
       {value && <EnrollmentDetails record={value} documentHref={kind => requestDocumentUrl(value.id, kind)}>
         {Boolean(value.enrollment?.payrollWarnings?.length) && <ul className="list-disc pl-5 text-sm text-muted-foreground">
           {value.enrollment?.payrollWarnings?.map(warning => <li key={warning}>{warning}</li>)}
@@ -379,7 +379,7 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
       <Button type="button" size="sm" variant="outline" onClick={() => { setImportedBatch(latestImport.id); setImportView("history"); }}>Review import</Button>
     </div>}
 
-    {summary && <section aria-label="Enrollment queue summary" className="space-y-2">
+    {summary ? <section aria-label="Enrollment queue summary" className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-5">
         <SummaryCard label="Approved · awaiting agency" value={summary.APPROVED} active={filters.status === "APPROVED"} onClick={() => applyStatus("APPROVED")}
@@ -393,7 +393,10 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
         <SummaryCard label="Active" value={summary.ACTIVE} active={filters.status === "ACTIVE"} onClick={() => applyStatus("ACTIVE")}
           icon={CheckCircle2} tone="emerald" ringClass="ring-emerald-500/40" detail="Deducted through Payroll" />
       </div>
-    </section>}
+    </section> : !loaded?.error ? <div className="space-y-2" aria-busy="true">
+      <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
+      <MetricCardsSkeleton count={5} className="xl:grid-cols-5" />
+    </div> : null}
 
     <div className="sticky top-0 z-20 space-y-2 rounded-lg border bg-background p-3 shadow-xs">
       <div className="flex flex-wrap items-center gap-2">
@@ -433,7 +436,6 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
     </form>}
 
     {current?.error && <LoadError message={current.error} retry={() => reloadList(value => value + 1)} />}
-    {!current && !firstLoad && <p role="status" className="text-sm text-muted-foreground">Loading enrollments…</p>}
     {data?.openMonth && <p className="text-sm text-muted-foreground">Open month {deductionMonthLabel(data.openMonth)}</p>}
     {!data?.openMonth && data && <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
       <span>Set the Government Loans open month to enroll loans.</span>

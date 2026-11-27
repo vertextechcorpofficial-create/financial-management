@@ -8,11 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { date, dateTime, isCalendarDate, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
-import { EmptyState, MetricCard, StatusChip } from "../../components/ui";
+import { CardGridSkeleton, DetailSkeleton, EmptyState, MetricCard, MetricCardsSkeleton, StatusChip, TableRowsSkeleton } from "../../components/ui";
 import { useLifecycleCommand, useLifecycleRead } from "../../loans/lifecycle-client";
 import type { listRemittanceDeductions, listRemittancePreparation, previewRemittancePreparation, readPreparedRemittance } from "../../server/remittance-preparation";
 import { maxRemittanceProofBytes, maxRemittanceSelection, remittanceChannels, remittancePenalty, remittanceStatuses, remittanceTotals,
@@ -98,8 +97,12 @@ export function IncludedDeductions({ url, initiallyExpanded = false }: { url: st
   return <details open={expanded} onToggle={event => setExpanded(event.currentTarget.open)} className="space-y-2 text-sm">
     <summary className="cursor-pointer">Included Payroll deductions</summary>
     {expanded && <>
-      {!loaded?.data && <p role={loaded?.error ? "alert" : "status"}>{loaded?.error ?? "Loading deductions…"}
-        {loaded?.error && <Button type="button" variant="outline" size="sm" onClick={() => reload(value => value + 1)}>Retry</Button>}</p>}
+      {!loaded?.data && (loaded?.error
+        ? <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">
+          <span className="min-w-0 flex-1">{loaded.error}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => reload(value => value + 1)}>Retry</Button>
+        </div>
+        : <div className="rounded-md border"><Table><TableBody><TableRowsSkeleton rows={4} columns={4} /></TableBody></Table></div>)}
       {loaded?.data && <>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">{loaded.data.items.length} deduction line(s) on this page</p>
@@ -292,8 +295,12 @@ function SavedRemittanceDialog({ id, close }: { id: string; close: () => void })
         <DialogDescription>{saved ? saved.payment.agency_name + " · " + saved.payment.payroll_month : "Review proof and Payroll deductions."}</DialogDescription>
       </DialogHeader>
       <div className="min-h-0 space-y-3 overflow-y-auto px-1 text-sm">
-        {!saved && <p role={result?.error ? "alert" : "status"}>{result?.error ?? "Loading remittance…"}
-          {result?.error && <Button variant="outline" size="sm" onClick={() => reload(value => value + 1)}>Retry</Button>}</p>}
+        {!saved && (result?.error
+          ? <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">
+            <span className="min-w-0 flex-1">{result.error}</span>
+            <Button variant="outline" size="sm" onClick={() => reload(value => value + 1)}>Retry</Button>
+          </div>
+          : <DetailSkeleton />)}
         {saved && <>
           <p>Payment {date(saved.batch.paymentDate)} · {remittanceChannels[saved.batch.channel]} · {saved.payment.payment_reference}</p>
           <p>Prepared by {saved.batch.preparedBy} · {dateTime(saved.batch.submittedAt)} PHT</p>
@@ -328,15 +335,10 @@ function DeductionsDialog({ row, close }: { row: Item; close: () => void }) {
 type ViewMode = "cards" | "rows";
 
 function RemittanceSkeleton({ cards }: { cards: boolean }) {
-  if (cards) return <div className="space-y-3">
-    {[0, 1].map(index => <div key={index} className="space-y-3 rounded-xl border bg-card p-4">
-      <div className="flex justify-between gap-3"><Skeleton className="h-6 w-48" /><Skeleton className="h-8 w-32" /></div>
-      <Skeleton className="h-4 w-72" />
-      <Skeleton className="h-40 w-full" />
-    </div>)}
-  </div>;
-  return <div className="space-y-2 rounded-md border p-4">
-    {[0, 1, 2, 3, 4, 5].map(index => <Skeleton key={index} className="h-9 w-full" />)}
+  return <div className="space-y-3" aria-busy="true" aria-label="Loading remittances">
+    {cards
+      ? <CardGridSkeleton count={6} height="h-40" />
+      : <div className="rounded-md border"><Table><TableBody><TableRowsSkeleton rows={6} columns={8} /></TableBody></Table></div>}
   </div>;
 }
 
@@ -451,7 +453,7 @@ export function RemittancePreparationModule() {
         <Button variant="outline" onClick={reload}>Refresh</Button>
       </div>
     </div>
-    {data && <SummaryPills data={data} />}
+    {data ? <SummaryPills data={data} /> : !result?.error ? <div aria-busy="true" aria-label="Loading remittance summary"><MetricCardsSkeleton /></div> : null}
     <div className="flex flex-wrap items-end gap-2">
       <Button type="button" variant="outline" size="sm" className="md:hidden" aria-expanded={filtersOpen} aria-controls="remittance-filters"
         onClick={() => setFiltersOpen(value => !value)}>Filters{activeFilters ? ` (${activeFilters})` : ""}</Button>

@@ -9,14 +9,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { DetailSkeleton, PersonAvatar, StatusChip, tabTriggerClass } from "../components/ui";
+import { DetailSkeleton, PanelSkeleton, PersonAvatar, StatusChip, tabTriggerClass } from "../components/ui";
 import { TabIcon } from "../components/tab-icons";
 import { deductionMonthLabel } from "../enrollment/rules";
 import type { getLoanChanges } from "../server/loan-changes";
@@ -125,16 +124,6 @@ function RecordBalanceForm({ detail, busy, setBusy, onCancel, onSaved, reload }:
       <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save balance"}</Button>
     </div>
   </form>;
-}
-
-function PanelSkeleton({ label }: { label: string }) {
-  return <div className="space-y-2" aria-busy="true">
-    <p role="status" className="sr-only">{label}</p>
-    {Array.from({ length: 3 }, (_, index) => <div key={index} className="space-y-2 rounded-md border p-3">
-      <Skeleton className="h-4 w-40" />
-      <Skeleton className="h-3 w-64" />
-    </div>)}
-  </div>;
 }
 
 function ChangesPanel({ state }: { state: ReturnType<typeof useLoanChanges> }) {

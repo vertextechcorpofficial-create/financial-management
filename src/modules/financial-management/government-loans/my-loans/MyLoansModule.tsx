@@ -7,12 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
-import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, StatusChip } from "../components/ui";
+import { CardGridSkeleton, DetailSkeleton, EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, StatusChip } from "../components/ui";
 import { PostingDisputesModule } from "../loans/PostingDisputesModule";
 import { useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import { registerStatusLabels } from "../loans/types";
@@ -105,7 +104,7 @@ function LoanHistory({ loan }: { loan: Loan }) {
       <DialogTitle>{loan.reference} · {loan.program}</DialogTitle>
       <DialogDescription>{loan.agency} · Monthly deductions and remittance evidence</DialogDescription>
     </DialogHeader>
-    {!data && !loaded.error && <div className="space-y-3"><Skeleton className="h-20 w-full" /><Skeleton className="h-48 w-full" /></div>}
+    {!data && !loaded.error && <DetailSkeleton />}
     {loaded.error && <LoadError message={loaded.error} retry={() => retry(value => value + 1)} />}
     {data && <div className={cn("min-h-0 space-y-4 overflow-y-auto pr-1", loaded.pending && "opacity-60")}>
       <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
@@ -255,7 +254,10 @@ export function MyLoansModule({ applicant }: { applicant: Pick<EmployeeChoice, "
       </div>
     </div>
     {loaded.error && <LoadError message={loaded.error} retry={() => reload(value => value + 1)} />}
-    {!loaded.data && !loaded.error && <MetricCardsSkeleton count={3} />}
+    {!loaded.data && !loaded.error && <div className="space-y-3" aria-busy="true">
+      <MetricCardsSkeleton count={3} className="xl:grid-cols-3" />
+      <CardGridSkeleton count={4} height="h-48" className="sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-2" />
+    </div>}
     {loaded.data && <>
       <div className={cn("grid grid-cols-2 gap-2 xl:grid-cols-3", loaded.pending && "opacity-60")}>
         <SummaryCard label="Monthly loan deductions" value={peso(monthly)} detail={peso((Number(monthly) / 2).toFixed(2)) + " per cut-off"} icon={Wallet} tone="emerald" />

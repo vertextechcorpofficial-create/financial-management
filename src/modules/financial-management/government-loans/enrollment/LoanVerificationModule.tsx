@@ -406,7 +406,7 @@ export function LoanVerificationModule() {
     {agencies?.error && <LoadError message={agencies.error} retry={() => refreshAgencies(value => value + 1)} />}
     {invalidBatch && <p role="status" className="text-sm text-muted-foreground">Enter a batch number or its reference, such as BT-0001.</p>}
     {queue?.error && <LoadError message={queue.error} retry={reload} />}
-    {!queue && !invalidBatch && <div className="space-y-2 rounded-lg border p-3"><Skeleton className="h-9 w-full" />{[0, 1, 2, 3, 4].map(value => <Skeleton key={value} className="h-12 w-full" />)}</div>}
+    {!queue?.data && !queue?.error && !invalidBatch && <div className="space-y-2 rounded-lg border p-3"><Skeleton className="h-9 w-full" />{[0, 1, 2, 3, 4].map(value => <Skeleton key={value} className="h-12 w-full" />)}</div>}
     {results && <RequestSection title="Bulk verification results">
       <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
         <span>{results.verified} verified · {results.skipped} skipped</span>
