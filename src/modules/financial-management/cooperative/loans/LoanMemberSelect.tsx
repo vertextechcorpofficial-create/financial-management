@@ -28,6 +28,7 @@ export function LoanMemberSelect({
   onRetry,
   onSelect,
   disabled = false,
+  required = false,
   emptyMessage = "No active members match this search.",
 }: {
   member?: Member;
@@ -42,6 +43,7 @@ export function LoanMemberSelect({
   onRetry: () => void;
   onSelect: (member: Member | undefined) => void;
   disabled?: boolean;
+  required?: boolean;
   emptyMessage?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -62,6 +64,7 @@ export function LoanMemberSelect({
           role="combobox"
           aria-expanded={open}
           aria-label="Member"
+          aria-required={required || undefined}
           disabled={disabled}
           className="h-auto min-h-11 w-full min-w-0 justify-between gap-2 py-2 text-left font-normal"
         >

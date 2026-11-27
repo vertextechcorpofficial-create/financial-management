@@ -196,14 +196,14 @@ export function AddMemberDialog({
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
                   Date signed
-                  <Input type="date" value={signedAt} onChange={event => { setSignedAt(event.target.value); changed(); }} />
+                  <Input type="date" className="text-foreground" value={signedAt} onChange={event => { setSignedAt(event.target.value); changed(); }} />
                   {fields.signedAt && <span className="block text-xs font-normal text-destructive">{fields.signedAt}</span>}
                 </label>
                 <div className="space-y-1.5">
                   <label htmlFor="cooperative-agreement-preview" className="text-xs font-medium text-muted-foreground">Agreement no. (preview)</label>
                   <Input
                     id="cooperative-agreement-preview"
-                    className="font-mono"
+                    className="font-mono bg-muted/40 text-muted-foreground dark:bg-muted/40"
                     value={agreementPreview?.state === "available" ? agreementPreview.number : ""}
                     placeholder={checking ? "Checking…" : "Unavailable"}
                     aria-describedby="cooperative-agreement-preview-status"
@@ -228,7 +228,7 @@ export function AddMemberDialog({
                       type="number" min={0} step={1} value={savingsPerCutoff}
                       onChange={event => { setSavingsPerCutoff(event.target.value); changed(); }}
                       placeholder={check?.policy.minimumSavings}
-                      className="pl-7"
+                      className="pl-7 text-foreground"
                     />
                   </div>
                   {fields.savingsPerCutoff && <span className="block text-xs font-normal text-destructive">{fields.savingsPerCutoff}</span>}
@@ -241,14 +241,14 @@ export function AddMemberDialog({
                     <Input
                       type="number" min={0} step="0.01" value={openingDeposit}
                       onChange={event => { setOpeningDeposit(event.target.value); changed(); }}
-                      className="pl-7"
+                      className="pl-7 text-foreground"
                     />
                   </div>
                   {fields.openingDeposit && <span className="block text-xs font-normal text-destructive">{fields.openingDeposit}</span>}
                 </label>
                 <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
                   Membership fee channel
-                  <NativeSelect value={feeChannel} onChange={event => { setFeeChannel(event.target.value); changed(); }} className="w-full">
+                  <NativeSelect value={feeChannel} onChange={event => { setFeeChannel(event.target.value); changed(); }} className="w-full text-foreground">
                     <option value="COUNTER">Over the counter</option>
                     <option value="PAYROLL">Payroll deduction</option>
                   </NativeSelect>
@@ -260,6 +260,7 @@ export function AddMemberDialog({
                     value={beneficiary}
                     onChange={event => { setBeneficiary(event.target.value); changed(); }}
                     placeholder="Name and relationship"
+                    className="text-foreground"
                   />
                   {fields.beneficiary && <span className="block text-xs font-normal text-destructive">{fields.beneficiary}</span>}
                 </label>

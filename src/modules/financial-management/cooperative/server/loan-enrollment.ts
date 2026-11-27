@@ -33,7 +33,7 @@ export const loanDraftSchema = z.object({
   principal: money.optional(),
   itemId: id.optional(),
   quantity: z.number().int().min(1).max(10).optional(),
-  rate: z.string().trim().regex(/^\d{1,3}(?:\.\d{1,6})?$/).optional(),
+  rate: z.string().trim().regex(/^\d{1,3}(?:\.\d{1,6})?$/, "Enter an interest rate with up to 3 digits and 6 decimals.").optional(),
   method: z.enum(["diminishing", "flat", "markup", "upfront"]),
   term: z.number().int().min(1).max(120),
   frequency: z.enum(["cutoff", "monthly"]),
@@ -223,7 +223,8 @@ export async function assessLoanEnrollment(draft: z.infer<typeof loanDraftSchema
     borrower: { membershipId: member.id, userId: member.user_id, name: member.employee_name, department: member.department_name },
     payroll: payroll.state === "verified" ? payroll : null,
   };
-  const fingerprint = createHash("sha256").update(JSON.stringify([snapshot, checks, loanIds])).digest("hex");
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify([{ ...snapshot, purpose: "", releaseMethod: "" }, checks, loanIds])).digest("hex");
   return {
     member, snapshot, loanIds, installments, checks, payroll, fingerprint, canEnroll: passesLoanChecks(checks),
   };

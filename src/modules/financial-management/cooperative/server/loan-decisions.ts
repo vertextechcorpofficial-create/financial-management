@@ -16,7 +16,7 @@ import { LoanError, readLoanForChange } from "./loans";
 import { todayManila } from "./member-read";
 import { getPolicies } from "./policies";
 
-const rate = z.string().regex(/^\d{1,3}(?:\.\d{1,6})?$/);
+const rate = z.string().regex(/^\d{1,3}(?:\.\d{1,6})?$/, "Enter an interest rate with up to 3 digits and 6 decimals.");
 const signedRules = z.object({
   rateMin: rate.nullable(), rateMax: rate.nullable(),
   minimumMembershipMonths: z.number().int().nonnegative(),
