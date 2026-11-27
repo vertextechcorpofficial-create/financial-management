@@ -4,10 +4,12 @@ import { z } from "zod";
 import { exactMoney } from "../enrollment/rules";
 import { monthAfter, summarizeWithholding, type MonthlyResult, type ReceiptSummary } from "../loans/monthly-payroll";
 import type { LoanChange } from "../loans/types";
+import { centavos } from "../payroll-handoff/contract";
 import {
   GOVERNMENT_LOAN_PAYROLL_RECEIPTS, GOVERNMENT_LOAN_PAYROLL_RESULTS, GOVERNMENT_LOAN_REQUEST_HISTORY,
-  GOVERNMENT_LOAN_SETTINGS, type GovernmentLoansCollection,
+  GOVERNMENT_LOAN_SETTINGS, readGovernmentLoansItems, type GovernmentLoansCollection,
 } from "./directus";
+import { mapLimit } from "./concurrency";
 import { readEnrollmentRows } from "./enrollment-sources";
 import { isoDateTime } from "./loan-requests";
 import { payrollMonthFilter } from "./payroll-month-filter";
@@ -41,6 +43,60 @@ export async function readPayrollPages<T>(collection: GovernmentLoansCollection,
     result.push(...rows);
     if (rows.length < limit) return result;
   }
+}
+
+const amountSumRow = z.object({
+  receipt_id: z.uuid(), agency_id: positiveId,
+  sum: z.object({ amount: z.union([z.string(), z.number()]).transform(String).pipe(z.string().regex(/^\d+(\.\d{1,2})?$/)) }),
+});
+
+/**
+ * Sums payroll result amounts per receipt and agency with Directus aggregates,
+ * replacing full row scans for callers that only need totals.
+ */
+export async function sumPayrollByAgency(receiptIds: string[], statuses = ["D", "P", "X"]) {
+  const result = new Map<string, Map<number, bigint>>();
+  for (let start = 0; start < receiptIds.length; start += 25) {
+    const chunk = receiptIds.slice(start, start + 25);
+    for (let offset = 0; ; offset += limit) {
+      const query = new URLSearchParams({
+        "groupBy[]": "receipt_id", "aggregate[sum]": "amount",
+        sort: "receipt_id,agency_id", limit: String(limit), offset: String(offset),
+        filter: JSON.stringify({ receipt_id: { _in: chunk }, status: { _in: statuses } }),
+      });
+      query.append("groupBy[]", "agency_id");
+      const { data } = z.object({ data: z.array(amountSumRow).max(limit) })
+        .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_PAYROLL_RESULTS, query));
+      for (const row of data) {
+        const byAgency = result.get(row.receipt_id) ?? new Map<number, bigint>();
+        byAgency.set(row.agency_id, (byAgency.get(row.agency_id) ?? 0n) + centavos(row.sum.amount));
+        result.set(row.receipt_id, byAgency);
+      }
+      if (data.length < limit) break;
+    }
+  }
+  return result;
+}
+
+const countResult = z.object({ data: z.array(z.object({ count: z.object({ id: z.coerce.number().int().nonnegative() }) })).max(1) });
+
+async function countPayrollRows(collection: GovernmentLoansCollection, filter: object) {
+  const query = new URLSearchParams({ "aggregate[count]": "id", limit: "1", filter: JSON.stringify(filter) });
+  const { data } = countResult.parse(await readGovernmentLoansItems(collection, query));
+  return data[0]?.count.id ?? 0;
+}
+
+/** Reads every matching row, probing the first page before paying for a count. */
+export async function readPayrollAll<T>(collection: GovernmentLoansCollection, schema: z.ZodType<T>, fields: string,
+  filter: object, sort: string) {
+  const first = await readEnrollmentRows(collection, schema, fields, filter, limit, sort, 0);
+  if (first.length < limit) return first;
+  const total = await countPayrollRows(collection, filter);
+  if (total <= limit) return first;
+  const pages = Array.from({ length: Math.ceil(total / limit) - 1 }, (_, index) => index + 1);
+  const rest = await mapLimit(pages, 4, page =>
+    readEnrollmentRows(collection, schema, fields, filter, limit, sort, page * limit));
+  return first.concat(rest.flat());
 }
 
 export function receiptSummary(row: PayrollReceipt): ReceiptSummary {
@@ -83,7 +139,7 @@ export async function hasLaterReceipt(month: string) {
 }
 
 export async function readPayrollResults(filter: object): Promise<(MonthlyResult & { receiptId: string })[]> {
-  const rows = await readPayrollPages(GOVERNMENT_LOAN_PAYROLL_RESULTS, resultRow, Object.keys(resultRow.shape).join(","), filter, "id");
+  const rows = await readPayrollAll(GOVERNMENT_LOAN_PAYROLL_RESULTS, resultRow, Object.keys(resultRow.shape).join(","), filter, "id");
   return rows.map(payrollResult);
 }
 

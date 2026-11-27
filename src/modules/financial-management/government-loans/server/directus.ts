@@ -47,6 +47,7 @@ export async function governmentLoansDirectus(path: string, init: RequestInit = 
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
   const source = path.split("?")[0];
+  const started = performance.now();
   const response = await fetch(`${base}${path}`, {
     ...init,
     headers,
@@ -56,6 +57,9 @@ export async function governmentLoansDirectus(path: string, init: RequestInit = 
   }).catch(error => {
     throw new GovernmentLoansDirectusError(503, error instanceof Error ? error.name : "FETCH_FAILED", source);
   });
+  if (process.env.GL_PROFILE === "1") {
+    console.info("[gl]", init.method ?? "GET", source, Math.round(performance.now() - started) + "ms");
+  }
   if (!response.ok) {
     const error = await response.json().catch(() => null);
     const code = error?.errors?.[0]?.extensions?.code;

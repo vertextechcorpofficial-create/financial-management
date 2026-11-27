@@ -5,6 +5,7 @@ import type { AgencyChoice } from "../requests/types";
 import { normalizedReference } from "../enrollment/rules";
 import { payrollBenefitCodes } from "./agencies";
 import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_REQUESTS, readGovernmentLoansItems, type GovernmentLoansCollection } from "./directus";
+import { mapLimit } from "./concurrency";
 import { flag, LoanRequestError, positiveId } from "./request-input";
 
 export async function readEnrollmentRows<T>(collection: GovernmentLoansCollection, schema: z.ZodType<T>, fields: string, filter: object,
@@ -39,14 +40,16 @@ export async function readGroups<T, K extends string | number>(collection: Gover
   keys: K[], filter: (group: K[]) => object, sort: string) {
   const found = new Map<unknown, T>();
   const fields = Object.keys(schema.shape).join(",");
-  const limit = 50;
-  for (const group of valueGroups(keys)) {
+  const limit = 100;
+  const groups = await mapLimit(valueGroups(keys), 4, async group => {
+    const rows: T[] = [];
     for (let offset = 0; ; offset += limit) {
       const items = await readEnrollmentRows(collection, schema, fields, filter(group), limit, sort, offset);
-      for (const item of items) found.set(item[sort], item as T);
-      if (items.length < limit) break;
+      rows.push(...(items as T[]));
+      if (items.length < limit) return rows;
     }
-  }
+  });
+  for (const rows of groups) for (const item of rows) found.set(item[sort as keyof T], item);
   return [...found.values()];
 }
 

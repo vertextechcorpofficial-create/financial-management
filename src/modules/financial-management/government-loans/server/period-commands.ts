@@ -13,12 +13,12 @@ export async function readOpenMonth() {
   return deductionMonths(month).length ? month : null;
 }
 
-export async function nextPeriodCommand(month: string) {
+export async function nextPeriodCommand(month: string, knownOpenMonth?: string) {
   const query = new URLSearchParams({ fields: "sequence", filter: JSON.stringify({ month: { _eq: month } }), limit: "1", sort: "-sequence,id" });
   const { data: [current] } = z.object({ data: z.array(z.object({ sequence: positiveId })).max(1) })
     .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_PERIOD_COMMANDS, query));
   // A caller can read the month before close commits and read the sequence after it commits.
-  if (await readOpenMonth() !== month) throw new LoanRequestError(409, "The open month changed. Refresh and try again.");
+  if ((knownOpenMonth ?? await readOpenMonth()) !== month) throw new LoanRequestError(409, "The open month changed. Refresh and try again.");
   const sequence = (current?.sequence ?? 0) + 1;
   return { month, sequence, revision_key: month + ":" + sequence };
 }

@@ -13,6 +13,7 @@ import { amountFromCentavos } from "../loans/position";
 import { centavos } from "../payroll-handoff/contract";
 import { getAgencyBillingSummary } from "./agency-billing";
 import { readAgency, type AgencyActor } from "./agencies";
+import { mapLimit } from "./concurrency";
 import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_PAYROLL_RESULTS, GOVERNMENT_LOAN_REMITTANCES, GOVERNMENT_LOAN_REMITTANCE_DECISIONS, GovernmentLoansDirectusError,
   governmentLoansDirectus, readGovernmentLoansItems, writeGovernmentLoansItem } from "./directus";
 import { readEnrollmentRows } from "./enrollment-sources";
@@ -284,7 +285,9 @@ async function commit(command: Command, action: Decision["action"], evidence: un
   }
 }
 
-async function decide(id: string, request: z.output<typeof input> | null, command: Command) {
+type DecisionContext = { openMonth: string; period: Awaited<ReturnType<typeof nextPeriodCommand>> };
+
+async function decide(id: string, request: z.output<typeof input> | null, command: Command, context?: DecisionContext) {
   const existing = await replay(command);
   if (existing) return existing;
   try {
@@ -296,9 +299,9 @@ async function decide(id: string, request: z.output<typeof input> | null, comman
     const action = request?.action ?? "APPROVE";
     if (action === "RETURN" && !request?.reason) throw new LoanRequestError(422, "Enter a reason for returning this remittance.",
       { reason: "Enter a return reason." });
-    const observedOpenMonth = await readOpenMonth();
+    const observedOpenMonth = context?.openMonth ?? await readOpenMonth();
     if (!observedOpenMonth) throw new LoanRequestError(409, "The open payment period is unavailable.");
-    const period = await nextPeriodCommand(observedOpenMonth);
+    const period = context?.period ?? await nextPeriodCommand(observedOpenMonth, observedOpenMonth);
     const review = await currentReview(source, observedOpenMonth);
     const blockers = review.checks.filter(check => check.status === "block");
     const warnings = review.checks.filter(check => check.status === "warning");
@@ -337,16 +340,18 @@ export async function bulkApproveRemittances(body: unknown, key: string | null, 
   const complete = command(loanCommandPartKey(batch.key, "result"), batch.requestHash, actor);
   const saved = await replay(complete);
   if (saved) return batchResult.parse(saved.evidence);
-  const items: z.output<typeof outcome>[] = [];
-  for (const id of ids) {
+  const openMonth = await readOpenMonth();
+  if (!openMonth) throw new LoanRequestError(409, "The open payment period is unavailable.");
+  const period = await nextPeriodCommand(openMonth, openMonth);
+  const items = await mapLimit(ids, 4, async id => {
     const part = command(loanCommandPartKey(batch.key, id), [batch.requestHash, id], actor);
     try {
-      await decide(id, null, part);
-      items.push({ id, approved: true, reason: null });
+      await decide(id, null, part, { openMonth, period });
+      return { id, approved: true, reason: null };
     } catch (error) {
       if (!(error instanceof LoanRequestError) || error.status >= 500) throw error;
-      items.push({ id, approved: false, reason: error.message });
+      return { id, approved: false, reason: error.message };
     }
-  }
+  });
   return batchResult.parse((await commit(complete, "BULK_COMPLETE", { items })).evidence);
 }

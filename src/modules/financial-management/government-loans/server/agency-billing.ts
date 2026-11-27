@@ -98,12 +98,11 @@ type Candidate = z.output<typeof loanCandidate>;
 async function readBillingCandidates(agencyId: number, references: string[], ids: number[]) {
   const result = new Map<number, Candidate>();
   // The live key is held by staged and verified enrollments. Posted results also identify their exact loan ID.
-  for (const [field, values] of [["live_reference_key", references], ["id", ids]] as const) {
-    const rows = await readGroups<Candidate, string | number>(GOVERNMENT_LOAN_REQUESTS, loanCandidate, values, group => ({
+  const groups = await Promise.all(([["live_reference_key", references], ["id", ids]] as const).map(([field, values]) =>
+    readGroups<Candidate, string | number>(GOVERNMENT_LOAN_REQUESTS, loanCandidate, values, group => ({
       agency_id: { _eq: agencyId }, [field]: { _in: group }, enrollment: { _nnull: true },
-    }), "id");
-    for (const row of rows) result.set(row.id, row);
-  }
+    }), "id")));
+  for (const rows of groups) for (const row of rows) result.set(row.id, row);
   return [...result.values()];
 }
 
