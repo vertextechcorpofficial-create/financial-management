@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { SearchX } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -11,10 +12,15 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "../../components/ui";
-import { AgencyForm } from "./AgencyForm";
-import { AgencyHistoryDialog } from "./AgencyHistoryDialog";
 import { AgencyRequestError, fetchAgencies, saveAgency } from "./agencies-api";
 import { AGENCY_TYPES, DEADLINE_RULES, PENALTY_BASES, type Agency, type AgencyPage } from "./types";
+
+const AgencyForm = dynamic(() => import("./AgencyForm").then(module => module.AgencyForm), {
+  ssr: false, loading: () => null,
+});
+const AgencyHistoryDialog = dynamic(() => import("./AgencyHistoryDialog").then(module => module.AgencyHistoryDialog), {
+  ssr: false, loading: () => null,
+});
 
 function AgencyCard({ agency, editing, busy, onEdit, onHistory, onToggle }: {
   agency: Agency;

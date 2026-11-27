@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import dynamic from "next/dynamic";
 import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronsUpDown, Clock3, SearchX } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -13,13 +14,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, PersonAvatar } from "../components/ui";
-import { ApprovalReviewPanel } from "./ApprovalReviewPanel";
-import { BulkApprovalDialog } from "./BulkApprovalDialog";
 import { approvalAgencies, approvalDecisions, approvalQueue, approvalReview } from "./api";
 import { REQUEST_SLA_DAYS } from "./rules";
 import {
   approvalPageSizes, approvalSorts, type ApprovalDecisionRow, type ApprovalQueueItem, type ApprovalSort, type BulkApprovalResult,
 } from "./types";
+
+const ApprovalReviewPanel = dynamic(() => import("./ApprovalReviewPanel").then(module => module.ApprovalReviewPanel), {
+  ssr: false, loading: () => null,
+});
+const BulkApprovalDialog = dynamic(() => import("./BulkApprovalDialog").then(module => module.BulkApprovalDialog), {
+  ssr: false, loading: () => null,
+});
 
 type Loader<T> = (signal: AbortSignal) => Promise<T>;
 type Direction = "asc" | "desc";

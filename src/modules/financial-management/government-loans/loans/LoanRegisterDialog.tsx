@@ -22,10 +22,8 @@ import type { getLoanChanges } from "../server/loan-changes";
 import { RequestApiError } from "../requests/request-api";
 import { agencyStatementDocumentUrl, readRegisterDetail, saveAgencyBalance } from "./api";
 import { loansApi } from "./lifecycle-client";
+import type { LoanPanel } from "./loan-panels";
 import { registerStatusLabels, statementSources, type RegisterLoanDetail } from "./types";
-
-export const loanPanels = ["overview", "statements", "changes", "instructions"] as const;
-export type LoanPanel = typeof loanPanels[number];
 
 const money = (amount: string | null) => amount === null ? "—" : peso(amount);
 type ChangeDetail = Awaited<ReturnType<typeof getLoanChanges>>;

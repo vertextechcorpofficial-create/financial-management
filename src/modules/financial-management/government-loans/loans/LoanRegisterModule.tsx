@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useEffect, useState, type ComponentType, type FormEvent, type ReactNode } from "react";
 import {
   AlertCircle, ArrowDown, ArrowUp, ChevronsUpDown, Clock3, Download, Landmark, RefreshCw, Rows3, Rows4, Scale, Search, SearchX, X,
@@ -21,11 +22,15 @@ import { date, peso } from "@/modules/financial-management/cooperative/members/f
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
 import { EmptyState, MetricCard, MetricCardsSkeleton, PersonAvatar, StatusChip } from "../components/ui";
 import { agencyStatementDocumentUrl, copyRegisterCsv, listRegister, type RegisterTab } from "./api";
-import { LoanRegisterDialog, loanPanels, type LoanPanel } from "./LoanRegisterDialog";
+import { loanPanels, type LoanPanel } from "./loan-panels";
 import {
   registerPageSizes, registerSorts, registerStatusLabels, registerViews, type LoanRegisterPage, type RegisterLoan,
   type RegisterSort, type RegisterView,
 } from "./types";
+
+const LoanRegisterDialog = dynamic(() => import("./LoanRegisterDialog").then(module => module.LoanRegisterDialog), {
+  ssr: false, loading: () => null,
+});
 
 const initialFilters = { q: "", agency: "", department: "", program: "", status: "", short: "", flagged: "", needsUpdate: "" };
 type RegisterFilters = typeof initialFilters;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useEffect, useState, type ComponentType } from "react";
 import { CheckCircle2, Clock3, FileText, Plus, RotateCcw, Search, SearchX, X } from "lucide-react";
 import { toast } from "sonner";
@@ -13,12 +14,15 @@ import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, DetailSkeleton, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { employeeRequestApi, staffRequestApi } from "./request-api";
-import { RequestEditor } from "./RequestEditor";
 import {
   applicationPageSizes, requestSorts, requestStatusLabels, requestViews,
   type AgencyChoice, type EmployeeChoice, type LoanRequest, type RequestPage, type RequestSort, type RequestSummary,
   type RequestView,
 } from "./types";
+
+const RequestEditor = dynamic(() => import("./RequestEditor").then(module => module.RequestEditor), {
+  ssr: false, loading: () => null,
+});
 
 type Filters = { q: string; agency: string; status: string };
 type Direction = "asc" | "desc";
