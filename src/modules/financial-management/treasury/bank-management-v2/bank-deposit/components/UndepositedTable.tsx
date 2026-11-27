@@ -204,7 +204,15 @@ export function UndepositedTable({
                           variant="outline"
                           className={cn(
                             "text-[11px] font-semibold",
-                            toneClass(asset.methodLabel === "Cash" ? "success" : asset.methodLabel === "Check" ? "info" : "warning"),
+                            toneClass(
+                              asset.methodLabel === "Adjustment"
+                                ? "warning"
+                                : asset.assetType === "CHECK"
+                                  ? "info"
+                                  : asset.methodLabel.toLowerCase() === "cash"
+                                    ? "success"
+                                    : "info",
+                            ),
                           )}
                         >
                           {asset.methodLabel}

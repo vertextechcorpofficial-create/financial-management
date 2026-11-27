@@ -264,9 +264,17 @@ export function SlipDetailDialog({ slip, open, isSaving, onOpenChange, onCancel,
                           <TableCell>
                             <Badge
                               variant="outline"
-                              className={`text-[11px] font-semibold ${toneClass(item.assetType === "CASH" ? "success" : "info")}`}
+                              className={`text-[11px] font-semibold ${toneClass(
+                                item.methodLabel === "Adjustment"
+                                  ? "warning"
+                                  : item.assetType === "CHECK"
+                                    ? "info"
+                                    : item.methodLabel.toLowerCase() === "cash"
+                                      ? "success"
+                                      : "info",
+                              )}`}
                             >
-                              {item.assetType === "CASH" ? "Cash" : "Check"}
+                              {item.methodLabel}
                             </Badge>
                             {item.checkStatus ? (
                               <p className="mt-0.5 text-[11px] text-muted-foreground">

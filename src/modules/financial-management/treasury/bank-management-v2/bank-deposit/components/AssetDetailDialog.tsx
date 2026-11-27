@@ -53,8 +53,7 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
             <DialogHeader className="border-b px-6 py-4">
               <DialogTitle className="line-clamp-1 font-mono text-base">{asset.documentNumber}</DialogTitle>
               <DialogDescription className="line-clamp-2 max-w-md">
-                {asset.assetType === "CASH" ? "Cash collection" : "Customer check"} ·{" "}
-                {asset.customer ?? "No customer on the collection"}
+                {asset.methodLabel} · {asset.customer ?? "No customer on the collection"}
               </DialogDescription>
             </DialogHeader>
 
@@ -63,9 +62,20 @@ export function AssetDetailDialog({ asset, selected, onOpenChange, onToggle }: P
                 <Detail label="Type">
                   <Badge
                     variant="outline"
-                    className={cn("text-[11px] font-semibold", toneClass(asset.assetType === "CASH" ? "success" : "info"))}
+                    className={cn(
+                      "text-[11px] font-semibold",
+                      toneClass(
+                        asset.methodLabel === "Adjustment"
+                          ? "warning"
+                          : asset.assetType === "CHECK"
+                            ? "info"
+                            : asset.methodLabel.toLowerCase() === "cash"
+                              ? "success"
+                              : "info",
+                      ),
+                    )}
                   >
-                    {asset.assetType === "CASH" ? "Cash" : "Check"}
+                    {asset.methodLabel}
                   </Badge>
                 </Detail>
                 <Detail label="Status">
