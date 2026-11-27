@@ -30,7 +30,6 @@
   },
   "include": [
     "next-env.d.ts",
-    "next.config.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
@@ -42,6 +41,9 @@
     "src/modules/financial-management/accounting/supplier-management/payment-terms/utils/sample"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next",
+    "out",
+    "dist"
   ]
 }
