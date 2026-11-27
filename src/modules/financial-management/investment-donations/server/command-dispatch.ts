@@ -120,7 +120,9 @@ export function prepareLedgerCommand(operation: string, input: unknown, access: 
     case "reconciliation": {
       const value = parse(reconciliation, raw, "Invalid reconciliation values.");
       permissionMessage = "You do not have permission for this reconciliation action.";
-      payload = value; requiredWorkspace = "monthly-reconciliation"; requiredRole = value.type === "draft" ? "prepare" : "approve"; break;
+      payload = value;
+      requiredWorkspace = value.type === "draft" ? "monthly-reconciliation-reconciliator" : "monthly-reconciliation-approver";
+      requiredRole = value.type === "draft" ? "prepare" : "approve"; break;
     }
     case "cgt-reconcile":
       payload = { ...parse(z.object({ fiscalStart: date, date }), raw, "Enter the fiscal start and posting dates."), type: "cgtClose" };

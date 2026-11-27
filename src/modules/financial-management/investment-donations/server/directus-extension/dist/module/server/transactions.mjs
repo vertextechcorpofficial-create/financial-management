@@ -294,8 +294,8 @@ export async function reconcile(trx, input) {
     }
     if (old?.signed_at)
         invalid("This reconciliation is already signed.");
-    if (type === "sign" && (!old || Number(old.prepared_by) === actor))
-        invalid("A different approver must sign this draft.");
+    if (type === "sign" && !old)
+        invalid("A saved draft must be prepared before approval.");
     const lots = await trx("cgl_registers").where({ name: "lots" }).first();
     const headers = await trx("cgl_journal_entries").where({ sealed: 1 }).select("*");
     const grouped = new Map();

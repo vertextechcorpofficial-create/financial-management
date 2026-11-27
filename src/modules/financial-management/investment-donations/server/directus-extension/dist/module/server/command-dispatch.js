@@ -10,7 +10,7 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const annualReview = z.object({ fiscalStart: z.string(), revision: z.number().int().nonnegative(),
     checks: z.array(z.boolean()).length(5).optional(), reason: z.string().trim().max(500).optional(),
     type: z.enum(["draft", "sign", "reopen"]) });
-const donationDocument = z.object({ id: z.string().min(1).max(64), reference: z.string().trim().min(1).max(200),
+const donationDocument = z.object({ id: z.string().min(1).max(64), journalNo: z.number().int().positive().optional(), reference: z.string().trim().min(1).max(200),
     status: z.enum(["reference-only", "filed-manually"]).optional(), filedOn: date.optional(),
     receiptReference: z.string().trim().min(1).max(200).optional(), evidenceReference: z.string().trim().min(1).max(200).optional(),
     evidenceFileId: z.string().uuid().optional(),
@@ -59,7 +59,9 @@ const cash = z.object({ type: z.enum(["transfer", "fee", "interest", "dividend",
     requestedShares: z.number().int().positive().max(1e12).optional(), proceeds: z.enum(["existing", "cash"]).optional(), scheduled: z.boolean().optional(),
     fwtRate: z.number().min(0).max(100).optional(), sym: z.string().max(64).optional(),
     principal: z.number().nonnegative().max(1e12).optional(), interest: z.number().nonnegative().max(1e12).optional() });
-const reversal = z.object({ id: z.string().uuid(), date, reason: z.string().trim().min(1).max(200) });
+// Directus journal rows use the persisted UUID plus the `:entry` discriminator
+// in some deployments; both forms identify the same immutable source row.
+const reversal = z.object({ id: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?::entry)?$/i), date, reason: z.string().trim().min(1).max(200) });
 const cashPermissions = {
     transfer: "inflows-investing", interest: "inflows-investing", fee: "portfolio-rebalancing", taxpay: "tax-compliance",
     expaccrue: "portfolio-rebalancing", exppay: "portfolio-rebalancing", accrueDividend: "inflows-investing", accrueInterest: "inflows-investing",
@@ -72,8 +74,10 @@ const prices = z.object({ type: z.literal("prices").optional(), revision: z.numb
     csv: z.string().max(1_000_000).optional(), prices: z.array(price).min(1).max(5000).optional() }).strict();
 function parse(schema, input, message) {
     const result = schema.safeParse(input);
-    if (!result.success)
-        throw new CommandValidationError(message);
+    if (!result.success) {
+        const detail = result.error.issues.map(issue => `${issue.path.join(".") || "input"}: ${issue.message}`).join("; ");
+        throw new CommandValidationError(`${message} ${detail}`);
+    }
     return result.data;
 }
 /** Validate and authorize on every request, before looking up an idempotent response. */
@@ -112,7 +116,7 @@ export function prepareLedgerCommand(operation, input, access) {
             const value = parse(reconciliation, raw, "Invalid reconciliation values.");
             permissionMessage = "You do not have permission for this reconciliation action.";
             payload = value;
-            requiredWorkspace = "monthly-reconciliation";
+            requiredWorkspace = value.type === "draft" ? "monthly-reconciliation-reconciliator" : "monthly-reconciliation-approver";
             requiredRole = value.type === "draft" ? "prepare" : "approve";
             break;
         }

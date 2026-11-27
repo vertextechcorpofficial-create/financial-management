@@ -1,4 +1,4 @@
-import { balance, type Entry } from "./ledger";
+import { balance, type Entry } from "./ledger.ts";
 
 type Lot = { id: string; sym: string; acctType: string };
 type Snapshot = {
@@ -7,6 +7,18 @@ type Snapshot = {
   snap: Record<string, number>;
   notes?: Record<string, string>;
 };
+
+export function reconciliationApprovalError(month: string, entries: readonly Entry[], lots: readonly Lot[], snapshot?: Snapshot) {
+  if (!snapshot?.snap) return "Save a fresh draft before signing.";
+  const lines = reconciliationLines(month, entries, lots, snapshot);
+  if (lines.some(line => line.changed)) return "Ledger figures changed. Save a fresh draft before signing.";
+  if (lines.some(line => line.statement === null || Math.abs(line.statement) > 1e12 ||
+    Number(line.statement.toFixed(line.isCash ? 2 : 6)) !== line.statement ||
+    (line.difference !== 0 && !line.note?.trim()))) {
+    return "Complete all statement figures and explain every difference before signing.";
+  }
+  return null;
+}
 
 export function reconciliationLines(month: string, entries: readonly Entry[], lots: readonly Lot[], snapshot?: Snapshot) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return [];

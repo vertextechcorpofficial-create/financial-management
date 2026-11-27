@@ -5,6 +5,8 @@ import sample from "../fixtures/malaya.json";
 import { INVESTMENT_DONATIONS_WORKSPACES, type WorkspaceKey } from "../workspaces";
 import { journalCsv } from "../ledger";
 import { financialStatementExport } from "../reporting";
+import { reconciliationLines, reconciliationApprovalError } from "../reconciliation";
+import { parseReconciliations } from "./reconciliation-access";
 import { ledgerAccess } from "./access";
 import { ledgerDatabase } from "./database";
 import { allows, canExportFullLedger, canManageMaster, canUseDataTools, workspaceRole } from "./permissions";
@@ -33,6 +35,8 @@ export async function executeLedgerCommand(input: unknown): Promise<CommandResul
   const direct = input && typeof input === "object" ? input as Record<string, unknown> : null;
   const kind = request.success ? request.data.operation : direct?.type;
   const payload = request.success ? request.data.input : input;
+  let directusWriteStarted = false;
+  let directusPostingAbsent = false;
   try {
     if (direct && Object.hasOwn(direct, "commandId") && !request.success) return { ok: false, state: "unknown", message: "Invalid ledger command envelope. No command was sent." };
     if (process.env.CGL_MYSQL_URL && request.success && request.data.commandId) {
@@ -52,7 +56,7 @@ export async function executeLedgerCommand(input: unknown): Promise<CommandResul
       }
       const prepared = prepareLedgerCommand(request.data.operation, request.data.input, access);
       const current = await readDirectusLedger();
-      const currentWithPosting = current as typeof current & { posting?: { stateRevision?: number }; auditEvents?: unknown[]; masterEvents?: unknown[]; periodEvents?: unknown[]; reconciliationEvents?: unknown[]; annualReviewEvents?: unknown[] };
+      const currentWithPosting = current as typeof current & { periods?: unknown; recons?: unknown; posting?: { stateRevision?: number }; auditEvents?: unknown[]; masterEvents?: unknown[]; periodEvents?: unknown[]; reconciliationEvents?: unknown[]; annualReviewEvents?: unknown[] };
       const currentRevision = Number(currentWithPosting.posting?.stateRevision ?? Math.max(0, ...current.journal.map((row: { no: number }) => row.no)));
       const existing = await getPosting(request.data.commandId);
       if (existing) {
@@ -61,12 +65,25 @@ export async function executeLedgerCommand(input: unknown): Promise<CommandResul
         }
         return { ok: true, id: String(existing.id), revision: Number(existing.state_revision), replayed: true } as CommandResult & { replayed: boolean };
       }
+      directusPostingAbsent = true;
       const registerSnapshot = current.registers as typeof current.registers & { periods?: unknown; recons?: unknown };
+      if (request.data.operation === "reconciliation" && prepared.payload.type === "sign") {
+        const saved = parseReconciliations(currentWithPosting.recons ?? registerSnapshot.recons ?? [])
+          .find(row => row.month_start.slice(0, 7) === prepared.payload.month);
+        const error = reconciliationApprovalError(String(prepared.payload.month), current.journal, current.registers.lots, saved?.payload);
+        if (error) return failure(error);
+      }
+      if (request.data.operation === "reconciliation" && prepared.payload.type === "draft") {
+        prepared.payload.statement = { ...(prepared.payload.statement as object), snap: Object.fromEntries(
+          reconciliationLines(String(prepared.payload.month), current.journal, current.registers.lots)
+            .map(line => [line.key, line.current])) };
+      }
       const transition = applyLedgerCommand(createLedgerState({ journal: current.journal, registers: registerSnapshot,
-        periods: registerSnapshot.periods, recons: registerSnapshot.recons, auditEvents: currentWithPosting.auditEvents,
+        periods: currentWithPosting.periods ?? registerSnapshot.periods, recons: currentWithPosting.recons ?? registerSnapshot.recons, auditEvents: currentWithPosting.auditEvents,
         masterEvents: currentWithPosting.masterEvents, periodEvents: currentWithPosting.periodEvents, reconciliationEvents: currentWithPosting.reconciliationEvents,
         annualReviewEvents: currentWithPosting.annualReviewEvents }),
         { operation: request.data.operation, input: prepared.payload, actor: access.id, commandId: request.data.commandId });
+      directusWriteStarted = true;
       const saved = await createPosting({ commandId: request.data.commandId, stateRevision: currentRevision + 1, actor: access.id,
         operation: request.data.operation, postingDate: String((request.data.input as { date?: string; month?: string })?.date ?? `${(request.data.input as { month?: string })?.month ?? new Date().toISOString().slice(0, 7)}-01`),
         input: request.data.input, snapshot: transition.snapshot });
@@ -102,6 +119,10 @@ export async function executeLedgerCommand(input: unknown): Promise<CommandResul
     }
   } catch (error) {
     const validation = error instanceof MasterDataError || error instanceof CommandValidationError || error instanceof StateEngineError;
+    if (!validation && !process.env.CGL_MYSQL_URL && directusPostingAbsent && !directusWriteStarted) {
+      console.error("Ledger command failed before posting", { operation: kind, commandId: request.success ? request.data.commandId : undefined, error });
+      return { ok: false, state: "failed", message: "The command failed before any posting was sent. No changes were committed. Refresh and retry." };
+    }
     const message = validation ? error.message : "The command could not be confirmed. Retry the same command after checking your connection.";
     return { ok: false, message, ...(validation ? { state: "failed" as const } : (!process.env.CGL_MYSQL_URL || (request.success && request.data.commandId) ? { state: "unknown" as const } : {})) };
   }

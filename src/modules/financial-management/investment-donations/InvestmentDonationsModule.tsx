@@ -39,7 +39,7 @@ import { pooledBalance } from "./donations";
 import { AnnualReviewForm } from "./AnnualReviewForm";
 import type { ReviewEvent } from "./annual-review";
 import { planDeployment } from "./deployment";
-import { reconciliationLines } from "./reconciliation";
+import { reconciliationLines, reconciliationApprovalError } from "./reconciliation";
 import { capitalSummary, charitableDeduction, donorYear, fiscalActivity, giftCandidates, givingTarget as calculateGivingTarget, periodChecklist, requiredDonationDocs } from "./analytics";
 import { certificateActiveAt } from "./certificates";
 import { loanInterest } from "./loans";
@@ -226,7 +226,6 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
   const [filingEntry, setFilingEntry] = useState<Entry | null>(null);
   const [reconciliationOpen, setReconciliationOpen] = useState(false);
   const [reconciliationSignoffOpen, setReconciliationSignoffOpen] = useState(false);
-  const [periodActionsOpen, setPeriodActionsOpen] = useState(false);
   const [annualReviewOpen, setAnnualReviewOpen] = useState(false);
   const [feedback, setFeedback] = useState<{ error: boolean; text: string }>();
   const availableActions = workspace === "inflows-investing" ? [["transfer", "Cash transfer"], ["interest", "Receive bank interest"], ["dividend", "Receive domestic dividend"],
@@ -364,12 +363,15 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
   const [month, setMonth] = useState(asOf.slice(0, 7));
   const snapshot = Object.entries(registers.recons).find(([key]) => key === month)?.[1];
   const recon = reconciliations?.find(row => row.month_start.slice(0, 7) === month);
-  const reconLines = workspace === "monthly-reconciliation" ? reconciliationLines(month, entries, registers.lots, recon?.payload ?? snapshot) : [];
+  const isReconciliation = workspace.startsWith("monthly-reconciliation-");
+  const reconLines = isReconciliation ? reconciliationLines(month, entries, registers.lots, recon?.payload ?? snapshot) : [];
   const reconSigned = Boolean(recon?.signed_at || (!recon && snapshot?.at));
   const reconChanged = reconLines.some(line => line.changed);
+  const reconApprovalIssue = isReconciliation ? reconciliationApprovalError(month, entries, registers.lots, recon?.payload) : null;
   const monthClosed = Boolean(Object.entries(registers.periods).find(([key]) => key === month)?.[1].closedAt);
   const reconEditable = reconciliations !== null && canPost && !reconSigned &&
-    Boolean(month && !monthClosed);
+    Boolean(month && !monthClosed) && ["prepare", "approve"].includes(reconciliationRole);
+  const reconReview = workspace === "monthly-reconciliation-approver";
   const calendarMonth = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit" }).format(new Date());
   function monthStatus(key: string) {
     if (key > calendarMonth) return "Future";
@@ -395,6 +397,8 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
   const closeChecklist = periodChecklist(month, entries, registers, asOf, recon?.signed_at ? recon.payload : undefined);
   function selectMonth(key: string) {
     setMonth(key);
+    setReconciliationOpen(false);
+    setReconciliationSignoffOpen(false);
     setFeedback(undefined);
   }
   async function submitReconciliation(event: FormEvent<HTMLFormElement>) {
@@ -871,7 +875,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
               <TaxFilingForm entry={filingEntry} defaultDate={asOf} existing={donationDocuments?.[filingEntry.id] ?? donationDocuments?.[`journal:${filingEntry.no}`]} onFeedback={setFeedback} onSaved={() => setFilingEntry(null)} />
             </LedgerDialog>}
           </CardContent></Card></Panel></>}
-           {section === "Monthly reconciliation" && <Card><CardHeader><div className="flex flex-wrap items-start justify-between gap-3"><div><CardTitle>Monthly reconciliation</CardTitle>
+           {isReconciliation && <Card><CardHeader><div className="flex flex-wrap items-start justify-between gap-3"><div><CardTitle>{section}</CardTitle>
              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Each month, match the ledger to bank and broker statements. Every difference needs an explanation before the month can be signed off.</p></div>
              <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-800">{reconciledMonths} of {completedMonthTotal} completed months reconciled</span></div></CardHeader><CardContent className="space-y-3">
             <MonthNavigation value={month} first={firstMonth} onChange={selectMonth} />
@@ -881,7 +885,9 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                <Button key={key} size="sm" variant={key === month ? "default" : "outline"} aria-current={key === month ? "date" : undefined}
                   onClick={() => selectMonth(key)}>{key.slice(5)} · {monthStatus(key) === "Signed" ? "Done" : monthStatus(key)}</Button>)}
             </nav>}
-           {reconciliations === null && <p className="text-sm text-muted-foreground">Reconciliation is read-only: draft storage is unavailable.</p>}
+             <h3 className="font-medium">{reconReview ? "Independent approval" : "Draft preparation"}</h3>
+             <p className="text-sm text-muted-foreground">{reconReview ? "Review saved statement figures and explanations, then approve. Draft editing is separate in the reconciliator view." : "Enter bank and broker statement figures, explain differences, and save a draft."}</p>
+            {reconciliations === null && <p className="text-sm text-muted-foreground">Reconciliation is read-only: draft storage is unavailable.</p>}
             {recon ? <p className="text-sm">{recon.signed_at ? `Signed by user ${recon.approved_by} on ${recon.signed_at.slice(0, 10)}` :
               `Draft prepared by user ${recon.prepared_by}`}</p> : snapshot?.at ? <p className="text-sm">Signed by {snapshot.by} on {snapshot.at.slice(0, 10)}</p>
               : <p className="text-sm text-muted-foreground">No signed statement snapshot for this month.</p>}
@@ -897,8 +903,7 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
             {reconChanged && (recon || reconSigned) && <p role="status" className="text-sm text-destructive">
              {reconSigned ? "Ledger changed after sign-off." : "Ledger changed after draft save. Save a fresh draft before signing."}
            </p>}
-             <Button type="button" variant="outline" onClick={() => setReconciliationOpen(true)}>Open reconciliation form</Button>
-             {reconciliationOpen && <LedgerDialog open onOpenChange={setReconciliationOpen} title={`Reconcile ${month}`} wide><form key={`${month}:${recon?.revision ?? 0}`} onSubmit={submitReconciliation} className="space-y-3">
+              {!reconReview && reconciliationOpen && <LedgerDialog open onOpenChange={setReconciliationOpen} title={`Reconcile ${month}`} wide><form key={`${month}:${recon?.revision ?? 0}`} onSubmit={submitReconciliation} className="space-y-3">
             {reconEditable && reconciliationRole === "approve" && <Button type="button" variant="outline" onClick={event => {
               if (!window.confirm("Only copy after checking the actual bank and broker statements. Fill blank statement fields from the ledger?")) return;
               const form = event.currentTarget.form;
@@ -919,31 +924,46 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
                  reconEditable ? <Input aria-label={`${label} explanation`} name={`note-${index}`} maxLength={500}
                    defaultValue={line.note ?? ""} /> : line.note || "—"];
              })} />
-            {reconEditable && <Button type="submit" disabled={saving}>Save draft</Button>}
-            </form></LedgerDialog>}
-            {!reconSigned && <><Button type="button" variant="outline" onClick={() => setReconciliationSignoffOpen(true)}>Open sign-off</Button>
-              {reconciliationSignoffOpen && <LedgerDialog open onOpenChange={setReconciliationSignoffOpen} title={`Sign off reconciliation: ${month}`}>
-                <form onSubmit={submitReconciliation}>
-                  <Button type="submit" value="sign" disabled={saving || !recon || !reconEditable || reconChanged || reconciliationRole !== "approve" || actor === recon?.prepared_by}
-                    title={!recon ? "Save a reconciliation draft first." : !canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Monthly-reconciliation approval permission is required." : actor === recon.prepared_by ? "A different reviewer must sign the draft." : reconChanged ? "Save a fresh draft after the ledger change." : undefined}>Sign off saved draft</Button>
-                </form>
-              </LedgerDialog>}
-            </>}
-            {!reconSigned && (!recon || reconChanged || !canPost || reconciliationRole !== "approve" || actor === recon?.prepared_by) &&
-              <p className="text-sm text-muted-foreground">Sign-off is locked: {!recon ? "save a draft first" : !canPost ? "transactional posting service unavailable" : reconciliationRole !== "approve" ? "approval permission required" : actor === recon.prepared_by ? "a different reviewer is required" : "save a fresh draft after the ledger changed"}.</p>}
-           {recon?.signed_at && !monthClosed && reconciliationRole === "approve" && (
+             {reconEditable && <Button type="submit" value="draft" disabled={saving}>Save draft</Button>}
+             </form></LedgerDialog>}
+              {!reconSigned && <div className="flex flex-wrap gap-2">
+                {reconReview && <Button type="button" onClick={() => setReconciliationSignoffOpen(true)}>Review approval for {month}</Button>}
+                {!reconReview && reconEditable && <Button type="button" variant="outline" onClick={() => setReconciliationOpen(true)}>Open reconciliation form</Button>}
+              </div>}
+              {reconReview && !reconSigned && <LedgerDialog open={reconciliationSignoffOpen} onOpenChange={setReconciliationSignoffOpen} title={`Sign off reconciliation: ${month}`}>
+               <div className="space-y-3">
+                 {!recon && <>
+                   <p className="text-sm text-muted-foreground">Create and save a reconciliation draft before signing off this month.</p>
+                    <p className="text-sm">The reconciliator must save a draft before it can be reviewed.</p>
+                 </>}
+                  {recon && <form onSubmit={submitReconciliation}>
+                    <div className="mb-3 space-y-2 text-sm" role="status">
+                      {reconciliationRole !== "approve" && <p>Your reconciliation access allows preparation, not approval. An authorized approver must sign the saved draft.</p>}
+                      {reconApprovalIssue && <p>{reconApprovalIssue}</p>}
+                      {!canPost && <p>The posting service is unavailable. Approval cannot be saved.</p>}
+                      {monthClosed && <p>This month is closed. Reopen it through period close before changing its reconciliation.</p>}
+                      {reconciliations === null && <p>Reconciliation storage is unavailable. Refresh before continuing.</p>}
+                    </div>
+                      <Button type="submit" value="sign" disabled={saving || !reconEditable || Boolean(reconApprovalIssue) || reconciliationRole !== "approve"}
+                      title={!reconEditable ? "The reconciliation is not available for approval." : reconChanged ? "Save a fresh draft after the ledger changed." : reconciliationRole !== "approve" ? "Monthly-reconciliation approval permission is required." : undefined}>Sign off saved draft</Button>
+                 </form>}
+               </div>
+             </LedgerDialog>}
+               {!reconReview && recon && !reconSigned && <p role="status" className="text-sm text-muted-foreground">Draft is ready for approval.</p>}
+               {reconReview && !reconSigned && (!recon || reconChanged || !canPost) &&
+               <p className="text-sm text-muted-foreground">Sign-off is locked: {!recon ? "save a draft first" : !canPost ? "transactional posting service unavailable" : reconciliationRole !== "approve" ? "approval permission required" : actor === recon.prepared_by ? "a different reviewer is required" : "save a fresh draft after the ledger changed"}.</p>}
+            {recon?.signed_at && !monthClosed && reconReview && (
              <form key={`reopen:${month}:${recon.revision}`} onSubmit={submitReconciliation} className="space-y-2">
                <label className="block max-w-md text-sm">Reason for reopening<Input name="reason" required maxLength={500} /></label>
-               <Button type="submit" value="reopen" variant="outline" disabled={saving}>Reopen reconciliation</Button>
+                 <Button type="submit" value="reopen" variant="outline" disabled={saving || !canPost || reconciliationRole !== "approve" || reconciliations === null}>Reopen reconciliation</Button>
              </form>
            )}
         </CardContent></Card>}
          {section === "Period close" && <Card><CardHeader><CardTitle>Period close</CardTitle></CardHeader><CardContent className="space-y-4">
            <MonthNavigation value={month} first={firstMonth} onChange={selectMonth} />
-           <Grid headers={["Selected month checklist", "Requirement", "Status"]} rows={closeChecklist.map(row => [row.label,
-             row.required ? "Required" : "Review only", row.ok ? "Complete" : "Needs attention"])} />
-             <Button type="button" variant="outline" onClick={() => setPeriodActionsOpen(true)}>Open period actions</Button>
-             {periodActionsOpen && <LedgerDialog open onOpenChange={setPeriodActionsOpen} title={`Period actions: ${month}`}><form className="flex flex-wrap items-end gap-2" onSubmit={async event => {
+            <Grid headers={["Selected month checklist", "Requirement", "Status"]} rows={closeChecklist.map(row => [row.label,
+              row.required ? "Required" : "Review only (does not block close)", row.ok ? "Complete" : "Needs attention"])} />
+              <form className="flex flex-wrap items-end gap-2" onSubmit={async event => {
             event.preventDefault();
             if (saving) return;
             const type = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
@@ -956,16 +976,16 @@ export default function InvestmentDonationsModule({ workspace, canPost, canRever
               if (result.ok) router.refresh();
             } finally { setSaving(false); }
           }}>
-             {monthClosed ? <>
+              {monthClosed ? <>
                <label>Reopen reason<Input name="reason" required maxLength={500} /></label>
                <Button value="reopen" type="submit" disabled={saving || !canPost || reconciliationRole !== "approve"} title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Period-close approval permission is required." : undefined}>Reopen month</Button>
              </> : <>
                <Button value="accrue" type="submit" disabled={saving || !canPost} title={!canPost ? "Transactional posting service is unavailable." : undefined}>Post loan interest</Button>
                 <Button value="close" type="submit" disabled={saving || !canPost || reconciliationRole !== "approve" || closeChecklist.some(row => row.required && !row.ok)}
                   title={!canPost ? "Transactional posting service is unavailable." : reconciliationRole !== "approve" ? "Period-close approval permission is required." : undefined}>Close month</Button>
-             </>}
-             </form></LedgerDialog>}
-           {!canPost && <p className="text-sm text-muted-foreground">Period actions are locked until the transactional posting service is available.</p>}
+              </>}
+              </form>
+            {!canPost && <p className="text-sm text-muted-foreground">Period actions are locked: {reconciliationRole === "none" || reconciliationRole === "view" ? "period-close permission is required" : "the transactional posting service is unavailable"}.</p>}
            <Grid headers={["Month", "Accrual status", "Closed on", "Closed by"]}
              rows={periodRows.map(([key, row]) => [key, row.accruedAt ? "Recorded" : "Pending", row.closedAt?.slice(0, 10) ?? "Open", row.closedBy ?? "—"])} />
            <h3 className="font-medium">Close and reopen history</h3>

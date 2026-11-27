@@ -7,8 +7,49 @@ export type LedgerCommandEnvelope = { operation: string; input: unknown; command
 type LedgerCommandIdentity = { ok: true; id: number } | { ok: false; message: string };
 type Dependencies = {
   storage: () => Pick<Storage, "getItem" | "setItem" | "removeItem" | "length" | "key">;
-  crypto: () => Pick<Crypto, "randomUUID" | "subtle">;
+  crypto: () => Pick<Crypto, "randomUUID" | "getRandomValues" | "subtle">;
 };
+
+function browserStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem" | "length" | "key"> {
+  if (typeof window === "undefined") throw new Error("Browser storage is unavailable.");
+
+  // Embedded/private contexts can block sessionStorage while allowing the
+  // equivalent command receipt data in localStorage.
+  for (const name of ["sessionStorage", "localStorage"] as const) {
+    try {
+      const candidate = window[name];
+      const probe = "cgl:storage-probe";
+      candidate.setItem(probe, "1");
+      candidate.removeItem(probe);
+      return candidate;
+    } catch {
+      // Try the next browser storage implementation.
+    }
+  }
+  throw new Error("Browser storage is unavailable.");
+}
+
+function fallbackUuid(crypto: Pick<Crypto, "randomUUID" | "getRandomValues">) {
+  const bytes = new Uint8Array(16);
+  try { crypto.getRandomValues(bytes); } catch { for (let index = 0; index < bytes.length; index++) bytes[index] = Math.floor(Math.random() * 256); }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+async function digestHex(crypto: Pick<Crypto, "subtle">, value: string) {
+  if (crypto.subtle) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+  }
+  // Web Crypto is unavailable on some HTTP/embedded origins. This hash only
+  // namespaces the local receipt key; the server still validates the command.
+  let hash = 2166136261;
+  for (const byte of new TextEncoder().encode(value)) hash = Math.imul(hash ^ byte, 16777619);
+  const part = (hash >>> 0).toString(16).padStart(8, "0");
+  return part.repeat(8);
+}
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const operations = new Set(["cash", "reverse", "reconciliation", "period", "donation-document", "trade", "annual-review", "issue-certificate", "giving", "cgt-reconcile", "cgt-filing", "subscribe", "capital", "master", "prices"]);
 
@@ -20,7 +61,7 @@ function canonical(value: unknown): string {
 }
 
 export function createLedgerCommandClient(send: (command: LedgerCommandEnvelope) => Promise<LedgerCommandResult>,
-  dependencies: Dependencies = { storage: () => window.sessionStorage, crypto: () => window.crypto },
+  dependencies: Dependencies = { storage: browserStorage, crypto: () => window.crypto },
   checkStatus?: (commandId: string, expectedActor?: number) => Promise<LedgerCommandStatus>,
   getIdentity?: () => Promise<LedgerCommandIdentity>) {
   const inFlight = new Map<string, Promise<LedgerCommandResult>>();
@@ -93,8 +134,7 @@ export function createLedgerCommandClient(send: (command: LedgerCommandEnvelope)
         try {
           storage = dependencies.storage();
           const crypto = dependencies.crypto();
-          const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(fingerprint));
-          const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+           const hash = await digestHex(crypto, fingerprint);
           if (expectedActor !== undefined && storage.getItem(`cgl:pending:${hash}`)) {
             return { ok: false, state: "unknown", message: "An older pending command needs an authorized status check before this form can be sent again." };
           }
@@ -102,7 +142,7 @@ export function createLedgerCommandClient(send: (command: LedgerCommandEnvelope)
           const previous = storage.getItem(key);
           const saved = previous ? JSON.parse(previous) : null;
           if (saved && (saved.hash !== hash || !uuid.test(saved.commandId))) throw new Error();
-          commandId = saved?.commandId ?? crypto.randomUUID();
+           commandId = saved?.commandId ?? (crypto.randomUUID ? crypto.randomUUID() : fallbackUuid(crypto));
           const record = JSON.stringify({ commandId, hash, operation: snapshot.operation });
           storage.setItem(key, record);
           if (storage.getItem(key) !== record) throw new Error();

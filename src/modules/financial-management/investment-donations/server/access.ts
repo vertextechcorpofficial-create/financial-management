@@ -61,5 +61,5 @@ export async function ledgerAccess() {
   // fallback. A non-empty map is authoritative for deployments that provide it.
   const roles = remoteRoles && Object.keys(remoteRoles).length > 0 ?
     Object.fromEntries(workspaces.map(key => [key, remoteRoles[key] ?? "view"])) : undefined;
-  return { id, admin, workspaces, roles, userToken };
+  return { id, admin, workspaces, roles, rolesAuthoritative: roles !== undefined, userToken };
 }

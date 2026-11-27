@@ -13,6 +13,8 @@ const CASH = new Set(["1000", "1010", "1020"]);
 const INVESTMENTS = { dom: "1100", intl: "1110", fi: "1120", cash: "1130", alt: "1140" };
 const ACCOUNTS = new Set(["1000", "1010", "1020", "1100", "1110", "1120", "1130", "1140", "1200", "1210", "1220", "2000", "2100", "2110", "2200", "2300", "2310", "3000", "3010", "3020", "3100", "3150", "3800", "3900", "4000", "4010", "4100", "4110", "5000", "5100", "5200", "5300", "5310", "5320", "5330"]);
 import { postDividend, transferShares } from "./capital-register.mjs";
+import { loanInterest, assertPriorLoanAccruals } from "../loans.ts";
+import { reconciliationLines } from "../reconciliation.ts";
 const MASTER_ENTITIES = new Set(["classes", "securities", "charities", "holders", "corp", "policy", "subs", "lots", "debts", "certs", "transfers", "dividends", "grants", "calls", "capitalIncreases", "accountMappings"]);
 const clone = value => structuredClone(value);
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -99,8 +101,8 @@ export function createLedgerState(source = {}) {
   const state = {
     registers: clone(isObject(source.registers) ? source.registers : {}),
     journal: clone(arrays(source.journal)),
-    periods: clone(normalizePeriods(source.periods)),
-    recons: clone(normalizeRecons(source.recons ?? source.reconciliations)),
+    periods: clone(normalizePeriods(source.periods ?? source.registers?.periods)),
+    recons: clone(normalizeRecons(source.recons ?? source.reconciliations ?? source.registers?.recons)),
     ...Object.fromEntries(Object.entries(events).map(([name, value]) => [name, clone(value)])),
   };
   validateJournal(state.journal);
@@ -240,22 +242,89 @@ function applyPeriod(state, input, actor) {
   const month = input.month ?? input.month_start; if (!monthOK(month) || !["accrue", "close", "reopen"].includes(input.type)) fail("Invalid period command.");
   const currentMonth = new Date().toISOString().slice(0, 7);
   if (input.type !== "reopen" && month >= currentMonth) fail("The month has not ended.");
-  const index = state.periods.findIndex(row => String(row.month_start).slice(0, 7) === month), current = state.periods[index] ?? { month_start: `${month}-01`, closed_at: null };
+  const index = state.periods.findIndex(row => String(row.month_start).slice(0, 7) === month), current = clone(state.periods[index] ?? { month_start: `${month}-01`, closed_at: null });
   const periods = clone(state.periods), event = { id: state.periodEvents.length + 1, month, actor, commandId: input.commandId ?? null, action: input.type, entryId: null, reason: input.reason?.trim() ?? null, occurredAt: new Date().toISOString() };
-  if (input.type === "close") { if (current.closed_at ?? current.closedAt) fail("This month is closed."); if (state.recons.find(row => String(row.month_start ?? row.month).slice(0, 7) === month && (row.signed_at || row.signedAt))) { /* signed reconciliation is sufficient */ } else if (input.requireReconciliation !== false) fail("Sign off reconciliation first."); current.closed_at = new Date().toISOString(); }
-  if (input.type === "reopen") { if (!(current.closed_at ?? current.closedAt)) fail("This month is not closed."); if (!input.reason?.trim()) fail("Enter a reason to reopen."); current.closed_at = null; }
-  if (input.type === "accrue") current.accrued_at = new Date().toISOString();
+  let next = state;
+  if (input.type !== "reopen") {
+    if (current.closed_at ?? current.closedAt) fail("This month is closed.");
+    const end = new Date(`${month}-01T00:00:00Z`); end.setUTCMonth(end.getUTCMonth() + 1, 0);
+    const date = end.toISOString().slice(0, 10), debts = register(state, "debts", []), policy = register(state, "policy", {});
+    assertPostingDate(state, date);
+    const signed = state.recons.find(row => String(row.month_start ?? row.month).slice(0, 7) === month);
+    const statement = signed?.signed_at || signed?.signedAt ? signed.payload : signed?.at ? signed : state.registers.recons?.[month]?.at ? state.registers.recons[month] : null;
+    if (!statement && input.requireReconciliation !== false) fail("Sign off reconciliation first.");
+    if (statement && reconciliationLines(month, state.journal, state.registers.lots ?? [], statement).some(row => row.changed)) fail("Ledger changed after sign-off. Reconcile again.");
+    if (!Array.isArray(debts) || ![360, 365].includes(policy.dayCount)) fail("Loan accrual settings are missing.");
+    if (state.journal.some(row => row.date <= date && row.lines.some(line => line.acct === "2000" && !debts.some(debt => debt.id === line.tag)))) fail("A loan is missing from the debt register.");
+    const lines = [];
+    try {
+      assertPriorLoanAccruals(state.journal, debts, date, policy.dayCount);
+      for (const debt of debts.filter(row => !row.cancelled)) {
+        const due = loanInterest(state.journal, debt, date, policy.dayCount);
+        if (due < 0 && -balance(state.journal, "2100", debt.id, date) < cents(-due)) fail("Reverse dependent loan payments before reducing an over-accrual.");
+        addLine(lines, "5200", Math.max(0, due), Math.max(0, -due), debt.id);
+        addLine(lines, "2100", Math.max(0, -due), Math.max(0, due), debt.id);
+      }
+    } catch (error) { fail(error.message); }
+    if (input.type === "accrue") {
+      if (lines.length) {
+        const entry = nextEntry(state, { ...input, date }, "accrual", lines, { month });
+        next = appendEntry(state, entry, actor, "period"); event.entryId = entry.id;
+      }
+      current.accrued_at = current.accruedAt = event.occurredAt;
+    } else {
+      if (lines.length) fail("Post outstanding loan interest accruals first.");
+      const previous = new Date(`${month}-01T00:00:00Z`); previous.setUTCMonth(previous.getUTCMonth() - 1);
+      const first = state.journal.map(row => row.date.slice(0, 7)).sort()[0];
+      if (first && month !== first && !closedMonths(state).has(previous.toISOString().slice(0, 7))) fail("Close the previous month first.");
+      if (!Number.isInteger(policy.fyStart) || policy.fyStart < 1 || policy.fyStart > 12) fail("Invalid fiscal year settings.");
+      if (Number(month.slice(5)) === (policy.fyStart === 1 ? 12 : policy.fyStart - 1)) {
+        const startYear = Number(month.slice(0, 4)) - (Number(month.slice(5)) < policy.fyStart ? 1 : 0);
+        const from = `${startYear}-${String(policy.fyStart).padStart(2, "0")}-01`;
+        const activity = state.journal.filter(row => row.date >= from);
+        const closing = [];
+        for (const acct of ACCOUNTS) if (/^[45]/.test(acct)) {
+          const value = balance(activity, acct, undefined, date) / 100;
+          addLine(closing, acct, Math.max(0, -value), Math.max(0, value));
+        }
+        const net = closing.reduce((sum, line) => sum + cents(line.dr) - cents(line.cr), 0) / 100;
+        addLine(closing, "3800", Math.max(0, -net), Math.max(0, net));
+        if (closing.length) {
+          const entry = nextEntry(state, { ...input, date }, "closing", closing, { periodClose: month });
+          next = appendEntry(state, entry, actor, "period"); current.closingId = event.entryId = entry.id;
+        }
+      }
+      current.closed_at = current.closedAt = event.occurredAt;
+    }
+  }
+  if (input.type === "reopen") {
+    if (!(current.closed_at ?? current.closedAt)) fail("This month is not closed.");
+    if (!input.reason?.trim()) fail("Enter a reason to reopen.");
+    if ([...closedMonths(state)].some(value => value > month)) fail("Reopen later closed periods first.");
+    if (current.closingId) {
+      const original = state.journal.find(row => row.id === current.closingId);
+      if (!original) fail("Closing entry missing.");
+      const entry = nextEntry(state, { ...input, date: original.date }, "reversal", original.lines.map(line => ({ ...line, dr: line.cr, cr: line.dr })), { reverses: original.id, periodClose: month });
+      next = appendEntry(state, entry, actor, "period"); event.entryId = entry.id;
+    }
+    current.closed_at = current.closedAt = null; current.closingId = null;
+  }
   if (index < 0) periods.push(current); else periods[index] = current;
-  return { state: { ...state, periods, periodEvents: [...state.periodEvents, event] }, result: { ok: true, month, action: input.type } };
+  const registers = { ...next.registers, periods: { ...next.registers.periods, [month]: clone(current) }, periodEvents: [...(next.registers.periodEvents ?? []), clone(event)] };
+  return { state: { ...next, registers, periods, periodEvents: [...state.periodEvents, event] }, result: { ok: true, month, action: input.type } };
 }
 
 function applyRecon(state, input, actor) {
   const month = input.month ?? String(input.month_start ?? "").slice(0, 7); if (!monthOK(month) || !["draft", "sign", "reopen"].includes(input.type)) fail("Invalid reconciliation request.");
+  if (state.periods.some(row => String(row.month_start).slice(0, 7) === month && (row.closed_at || row.closedAt))) fail("This month is closed.");
+  if (state.registers.recons?.[month]?.at) fail("This month already has a historical signed snapshot.");
   const recons = clone(state.recons), index = recons.findIndex(row => String(row.month_start ?? row.month).slice(0, 7) === month), old = index < 0 ? null : recons[index];
+  if (old?.at) fail("This month already has a historical signed snapshot.");
   if (Number(old?.revision ?? 0) !== Number(input.revision ?? 0)) fail("The reconciliation changed. Refresh before continuing.");
+  if (input.type === "draft" && old?.signed_at) fail("Reopen the signed reconciliation before editing.");
   if (input.type === "reopen" && (!old?.signed_at || !input.reason?.trim())) fail("Select a signed reconciliation and enter a reason.");
-  if (input.type === "sign" && (!old || old.signed_at || old.prepared_by === actor)) fail("A different approver must sign this draft.");
-  const next = { ...(old ?? {}), month_start: `${month}-01`, revision: Number(input.revision ?? 0) + 1, prepared_by: input.type === "draft" ? actor : old.prepared_by, approved_by: input.type === "sign" ? actor : null, signed_at: input.type === "sign" ? new Date().toISOString() : null, payload: input.statement ?? old?.payload ?? null };
+  if (input.type === "sign" && (!old || old.signed_at || !Number.isSafeInteger(Number(old.prepared_by)) || Number(old.prepared_by) < 1)) fail("A saved draft must be prepared before approval.");
+  const next = { ...(old ?? {}), month_start: `${month}-01`, revision: Number(input.revision ?? 0) + 1, prepared_by: input.type === "draft" ? actor : old.prepared_by, approved_by: input.type === "sign" ? actor : null, signed_at: input.type === "sign" ? new Date().toISOString() : null, payload: input.type === "draft" ? input.statement ?? null : old?.payload ?? null };
   if (input.type === "reopen") Object.assign(next, { prepared_by: actor, approved_by: null, signed_at: null, reason: input.reason.trim() });
   if (index < 0) recons.push(next); else recons[index] = next;
   const event = { id: state.reconciliationEvents.length + 1, month_start: `${month}-01`, actor, commandId: input.commandId ?? null, revision: next.revision, action: input.type, before_state: old, after_state: next };

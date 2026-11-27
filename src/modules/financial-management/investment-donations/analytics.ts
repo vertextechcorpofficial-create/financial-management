@@ -6,6 +6,7 @@ import { INVESTMENT_DONATIONS_WORKSPACES, type WorkspaceKey } from "./workspaces
 import type { ReconciliationRecord } from "./server/reconciliation-access";
 import type { ReviewEvent } from "./annual-review";
 import { cgtBalance } from "./trades";
+import { loanInterest } from "./loans";
 
 type GivingPolicy = { giveMode?: string; netIncome: number; givePct: number; giveFixed?: number; gainsPct?: number };
 
@@ -86,12 +87,13 @@ export function periodChecklist(month: string, entries: readonly Entry[], regist
   const previous = new Date(`${month}-01T00:00:00Z`);
   previous.setUTCMonth(previous.getUTCMonth() - 1);
   const first = entries.map(row => row.date.slice(0, 7)).sort()[0];
-  const period = registers.periods[month];
   const historical = registers.recons[month];
   const snapshot = signed ?? (historical?.at ? historical : undefined);
   const unchanged = Boolean(snapshot && !reconciliationLines(month, entries, registers.lots, snapshot).some(row => row.changed));
-  const accrued = Boolean(period?.accruedAt) || registers.debts.every(debt =>
-    !entries.some(row => row.date <= through && row.lines.some(line => line.acct === "2000" && line.tag === debt.id)));
+  let accrued = false;
+  try { accrued = registers.debts.filter(debt => !("cancelled" in debt && debt.cancelled)).every(debt =>
+    centavos(loanInterest(entries, debt, through, registers.policy.dayCount)) === 0); }
+  catch { /* Invalid loan settings must not make the close checklist pass. */ }
   return [
     { label: "The month has ended", required: true, ok: through < today },
     { label: "Previous month is closed", required: true, ok: month === first || Boolean(registers.periods[previous.toISOString().slice(0, 7)]?.closedAt) },
@@ -217,8 +219,8 @@ export function buildOverviewAlerts(entries: readonly Entry[], registers: Ledger
     const live = recons?.find(row => row.month_start.slice(0, 7) === month);
     const historic = registers.recons[month];
     const signed = live?.signed_at ? live.payload : !live && historic?.at ? historic : null;
-    if (!signed) add("monthly-reconciliation", `${month}: reconciliation has not been signed.`);
-    else if (reconciliationLines(month, entries, registers.lots, signed).some(row => row.changed)) add("monthly-reconciliation", `${month}: reconciliation changed after sign-off.`);
+    if (!signed) add("monthly-reconciliation-reconciliator", `${month}: reconciliation has not been signed.`);
+    else if (reconciliationLines(month, entries, registers.lots, signed).some(row => row.changed)) add("monthly-reconciliation-reconciliator", `${month}: reconciliation changed after sign-off.`);
     if (!registers.periods[month]?.closedAt) add("period-close", `${month}: period is not closed.`);
   }
   registers.subs.filter(row => !("cancelled" in row && row.cancelled) && row.callDue &&

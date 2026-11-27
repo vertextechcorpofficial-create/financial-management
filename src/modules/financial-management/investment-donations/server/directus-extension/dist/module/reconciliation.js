@@ -1,4 +1,17 @@
 import { balance } from "./ledger.js";
+export function reconciliationApprovalError(month, entries, lots, snapshot) {
+    if (!snapshot?.snap)
+        return "Save a fresh draft before signing.";
+    const lines = reconciliationLines(month, entries, lots, snapshot);
+    if (lines.some(line => line.changed))
+        return "Ledger figures changed. Save a fresh draft before signing.";
+    if (lines.some(line => line.statement === null || Math.abs(line.statement) > 1e12 ||
+        Number(line.statement.toFixed(line.isCash ? 2 : 6)) !== line.statement ||
+        (line.difference !== 0 && !line.note?.trim()))) {
+        return "Complete all statement figures and explain every difference before signing.";
+    }
+    return null;
+}
 export function reconciliationLines(month, entries, lots, snapshot) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
         return [];

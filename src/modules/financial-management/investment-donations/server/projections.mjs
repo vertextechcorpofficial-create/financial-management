@@ -93,6 +93,7 @@ export function projectOverviewAlerts(alerts, registers, { giving = false, inflo
 }
 
 export function projectLedger(workspace, journal, registers) {
+  const reconciliation = workspace === "monthly-reconciliation-reconciliator" || workspace === "monthly-reconciliation-approver";
   const policy = Object.fromEntries(Object.entries(registers.policy).map(([key, value]) => [key, typeof value === "number" ? 0 : ""]));
   Object.assign(policy, { fyStart: registers.policy.fyStart, dayCount: registers.policy.dayCount, currency: "PHP", costMethod: "specific", giveMode: "income" });
   const out = {
@@ -106,7 +107,7 @@ export function projectLedger(workspace, journal, registers) {
   if (financial) {
     const policyFields = {
       "capital-stock": ["dstIssue", "dstIssueOld", "dstTransfer", "divWhtInd", "divWhtNr", "dayCount"],
-      "monthly-reconciliation": [], "period-close": ["dayCount"], "transactions": [],
+      "monthly-reconciliation-reconciliator": [], "monthly-reconciliation-approver": [], "period-close": ["dayCount"], "transactions": [],
     }[workspace];
     if (policyFields) Object.assign(out.policy, pick(registers.policy, policyFields)); else copy("policy");
     out.policy.owner = "";
@@ -119,7 +120,7 @@ export function projectLedger(workspace, journal, registers) {
     return { journal: [], registers: out };
   }
   const analytics = ["overview", "annual-review"].includes(workspace);
-  const investment = analytics || ["inflows-investing", "portfolio-rebalancing", "charitable-giving", "monthly-reconciliation", "period-close"].includes(workspace);
+  const investment = analytics || reconciliation || ["inflows-investing", "portfolio-rebalancing", "charitable-giving", "period-close"].includes(workspace);
   if (investment) copy("classes", "securities");
   if (["portfolio-rebalancing", "charitable-giving"].includes(workspace)) copy("lots", "priceHist");
   else if (investment) {
@@ -157,14 +158,14 @@ export function projectLedger(workspace, journal, registers) {
   }
   if (["charitable-giving", "tax-compliance"].includes(workspace)) copy("charities", "grants");
   else if (analytics) out.charities = registers.charities.map(row => ({ ...pick(row, ["id", "isDAF", "donee", "accredUntil", "expenseRatio", "checks"]), name: "Organization", reg: "", jurisdiction: "", focus: "", notes: "" }));
-  if (["overview", "annual-review", "monthly-reconciliation", "period-close"].includes(workspace)) {
+  if (reconciliation || ["overview", "annual-review", "period-close"].includes(workspace)) {
     copy("periods");
     out.periodEvents = (registers.periodEvents ?? []).map(event => ({ ...event, actor: workspace === "period-close" ? event.actor : 0, reason: workspace === "period-close" ? event.reason : null }));
     if (workspace !== "period-close") for (const period of Object.values(out.periods)) { delete period.closedBy; delete period.accruedBy; delete period.reopenReason; }
   }
-  if (["monthly-reconciliation", "period-close", "overview"].includes(workspace)) {
+  if (reconciliation || ["period-close", "overview"].includes(workspace)) {
     copy("recons");
-    if (workspace !== "monthly-reconciliation") for (const row of Object.values(out.recons)) { row.notes = {}; row.by = ""; }
+    if (!reconciliation) for (const row of Object.values(out.recons)) { row.notes = {}; row.by = ""; }
   }
   if (workspace === "annual-review") copy("review");
   if (["capital-stock", "portfolio-rebalancing", "charitable-giving"].includes(workspace)) {
@@ -189,6 +190,6 @@ export function projectLedger(workspace, journal, registers) {
     const summary = aggregateJournal(journal.filter(entry => !isDetailed(entry)));
     return { journal: [...detailed, ...summary], registers: out };
   }
-  const quantity = ["overview", "monthly-reconciliation", "period-close"].includes(workspace) ? unitSummaries(journal, registers.lots) : [];
+  const quantity = reconciliation || ["overview", "period-close"].includes(workspace) ? unitSummaries(journal, registers.lots) : [];
   return { journal: [...aggregateJournal(journal, analytics ? tagMap : new Map()), ...quantity], registers: out };
 }

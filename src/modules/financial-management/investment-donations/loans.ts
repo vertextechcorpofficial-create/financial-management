@@ -1,4 +1,4 @@
-import { balance, centavos, type Entry, type Line } from "./ledger";
+import { balance, centavos, type Entry, type Line } from "./ledger.ts";
 import { dependencyEntries, assertFutureBalances, validPostingDate } from "./financial-engine.mjs";
 
 export type Loan = { id: string; name: string; rate: number; scheduled: boolean; cancelled?: boolean };
