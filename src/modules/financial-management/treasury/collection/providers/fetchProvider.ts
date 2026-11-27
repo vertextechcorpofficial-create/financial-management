@@ -16,12 +16,16 @@ export class FetchProviderError extends Error {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+const isHtml = (text: string) => /^\s*<(?:!doctype\s+html|html\b|head\b|body\b)/i.test(text);
+
 const getErrorMessage = (body: string, fallback: string) => {
-    if (!body) return fallback;
+    if (!body.trim() || isHtml(body)) return fallback;
 
     try {
-        const parsed = JSON.parse(body) as { detail?: string; message?: string; error?: string };
-        return parsed.detail || parsed.message || parsed.error || fallback;
+        const parsed = JSON.parse(body) as { detail?: unknown; message?: unknown; error?: unknown } | null;
+        return [parsed?.detail, parsed?.message, parsed?.error].find(
+            (value): value is string => typeof value === "string" && Boolean(value.trim()) && !isHtml(value)
+        ) ?? fallback;
     } catch {
         return body;
     }
@@ -111,7 +115,7 @@ export const fetchProvider = {
 
             if (!response.ok) {
                 const errorBody = await response.text();
-                throw createFetchProviderError(response, errorBody, `POST Error: ${response.status}`);
+                throw createFetchProviderError(response, errorBody, `The server could not complete the request (HTTP ${response.status}). Please try again.`);
             }
 
             const contentType = response.headers.get("content-type") || "";
@@ -120,9 +124,12 @@ export const fetchProvider = {
             }
 
             const textData = await response.text();
+            if (contentType.includes("text/html") || isHtml(textData)) {
+                throw createFetchProviderError(response, "", "The server returned an unexpected page. Refresh and try again.");
+            }
             return textData as unknown as T;
         } catch (error) {
-            console.error(`[fetchProvider] POST ${url} failed:`, error);
+            console.warn(`[fetchProvider] POST ${url} failed:`, error);
             throw error;
         }
     },
