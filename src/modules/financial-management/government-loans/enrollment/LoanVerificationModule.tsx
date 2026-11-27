@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { ArrowDown, ArrowUp, BadgeCheck, CheckCircle2, ChevronsUpDown, Clock3, SearchX, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
@@ -127,13 +128,11 @@ function VerificationReviewPanel({ review, back, reload, saved }: {
   const { record, canDecide, checks, payrollWarnings } = review;
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState<EnrollmentDecision | null>(null);
-  const [error, setError] = useState<{ message: string; conflict: boolean }>();
   const [confirmDecision, setConfirmDecision] = useState<EnrollmentDecision | null>(null);
   const attempt = useRef<{ payload: string; key: string } | null>(null);
 
   function requestDecision(decision: EnrollmentDecision) {
     if (decision === "RETURN" && !reason.trim()) return;
-    setError(undefined);
     setConfirmDecision(decision);
   }
 
@@ -143,14 +142,14 @@ function VerificationReviewPanel({ review, back, reload, saved }: {
     const payload = JSON.stringify([decision, text]);
     if (attempt.current?.payload !== payload) attempt.current = { payload, key: consignmentRequestId() };
     setPending(decision);
-    setError(undefined);
     try {
       const result = await decideVerification(record.id, record.request.revision, decision, text, attempt.current.key);
       saved(result.status === "ACTIVE" ? "Enrollment activated. Payroll instructions are ready to download." :
         result.status === "VERIFIED" ? "Enrollment verified. Finish activation from this review." : "Enrollment returned for correction.");
     } catch (cause) {
-      setError({ message: cause instanceof Error ? cause.message : "The decision could not be saved.",
-        conflict: cause instanceof RequestApiError && cause.status === 409 });
+      const conflict = cause instanceof RequestApiError && cause.status === 409;
+      toast.error(cause instanceof Error ? cause.message : "The decision could not be saved.",
+        conflict ? { action: { label: "Reload review", onClick: reload } } : undefined);
     } finally {
       setPending(null);
     }
@@ -182,11 +181,10 @@ function VerificationReviewPanel({ review, back, reload, saved }: {
           <span className="block font-medium">Reason for return</span>
           <Textarea maxLength={500} disabled={Boolean(pending)} value={reason} onChange={event => setReason(event.target.value)} />
         </label>
-        {error && <p role="alert" className="text-sm text-destructive">{error.message}</p>}
         <div className="sticky bottom-0 z-10 flex flex-wrap gap-2 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur">
-          {canDecide && <Button type="button" disabled={Boolean(pending) || Boolean(error?.conflict) || checks.some(check => check.reason)}
+          {canDecide && <Button type="button" disabled={Boolean(pending) || checks.some(check => check.reason)}
             onClick={() => requestDecision("VERIFY")}>{pending === "VERIFY" ? "Verifying…" : "Verify enrollment"}</Button>}
-          <Button type="button" variant="outline" disabled={Boolean(pending) || Boolean(error?.conflict) || !reason.trim()}
+          <Button type="button" variant="outline" disabled={Boolean(pending) || !reason.trim()}
             onClick={() => requestDecision("RETURN")}>{pending === "RETURN" ? "Returning…" : "Return for correction"}</Button>
           <Button type="button" variant="ghost" disabled={Boolean(pending)} onClick={reload}>Reload review</Button>
         </div>
@@ -231,10 +229,8 @@ export function LoanVerificationModule() {
   const [selected, setSelected] = useState<number[]>([]);
   const [revision, refresh] = useState(0);
   const [agencyRevision, refreshAgencies] = useState(0);
-  const [notice, setNotice] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [working, setWorking] = useState(false);
-  const [bulkError, setBulkError] = useState("");
   const [results, setResults] = useState<BulkVerificationResult | null>(null);
   const skipUrlWrite = useRef(true);
   const attempt = useRef<{ payload: string; key: string } | null>(null);
@@ -299,7 +295,7 @@ export function LoanVerificationModule() {
     if (target !== current) window.history.replaceState(window.history.state, "", target);
   }, [agency, batch, direction, overdue, page, search, size, sort, status]);
 
-  const filterChanged = () => { setPage(1); setSelected([]); setResults(null); setNotice(""); };
+  const filterChanged = () => { setPage(1); setSelected([]); setResults(null); };
 
   function changeFilter(update: () => void) {
     update();
@@ -342,25 +338,25 @@ export function LoanVerificationModule() {
     const payload = JSON.stringify(selections);
     if (attempt.current?.payload !== payload) attempt.current = { payload, key: consignmentRequestId() };
     setWorking(true);
-    setBulkError("");
     try {
-      setResults(await bulkVerify(selections, attempt.current.key));
+      const outcome = await bulkVerify(selections, attempt.current.key);
+      setResults(outcome);
+      toast.success(`${outcome.verified} verified · ${outcome.skipped} skipped`);
       attempt.current = null;
       setSelected([]);
       setConfirming(false);
       reload();
     } catch (cause) {
-      setBulkError(cause instanceof Error ? cause.message : "The batch could not be completed. Try again.");
+      toast.error(cause instanceof Error ? cause.message : "The batch could not be completed. Try again.");
     } finally {
       setWorking(false);
     }
   }
 
-  const back = () => { selectRecord(null); setSelected([]); setNotice(""); reload(); };
+  const back = () => { selectRecord(null); setSelected([]); reload(); };
   if (openRecord !== null) return <div className="space-y-3">
-    {notice && <p role="status" className="text-sm">{notice}</p>}
     {review?.data ? <VerificationReviewPanel key={`${openRecord}:${revision}`} review={review.data} back={back} reload={reload}
-      saved={message => { setNotice(message); reload(); }} /> : <>
+      saved={message => { toast.success(message); reload(); }} /> : <>
       <Button type="button" variant="ghost" onClick={back}>Back to verification queue</Button>
       {review?.error ? <LoadError message={review.error} retry={reload} /> :
         <div className="space-y-2"><Skeleton className="h-8 w-48" /><Skeleton className="h-36 w-full" /><Skeleton className="h-24 w-full" /></div>}
@@ -405,12 +401,12 @@ export function LoanVerificationModule() {
     {status === "ENROLLED" && selections.length > 0 && <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 p-2 text-sm shadow-sm backdrop-blur">
       <span>{selections.length} selected</span>
       <Button type="button" variant="outline" size="sm" onClick={() => setSelected([])}>Clear selection</Button>
-      <Button type="button" size="sm" onClick={() => { setBulkError(""); setConfirming(true); }}>Verify selected</Button>
+      <Button type="button" size="sm" onClick={() => setConfirming(true)}>Verify selected</Button>
     </div>}
     {agencies?.error && <LoadError message={agencies.error} retry={() => refreshAgencies(value => value + 1)} />}
     {invalidBatch && <p role="status" className="text-sm text-muted-foreground">Enter a batch number or its reference, such as BT-0001.</p>}
     {queue?.error && <LoadError message={queue.error} retry={reload} />}
-    {!queue && !invalidBatch && <div className="space-y-2 rounded-lg border p-3"><Skeleton className="h-9 w-full" />{[0, 1, 2, 3, 4].map(value => <Skeleton key={value} className="h-12 w-full" />)}</div>}
+    {!queue?.data && !queue?.error && !invalidBatch && <div className="space-y-2 rounded-lg border p-3"><Skeleton className="h-9 w-full" />{[0, 1, 2, 3, 4].map(value => <Skeleton key={value} className="h-12 w-full" />)}</div>}
     {results && <RequestSection title="Bulk verification results">
       <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
         <span>{results.verified} verified · {results.skipped} skipped</span>
@@ -508,7 +504,6 @@ export function LoanVerificationModule() {
           <AlertDialogTitle>Verify selected enrollments?</AlertDialogTitle>
           <AlertDialogDescription>{selections.length} selected. Passing enrollments become active and receive Payroll instructions. Each skip includes its reason.</AlertDialogDescription>
         </AlertDialogHeader>
-        {bulkError && <p role="alert" className="text-sm text-destructive">{bulkError}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={working}>Cancel</AlertDialogCancel>
           <Button type="button" disabled={working || !selections.length} onClick={() => void verifySelected()}>{working ? "Verifying…" : "Verify enrollments"}</Button>

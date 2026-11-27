@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, ClipboardList, Copy, Download, History, Landmark } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
-import { MetricCard, MetricCardsSkeleton, Notice, StatusChip } from "../components/ui";
+import { MetricCard, MetricCardsSkeleton, ListRowsSkeleton, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { useLifecycleCommand, useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import { AgencyRollforward } from "./AgencyRollforward";
 import type { closeGovernmentLoanMonth, viewMonthEndClose } from "../server/month-end-close";
@@ -128,7 +129,6 @@ function CloseDialog({ current, onClose, onSaved }: { current: NonNullable<View[
         <Textarea value={reason} maxLength={1000} disabled={command.busy} onChange={event => setReason(event.target.value)} />
         <span className="text-xs text-muted-foreground">Open items are carried into {monthLabel(checklist.nextMonth)}.</span>
       </label>}
-      {command.error && <p role="alert" className="text-sm text-destructive">{command.error}</p>}
       <DialogFooter>
         <Button variant="outline" disabled={command.busy} onClick={onClose}>Cancel</Button>
         <Button variant={checklist.openItemCount ? "destructive" : "default"}
@@ -153,14 +153,15 @@ function CloseHistory({ history, selectedMonth, page, size, total, loading, onPa
     </div>
     {!history.length && <p className="rounded-lg border p-4 text-sm text-muted-foreground">No closed periods yet.</p>}
     {!!history.length && <>
-      <div className={cn("hidden overflow-x-auto rounded-lg border md:block", loading && "opacity-60")}>
+      <div className="hidden overflow-x-auto rounded-lg border md:block">
         <Table>
           <caption className="sr-only">Closed Government Loans periods</caption>
           <TableHeader><TableRow>
             {["Month", "Closed by", "Closed at", "Open items", "Reason", "Action"].map(label =>
               <TableHead key={label}>{label}</TableHead>)}
           </TableRow></TableHeader>
-          <TableBody>{history.map(row => <TableRow key={row.id} className={cn("cursor-pointer hover:bg-muted/50", selectedMonth === row.month && "bg-muted/40")}
+          <TableBody>
+            {loading ? <TableRowsSkeleton rows={3} columns={6} /> : history.map(row => <TableRow key={row.id} className={cn("cursor-pointer hover:bg-muted/50", selectedMonth === row.month && "bg-muted/40")}
             onClick={() => onSelect(row.month)}>
             <TableCell className="whitespace-nowrap">{monthLabel(row.month)}
               {row.nextMonth && <span className="block text-xs text-muted-foreground">opened {monthLabel(row.nextMonth)}</span>}</TableCell>
@@ -170,10 +171,11 @@ function CloseHistory({ history, selectedMonth, page, size, total, loading, onPa
             <TableCell className="max-w-64 whitespace-pre-wrap break-words">{row.reason ?? "—"}</TableCell>
             <TableCell><Button type="button" size="sm" variant="outline" aria-label={`View ${row.month}`}
               onClick={event => { event.stopPropagation(); onSelect(row.month); }}>View {monthLabel(row.month)}</Button></TableCell>
-          </TableRow>)}</TableBody>
+          </TableRow>)}
+          </TableBody>
         </Table>
       </div>
-      <div className="space-y-2 md:hidden">{history.map(row => <article key={row.id} className="space-y-2 rounded-lg border p-3 text-sm">
+      {loading ? <ListRowsSkeleton rows={3} className="md:hidden" /> : <div className="space-y-2 md:hidden">{history.map(row => <article key={row.id} className="space-y-2 rounded-lg border p-3 text-sm">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div><p className="font-medium">{monthLabel(row.month)}</p>
             {row.nextMonth && <p className="text-xs text-muted-foreground">Opened {monthLabel(row.nextMonth)}</p>}</div>
@@ -182,7 +184,7 @@ function CloseHistory({ history, selectedMonth, page, size, total, loading, onPa
         <p className="text-xs text-muted-foreground">{row.actor} · {dateTime(row.closedAt)} PHT</p>
         {row.reason && <p className="break-words text-xs text-muted-foreground">{row.reason}</p>}
         <Button type="button" size="sm" variant="outline" aria-label={`View ${row.month}`} onClick={() => onSelect(row.month)}>View {monthLabel(row.month)}</Button>
-      </article>)}</div>
+      </article>)}</div>}
     </>}
     {total > 0 && <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
       <p className="text-muted-foreground">Showing {start}–{end} of {total}</p>
@@ -203,11 +205,9 @@ function CloseHistory({ history, selectedMonth, page, size, total, loading, onPa
 export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) {
   const [revision, reload] = useState(0);
   const [review, setReview] = useState<View["current"]>(null);
-  const [completed, setCompleted] = useState<Snapshot>();
   const [month, setMonth] = useState("");
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(10);
-  const [notice, setNotice] = useState("");
   const [exporting, setExporting] = useState(false);
   const skipUrlWrite = useRef(true);
   const params = new URLSearchParams({ page: String(page), historySize: String(size) });
@@ -261,21 +261,18 @@ export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) 
   function selectMonth(next: string) {
     setMonth(next === openMonth ? "" : next);
     setReview(null);
-    setCompleted(undefined);
-    setNotice("");
   }
 
   async function copyExport(format: "checklist-csv" | "rollforward-csv") {
     if (!displayed) return;
     setExporting(true);
-    setNotice("");
     try {
       const response = await fetch(exportUrl(format));
       if (!response.ok) throw new Error("Export failed");
       await copyText(await response.text());
-      setNotice(format === "checklist-csv" ? "Checklist CSV copied." : "Rollforward CSV copied.");
+      toast.success(format === "checklist-csv" ? "Checklist CSV copied." : "Rollforward CSV copied.");
     } catch {
-      setNotice("Could not copy the CSV.");
+      toast.error("Could not copy the CSV.");
     } finally {
       setExporting(false);
     }
@@ -326,8 +323,6 @@ export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) 
         </DropdownMenu>}
       </div>
     </div>
-    {notice && <Notice title={notice} />}
-    {completed && <Notice title={`${monthLabel(completed.month)} closed. ${monthLabel(completed.nextMonth)} is now open.`} />}
     {loaded.error && <LoadError message={loaded.error} retry={refresh} />}
     {!coverage && !loaded.error && <div className="space-y-3">
       <MetricCardsSkeleton />
@@ -388,7 +383,8 @@ export function MonthEndCloseModule({ setupHref }: { setupHref?: string } = {}) 
       page={coverage.historyPage} size={coverage.pageSizeHistory} total={coverage.totalHistory} loading={loaded.pending}
       onPage={setPage} onSize={value => { setSize(value); setPage(1); }} onSelect={selectMonth} />}
     {review && <CloseDialog current={review} onClose={() => setReview(null)} onSaved={snapshot => {
-      setCompleted(snapshot); setReview(null); setMonth(""); setPage(1); setNotice(""); refresh();
+      toast.success(`${monthLabel(snapshot.month)} closed. ${monthLabel(snapshot.nextMonth)} is now open.`);
+      setReview(null); setMonth(""); setPage(1); refresh();
     }} />}
   </div>;
 }

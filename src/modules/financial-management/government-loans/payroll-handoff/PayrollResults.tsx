@@ -2,13 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
+import { TableRowsSkeleton } from "../components/ui";
 import { centavos } from "./contract";
 import { amountFromCentavos } from "../loans/position";
 import { StatusChip } from "../components/ui";
@@ -28,7 +31,6 @@ function PayrollReceipt({ view, refresh, canOpenSetup }: { view: PayrollMonthVie
   const [preview, setPreview] = useState<PayrollReceiptPreview>();
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const key = useRef<string | null>(null);
   const pending = useRef(false);
 
@@ -36,13 +38,13 @@ function PayrollReceipt({ view, refresh, canOpenSetup }: { view: PayrollMonthVie
     if (pending.current) return;
     pending.current = true;
     setBusy(true);
-    setError("");
     setPreview(undefined);
     key.current = null;
     try {
       setPreview(await responseData<PayrollReceiptPreview>(endpoint + "/receipt?" + new URLSearchParams({ month: view.month })));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not preview the Payroll receipt.");
+      toast.error(cause instanceof Error ? cause.message : "Could not preview the Payroll receipt.",
+        { action: { label: "Retry", onClick: () => void inspect() } });
     } finally {
       setBusy(false);
       pending.current = false;
@@ -53,16 +55,17 @@ function PayrollReceipt({ view, refresh, canOpenSetup }: { view: PayrollMonthVie
     if (!preview || pending.current) return;
     pending.current = true;
     setBusy(true);
-    setError("");
     key.current ??= consignmentRequestId();
     try {
       await responseData<ReceiptSummary>(endpoint + "/receipt", {
         method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key.current },
         body: JSON.stringify({ month: view.month, token: preview.token, reason }),
       });
+      toast.success(preview.receipt ? "Payroll receipt corrected." : "Payroll receipt confirmed.");
       refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not confirm the Payroll receipt.");
+      toast.error(cause instanceof Error ? cause.message : "Could not confirm the Payroll receipt.",
+        { action: { label: "Retry", onClick: () => void confirm() } });
     } finally {
       setBusy(false);
       pending.current = false;
@@ -90,7 +93,6 @@ function PayrollReceipt({ view, refresh, canOpenSetup }: { view: PayrollMonthVie
         <span>Receipt confirmation requires approved Payroll coverage for this month.</span>
         {canOpenSetup && <Link className="underline" href="/fm/government-loans/month-end-close?tab=setup">Open Period setup</Link>}
       </p>)}
-    {error && <p role="alert" className="text-destructive">{error}</p>}
     {preview && <div className="space-y-2 rounded-md border p-2">
       <p>Payroll runs {preview.runIds.map(id => "#" + id).join(", ")} · {preview.count} loan result(s)</p>
       {preview.totals.map(total => <p key={total.agencyId}>{agencyName(total.agencyId)} · {peso(total.amount)} withheld</p>)}
@@ -154,7 +156,15 @@ export function PayrollResults({ canOpenSetup }: { canOpenSetup?: boolean } = {}
     </div>
     {error ? <div role="alert" className="flex items-center gap-2 text-sm text-destructive">{error}
       <Button size="sm" variant="outline" onClick={reload}>Retry</Button></div>
-      : !data && <p role="status" className="text-sm text-muted-foreground">Loading Payroll deductions…</p>}
+      : !data && <div className="space-y-3" aria-busy="true" aria-label="Loading Payroll deductions">
+        <div className="space-y-2 rounded-md border p-3">
+          <Skeleton className="h-5 w-56" />
+          <Skeleton className="h-4 w-72 max-w-full" />
+        </div>
+        <div className="rounded-md border"><Table>
+          <TableBody><TableRowsSkeleton rows={6} columns={6} /></TableBody>
+        </Table></div>
+      </div>}
     {data && <>
       <PayrollReceipt key={key} view={data} refresh={reload} canOpenSetup={canOpenSetup} />
       <div className="rounded-md border"><Table>

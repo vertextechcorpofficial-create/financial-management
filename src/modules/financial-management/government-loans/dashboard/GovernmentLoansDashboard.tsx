@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, CheckCircle2, CircleAlert, Info, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
@@ -83,14 +84,22 @@ function KpiCard({ card }: { card: KpiCardData }) {
 
 function DashboardSkeleton() {
   return <div className="space-y-4" aria-busy="true" aria-label="Loading Government Loans overview">
-    <div className="h-8 w-72 max-w-full animate-pulse rounded-md bg-muted" />
-    <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">{[0, 1, 2, 3].map(key =>
-      <div key={key} className="h-32 animate-pulse rounded-xl border bg-card" />)}</div>
-    <div className="grid gap-4 xl:grid-cols-2">
-      <div className="h-72 animate-pulse rounded-xl border bg-card" />
-      <div className="h-72 animate-pulse rounded-xl border bg-card" />
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Skeleton className="h-6 w-32 rounded-full" />
+        <Skeleton className="h-6 w-32 rounded-full" />
+        <Skeleton className="h-4 w-40" />
+      </div>
+      <Skeleton className="h-9 w-24 rounded-md" />
     </div>
-    <div className="h-56 animate-pulse rounded-xl border bg-card" />
+    <Skeleton className="h-4 w-96 max-w-full" />
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">{[0, 1, 2, 3].map(key =>
+      <Skeleton key={key} className="h-32 rounded-xl" />)}</div>
+    <div className="grid gap-4 xl:grid-cols-2">
+      <Skeleton className="h-72 rounded-xl" />
+      <Skeleton className="h-72 rounded-xl" />
+    </div>
+    <Skeleton className="h-56 rounded-xl" />
   </div>;
 }
 

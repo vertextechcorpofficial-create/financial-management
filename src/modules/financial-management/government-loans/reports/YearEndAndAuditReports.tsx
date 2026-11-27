@@ -5,7 +5,6 @@ import { SearchX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { date, peso } from "@/modules/financial-management/cooperative/members/format";
@@ -13,7 +12,7 @@ import { EmptyState } from "../components/ui";
 import { useRetainedLifecycleRead } from "../loans/lifecycle-client";
 import type { reportYearEnd } from "../server/year-end-report";
 import type { reportAuditTrail } from "../server/audit-report";
-import { AgencyBadge, ReadFeedback, ReportPages } from "./GovernmentLoanReports";
+import { AgencyBadge, ReadFeedback, ReportPages, TableSkeleton } from "./GovernmentLoanReports";
 import { CopyReport, ReportControls, ReportHeader, ReportMetric, useReportView } from "./ReportControls";
 
 const base = "/api/fm/government-loans/reports";
@@ -24,11 +23,6 @@ const manila = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle
 
 type YearEnd = Awaited<ReturnType<typeof reportYearEnd>>;
 type Audit = Awaited<ReturnType<typeof reportAuditTrail>>;
-
-function ReportSkeleton({ rows = 5 }: { rows?: number }) {
-  return <div className="space-y-2 rounded-lg border p-3">{Array.from({ length: rows }, (_, index) =>
-    <Skeleton key={index} className="h-10 w-full" style={{ opacity: 1 - index * 0.12 }} />)}</div>;
-}
 
 export function YearEndSummaryReport({ actorId }: { actorId?: number }) {
   const state = useReportView("year", actorId);
@@ -58,7 +52,7 @@ export function YearEndSummaryReport({ actorId }: { actorId?: number }) {
         </NativeSelect>
       </label>
     </ReportControls>
-    {!data && !loaded.error && <ReportSkeleton rows={6} />}
+    {!data && !loaded.error && <TableSkeleton rows={6} />}
     {loaded.error && <ReadFeedback error={loaded.error} retry={() => retry(value => value + 1)} message="Loading year-end summary…" />}
     {data && <>
       <div className={cn("grid grid-cols-2 gap-2 xl:grid-cols-4", loaded.pending && "opacity-60")}>
@@ -183,7 +177,7 @@ export function AuditTrailReport({ actorId }: { actorId?: number }) {
       <label className="grid gap-1 text-sm">From (Manila)<Input type="date" name="from" defaultValue={state.view.filters.from ?? ""} /></label>
       <label className="grid gap-1 text-sm">To (Manila)<Input type="date" name="to" defaultValue={state.view.filters.to ?? ""} /></label>
     </ReportControls>
-    {!data && !loaded.error && <ReportSkeleton rows={6} />}
+    {!data && !loaded.error && <TableSkeleton rows={6} />}
     {loaded.error && <ReadFeedback error={loaded.error} retry={() => retry(value => value + 1)} message="Loading audit trail…" />}
     {data && <>
       <p className="text-sm text-muted-foreground">{data.total} matching event(s)</p>

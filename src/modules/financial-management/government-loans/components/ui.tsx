@@ -210,9 +210,75 @@ export function DetailDialog({ open, onOpenChange, title, description, children,
   </Dialog>;
 }
 
-export function MetricCardsSkeleton({ count = 4 }: { count?: number }) {
-  return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-hidden="true">
-    {Array.from({ length: count }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-xl border bg-muted/30" />)}
+export function MetricCardsSkeleton({ count = 4, className }: { count?: number; className?: string }) {
+  return <div className={cn("grid gap-3 sm:grid-cols-2 xl:grid-cols-4", className)} aria-hidden="true">
+    {Array.from({ length: count }, (_, index) => <Skeleton key={index} className="h-28 rounded-xl" />)}
+  </div>;
+}
+
+export function CardGridSkeleton({ count = 3, height = "h-40", className }: {
+  count?: number; height?: string; className?: string;
+}) {
+  return <div className={cn("grid gap-3 sm:grid-cols-2 xl:grid-cols-3", className)} aria-hidden="true">
+    {Array.from({ length: count }, (_, index) => <Skeleton key={index} className={cn("rounded-xl", height)} />)}
+  </div>;
+}
+
+export function ListRowsSkeleton({ rows = 4, className }: { rows?: number; className?: string }) {
+  return <div className={cn("space-y-2", className)} aria-hidden="true">
+    {Array.from({ length: rows }, (_, index) => <div key={index} className="flex items-center gap-3 rounded-lg border p-3">
+      <Skeleton className="size-9 shrink-0 rounded-full" />
+      <div className="min-w-0 flex-1 space-y-2">
+        <Skeleton className="h-3.5 w-1/3 min-w-24" />
+        <Skeleton className="h-3 w-1/2 min-w-32" />
+      </div>
+      <Skeleton className="h-5 w-16 shrink-0 rounded-full" />
+    </div>)}
+  </div>;
+}
+
+export function PanelSkeleton({ label = "Loading panel…" }: { label?: string }) {
+  return <div className="space-y-2" aria-busy="true">
+    <p role="status" className="sr-only">{label}</p>
+    {Array.from({ length: 3 }, (_, index) => <div key={index} className="space-y-2 rounded-md border p-3">
+      <Skeleton className="h-4 w-40" />
+      <Skeleton className="h-3 w-64" />
+    </div>)}
+  </div>;
+}
+
+export function PageSkeleton() {
+  return <div className="flex min-h-0 flex-1 flex-col" aria-busy="true" aria-label="Loading Government Loans workspace">
+    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background px-3 shadow-sm sm:h-16 sm:px-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <Skeleton className="size-8 shrink-0 rounded-md" />
+        <div className="hidden items-center gap-2 sm:flex">
+          <Skeleton className="h-3.5 w-10" />
+          <Skeleton className="h-3.5 w-28" />
+          <Skeleton className="h-3.5 w-24" />
+        </div>
+      </div>
+      <Skeleton className="h-8 w-32 rounded-full" />
+    </header>
+    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <Skeleton className="h-9 w-28 rounded-md" />
+        <Skeleton className="h-9 w-36 rounded-md" />
+        <Skeleton className="h-9 w-32 rounded-md" />
+      </div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-56 max-w-full" />
+          <Skeleton className="h-4 w-96 max-w-full" />
+        </div>
+        <Skeleton className="h-9 w-32 rounded-md" />
+      </div>
+      <MetricCardsSkeleton />
+      <div className="space-y-2 rounded-xl border p-3">
+        <Skeleton className="h-9 w-full rounded-md" />
+        {Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-12 w-full rounded-md" />)}
+      </div>
+    </div>
   </div>;
 }
 

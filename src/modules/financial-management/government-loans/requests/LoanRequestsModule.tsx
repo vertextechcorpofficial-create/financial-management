@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import { CheckCircle2, Clock3, FileText, Plus, RotateCcw, Search, SearchX, X } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { EmptyState, MetricButton, MetricCard, Notice, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, DetailSkeleton, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { employeeRequestApi, staffRequestApi } from "./request-api";
 import { RequestEditor } from "./RequestEditor";
 import {
@@ -154,7 +155,6 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
   const [loaded, setLoaded] = useState<Loaded>();
   const [data, setData] = useState<RequestPage>();
   const [detail, setDetail] = useState<{ id: number; attempt: number; record?: LoanRequest; error?: string }>();
-  const [notice, setNotice] = useState("");
   const [saved, setSaved] = useState<SavedView[]>([]);
   const [saving, setSaving] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -292,7 +292,8 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
   }
 
   function showList(next?: RequestView, message = "") {
-    setSelected(null); setDetail(undefined); setAttempt(value => value + 1); setNotice(message);
+    setSelected(null); setDetail(undefined); setAttempt(value => value + 1);
+    if (message) toast.success(message);
     if (next) { setView(next); setPage(1); setFilters(initialFilters); setSort(next === "drafts" ? "updated" : "filed"); }
   }
 
@@ -305,8 +306,7 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
       agencies={agencies.items} applicant={applicant} onBack={showList} onReload={id => { setSelected(id); setAttempt(value => value + 1); }} /> :
       <div className="space-y-3">
         <Button variant="ghost" onClick={() => showList()}>Back to requests</Button>
-        {record?.error ? <LoadError message={record.error} retry={() => setAttempt(value => value + 1)} /> :
-          <p role="status" className="text-sm text-muted-foreground">Loading request…</p>}
+        {record?.error ? <LoadError message={record.error} retry={() => setAttempt(value => value + 1)} /> : <DetailSkeleton />}
       </div>}
   </div>;
 
@@ -315,7 +315,6 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
   const dateLabel = view === "in-progress" ? "Filed" : "Last updated";
 
   return <div className="space-y-4">
-    {notice && <Notice title={notice} onDismiss={() => setNotice("")} />}
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 className="text-lg font-semibold">{applicant ? isDrafts ? "Your unfinished requests" : "Your loan requests" : "Loan Requests"}</h2>
@@ -327,7 +326,7 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
     </header>
     {agencyError}
 
-    {summary && <section aria-label="Request queue summary" className="space-y-2">
+    {summary ? <section aria-label="Request queue summary" className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
         <SummaryCard label="Drafts" value={summary.DRAFT} active={summaryActive("drafts", "")} onClick={() => changeView("drafts")}
@@ -342,7 +341,10 @@ export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
           icon={RotateCcw} tone="rose" ringClass="ring-rose-500/40" detail="Needs correction"
           onClick={() => { setView("decided"); setFilters(previous => ({ ...previous, status: "RETURNED" })); setPage(1); setSort("updated"); }} />
       </div>
-    </section>}
+    </section> : !loaded?.error ? <div className="space-y-2" aria-busy="true">
+      <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
+      <MetricCardsSkeleton />
+    </div> : null}
 
     <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Loan request view">
       {(Object.keys(requestViews) as RequestView[]).map(item => <Button key={item} type="button" size="sm"

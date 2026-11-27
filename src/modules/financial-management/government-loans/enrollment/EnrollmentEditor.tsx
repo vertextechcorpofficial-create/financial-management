@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -99,8 +100,12 @@ export function EnrollmentEditor({ record, agencies, openMonth, canOpenSetup, on
       setError({ message: cause.message, fields: cause.fieldErrors, status: cause.status });
       if (cause.fieldErrors?.firstDeductionMonth) refreshMonth();
       if (cause.status === 409 && !record) setReview(null);
+      toast.error(cause.message, cause.status === 409 && record && !cause.fieldErrors?.agencyReference
+        ? { action: { label: "Reload request", onClick: onReload } } : undefined);
     } else {
-      setError({ message: "The enrollment service could not complete the request. Try again." });
+      const message = "The enrollment service could not complete the request. Try again.";
+      setError({ message });
+      toast.error(message);
     }
   }
 
@@ -158,11 +163,6 @@ export function EnrollmentEditor({ record, agencies, openMonth, canOpenSetup, on
     {correcting && saved?.returnReason && <div className="space-y-1 rounded-lg border p-3 text-sm">
       <p className="font-medium">Return reason</p>
       <p className="whitespace-pre-wrap break-words">{saved.returnReason}</p>
-    </div>}
-    {error && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
-      {error.message}
-      {record && error.status === 409 && !errors?.agencyReference &&
-        <Button type="button" variant="outline" size="sm" onClick={onReload}>Reload request</Button>}
     </div>}
     {showDecline && record ? <form className="space-y-3 rounded-lg border p-4" onSubmit={event => {
       event.preventDefault();

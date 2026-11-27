@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SearchX } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { EmptyState, Notice } from "../../components/ui";
+import { EmptyState } from "../../components/ui";
 import { AgencyForm } from "./AgencyForm";
 import { AgencyHistoryDialog } from "./AgencyHistoryDialog";
 import { AgencyRequestError, fetchAgencies, saveAgency } from "./agencies-api";
@@ -76,8 +77,6 @@ export function AgenciesModule() {
   const [result, setResult] = useState<LoadResult>();
   const [editor, setEditor] = useState<"new" | Agency | null>(null);
   const [history, setHistory] = useState<Agency | null>(null);
-  const [notice, setNotice] = useState("");
-  const [noticeError, setNoticeError] = useState(false);
   const [toggling, setToggling] = useState<number | null>(null);
   const skipUrlWrite = useRef(true);
   const query = new URLSearchParams({
@@ -132,8 +131,6 @@ export function AgenciesModule() {
   }, [key, query]);
 
   function openEditor(value: "new" | Agency) {
-    setNotice("");
-    setNoticeError(false);
     setEditor(value);
   }
 
@@ -146,8 +143,6 @@ export function AgenciesModule() {
   async function toggleAgency(agency: Agency) {
     if (toggling !== null) return;
     setToggling(agency.id);
-    setNotice("");
-    setNoticeError(false);
     try {
       const saved = await saveAgency({
         expectedRevision: agency.revision,
@@ -168,12 +163,11 @@ export function AgenciesModule() {
         catchUp: agency.catchUp,
         sendsBilling: agency.sendsBilling,
       }, agency.id);
-      setNotice(`${saved.displayName} ${saved.isActive ? "activated" : "deactivated"}.`);
+      toast.success(`${saved.displayName} ${saved.isActive ? "activated" : "deactivated"}.`);
       if (status) setPage(1);
       setRefresh(value => value + 1);
     } catch (cause) {
-      setNoticeError(true);
-      setNotice(cause instanceof AgencyRequestError ? cause.message : "Could not update the agency status.");
+      toast.error(cause instanceof AgencyRequestError ? cause.message : "Could not update the agency status.");
     } finally {
       setToggling(null);
     }
@@ -189,11 +183,9 @@ export function AgenciesModule() {
       </div>
       <Button type="button" onClick={() => openEditor("new")} disabled={editor !== null}>Add agency</Button>
     </div>
-    {notice && <Notice tone={noticeError ? "error" : "success"} title={notice} onDismiss={() => setNotice("")} />}
     {editor && <AgencyForm key={editor === "new" ? "new" : editor.id} agency={editor === "new" ? undefined : editor} onReload={reloadAgencies}
       onCancel={() => setEditor(null)} onSaved={saved => {
-        setNoticeError(false);
-        setNotice(`${saved.displayName} ${editor === "new" ? "added" : "updated"}.`);
+        toast.success(`${saved.displayName} ${editor === "new" ? "added" : "updated"}.`);
         reloadAgencies();
       }} />}
     {history && <AgencyHistoryDialog agency={history} onClose={() => setHistory(null)} />}
@@ -220,12 +212,8 @@ export function AgenciesModule() {
       {(search || type || status) && <Button type="button" variant="ghost" size="sm"
         onClick={() => { setSearch(""); setType(""); setStatus(""); setPage(1); }}>Clear filters</Button>}
     </div>
-    {!current && <div className="space-y-2">
-      {[0, 1].map(index => <div key={index} className="space-y-3 rounded-lg border bg-card p-4">
-        <Skeleton className="h-6 w-56" />
-        <Skeleton className="h-4 w-72" />
-        <Skeleton className="h-24 w-full" />
-      </div>)}
+    {!current && <div className="space-y-3" aria-busy="true" aria-label="Loading agencies">
+      {[0, 1, 2].map(index => <Skeleton key={index} className="h-40 rounded-lg" />)}
     </div>}
     {current && "error" in current && <div className="space-y-2 rounded-lg border border-destructive/30 p-4">
       <p role="alert" className="text-sm text-destructive">{current.error}</p>

@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState, type ComponentType } from "react";
 import { BadgeCheck, CheckCircle2, Plus, RotateCcw, Search, SearchX, ShieldCheck, X } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +12,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { EmptyState, MetricButton, MetricCard, Notice, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, DetailSkeleton, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { agencyOptions, requestDocumentUrl } from "../requests/request-api";
 import { applicationPageSizes, requestStatusLabels, type AgencyChoice, type EmployeeChoice } from "../requests/types";
 import { getEnrollment, importBatches, listEnrollments } from "./api";
@@ -177,7 +178,6 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
   const [data, setData] = useState<EnrollmentPage>();
   const [detail, setDetail] = useState<{ key: string; data?: EnrollmentDetail; error?: string }>();
   const [agencies, setAgencies] = useState<{ items: AgencyChoice[]; error?: string }>({ items: [] });
-  const [notice, setNotice] = useState("");
   const [saved, setSaved] = useState<SavedView[]>([]);
   const [saving, setSaving] = useState(false);
   const detailKey = selected + ":" + detailAttempt;
@@ -270,7 +270,7 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
     if (data && page > pages) setPage(1);
   }, [data, page, pages]);
 
-  const back = () => { setSelected(null); setCorrecting(false); setNotice(""); setInitialTransfer(undefined); };
+  const back = () => { setSelected(null); setCorrecting(false); setInitialTransfer(undefined); };
   const refreshMonth = () => { reloadList(value => value + 1); reloadImport(value => value + 1); };
   const agencyError = agencies.error && <LoadError message={agencies.error} retry={() => reloadAgencies(value => value + 1)} />;
 
@@ -315,7 +315,7 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
         agencies={agencies.items} openMonth={data?.openMonth ?? null} canOpenSetup={canOpenSetup}
         onBack={correcting ? () => setCorrecting(false) : back} onReload={() => reloadDetail(count => count + 1)}
         refreshMonth={refreshMonth} onSaved={result => {
-          setNotice(correcting ? "Enrollment resubmitted for verification." :
+          toast.success(correcting ? "Enrollment resubmitted for verification." :
             result.status === "ENROLLED" ? "Enrollment saved for verification." : "Agency decline recorded.");
           setCorrecting(false); setInitialTransfer(undefined); setSelected(result.id);
           reloadDetail(count => count + 1); refreshMonth();
@@ -323,9 +323,8 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
     </div>;
     return <div className="space-y-3">
       <Button type="button" variant="ghost" onClick={back}>Back to enrollment</Button>
-      {notice && <Notice title={notice} />}
       {record?.error && <LoadError message={record.error} retry={() => reloadDetail(value => value + 1)} />}
-      {!record && <p role="status" className="text-sm text-muted-foreground">Loading enrollment…</p>}
+      {!record && <DetailSkeleton />}
       {value && <EnrollmentDetails record={value} documentHref={kind => requestDocumentUrl(value.id, kind)}>
         {Boolean(value.enrollment?.payrollWarnings?.length) && <ul className="list-disc pl-5 text-sm text-muted-foreground">
           {value.enrollment?.payrollWarnings?.map(warning => <li key={warning}>{warning}</li>)}
@@ -380,7 +379,7 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
       <Button type="button" size="sm" variant="outline" onClick={() => { setImportedBatch(latestImport.id); setImportView("history"); }}>Review import</Button>
     </div>}
 
-    {summary && <section aria-label="Enrollment queue summary" className="space-y-2">
+    {summary ? <section aria-label="Enrollment queue summary" className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-5">
         <SummaryCard label="Approved · awaiting agency" value={summary.APPROVED} active={filters.status === "APPROVED"} onClick={() => applyStatus("APPROVED")}
@@ -394,7 +393,10 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
         <SummaryCard label="Active" value={summary.ACTIVE} active={filters.status === "ACTIVE"} onClick={() => applyStatus("ACTIVE")}
           icon={CheckCircle2} tone="emerald" ringClass="ring-emerald-500/40" detail="Deducted through Payroll" />
       </div>
-    </section>}
+    </section> : !loaded?.error ? <div className="space-y-2" aria-busy="true">
+      <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
+      <MetricCardsSkeleton count={5} className="xl:grid-cols-5" />
+    </div> : null}
 
     <div className="sticky top-0 z-20 space-y-2 rounded-lg border bg-background p-3 shadow-xs">
       <div className="flex flex-wrap items-center gap-2">
@@ -434,7 +436,6 @@ export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { trans
     </form>}
 
     {current?.error && <LoadError message={current.error} retry={() => reloadList(value => value + 1)} />}
-    {!current && !firstLoad && <p role="status" className="text-sm text-muted-foreground">Loading enrollments…</p>}
     {data?.openMonth && <p className="text-sm text-muted-foreground">Open month {deductionMonthLabel(data.openMonth)}</p>}
     {!data?.openMonth && data && <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
       <span>Set the Government Loans open month to enroll loans.</span>

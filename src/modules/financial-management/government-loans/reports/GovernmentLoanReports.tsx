@@ -56,7 +56,7 @@ function remittanceTone(status: string, daysLate: number | null) {
   return "text-muted-foreground";
 }
 
-function TableSkeleton({ rows = 5 }: { rows?: number }) {
+export function TableSkeleton({ rows = 5 }: { rows?: number }) {
   return <div className="space-y-2 rounded-lg border p-3">{Array.from({ length: rows }, (_, index) =>
     <Skeleton key={index} className="h-10 w-full" style={{ opacity: 1 - index * 0.12 }} />)}</div>;
 }
@@ -164,7 +164,11 @@ export function EmployeeLedgerReport({ actorId }: { actorId?: number }) {
       <label className="grid max-w-sm gap-1 text-sm">Search employees with verified loans
         <Input value={q} maxLength={120} placeholder="Name or employee ID" onChange={event => { setSearch(event.target.value); setPage(1); }} />
       </label>
-      {!options.data && !options.error && <TableSkeleton rows={2} />}
+      {!options.data && !options.error && <div className="flex flex-wrap gap-2" aria-busy="true" aria-label="Loading employees">
+        <Skeleton className="h-9 w-40 rounded-md" />
+        <Skeleton className="h-9 w-36 rounded-md" />
+        <Skeleton className="h-9 w-44 rounded-md" />
+      </div>}
       {options.error && <ReadFeedback error={options.error} retry={() => retry(value => value + 1)} message="Loading employees…" />}
       {options.data && <>
         <div className={cn("flex flex-wrap gap-2", options.pending && "opacity-60")}>{options.data.items.map(option => <Button type="button" size="sm" variant="outline"

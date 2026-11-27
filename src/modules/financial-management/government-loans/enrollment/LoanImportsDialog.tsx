@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
+import { DetailSkeleton, ListRowsSkeleton } from "../components/ui";
 import type { Page } from "../requests/types";
 import { EnrollmentApiError, importBatch, importBatches, previewImport, saveImport } from "./api";
 import { enrollmentBatchReference, enrollmentCsvHeaders, enrollmentMappingError, paidColumn } from "./import-csv";
@@ -67,21 +69,19 @@ export function LoanImportDialog({ close, onSaved }: { close: () => void; onSave
   const [result, setResult] = useState<EnrollmentImportPreview | null>(null);
   const [columns, setColumns] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [problemsOnly, setProblemsOnly] = useState(false);
   const attempt = useRef<{ token: string; key: string } | null>(null);
   const reviewed = result?.token && result.columns.every((column, index) => column === columns[index]) ? result : null;
 
   async function check(next: File, mapping?: number[]) {
     setBusy(true);
-    setError("");
     try {
       const checked = await previewImport(next, mapping);
       setResult(checked);
       setColumns(checked.columns);
     } catch (cause) {
       setResult(null);
-      setError(errorText(cause));
+      toast.error(errorText(cause), { action: { label: "Retry", onClick: () => void check(next) } });
     } finally {
       setBusy(false);
     }
@@ -91,7 +91,6 @@ export function LoanImportDialog({ close, onSaved }: { close: () => void; onSave
     if (busy || !file || !reviewed?.token) return;
     if (attempt.current?.token !== reviewed.token) attempt.current = { token: reviewed.token, key: consignmentRequestId() };
     setBusy(true);
-    setError("");
     try {
       onSaved((await saveImport(file, columns, reviewed.token, attempt.current.key)).id);
     } catch (cause) {
@@ -99,7 +98,7 @@ export function LoanImportDialog({ close, onSaved }: { close: () => void; onSave
         setResult(cause.preview);
         setColumns(cause.preview.columns);
       }
-      setError(errorText(cause));
+      toast.error(errorText(cause));
     } finally {
       setBusy(false);
     }
@@ -127,10 +126,6 @@ export function LoanImportDialog({ close, onSaved }: { close: () => void; onSave
       </div>
       <p className="text-xs text-muted-foreground">Use VOS employee IDs and agency codes from Remittances. Up to 250 rows and 1 MB per file.</p>
       {busy && <p role="status" className="text-sm">{reviewed ? "Saving loan batch…" : "Checking CSV rows…"}</p>}
-      {error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">
-        {error}
-        {file && !result && !busy && <Button type="button" variant="outline" size="sm" onClick={() => void check(file)}>Retry</Button>}
-      </div>}
       {result && file && <>
         <details className="rounded-lg border p-3 text-sm" open={!reviewed || undefined}>
           <summary className="cursor-pointer font-medium">Column mapping</summary>
@@ -140,7 +135,6 @@ export function LoanImportDialog({ close, onSaved }: { close: () => void; onSave
               <NativeSelect className="w-full" disabled={busy} value={columns[index] ?? -1} onChange={event => {
                 const value = Number(event.target.value);
                 setColumns(current => current.map((column, i) => i === index ? value : column));
-                setError("");
               }}>
                 <option value={-1}>{index === paidColumn ? "Use zero" : "Choose a column"}</option>
                 {result.headers.map((header, position) => <option value={position} key={position}>{position + 1} · {header || "Untitled column"}</option>)}
@@ -201,7 +195,7 @@ export function LoanImportHistoryDialog({ initialBatch, close, onSelect }: {
         <DialogDescription>{current?.detail ? current.detail.filename : "Existing loans submitted for verification in each batch."}</DialogDescription>
       </DialogHeader>
       {selected && <div><Button type="button" variant="outline" onClick={() => setSelected(null)}>Back to import history</Button></div>}
-      {!current && <p role="status" className="text-sm">Loading import history…</p>}
+      {!current && (selected ? <DetailSkeleton /> : <ListRowsSkeleton rows={5} />)}
       {current?.error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">
         {current.error} <Button type="button" variant="outline" size="sm" onClick={() => setRetry(value => value + 1)}>Retry</Button>
       </div>}

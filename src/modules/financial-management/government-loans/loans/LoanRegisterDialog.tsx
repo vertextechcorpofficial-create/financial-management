@@ -2,20 +2,20 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { DetailSkeleton, Notice, PersonAvatar, StatusChip, tabTriggerClass } from "../components/ui";
+import { DetailSkeleton, PanelSkeleton, PersonAvatar, StatusChip, tabTriggerClass } from "../components/ui";
 import { TabIcon } from "../components/tab-icons";
 import { deductionMonthLabel } from "../enrollment/rules";
 import type { getLoanChanges } from "../server/loan-changes";
@@ -65,7 +65,6 @@ function RecordBalanceForm({ detail, busy, setBusy, onCancel, onSaved, reload }:
   onSaved: () => void;
   reload: () => void;
 }) {
-  const [error, setError] = useState<{ message: string; stale: boolean }>();
   const key = useRef<string | null>(null);
   const pending = useRef(false);
 
@@ -77,14 +76,14 @@ function RecordBalanceForm({ detail, busy, setBusy, onCancel, onSaved, reload }:
     if (file instanceof File && file.size === 0 && !file.name) form.delete("attachment");
     pending.current = true;
     setBusy(true);
-    setError(undefined);
     key.current ??= consignmentRequestId();
     try {
       await saveAgencyBalance(detail.loan.id, detail.loan.revision, key.current, form);
       onSaved();
     } catch (cause) {
-      setError({ message: cause instanceof Error ? cause.message : "Could not record the balance.",
-        stale: cause instanceof RequestApiError && cause.status === 409 });
+      const stale = cause instanceof RequestApiError && cause.status === 409;
+      toast.error(cause instanceof Error ? cause.message : "Could not record the balance.",
+        stale ? { action: { label: "Reload loan", onClick: reload } } : undefined);
     } finally {
       pending.current = false;
       setBusy(false);
@@ -93,7 +92,6 @@ function RecordBalanceForm({ detail, busy, setBusy, onCancel, onSaved, reload }:
 
   return <form className="space-y-3 rounded-md border p-3" onSubmit={submit} onChange={() => {
     key.current = null;
-    if (!error?.stale) setError(undefined);
   }}>
     <h3 className="text-sm font-semibold">Record agency balance</h3>
     <div className="grid gap-3 sm:grid-cols-3">
@@ -121,25 +119,11 @@ function RecordBalanceForm({ detail, busy, setBusy, onCancel, onSaved, reload }:
       <Input name="attachment" type="file" accept=".pdf,.png,.jpg,.jpeg" disabled={busy} aria-describedby="agency-statement-file-help" />
       <span id="agency-statement-file-help" className="text-xs text-muted-foreground">PDF, JPG, or PNG up to 5 MB.</span>
     </label>
-    {error && <div role="alert" className="space-y-2 text-sm text-destructive">
-      <p>{error.message}</p>
-      {error.stale && <Button type="button" variant="outline" size="sm" onClick={reload}>Reload loan</Button>}
-    </div>}
     <div className="flex flex-wrap justify-end gap-2">
       <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button>
-      <Button type="submit" disabled={busy || error?.stale}>{busy ? "Saving…" : "Save balance"}</Button>
+      <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save balance"}</Button>
     </div>
   </form>;
-}
-
-function PanelSkeleton({ label }: { label: string }) {
-  return <div className="space-y-2" aria-busy="true">
-    <p role="status" className="sr-only">{label}</p>
-    {Array.from({ length: 3 }, (_, index) => <div key={index} className="space-y-2 rounded-md border p-3">
-      <Skeleton className="h-4 w-40" />
-      <Skeleton className="h-3 w-64" />
-    </div>)}
-  </div>;
 }
 
 function ChangesPanel({ state }: { state: ReturnType<typeof useLoanChanges> }) {
@@ -229,7 +213,6 @@ export function LoanRegisterDialog({ id, startRecording, panel, onPanelChange, o
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [refresh, setRefresh] = useState(0);
-  const [notice, setNotice] = useState("");
   const [loaded, setLoaded] = useState<{ key: string; detail?: RegisterLoanDetail; error?: string }>();
   const [detail, setDetail] = useState<RegisterLoanDetail>();
   const key = id + ":" + page + ":" + refresh;
@@ -278,7 +261,6 @@ export function LoanRegisterDialog({ id, startRecording, panel, onPanelChange, o
         <span className="min-w-0 flex-1">{error}</span>
         <Button type="button" variant="outline" size="sm" onClick={reload}>Retry</Button>
       </div>}
-      {notice && <Notice title={notice} />}
       {loan && detail && <Tabs value={panel} onValueChange={value => onPanelChange(value as LoanPanel)} className="min-h-0 flex-1 gap-3">
         <div className="overflow-x-auto">
           <TabsList variant="line" aria-label="Loan detail tabs" className="w-full justify-start">
@@ -311,9 +293,9 @@ export function LoanRegisterDialog({ id, startRecording, panel, onPanelChange, o
             {loan.active && (recording ? <RecordBalanceForm detail={detail} busy={busy} setBusy={setBusy}
               onCancel={() => setRecording(false)} reload={reload}
               onSaved={() => {
-                setNotice("Agency balance recorded."); setRecording(false); setPage(1); reload(); onSaved();
+                toast.success("Agency balance recorded."); setRecording(false); setPage(1); reload(); onSaved();
               }} /> :
-              <Button type="button" onClick={() => { setNotice(""); setRecording(true); }}>Record balance</Button>)}
+              <Button type="button" onClick={() => setRecording(true)}>Record balance</Button>)}
           </TabsContent>
 
           <TabsContent value="statements" className="space-y-3">
@@ -323,7 +305,7 @@ export function LoanRegisterDialog({ id, startRecording, panel, onPanelChange, o
                 <p className="text-xs text-muted-foreground">Agency statements recorded for this loan, newest first.</p>
               </div>
               {loan.active && !recording && <Button type="button" size="sm" variant="outline"
-                onClick={() => { setNotice(""); setRecording(true); onPanelChange("overview"); }}>Record balance</Button>}
+                onClick={() => { setRecording(true); onPanelChange("overview"); }}>Record balance</Button>}
             </div>
             {detail.statements.items.length ? <div className="rounded-md border"><Table>
               <TableHeader><TableRow>
@@ -348,7 +330,7 @@ export function LoanRegisterDialog({ id, startRecording, panel, onPanelChange, o
               </EmptyHeader>
               {loan.active && <EmptyContent>
                 <Button type="button" size="sm"
-                  onClick={() => { setNotice(""); setRecording(true); onPanelChange("overview"); }}>Record balance</Button>
+                  onClick={() => { setRecording(true); onPanelChange("overview"); }}>Record balance</Button>
               </EmptyContent>}
             </Empty>}
             {(page > 1 || detail.statements.hasMore) && <nav aria-label="Statement history pages" className="flex items-center justify-end gap-2">

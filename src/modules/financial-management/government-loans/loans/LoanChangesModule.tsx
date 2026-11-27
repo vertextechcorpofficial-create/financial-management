@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { History, SearchX } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,23 +32,21 @@ function ChangeReview({ id, onSaved }: { id: number; onSaved: () => void }) {
   const [refresh, setRefresh] = useState(0);
   const [selectedKind, setKind] = useState<ChangeKind>("AMORTIZATION");
   const [reversal, setReversal] = useState<number>();
-  const [notice, setNotice] = useState("");
   const command = useLifecycleCommand();
   const url = loansApi + "/changes/" + id;
   const loaded = useLifecycleRead<ChangeDetail>(url, refresh);
   const reload = () => setRefresh(value => value + 1);
   const data = loaded?.data;
-  if (!data) return <div className="space-y-3" aria-busy="true">
-    <p role={loaded?.error ? "alert" : "status"} className="text-sm text-muted-foreground">
-      {loaded?.error ?? "Loading loan changes…"}
-    </p>
-    {loaded?.error && <Button variant="outline" size="sm" onClick={reload}>Retry</Button>}
-    {!loaded?.error && <DetailSkeleton />}
-  </div>;
+  if (!data) return loaded?.error
+    ? <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+      <span className="min-w-0 flex-1">{loaded.error}</span>
+      <Button variant="outline" size="sm" onClick={reload}>Retry</Button>
+    </div>
+    : <DetailSkeleton />;
   const { loan, history, statements, openMonth, businessDate } = data;
   const canChangeTerms = loan.active && loan.status !== "FINAL_PAY_REQUESTED";
   const kind = canChangeTerms ? selectedKind : "REFUND";
-  const saved = () => { setNotice("Loan updated."); setReversal(undefined); reload(); onSaved(); };
+  const saved = () => { toast.success("Loan updated."); setReversal(undefined); reload(); onSaved(); };
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,8 +75,6 @@ function ChangeReview({ id, onSaved }: { id: number; onSaved: () => void }) {
       <span className="text-muted-foreground">Monthly amortization {peso(loan.amortization)}</span>
     </div>
     {data.finalPay && <p className="text-sm">Final pay withheld {peso(data.finalPay.withheld)} · Unpaid agency balance {peso(data.finalPay.unpaid)}</p>}
-    {notice && <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p>}
-    {command.error && <p role="alert" className="text-sm text-destructive">{command.error} <Button size="sm" variant="outline" onClick={reload}>Reload loan</Button></p>}
     <form key={loan.revision + ":" + kind + ":" + reversal} onSubmit={event => void submit(event)} className="space-y-3 rounded-md border p-3">
       {reversal ? <label className="block text-sm">Reason for reversing change #{reversal}<Textarea name="reason" required maxLength={500} /></label> :
         <><div className="flex flex-wrap gap-3">
@@ -142,7 +139,7 @@ function ChangeReview({ id, onSaved }: { id: number; onSaved: () => void }) {
                   const file = event.target.files?.[0];
                   if (file && file.size <= 8192) void file.text().then(csv => command.run(url + "?exchange=1",
                     { kind: "IMPORT", expectedRevision: loan.revision, instructionId: row.id, csv }, saved));
-                  else if (file) setNotice("Choose an acknowledgement CSV under 8 KB.");
+                  else if (file) toast.error("Choose an acknowledgement CSV under 8 KB.");
                   event.target.value = "";
                 }} /></label>
             </>}

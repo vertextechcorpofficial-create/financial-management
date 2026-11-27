@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { MessageSquareWarning } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -10,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
-import { EmptyState, PersonAvatar, StatusChip } from "../components/ui";
+import { EmptyState, DetailSkeleton, PersonAvatar, StatusChip } from "../components/ui";
 import { disputeLabels, nextDisputeStatus, type DisputeStatus } from "./lifecycle";
 import { loansApi, useLifecycleCommand, useLifecycleRead } from "./lifecycle-client";
 
@@ -30,8 +31,21 @@ function Filing({ saved }: { saved: (reference: string) => void }) {
   const command = useLifecycleCommand();
   const [refresh, setRefresh] = useState(0);
   const loaded = useLifecycleRead<{ month: string; loans: { id: number; reference: string; agency: string }[] }>(ownEndpoint + "?filing=1", refresh);
-  if (!loaded?.data) return <p role={loaded?.error ? "alert" : "status"}>{loaded?.error ?? "Loading your loans…"}
-    {loaded?.error && <Button size="sm" variant="outline" onClick={() => setRefresh(value => value + 1)}>Retry</Button>}</p>;
+  if (!loaded?.data) return <div className="space-y-2">
+    {loaded?.error ? <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+      <span className="min-w-0 flex-1">{loaded.error}</span>
+      <Button size="sm" variant="outline" onClick={() => setRefresh(value => value + 1)}>Retry</Button>
+    </div> : <div className="space-y-3 rounded-md border p-3" aria-busy="true" aria-label="Loading dispute form">
+      <Skeleton className="h-5 w-40" />
+      <div className="flex flex-wrap gap-2">
+        <Skeleton className="h-9 w-48" />
+        <Skeleton className="h-9 w-40" />
+      </div>
+      <Skeleton className="h-20 w-full" />
+      <Skeleton className="h-9 w-full max-w-64" />
+      <Skeleton className="h-8 w-28" />
+    </div>}
+  </div>;
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await command.run(ownEndpoint, new FormData(event.currentTarget), async response => saved((await response.json() as Dispute).reference));
@@ -44,7 +58,6 @@ function Filing({ saved }: { saved: (reference: string) => void }) {
     </div>
     <label className="block text-sm">What happened?<Textarea name="description" required maxLength={1500} /></label>
     <label className="block text-sm">Evidence (optional)<Input name="attachment" type="file" accept=".pdf,.png,.jpg,.jpeg" /></label>
-    {command.error && <p role="alert" className="text-destructive">{command.error}</p>}
     <Button disabled={command.busy || !loaded.data.loans.length}>File dispute</Button>
   </form>;
 }
@@ -57,13 +70,12 @@ function DisputeReview({ endpoint, reference, self, onSaved }: { endpoint: strin
   const result = useLifecycleRead<{ dispute: Dispute; history: Dispute[]; hasMore: boolean; evidence: Evidence | null }>(
     endpoint + "?" + query, refresh);
   const reload = () => setRefresh(value => value + 1);
-  if (!result?.data) return <div className="space-y-2 rounded-md border p-4" aria-busy="true">
-    <p role={result?.error ? "alert" : "status"} className="text-sm text-muted-foreground">
-      {result?.error ?? "Loading dispute…"}
-    </p>
-    {result?.error && <Button size="sm" variant="outline" onClick={reload}>Retry</Button>}
-    {!result?.error && <><Skeleton className="h-5 w-40" /><Skeleton className="h-24 w-full" /><Skeleton className="h-32 w-full" /></>}
-  </div>;
+  if (!result?.data) return result?.error
+    ? <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+      <span className="min-w-0 flex-1">{result.error}</span>
+      <Button size="sm" variant="outline" onClick={reload}>Retry</Button>
+    </div>
+    : <DetailSkeleton />;
   const { dispute, history, hasMore, evidence } = result.data;
   const next = nextDisputeStatus[dispute.status];
   return <div className="space-y-3 rounded-md border p-4">
@@ -105,11 +117,12 @@ function DisputeReview({ endpoint, reference, self, onSaved }: { endpoint: strin
     {!self && next && <form key={dispute.revision} className="space-y-2" onSubmit={event => {
       event.preventDefault();
       const note = new FormData(event.currentTarget).get("note");
-      void command.run(endpoint, { reference, revision: dispute.revision, status: next, note }, () => { reload(); onSaved(); });
+      void command.run(endpoint, { reference, revision: dispute.revision, status: next, note }, () => {
+        toast.success(next === "IN_PROGRESS" ? "Dispute review started." : "Dispute resolved.");
+        reload(); onSaved();
+      });
     }}>
       <label className="block text-sm">Status note<Textarea name="note" required maxLength={1000} /></label>
-      {command.error && <p role="alert" className="text-destructive">{command.error} <Button size="sm" variant="outline"
-        type="button" onClick={reload}>Reload dispute</Button></p>}
       <Button disabled={command.busy}>{next === "IN_PROGRESS" ? "Start review" : "Resolve dispute"}</Button>
     </form>}
   </div>;
@@ -150,7 +163,10 @@ export function PostingDisputesModule({ self = false, initialFiling = false }: {
       {self && <Button size="sm" variant="outline" onClick={() => setFiling(value => !value)}>{filing ? "Close form" : "Report a posting problem"}</Button>}
     </header>
 
-    {filing && <Filing saved={reference => { setSelected(reference); setFiling(false); setServerPage(1); reload(); }} />}
+    {filing && <Filing saved={reference => {
+      toast.success(`Dispute ${reference} filed.`);
+      setSelected(reference); setFiling(false); setServerPage(1); reload();
+    }} />}
 
     <div className="flex flex-wrap items-center gap-2">
       <Input className="w-full sm:max-w-xs" value={search} maxLength={120} placeholder="Employee, dispute, or loan…"
