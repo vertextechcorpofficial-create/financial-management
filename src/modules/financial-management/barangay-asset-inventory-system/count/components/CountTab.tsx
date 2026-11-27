@@ -328,13 +328,13 @@ function CountSheet({
   async function act(body: Record<string, unknown>) {
     try {
       setError(null);
-      await call("/counts/" + countId + "/actions", {
+      const updated = await call("/counts/" + countId + "/actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      // the action returns one line, not the sheet: reload so the summary and the rows agree
-      await load();
+      // the action returns the whole sheet already, so rendering it beats fetching it again
+      if (updated && updated.count) setDetail(updated);
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

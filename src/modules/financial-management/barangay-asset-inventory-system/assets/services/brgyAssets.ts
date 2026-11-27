@@ -1,4 +1,4 @@
-import { bool, enc, get, list, num, patch, post, text } from "../../shared/api";
+import { bool, enc, forget, get, list, memo, num, patch, post, text } from "../../shared/api";
 import { officeDate } from "../../shared/dates";
 import type {
   Brgy,
@@ -58,6 +58,12 @@ export interface BrgyLookups {
 }
 
 export async function fetchLookups(barangayId?: number | null): Promise<BrgyLookups> {
+  // five minutes: barangays, classifications, item types, offices, custodians and settings are
+  // edited from two screens behind the System Admin, and every screen needs them to show a name
+  return memo<BrgyLookups>("lookups:" + (barangayId ?? "all"), 5 * 60_000, () => loadLookups(barangayId));
+}
+
+async function loadLookups(barangayId?: number | null): Promise<BrgyLookups> {
   const officeFilter = barangayId ? "&filter=" + enc({ barangay_id: { _eq: barangayId } }) : "";
   const custodianFilter = officeFilter;
   const [barangays, classifications, itemTypes, offices, custodians, settings] = await Promise.all([
@@ -432,6 +438,8 @@ export async function recordHistory(
   actor: string | null,
   remarks?: string | null
 ): Promise<void> {
+  // every mutation passes through here, so the remembered asset list is dropped exactly here
+  forget("countAssets:");
   await post("/items/brgy_asset_history", {
     asset_id: assetId,
     action,
@@ -592,6 +600,8 @@ export async function updateSettings(input: {
   };
   if (rows?.length) await patch("/items/brgy_settings/" + rows[0].id, body);
   else await post("/items/brgy_settings", body);
+  // the saved rates must be the ones the next screen reads back
+  forget("lookups:");
   const lookups = await fetchLookups();
   return lookups.settings as BrgySettings;
 }

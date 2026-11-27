@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { enc, get } from "./api";
+import { enc, get, memo } from "./api";
 import type { BrgyRole } from "../types";
 
 /**
@@ -87,10 +87,15 @@ export async function resolveAccess(): Promise<Access> {
     const or: Record<string, unknown>[] = [];
     if (email) or.push({ user_email: { _icontains: email } });
     if (hasNumericId) or.push({ user_id: { _eq: numericId } });
-    const rows = await get<{ user_email: string | null; role: string; barangay_id: number | null }[]>(
-      "/items/brgy_user_role?filter=" + enc({ _and: [{ _or: or }, { status: { _eq: "active" } }] }) +
-        "&fields=user_email,role,barangay_id&limit=20"
-    ).catch(() => []);
+    // 60 seconds: this query runs in front of every request in the module, and a role
+    // change taking a minute to land is a fair trade for removing a hop from all of them
+    const roleKey = "roles:" + (email ?? "id:" + numericId);
+    const rows = await memo<{ user_email: string | null; role: string; barangay_id: number | null }[]>(roleKey, 60_000, () =>
+      get<{ user_email: string | null; role: string; barangay_id: number | null }[]>(
+        "/items/brgy_user_role?filter=" + enc({ _and: [{ _or: or }, { status: { _eq: "active" } }] }) +
+          "&fields=user_email,role,barangay_id&limit=20"
+      ).catch(() => [])
+    );
     const wanted = (email ?? "").toLowerCase();
     const matched = (rows ?? []).filter((r) => (wanted ? (r.user_email ?? "").trim().toLowerCase() === wanted : true));
     const held = matched.map((r) => r.role as BrgyRole).filter((r) => Boolean(MATRIX[r]));
