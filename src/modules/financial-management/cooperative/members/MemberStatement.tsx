@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Loader2 } from "lucide-react";
+import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -97,11 +97,28 @@ export function MemberStatement({ userId }: { userId: number }) {
             <Button type="button" variant="outline" size="sm" onClick={() => setAttempt(value => value + 1)}>Retry</Button>
           </div>
         )}
-        {loading && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading statement…</p>}
+        {loading && <StatementSkeleton />}
         {statement && <StatementBody statement={statement} onRetry={() => setAttempt(value => value + 1)} />}
       </div>
     </Panel>
   );
+}
+
+function StatementSkeleton() {
+  return <div className="space-y-4 rounded-lg border p-3 sm:p-4" aria-busy="true">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+      <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+      <div className="h-4 w-36 animate-pulse rounded bg-muted" />
+    </div>
+    <div className="grid gap-3 sm:grid-cols-2">
+      {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-4 w-full animate-pulse rounded bg-muted/70" />)}
+    </div>
+    <div className="space-y-2">
+      <div className="h-9 w-full animate-pulse rounded bg-muted/60" />
+      {Array.from({ length: 6 }, (_, index) => <div key={index} className="h-9 w-full animate-pulse rounded bg-muted/40" />)}
+    </div>
+    <p role="status" className="sr-only">Loading statement…</p>
+  </div>;
 }
 
 function StatementBody({ statement, onRetry }: { statement: Statement; onRetry: () => void }) {

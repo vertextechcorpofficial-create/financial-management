@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Download, ExternalLink, FileText, FolderOpen, Loader2, Trash2, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ type DocumentType = MemberDocumentList["documentTypes"][number];
 
 export function CooperativeDocuments({
   endpoint,
+  initial,
   required,
   uploadTypes,
   requirementSource = "The document rules come from Policies.",
@@ -26,6 +27,7 @@ export function CooperativeDocuments({
   renderFileAction,
 }: {
   endpoint: string;
+  initial?: MemberDocumentList;
   required: DocumentRequirement[];
   uploadTypes?: DocumentType[];
   requirementSource?: string;
@@ -42,8 +44,11 @@ export function CooperativeDocuments({
   const [filter, setFilter] = useState<DocumentType>();
   const [page, setPage] = useState(1);
   const [attempt, setAttempt] = useState(0);
-  const [loaded, setLoaded] = useState<{ query: string; attempt: number; result?: MemberDocumentList; error?: string }>();
-  const [onFile, setOnFile] = useState<DocumentType[]>();
+  const [loaded, setLoaded] = useState<{ query: string; attempt: number; result?: MemberDocumentList; error?: string } | undefined>(
+    () => initial ? { query: "page=1", attempt: 0, result: initial } : undefined,
+  );
+  const [onFile, setOnFile] = useState<DocumentType[] | undefined>(initial?.documentTypes);
+  const seededQuery = useRef<string | null>(initial ? "page=1" : null);
   const [busy, setBusy] = useState<"upload" | "remove">();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -57,6 +62,7 @@ export function CooperativeDocuments({
   const uploadType = allowedTypes.has(Number(documentTypeId)) ? documentTypeId : "";
 
   useEffect(() => {
+    if (seededQuery.current !== null && query === seededQuery.current && attempt === 0) return;
     const controller = new AbortController();
     memberFetch<MemberDocumentList>(endpoint + "?" + query, { signal: controller.signal })
       .then(result => {
@@ -307,7 +313,14 @@ export function CooperativeDocuments({
             </TableHeader>
             <TableBody>
               {!current && (
-                <TableRow><TableCell colSpan={4}><p role="status" className="p-2 text-sm text-muted-foreground">Loading documents…</p></TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={4}>
+                    <p role="status" className="sr-only">Loading documents…</p>
+                    <div className="space-y-2 py-1" aria-hidden="true">
+                      {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-8 w-full animate-pulse rounded bg-muted/40" />)}
+                    </div>
+                  </TableCell>
+                </TableRow>
               )}
               {current?.result && documents.length === 0 && (
                 <TableRow>

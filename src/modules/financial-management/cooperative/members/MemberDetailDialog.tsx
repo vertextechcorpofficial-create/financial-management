@@ -20,6 +20,7 @@ import {
 import type { MemberDetail, SavingsEntry } from "./types";
 
 const tabTriggerClass = "shrink-0 gap-1.5 whitespace-nowrap data-[state=active]:bg-background";
+const tabPanelClass = "mt-4 min-h-[34rem]";
 const amountLabel = (value: string | null) => value === null ? "Unavailable" : peso(value);
 
 export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
@@ -31,6 +32,8 @@ export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  const [activeTab, setActiveTab] = useState("summary");
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(["summary"]));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -67,6 +70,21 @@ export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
     ? "Closed"
     : withdrawalBalance ? peso(withdrawalBalance.availableSavings) : withdrawalPlaceholder;
   const retry = () => setAttempt(value => value + 1);
+  const openTab = (value: string) => {
+    setActiveTab(value);
+    setVisitedTabs(tabs => tabs.has(value) ? tabs : new Set(tabs).add(value));
+  };
+  const prefetchTab = (value: string) => {
+    setVisitedTabs(tabs => tabs.has(value) ? tabs : new Set(tabs).add(value));
+  };
+  const documentSeed = current && detail ? (() => {
+    const active = detail.documents.filter(document => !document.removedAt)
+      .sort((left, right) => right.uploadedAt.localeCompare(left.uploadedAt) || right.id.localeCompare(left.id));
+    const types = [...new Map(active.map(document => [document.documentTypeId, {
+      id: document.documentTypeId, name: document.documentTypeName,
+    }])).values()].sort((left, right) => left.name.localeCompare(right.name));
+    return { items: active.slice(0, 50), documentTypes: types, hasMore: active.length > 50 };
+  })() : undefined;
 
   return (
     <ConsoleDialog
@@ -100,17 +118,19 @@ export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
         </div>
       )}
       {detail && item && (
-        <Tabs defaultValue="summary" className="w-full min-w-0">
+        <Tabs value={activeTab} onValueChange={openTab} className="w-full min-w-0">
           <TabsList className="flex h-auto w-full max-w-full min-w-0 justify-start gap-1 overflow-x-auto rounded-lg bg-muted/50 p-1">
             <TabsTrigger value="summary" className={tabTriggerClass}><LayoutDashboard className="size-3.5" /> Summary</TabsTrigger>
-            {current && <TabsTrigger value="statement" className={tabTriggerClass}><FileText className="size-3.5" /> Statement</TabsTrigger>}
+            {current && <TabsTrigger value="statement" className={tabTriggerClass}
+              onPointerEnter={() => prefetchTab("statement")} onFocus={() => prefetchTab("statement")}>
+              <FileText className="size-3.5" /> Statement</TabsTrigger>}
             {current && <TabsTrigger value="savings" className={tabTriggerClass}><Wallet className="size-3.5" /> Savings</TabsTrigger>}
             {current && <TabsTrigger value="documents" className={tabTriggerClass}><FolderClosed className="size-3.5" /> Documents</TabsTrigger>}
             <TabsTrigger value="loans" className={tabTriggerClass}><HandCoins className="size-3.5" /> Loans</TabsTrigger>
             {current && <TabsTrigger value="takehome" className={tabTriggerClass}><Calculator className="size-3.5" /> Take-home</TabsTrigger>}
           </TabsList>
 
-          <TabsContent value="summary" className="mt-4 space-y-4">
+          <TabsContent value="summary" forceMount hidden={activeTab !== "summary"} className={`${tabPanelClass} space-y-4`}>
             <div className="grid gap-3 sm:grid-cols-3">
               <MetricCard
                 icon={Wallet}
@@ -195,11 +215,14 @@ export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
             )}
           </TabsContent>
 
-          <TabsContent value="statement" className="mt-4">
-            {current && <MemberStatement userId={item.userId} />}
-          </TabsContent>
+          {current && visitedTabs.has("statement") && (
+            <TabsContent value="statement" forceMount hidden={activeTab !== "statement"} className={tabPanelClass}>
+              <MemberStatement userId={item.userId} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="savings" className="mt-4 space-y-4">
+          {current && visitedTabs.has("savings") && (
+            <TabsContent value="savings" forceMount hidden={activeTab !== "savings"} className={`${tabPanelClass} space-y-4`}>
             <Panel
               title="Savings ledger"
               description="Posted savings movement for this membership."
@@ -225,12 +248,14 @@ export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
                 {!error && <WithdrawalNotice source={withdrawals} onRetry={retry} />}
               </Panel>
             )}
-          </TabsContent>
+            </TabsContent>
+          )}
 
-          <TabsContent value="documents" className="mt-4">
-            {current ? (
+          {current && visitedTabs.has("documents") && (
+            <TabsContent value="documents" forceMount hidden={activeTab !== "documents"} className={tabPanelClass}>
               <CooperativeDocuments
                 endpoint={"/api/fm/cooperative/members/" + item.userId + "/documents"}
+                initial={documentSeed}
                 required={detail.requiredDocuments}
                 storageReady={detail.documentStorageReady}
                 canEdit={current.status === "ACTIVE"}
@@ -239,16 +264,17 @@ export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
                   onDocumentsChanged();
                 }}
               />
-            ) : (
-              <EmptyState>Documents apply to current memberships.</EmptyState>
-            )}
-          </TabsContent>
+            </TabsContent>
+          )}
 
-          <TabsContent value="loans" className="mt-4">
-            <MemberLoans userId={userId} loans={detail.loans} onRetry={() => setAttempt(value => value + 1)} />
-          </TabsContent>
+          {visitedTabs.has("loans") && (
+            <TabsContent value="loans" forceMount hidden={activeTab !== "loans"} className={tabPanelClass}>
+              <MemberLoans userId={userId} loans={detail.loans} onRetry={() => setAttempt(value => value + 1)} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="takehome" className="mt-4 space-y-4">
+          {current && visitedTabs.has("takehome") && (
+            <TabsContent value="takehome" forceMount hidden={activeTab !== "takehome"} className={`${tabPanelClass} space-y-4`}>
             <div className="grid gap-3 sm:grid-cols-3">
               <MetricCard
                 icon={Wallet}
@@ -295,7 +321,8 @@ export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
                 <p className="text-sm text-amber-700 dark:text-amber-300">{detail.payroll.message}</p>
               )}
             </Panel>
-          </TabsContent>
+            </TabsContent>
+          )}
         </Tabs>
       )}
     </ConsoleDialog>
