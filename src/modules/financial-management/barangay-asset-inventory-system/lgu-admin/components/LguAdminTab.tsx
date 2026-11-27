@@ -130,7 +130,7 @@ function ReferenceCard({
       {hint ? <div className="mt-1 text-sm text-muted-foreground">{hint}</div> : null}
       {canEdit ? null : (
         <div className="mt-1 text-xs text-muted-foreground">
-          Read only for your role. Table 5 keeps the lists with the System Admin.
+          Read only for your role. The System Admin keeps these lists.
         </div>
       )}
       {canEdit ? (
