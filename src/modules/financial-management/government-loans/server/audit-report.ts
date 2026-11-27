@@ -6,7 +6,7 @@ import {
   GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_AGENCY_HISTORY, GOVERNMENT_LOAN_BILLING_REVISIONS, GOVERNMENT_LOAN_CLOSES,
   GOVERNMENT_LOAN_IMPORT_BATCHES, GOVERNMENT_LOAN_PAYROLL_RECEIPTS, GOVERNMENT_LOAN_REMITTANCE_BATCHES,
   GOVERNMENT_LOAN_REMITTANCE_DECISIONS, GOVERNMENT_LOAN_REMITTANCES, GOVERNMENT_LOAN_REQUEST_HISTORY,
-  GOVERNMENT_LOAN_STAFF_EVENTS, type GovernmentLoansCollection,
+  GOVERNMENT_LOAN_SETUP_EVENTS, GOVERNMENT_LOAN_STAFF_EVENTS, type GovernmentLoansCollection,
 } from "./directus";
 import { readEnrollmentRows, readGroups } from "./enrollment-sources";
 import { isoDateTime, referenceFor } from "./loan-requests";
@@ -126,6 +126,21 @@ const sources: Source[] = [
     fields: ["month", "next_month", "reason", "checklist"],
     normalize: row => ({ action: "PERIOD_CLOSED", references: textList(scalar(row.month), scalar(row.next_month)),
       details: textList(field("Next open month", row.next_month), field("Open items", values(row.checklist).openItemCount), reason(row)) }) },
+  { collection: GOVERNMENT_LOAN_SETUP_EVENTS, time: "recorded_at", actor: "actor_name", actorId: "actor_id", role: "actor_role",
+    fields: ["action", "month", "previous_month", "detail"],
+    normalize: row => {
+      const detail = values(row.detail);
+      const actions: Record<string, string> = { INITIALIZE_PERIOD: "PERIOD_INITIALIZED", CHANGE_PERIOD: "PERIOD_CHANGED",
+        SAVE_CONTRACT: "PAYROLL_COVERAGE_SAVED", CLEAR_CONTRACT: "PAYROLL_COVERAGE_CLEARED" };
+      const action = actions[scalar(row.action)];
+      return { action: action ?? scalar(row.action),
+        references: textList(scalar(row.month), scalar(row.previous_month), scalar(detail.approvalReference),
+          ...list(detail.runIds).map(scalar)),
+        details: textList(field("Previous month", row.previous_month), field("New month", row.month), reason(detail),
+          field("Payroll approval", detail.approvalReference), field("Cutoffs", list(detail.cutoffs).length),
+          field("Payroll runs", list(detail.runIds).length), field("Withholding controls", detail.controls),
+          field("File", detail.fileName)) };
+    } },
   { collection: GOVERNMENT_LOAN_STAFF_EVENTS, time: "recorded_at", actor: "actor_name", actorId: "actor_id", role: "actor_role",
     fields: ["kind", "reference", "loan_id", "employee_id", "revision", "status", "detail"],
     normalize: row => ({ action: "STAFF_" + scalar(row.kind) + "_" + scalar(row.status),
@@ -150,6 +165,7 @@ const sourceActions: Partial<Record<GovernmentLoansCollection, string[]>> = {
   [GOVERNMENT_LOAN_REMITTANCE_BATCHES]: ["REMITTANCE_PREPARED"],
   [GOVERNMENT_LOAN_REMITTANCE_DECISIONS]: ["REMITTANCE_APPROVED", "REMITTANCE_RETURNED", "BULK_REMITTANCE_STARTED", "BULK_REMITTANCE_COMPLETED"],
   [GOVERNMENT_LOAN_CLOSES]: ["PERIOD_CLOSED"],
+  [GOVERNMENT_LOAN_SETUP_EVENTS]: ["PERIOD_INITIALIZED", "PERIOD_CHANGED", "PAYROLL_COVERAGE_SAVED", "PAYROLL_COVERAGE_CLEARED"],
   [GOVERNMENT_LOAN_STAFF_EVENTS]: ["STAFF_DECLARATION_DECLARED", "STAFF_CLEARANCE_ISSUED",
     "STAFF_DISPUTE_OPEN", "STAFF_DISPUTE_IN_PROGRESS", "STAFF_DISPUTE_RESOLVED"],
   [GOVERNMENT_LOAN_IMPORT_BATCHES]: ["ENROLLMENT_IMPORTED"],

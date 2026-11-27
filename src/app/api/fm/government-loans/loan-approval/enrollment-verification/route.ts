@@ -5,5 +5,5 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export function GET(request: Request) {
-  return withLoanRequestAccess("loan-approval", actor => listEnrollmentVerification(new URL(request.url).searchParams, actor));
+  return withLoanRequestAccess("loan-approval", () => listEnrollmentVerification(new URL(request.url).searchParams));
 }

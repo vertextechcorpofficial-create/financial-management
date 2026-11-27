@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Badge } from "@/components/ui/badge";
+import { MessageSquareWarning } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { date, dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, DetailSkeleton, PersonAvatar, StatusChip } from "../components/ui";
 import { disputeLabels, nextDisputeStatus, type DisputeStatus } from "./lifecycle";
 import { loansApi, useLifecycleCommand, useLifecycleRead } from "./lifecycle-client";
 
@@ -25,17 +26,26 @@ type Dispute = { reference: string; employee: string; loanId: number; loanRefere
 const ownEndpoint = "/api/fm/government-loans/my-loans/disputes";
 const shortRef = (value: string) => "DS-" + value.slice(0, 8).toUpperCase();
 const deductionLabel: Record<DeductionStatus, string> = { D: "Deducted", P: "Partial", F: "Not deducted", X: "Final pay" };
-const statusTone = (status: DisputeStatus) => status === "RESOLVED"
-  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-  : status === "IN_PROGRESS" ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300"
-  : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300";
 
 function Filing({ saved }: { saved: (reference: string) => void }) {
   const command = useLifecycleCommand();
   const [refresh, setRefresh] = useState(0);
   const loaded = useLifecycleRead<{ month: string; loans: { id: number; reference: string; agency: string }[] }>(ownEndpoint + "?filing=1", refresh);
-  if (!loaded?.data) return <p role={loaded?.error ? "alert" : "status"}>{loaded?.error ?? "Loading your loans…"}
-    {loaded?.error && <Button size="sm" variant="outline" onClick={() => setRefresh(value => value + 1)}>Retry</Button>}</p>;
+  if (!loaded?.data) return <div className="space-y-2">
+    {loaded?.error ? <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+      <span className="min-w-0 flex-1">{loaded.error}</span>
+      <Button size="sm" variant="outline" onClick={() => setRefresh(value => value + 1)}>Retry</Button>
+    </div> : <div className="space-y-3 rounded-md border p-3" aria-busy="true" aria-label="Loading dispute form">
+      <Skeleton className="h-5 w-40" />
+      <div className="flex flex-wrap gap-2">
+        <Skeleton className="h-9 w-48" />
+        <Skeleton className="h-9 w-40" />
+      </div>
+      <Skeleton className="h-20 w-full" />
+      <Skeleton className="h-9 w-full max-w-64" />
+      <Skeleton className="h-8 w-28" />
+    </div>}
+  </div>;
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await command.run(ownEndpoint, new FormData(event.currentTarget), async response => saved((await response.json() as Dispute).reference));
@@ -48,7 +58,6 @@ function Filing({ saved }: { saved: (reference: string) => void }) {
     </div>
     <label className="block text-sm">What happened?<Textarea name="description" required maxLength={1500} /></label>
     <label className="block text-sm">Evidence (optional)<Input name="attachment" type="file" accept=".pdf,.png,.jpg,.jpeg" /></label>
-    {command.error && <p role="alert" className="text-destructive">{command.error}</p>}
     <Button disabled={command.busy || !loaded.data.loans.length}>File dispute</Button>
   </form>;
 }
@@ -61,19 +70,18 @@ function DisputeReview({ endpoint, reference, self, onSaved }: { endpoint: strin
   const result = useLifecycleRead<{ dispute: Dispute; history: Dispute[]; hasMore: boolean; evidence: Evidence | null }>(
     endpoint + "?" + query, refresh);
   const reload = () => setRefresh(value => value + 1);
-  if (!result?.data) return <div className="space-y-2 rounded-md border p-4" aria-busy="true">
-    <p role={result?.error ? "alert" : "status"} className="text-sm text-muted-foreground">
-      {result?.error ?? "Loading dispute…"}
-    </p>
-    {result?.error && <Button size="sm" variant="outline" onClick={reload}>Retry</Button>}
-    {!result?.error && <><Skeleton className="h-5 w-40" /><Skeleton className="h-24 w-full" /><Skeleton className="h-32 w-full" /></>}
-  </div>;
+  if (!result?.data) return result?.error
+    ? <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+      <span className="min-w-0 flex-1">{result.error}</span>
+      <Button size="sm" variant="outline" onClick={reload}>Retry</Button>
+    </div>
+    : <DetailSkeleton />;
   const { dispute, history, hasMore, evidence } = result.data;
   const next = nextDisputeStatus[dispute.status];
   return <div className="space-y-3 rounded-md border p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h3 className="font-semibold">{shortRef(reference)}</h3>
-      <Badge variant="outline" className={statusTone(dispute.status)}>{disputeLabels[dispute.status]}</Badge>
+      <StatusChip status={dispute.status} label={disputeLabels[dispute.status]} />
     </div>
     <p className="text-sm text-muted-foreground">{dispute.employee} · {dispute.loanReference} · {dispute.month}</p>
     <p className="whitespace-pre-wrap text-sm">{dispute.description}</p>
@@ -109,19 +117,20 @@ function DisputeReview({ endpoint, reference, self, onSaved }: { endpoint: strin
     {!self && next && <form key={dispute.revision} className="space-y-2" onSubmit={event => {
       event.preventDefault();
       const note = new FormData(event.currentTarget).get("note");
-      void command.run(endpoint, { reference, revision: dispute.revision, status: next, note }, () => { reload(); onSaved(); });
+      void command.run(endpoint, { reference, revision: dispute.revision, status: next, note }, () => {
+        toast.success(next === "IN_PROGRESS" ? "Dispute review started." : "Dispute resolved.");
+        reload(); onSaved();
+      });
     }}>
       <label className="block text-sm">Status note<Textarea name="note" required maxLength={1000} /></label>
-      {command.error && <p role="alert" className="text-destructive">{command.error} <Button size="sm" variant="outline"
-        type="button" onClick={reload}>Reload dispute</Button></p>}
       <Button disabled={command.busy}>{next === "IN_PROGRESS" ? "Start review" : "Resolve dispute"}</Button>
     </form>}
   </div>;
 }
 
-export function PostingDisputesModule({ self = false }: { self?: boolean }) {
+export function PostingDisputesModule({ self = false, initialFiling = false }: { self?: boolean; initialFiling?: boolean }) {
   const endpoint = self ? ownEndpoint : loansApi + "/disputes";
-  const [filing, setFiling] = useState(false);
+  const [filing, setFiling] = useState(initialFiling);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [selected, setSelected] = useState<string>();
@@ -154,7 +163,10 @@ export function PostingDisputesModule({ self = false }: { self?: boolean }) {
       {self && <Button size="sm" variant="outline" onClick={() => setFiling(value => !value)}>{filing ? "Close form" : "Report a posting problem"}</Button>}
     </header>
 
-    {filing && <Filing saved={reference => { setSelected(reference); setFiling(false); setServerPage(1); reload(); }} />}
+    {filing && <Filing saved={reference => {
+      toast.success(`Dispute ${reference} filed.`);
+      setSelected(reference); setFiling(false); setServerPage(1); reload();
+    }} />}
 
     <div className="flex flex-wrap items-center gap-2">
       <Input className="w-full sm:max-w-xs" value={search} maxLength={120} placeholder="Employee, dispute, or loan…"
@@ -188,16 +200,19 @@ export function PostingDisputesModule({ self = false }: { self?: boolean }) {
               {visible.map(dispute => <TableRow key={dispute.reference} className={cn("cursor-pointer", selected === dispute.reference && "bg-muted/60")}
                 onClick={() => setSelected(dispute.reference)}>
                 <TableCell className="font-mono text-xs">{shortRef(dispute.reference)}</TableCell>
-                <TableCell>{dispute.employee}</TableCell>
+                <TableCell>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <PersonAvatar name={dispute.employee} size="sm" />
+                    <span className="truncate font-medium">{dispute.employee}</span>
+                  </div>
+                </TableCell>
                 <TableCell className="font-mono text-xs">{dispute.loanReference}</TableCell>
                 <TableCell>{dispute.month}</TableCell>
                 <TableCell>{date(dispute.recordedAt)}</TableCell>
-                <TableCell><Badge variant="outline" className={statusTone(dispute.status)}>{disputeLabels[dispute.status]}</Badge></TableCell>
+                <TableCell><StatusChip status={dispute.status} label={disputeLabels[dispute.status]} /></TableCell>
               </TableRow>)}
               {result?.data && !visible.length && <TableRow><TableCell colSpan={6} className="p-0">
-                <Empty className="border-0"><EmptyHeader><EmptyMedia variant="icon"><span>💬</span></EmptyMedia>
-                  <EmptyTitle>No disputes match</EmptyTitle><EmptyDescription>Try a different search or status.</EmptyDescription>
-                </EmptyHeader></Empty>
+                <EmptyState icon={MessageSquareWarning} title="No disputes match" description="Try a different search or status." />
               </TableCell></TableRow>}
             </TableBody>
           </Table>

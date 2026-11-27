@@ -15,7 +15,8 @@ import { enrollmentTerms, readOpenMonth } from "./loan-enrollment";
 import { readEnrollmentRows } from "./enrollment-sources";
 import { isoDateTime, referenceFor } from "./loan-requests";
 import { readRegisterRenewals } from "./payroll-handoff-store";
-import { payrollCoveredThrough, readApprovedScheduleChanges, readLatestLoanPayroll, readLatestReceipts } from "./payroll-month-store";
+import { payrollCoveredThrough, readApprovedScheduleChanges, readLatestLoanPayroll, readLatestReceipts,
+  type PayrollReceipt } from "./payroll-month-store";
 import { flag, LoanRequestError, pageNumber, parseInput, positiveId } from "./request-input";
 
 export const statementAmount = /^\d{1,13}(\.\d{1,2})?$/;
@@ -73,11 +74,15 @@ async function referenceRows<T>(collection: "user" | "department" | typeof GOVER
 
 type Enrolled = z.output<typeof enrolledRow>;
 
-async function schedules(rows: Enrolled[], month: string) {
+async function schedules(rows: Enrolled[], month: string, loadedReceipts?: ReadonlyMap<string, PayrollReceipt>) {
+  const firstMonth = rows.map(row => row.enrollment.firstDeductionMonth).sort()[0];
+  const scopedReceipts = loadedReceipts
+    ? new Map([...loadedReceipts].filter(([receiptMonth]) => receiptMonth >= firstMonth))
+    : undefined;
   const [agencies, renewals, receipts, changes] = await Promise.all([
     referenceRows(GOVERNMENT_LOAN_AGENCIES, agencyRow, "id,full_name,catch_up", "id", rows.map(row => row.agency_id)),
     readRegisterRenewals(rows.flatMap(row => row.payroll_loan_id === null ? [] : [row.payroll_loan_id])),
-    readLatestReceipts(rows.map(row => row.enrollment.firstDeductionMonth).sort()[0], month),
+    scopedReceipts ?? readLatestReceipts(firstMonth, month),
     readApprovedScheduleChanges(rows.map(row => row.id)),
   ]);
   const deductions = await readLatestLoanPayroll(rows.map(row => row.id), receipts);
@@ -105,12 +110,13 @@ async function schedules(rows: Enrolled[], month: string) {
 
 export async function readMonthlyLoanSchedules(month: string, employeeId?: number) {
   const result: Awaited<ReturnType<typeof schedules>> = [];
+  const receipts = await readLatestReceipts("1000-01", month);
   for (let beforeId: number | null = null; ; ) {
     const rows: Enrolled[] = await readEnrolled({
       ...(beforeId === null ? {} : { id: { _lt: beforeId } }),
       ...(employeeId === undefined ? {} : { employee_user_id: { _eq: employeeId } }),
     }, batchSize);
-    if (rows.length) result.push(...await schedules(rows, month));
+    if (rows.length) result.push(...await schedules(rows, month, receipts));
     if (rows.length < batchSize) return result;
     beforeId = rows[rows.length - 1].id;
   }
@@ -118,10 +124,11 @@ export async function readMonthlyLoanSchedules(month: string, employeeId?: numbe
 
 export async function readBillingLoanSchedules(month: string, agencyId: number, ids: number[]) {
   const result: Awaited<ReturnType<typeof schedules>> = [];
+  const receipts = await readLatestReceipts("1000-01", month);
   for (let start = 0; start < ids.length; start += batchSize) {
     const group = ids.slice(start, start + batchSize);
     const rows = await readEnrolled({ agency_id: { _eq: agencyId }, id: { _in: group } }, group.length);
-    if (rows.length) result.push(...await schedules(rows, month));
+    if (rows.length) result.push(...await schedules(rows, month, receipts));
   }
   return result;
 }
@@ -132,11 +139,12 @@ export async function readLoanSchedule(id: number, month: string, owner?: number
   return (await schedules(rows, month))[0];
 }
 
-async function project(rows: Enrolled[], period: { openMonth: string; businessDate: string }): Promise<RegisterLoan[]> {
+async function project(rows: Enrolled[], period: { openMonth: string; businessDate: string },
+  loadedReceipts?: ReadonlyMap<string, PayrollReceipt>): Promise<RegisterLoan[]> {
   if (!rows.length) return [];
   const [employees, projected] = await Promise.all([
     referenceRows("user", employeeRow, "user_id,user_department", "user_id", rows.map(row => row.employee_user_id)),
-    schedules(rows, period.openMonth),
+    schedules(rows, period.openMonth, loadedReceipts),
   ]);
   const departments = await referenceRows("department", departmentRow, "department_id,department_name", "department_id",
     employees.flatMap(employee => employee.user_department === null ? [] : [employee.user_department]));
@@ -204,6 +212,7 @@ function sortRegister(rows: RegisterLoan[], key: RegisterSort, direction: "asc" 
 export async function listLoanRegister(params: URLSearchParams, agencyBalances = false): Promise<LoanRegisterPage | Response> {
   const input = parseInput(queryInput, Object.fromEntries(params));
   const current = await period();
+  const receipts = await readLatestReceipts("1000-01", current.openMonth);
   const systemRef = /^(?:GLR?-)?0*([1-9]\d{0,9})$/i.exec(input.q)?.[1];
   const search = input.q ? { _or: [
     { employee_name: { _icontains: input.q } }, { live_reference_key: { _icontains: input.q } },
@@ -222,7 +231,7 @@ export async function listLoanRegister(params: URLSearchParams, agencyBalances =
 
   for (;;) {
     const batch = await readEnrolled({ ...filter, ...(beforeId === undefined ? {} : { id: { _lt: beforeId } }) }, batchSize);
-    for (const loan of await project(batch, current)) {
+    for (const loan of await project(batch, current, receipts)) {
       if (view !== "all" && loan.active !== (view === "active")) continue;
       agencies.set(loan.agencyId, loan.agency);
       if (loan.departmentId && loan.department) departments.set(loan.departmentId, loan.department);

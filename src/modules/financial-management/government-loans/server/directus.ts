@@ -19,6 +19,7 @@ export const GOVERNMENT_LOAN_REMITTANCE_BATCHES = "government_loan_remittance_ba
 export const GOVERNMENT_LOAN_REMITTANCES = "government_loan_remittances";
 export const GOVERNMENT_LOAN_REMITTANCE_DECISIONS = "government_loan_remittance_decisions";
 export const GOVERNMENT_LOAN_CLOSES = "government_loan_month_closes";
+export const GOVERNMENT_LOAN_SETUP_EVENTS = "government_loan_setup_events";
 
 export type GovernmentLoansCollection = "user" | "modules" | "user_access_modules" | "benefit_loans"
   | "department" | "employment_status" | "user_wage_management" | "cutoff_settings"
@@ -29,7 +30,8 @@ export type GovernmentLoansCollection = "user" | "modules" | "user_access_module
   | typeof GOVERNMENT_LOAN_AGENCY_STATEMENTS | typeof GOVERNMENT_LOAN_PAYROLL_RECEIPTS | typeof GOVERNMENT_LOAN_PAYROLL_RESULTS
   | typeof GOVERNMENT_LOAN_PERIOD_COMMANDS | typeof GOVERNMENT_LOAN_CHANGE_INSTRUCTIONS | typeof GOVERNMENT_LOAN_STAFF_EVENTS
   | typeof GOVERNMENT_LOAN_BILLING_REVISIONS | typeof GOVERNMENT_LOAN_REMITTANCE_BATCHES | typeof GOVERNMENT_LOAN_REMITTANCES
-  | typeof GOVERNMENT_LOAN_REMITTANCE_DECISIONS | typeof GOVERNMENT_LOAN_CLOSES;
+  | typeof GOVERNMENT_LOAN_REMITTANCE_DECISIONS | typeof GOVERNMENT_LOAN_CLOSES
+  | typeof GOVERNMENT_LOAN_SETUP_EVENTS;
 
 export class GovernmentLoansDirectusError extends Error {
   constructor(readonly status: number, readonly code?: string, readonly source?: string) {
@@ -45,6 +47,7 @@ export async function governmentLoansDirectus(path: string, init: RequestInit = 
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
   const source = path.split("?")[0];
+  const started = performance.now();
   const response = await fetch(`${base}${path}`, {
     ...init,
     headers,
@@ -54,6 +57,9 @@ export async function governmentLoansDirectus(path: string, init: RequestInit = 
   }).catch(error => {
     throw new GovernmentLoansDirectusError(503, error instanceof Error ? error.name : "FETCH_FAILED", source);
   });
+  if (process.env.GL_PROFILE === "1") {
+    console.info("[gl]", init.method ?? "GET", source, Math.round(performance.now() - started) + "ms");
+  }
   if (!response.ok) {
     const error = await response.json().catch(() => null);
     const code = error?.errors?.[0]?.extensions?.code;

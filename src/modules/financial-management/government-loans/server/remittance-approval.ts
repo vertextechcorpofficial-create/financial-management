@@ -3,15 +3,19 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { todayManila } from "@/modules/financial-management/cooperative/members/format";
-import { overdueRequestCutoff } from "../approval/rules";
+import { REQUEST_SLA_DAYS, requestWaitingDays } from "../approval/rules";
 import { remittanceLiability } from "../remittances/approval/rules";
+import {
+  remittanceApprovalSorts, type RemittanceApprovalSort, type RemittanceApprovalSummary,
+} from "../remittances/approval/types";
 import { remitKey, remittancePenalty } from "../remittances/preparation/rules";
 import { amountFromCentavos } from "../loans/position";
 import { centavos } from "../payroll-handoff/contract";
 import { getAgencyBillingSummary } from "./agency-billing";
 import { readAgency, type AgencyActor } from "./agencies";
+import { mapLimit } from "./concurrency";
 import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_PAYROLL_RESULTS, GOVERNMENT_LOAN_REMITTANCES, GOVERNMENT_LOAN_REMITTANCE_DECISIONS, GovernmentLoansDirectusError,
-  governmentLoansDirectus, writeGovernmentLoansItem } from "./directus";
+  governmentLoansDirectus, readGovernmentLoansItems, writeGovernmentLoansItem } from "./directus";
 import { readEnrollmentRows } from "./enrollment-sources";
 import { readOpenMonth } from "./loan-enrollment";
 import { isoDateTime, loanCommandPartKey } from "./loan-requests";
@@ -41,29 +45,108 @@ const reviewEvidence = z.object({ checks: z.array(checkSchema), latestReceipt: z
   confirmedWithheld: z.string().nullable(), observedOpenMonth: z.string().nullable(),
   agencyName: z.string(), employerNumber: z.string().nullable(), referenceLabel: z.string() });
 const savedEvidence = z.object({ payment: summary, review: reviewEvidence });
-const queueQuery = z.object({ q: z.string().trim().max(120).default(""), agencyId: positiveId.optional(),
-  overdue: z.enum(["1"]).optional(), page: pageNumber, historyPage: pageNumber });
+const queueQuery = z.object({
+  q: z.string().trim().max(120).default(""), agencyId: positiveId.optional(), overdue: z.enum(["1"]).optional(),
+  page: pageNumber,
+  sort: z.enum(Object.keys(remittanceApprovalSorts) as [RemittanceApprovalSort, ...RemittanceApprovalSort[]]).default("waiting"),
+  direction: z.enum(["asc", "desc"]).default("asc"),
+  size: z.coerce.number().int().refine(value => [10, 25, 50].includes(value)).default(pageSize),
+  historyPage: pageNumber,
+  historySize: z.coerce.number().int().refine(value => [10, 25, 50].includes(value)).default(pageSize),
+});
+const pendingFields = "id,agency_id,agency_name,agency_code,payroll_month,withheld,entered_penalty,payment_reference,payment_date,submitted_at,batch_id.uploaded_by,batch_id.proof_name";
+const countResult = z.object({ data: z.array(z.object({ count: z.object({ id: z.coerce.number().int().nonnegative() }) })).max(1) });
+
+type PendingRow = z.output<typeof approvalQueueRow>;
+
+async function readAllPending(filter: object) {
+  const rows: PendingRow[] = [];
+  for (let offset = 0; ; offset += 50) {
+    const page = await readEnrollmentRows(GOVERNMENT_LOAN_REMITTANCES, approvalQueueRow, pendingFields,
+      filter, 50, "submitted_at,id", offset);
+    rows.push(...page);
+    if (page.length < 50) return rows;
+  }
+}
+
+function pendingItem(row: PendingRow, now: Date) {
+  const submittedAt = isoDateTime(row.submitted_at);
+  return {
+    id: row.id, agencyId: row.agency_id, agency: row.agency_name, agencyCode: row.agency_code,
+    month: row.payroll_month, amount: row.withheld, penalty: row.entered_penalty,
+    reference: row.payment_reference, paymentDate: row.payment_date, submittedAt,
+    preparedBy: row.batch_id.uploaded_by, proofName: row.batch_id.proof_name,
+    waitingDays: requestWaitingDays(submittedAt, now),
+  };
+}
+
+function summarizePending(items: ReturnType<typeof pendingItem>[]): RemittanceApprovalSummary {
+  let overdue = 0;
+  let oldestWaitingDays = 0;
+  let amount = 0n;
+  let penalty = 0n;
+  for (const item of items) {
+    if (item.waitingDays > REQUEST_SLA_DAYS) overdue++;
+    if (item.waitingDays > oldestWaitingDays) oldestWaitingDays = item.waitingDays;
+    amount += centavos(item.amount);
+    penalty += centavos(item.penalty);
+  }
+  return { pending: items.length, overdue, oldestWaitingDays,
+    amount: amountFromCentavos(amount), penalty: amountFromCentavos(penalty) };
+}
+
+function pendingSortValue(item: ReturnType<typeof pendingItem>, key: RemittanceApprovalSort): string | number {
+  switch (key) {
+    case "agency": return item.agency;
+    case "month": return item.month;
+    case "amount": return Number(centavos(item.amount));
+    case "penalty": return Number(centavos(item.penalty));
+    case "paymentDate": return item.paymentDate;
+    case "reference": return item.reference;
+    case "preparedBy": return item.preparedBy;
+    case "waiting": return item.waitingDays;
+  }
+}
+
+function sortPending(items: ReturnType<typeof pendingItem>[], key: RemittanceApprovalSort, direction: "asc" | "desc") {
+  items.sort((left, right) => {
+    const a = pendingSortValue(left, key);
+    const b = pendingSortValue(right, key);
+    const order = typeof a === "number" && typeof b === "number" ? a - b
+      : String(a).localeCompare(String(b), undefined, { numeric: true });
+    return (direction === "asc" ? order : -order) || left.id.localeCompare(right.id);
+  });
+}
+
+async function countDecisions(filter: object) {
+  const query = new URLSearchParams({ "aggregate[count]": "id", limit: "1", filter: JSON.stringify(filter) });
+  const { data } = countResult.parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_REMITTANCE_DECISIONS, query));
+  return data[0]?.count.id ?? 0;
+}
 
 export async function listRemittanceApproval(params: URLSearchParams) {
-  const { q, agencyId, overdue, page, historyPage } = parseInput(queueQuery, Object.fromEntries(params));
+  const { q, agencyId, overdue, page, sort, direction, size, historyPage, historySize } =
+    parseInput(queueQuery, Object.fromEntries(params));
   const today = todayManila();
-  const pendingFilter = { state: { _eq: "PENDING" }, ...(agencyId ? { agency_id: { _eq: agencyId } } : {}),
-    ...(overdue ? { submitted_at: { _lt: overdueRequestCutoff(new Date(today + "T00:00:00+08:00")) } } : {}),
+  const now = new Date(today + "T00:00:00+08:00");
+  const baseFilter = { state: { _eq: "PENDING" }, ...(agencyId ? { agency_id: { _eq: agencyId } } : {}),
     ...(q ? { _or: [{ payment_reference: { _icontains: q } }, { agency_name: { _icontains: q } },
       { batch_id: { uploaded_by: { _icontains: q } } }] } : {}) };
-  const [pending, history] = await Promise.all([
-    readEnrollmentRows(GOVERNMENT_LOAN_REMITTANCES, approvalQueueRow,
-      "id,agency_id,agency_name,payroll_month,withheld,entered_penalty,payment_reference,payment_date,submitted_at,batch_id.uploaded_by",
-      pendingFilter, pageSize + 1, "submitted_at,id", (page - 1) * pageSize),
+  const allPending = (await readAllPending(baseFilter)).map(row => pendingItem(row, now));
+  const summary = summarizePending(allPending);
+  const filtered = allPending.filter(item => overdue !== "1" || item.waitingDays > REQUEST_SLA_DAYS);
+  sortPending(filtered, sort, direction);
+  const start = (page - 1) * size;
+  const historyFilter = { action: { _in: ["APPROVE", "RETURN"] } };
+  const [history, totalHistory] = await Promise.all([
     readEnrollmentRows(GOVERNMENT_LOAN_REMITTANCE_DECISIONS, decisionRow, decisionFields,
-      { action: { _in: ["APPROVE", "RETURN"] } }, pageSize + 1, "-decided_at,-id", (historyPage - 1) * pageSize),
+      historyFilter, historySize, "-decided_at,-id", (historyPage - 1) * historySize),
+    countDecisions(historyFilter),
   ]);
-  return { today, pageSize, hasMore: pending.length > pageSize, hasMoreHistory: history.length > pageSize,
-    pending: pending.slice(0, pageSize).map(row => ({ id: row.id, agencyId: row.agency_id, agency: row.agency_name,
-      month: row.payroll_month, amount: row.withheld, penalty: row.entered_penalty, reference: row.payment_reference,
-      paymentDate: row.payment_date, submittedAt: isoDateTime(row.submitted_at), preparedBy: row.batch_id.uploaded_by })),
-    history: history.slice(0, pageSize).map(row => ({ ...savedEvidence.parse(row.evidence).payment, ...decisionSummary(row) })),
-  };
+  return { today, summary, total: filtered.length, pageSize: size, hasMore: filtered.length > start + size,
+    pending: filtered.slice(start, start + size),
+    history: history.map(row => ({ ...savedEvidence.parse(row.evidence).payment, ...decisionSummary(row) })),
+    totalHistory, pageSizeHistory: historySize, hasMoreHistory: totalHistory > historyPage * historySize };
 }
 
 export function listApprovalAgencies() {
@@ -202,7 +285,9 @@ async function commit(command: Command, action: Decision["action"], evidence: un
   }
 }
 
-async function decide(id: string, request: z.output<typeof input> | null, command: Command) {
+type DecisionContext = { openMonth: string; period: Awaited<ReturnType<typeof nextPeriodCommand>> };
+
+async function decide(id: string, request: z.output<typeof input> | null, command: Command, context?: DecisionContext) {
   const existing = await replay(command);
   if (existing) return existing;
   try {
@@ -214,9 +299,9 @@ async function decide(id: string, request: z.output<typeof input> | null, comman
     const action = request?.action ?? "APPROVE";
     if (action === "RETURN" && !request?.reason) throw new LoanRequestError(422, "Enter a reason for returning this remittance.",
       { reason: "Enter a return reason." });
-    const observedOpenMonth = await readOpenMonth();
+    const observedOpenMonth = context?.openMonth ?? await readOpenMonth();
     if (!observedOpenMonth) throw new LoanRequestError(409, "The open payment period is unavailable.");
-    const period = await nextPeriodCommand(observedOpenMonth);
+    const period = context?.period ?? await nextPeriodCommand(observedOpenMonth, observedOpenMonth);
     const review = await currentReview(source, observedOpenMonth);
     const blockers = review.checks.filter(check => check.status === "block");
     const warnings = review.checks.filter(check => check.status === "warning");
@@ -255,16 +340,18 @@ export async function bulkApproveRemittances(body: unknown, key: string | null, 
   const complete = command(loanCommandPartKey(batch.key, "result"), batch.requestHash, actor);
   const saved = await replay(complete);
   if (saved) return batchResult.parse(saved.evidence);
-  const items: z.output<typeof outcome>[] = [];
-  for (const id of ids) {
+  const openMonth = await readOpenMonth();
+  if (!openMonth) throw new LoanRequestError(409, "The open payment period is unavailable.");
+  const period = await nextPeriodCommand(openMonth, openMonth);
+  const items = await mapLimit(ids, 4, async id => {
     const part = command(loanCommandPartKey(batch.key, id), [batch.requestHash, id], actor);
     try {
-      await decide(id, null, part);
-      items.push({ id, approved: true, reason: null });
+      await decide(id, null, part, { openMonth, period });
+      return { id, approved: true, reason: null };
     } catch (error) {
       if (!(error instanceof LoanRequestError) || error.status >= 500) throw error;
-      items.push({ id, approved: false, reason: error.message });
+      return { id, approved: false, reason: error.message };
     }
-  }
+  });
   return batchResult.parse((await commit(complete, "BULK_COMPLETE", { items })).evidence);
 }

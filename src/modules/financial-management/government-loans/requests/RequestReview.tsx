@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -44,9 +45,9 @@ const nextStep: Record<RequestStatus, string> = {
   APPROVED: "Approved. Record the agency terms and evidence in Enrollment.",
   REJECTED: "The request was rejected. Review the decision history below.",
   CANCELLED: "The request was cancelled.",
-  ENROLLED: "Waiting for a different verifier to review the enrollment.",
+  ENROLLED: "Waiting for enrollment verification.",
   RETURNED: "Correct the returned enrollment and resubmit it for verification.",
-  VERIFIED: "Verified. A different staff member must activate the loan.",
+  VERIFIED: "Verified. Ready for activation.",
   ACTIVATING: "Activation is in progress.",
   ACTIVE: "The loan is active and deductions are scheduled.",
   AGENCY_DECLINED: "The agency did not approve the loan.",
@@ -134,13 +135,11 @@ export function RequestReview({ record, onBack, onCancelled, onReload, api = sta
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
-  const [error, setError] = useState<{ message: string; conflict: boolean } | null>(null);
   const attempt = useRef<{ reason: string; key: string } | null>(null);
 
   async function cancel() {
     if (busy) return;
     setBusy(true);
-    setError(null);
     try {
       const text = reason.trim();
       if (attempt.current?.reason !== text) attempt.current = { reason: text, key: consignmentRequestId() };
@@ -148,10 +147,10 @@ export function RequestReview({ record, onBack, onCancelled, onReload, api = sta
       setOpen(false);
       onCancelled();
     } catch (cause) {
-      setError({
-        message: cause instanceof Error ? cause.message : "The request could not be cancelled.",
-        conflict: cause instanceof RequestApiError && cause.status === 409,
-      });
+      const message = cause instanceof Error ? cause.message : "The request could not be cancelled.";
+      const conflict = cause instanceof RequestApiError && cause.status === 409;
+      if (conflict) setOpen(false);
+      toast.error(message, conflict ? { action: { label: "Reload request", onClick: onReload } } : undefined);
     } finally {
       setBusy(false);
     }
@@ -162,7 +161,7 @@ export function RequestReview({ record, onBack, onCancelled, onReload, api = sta
       <Button type="button" variant="ghost" onClick={onBack}><ArrowLeft /> Back to requests</Button>
       {canCancelRequest(record.status) && <AlertDialog open={open} onOpenChange={next => {
         if (busy) return;
-        if (next) { setReason(""); setError(null); }
+        if (next) setReason("");
         setOpen(next);
       }}>
         <AlertDialogTrigger asChild>
@@ -177,13 +176,11 @@ export function RequestReview({ record, onBack, onCancelled, onReload, api = sta
             <span className="block font-medium">Reason (optional)</span>
             <Textarea value={reason} maxLength={500} disabled={busy} onChange={event => setReason(event.target.value)} />
           </label>
-          {error && <p role="alert" className="text-sm text-destructive">{error.message}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Keep request</AlertDialogCancel>
-            {error?.conflict ? <Button type="button" onClick={onReload}>Reload request</Button> :
-              <Button type="button" variant="destructive" disabled={busy} onClick={() => void cancel()}>
-                {busy ? "Cancelling…" : "Confirm cancellation"}
-              </Button>}
+            <Button type="button" variant="destructive" disabled={busy} onClick={() => void cancel()}>
+              {busy ? "Cancelling…" : "Confirm cancellation"}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>}

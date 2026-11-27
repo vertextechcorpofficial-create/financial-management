@@ -1,27 +1,32 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Plus, Search, X } from "lucide-react";
+import Link from "next/link";
+import dynamic from "next/dynamic";
+import { useEffect, useState, type ComponentType } from "react";
+import { BadgeCheck, CheckCircle2, Plus, RotateCcw, Search, SearchX, ShieldCheck, X } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, DetailSkeleton, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { agencyOptions, requestDocumentUrl } from "../requests/request-api";
-import { applicationPageSizes, requestStatusLabels, requestStatusTone, type AgencyChoice, type EmployeeChoice } from "../requests/types";
+import { applicationPageSizes, requestStatusLabels, type AgencyChoice, type EmployeeChoice } from "../requests/types";
 import { getEnrollment, importBatches, listEnrollments } from "./api";
 import { EnrollmentDetails } from "./EnrollmentDetails";
-import { EnrollmentEditor } from "./EnrollmentEditor";
 import { EnrollmentEvidenceEditor } from "./EnrollmentEvidenceEditor";
 import { LoanImportDialog, LoanImportHistoryDialog } from "./LoanImportsDialog";
 import type { EnrollmentImportBatch } from "./import-types";
 import { deductionMonthLabel } from "./rules";
 import { enrollmentSorts, type EnrollmentDetail, type EnrollmentListItem, type EnrollmentPage, type EnrollmentSort } from "./types";
+
+const EnrollmentEditor = dynamic(() => import("./EnrollmentEditor").then(module => module.EnrollmentEditor), {
+  ssr: false, loading: () => null,
+});
 
 type Filters = { q: string; agency: string; status: string };
 type Direction = "asc" | "desc";
@@ -118,12 +123,14 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-function SummaryCard({ label, value, active, onClick }: { label: string; value: number; active: boolean; onClick: () => void }) {
-  return <button type="button" onClick={onClick} aria-pressed={active}
-    className={cn("rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50", active && "ring-2 ring-primary/40")}>
-    <p className="text-xs font-medium text-muted-foreground">{label}</p>
-    <p className="text-xl font-semibold tabular-nums">{value.toLocaleString("en-PH")}</p>
-  </button>;
+function SummaryCard({ label, value, active, onClick, icon, tone, ringClass, detail }: {
+  label: string; value: number; active: boolean; onClick: () => void;
+  icon: ComponentType<{ className?: string }>; tone: "emerald" | "sky" | "amber" | "rose" | "slate";
+  ringClass: string; detail: string;
+}) {
+  return <MetricButton active={active} onClick={onClick} label={label} ringClass={ringClass}>
+    <MetricCard icon={icon} label={label} value={value} detail={detail} tone={tone} />
+  </MetricButton>;
 }
 
 function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
@@ -152,7 +159,7 @@ function EvidenceCell({ item }: { item: EnrollmentListItem }) {
   </Badge>;
 }
 
-export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: EmployeeChoice } = {}) {
+export function LoanEnrollmentModule({ transferEmployee, canOpenSetup }: { transferEmployee?: EmployeeChoice; canOpenSetup?: boolean } = {}) {
   const searchParams = useSearchParams();
   const [seed] = useState(() => seedFrom(searchParams));
   const [importView, setImportView] = useState<"upload" | "history" | null>(null);
@@ -175,7 +182,6 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
   const [data, setData] = useState<EnrollmentPage>();
   const [detail, setDetail] = useState<{ key: string; data?: EnrollmentDetail; error?: string }>();
   const [agencies, setAgencies] = useState<{ items: AgencyChoice[]; error?: string }>({ items: [] });
-  const [notice, setNotice] = useState("");
   const [saved, setSaved] = useState<SavedView[]>([]);
   const [saving, setSaving] = useState(false);
   const detailKey = selected + ":" + detailAttempt;
@@ -268,7 +274,7 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
     if (data && page > pages) setPage(1);
   }, [data, page, pages]);
 
-  const back = () => { setSelected(null); setCorrecting(false); setNotice(""); setInitialTransfer(undefined); };
+  const back = () => { setSelected(null); setCorrecting(false); setInitialTransfer(undefined); };
   const refreshMonth = () => { reloadList(value => value + 1); reloadImport(value => value + 1); };
   const agencyError = agencies.error && <LoadError message={agencies.error} retry={() => reloadAgencies(value => value + 1)} />;
 
@@ -310,10 +316,10 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
     if (selected === "new" || value?.status === "APPROVED" || value?.status === "RETURNED" && correcting) return <div className="space-y-3">
       {agencyError}
       <EnrollmentEditor key={detailKey} record={value} transferEmployee={selected === "new" ? initialTransfer : undefined}
-        agencies={agencies.items} openMonth={data?.openMonth ?? null}
+        agencies={agencies.items} openMonth={data?.openMonth ?? null} canOpenSetup={canOpenSetup}
         onBack={correcting ? () => setCorrecting(false) : back} onReload={() => reloadDetail(count => count + 1)}
         refreshMonth={refreshMonth} onSaved={result => {
-          setNotice(correcting ? "Enrollment resubmitted for verification." :
+          toast.success(correcting ? "Enrollment resubmitted for verification." :
             result.status === "ENROLLED" ? "Enrollment saved for verification." : "Agency decline recorded.");
           setCorrecting(false); setInitialTransfer(undefined); setSelected(result.id);
           reloadDetail(count => count + 1); refreshMonth();
@@ -321,9 +327,8 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
     </div>;
     return <div className="space-y-3">
       <Button type="button" variant="ghost" onClick={back}>Back to enrollment</Button>
-      {notice && <p role="status" className="text-sm">{notice}</p>}
       {record?.error && <LoadError message={record.error} retry={() => reloadDetail(value => value + 1)} />}
-      {!record && <p role="status" className="text-sm text-muted-foreground">Loading enrollment…</p>}
+      {!record && <DetailSkeleton />}
       {value && <EnrollmentDetails record={value} documentHref={kind => requestDocumentUrl(value.id, kind)}>
         {Boolean(value.enrollment?.payrollWarnings?.length) && <ul className="list-disc pl-5 text-sm text-muted-foreground">
           {value.enrollment?.payrollWarnings?.map(warning => <li key={warning}>{warning}</li>)}
@@ -378,16 +383,24 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
       <Button type="button" size="sm" variant="outline" onClick={() => { setImportedBatch(latestImport.id); setImportView("history"); }}>Review import</Button>
     </div>}
 
-    {summary && <section aria-label="Enrollment queue summary" className="space-y-2">
+    {summary ? <section aria-label="Enrollment queue summary" className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-5">
-        <SummaryCard label="Approved · awaiting agency" value={summary.APPROVED} active={filters.status === "APPROVED"} onClick={() => applyStatus("APPROVED")} />
-        <SummaryCard label="For verification" value={summary.ENROLLED} active={filters.status === "ENROLLED"} onClick={() => applyStatus("ENROLLED")} />
-        <SummaryCard label="Returned for correction" value={summary.RETURNED} active={filters.status === "RETURNED"} onClick={() => applyStatus("RETURNED")} />
-        <SummaryCard label="Verified · awaiting activation" value={summary.VERIFIED} active={filters.status === "VERIFIED"} onClick={() => applyStatus("VERIFIED")} />
-        <SummaryCard label="Active" value={summary.ACTIVE} active={filters.status === "ACTIVE"} onClick={() => applyStatus("ACTIVE")} />
+        <SummaryCard label="Approved · awaiting agency" value={summary.APPROVED} active={filters.status === "APPROVED"} onClick={() => applyStatus("APPROVED")}
+          icon={CheckCircle2} tone="emerald" ringClass="ring-emerald-500/40" detail="Ready to enroll" />
+        <SummaryCard label="For verification" value={summary.ENROLLED} active={filters.status === "ENROLLED"} onClick={() => applyStatus("ENROLLED")}
+          icon={ShieldCheck} tone="sky" ringClass="ring-sky-500/40" detail="Waiting for a second reviewer" />
+        <SummaryCard label="Returned for correction" value={summary.RETURNED} active={filters.status === "RETURNED"} onClick={() => applyStatus("RETURNED")}
+          icon={RotateCcw} tone="amber" ringClass="ring-amber-500/40" detail="Needs correction" />
+        <SummaryCard label="Verified · awaiting activation" value={summary.VERIFIED} active={filters.status === "VERIFIED"} onClick={() => applyStatus("VERIFIED")}
+          icon={BadgeCheck} tone="sky" ringClass="ring-sky-500/40" detail="Ready to activate" />
+        <SummaryCard label="Active" value={summary.ACTIVE} active={filters.status === "ACTIVE"} onClick={() => applyStatus("ACTIVE")}
+          icon={CheckCircle2} tone="emerald" ringClass="ring-emerald-500/40" detail="Deducted through Payroll" />
       </div>
-    </section>}
+    </section> : !loaded?.error ? <div className="space-y-2" aria-busy="true">
+      <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
+      <MetricCardsSkeleton count={5} className="xl:grid-cols-5" />
+    </div> : null}
 
     <div className="sticky top-0 z-20 space-y-2 rounded-lg border bg-background p-3 shadow-xs">
       <div className="flex flex-wrap items-center gap-2">
@@ -427,9 +440,11 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
     </form>}
 
     {current?.error && <LoadError message={current.error} retry={() => reloadList(value => value + 1)} />}
-    {!current && !firstLoad && <p role="status" className="text-sm text-muted-foreground">Loading enrollments…</p>}
     {data?.openMonth && <p className="text-sm text-muted-foreground">Open month {deductionMonthLabel(data.openMonth)}</p>}
-    {!data?.openMonth && data && <p className="text-sm text-muted-foreground">Set the Government Loans open month to enroll loans.</p>}
+    {!data?.openMonth && data && <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+      <span>Set the Government Loans open month to enroll loans.</span>
+      {canOpenSetup && <Link className="underline" href="/fm/government-loans/month-end-close?tab=setup">Open Period setup</Link>}
+    </p>}
 
     <div className={cn("space-y-2 transition-opacity", pending && "opacity-60")} aria-busy={pending}>
       <div className="rounded-md border"><Table>
@@ -444,27 +459,29 @@ export function LoanEnrollmentModule({ transferEmployee }: { transferEmployee?: 
           <SortHeader label="Status" sortKey="status" sort={sort} direction={direction} onSort={toggleSort} />
         </TableRow></TableHeader>
         <TableBody>
-          {firstLoad && Array.from({ length: 6 }, (_, row) => <TableRow key={row}>
-            {Array.from({ length: 8 }, (_, cell) => <TableCell key={cell}><Skeleton className="h-4 w-full max-w-28" /></TableCell>)}
-          </TableRow>)}
+          {firstLoad && <TableRowsSkeleton rows={6} columns={8} />}
           {!firstLoad && data?.items.map(item => <TableRow key={item.id} className="cursor-pointer hover:bg-muted/50"
             onClick={() => { setSelected(item.id); reloadDetail(value => value + 1); }}>
             <TableCell>
               <Button variant="link" type="button" className="h-auto p-0 font-medium" onClick={event => { event.stopPropagation(); setSelected(item.id); }}>{item.reference}</Button>
               {item.enrollment && <p className="mt-1 max-w-36 truncate text-xs text-muted-foreground" title="Agency reference">{item.enrollment.agencyReference}</p>}
             </TableCell>
-            <TableCell>{item.employeeName ?? "—"}</TableCell>
+            <TableCell>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <PersonAvatar name={item.employeeName ?? "Employee"} size="sm" />
+                <span className="truncate font-medium">{item.employeeName ?? "—"}</span>
+              </div>
+            </TableCell>
             <TableCell><AgencyBadge name={item.agencyName} /></TableCell>
             <TableCell>{item.program}</TableCell>
             <TableCell className="text-right tabular-nums">{item.enrollment ? peso(item.enrollment.monthlyAmortization) : "—"}</TableCell>
             <TableCell>{item.enrollment ? deductionMonthLabel(item.enrollment.firstDeductionMonth) : "—"}</TableCell>
             <TableCell><EvidenceCell item={item} /></TableCell>
-            <TableCell><Badge variant="outline" className={requestStatusTone[item.status]}>{item.status === "APPROVED" ? "Approved · awaiting agency" : requestStatusLabels[item.status]}</Badge></TableCell>
+            <TableCell><StatusChip status={item.status} label={item.status === "APPROVED" ? "Approved · awaiting agency" : requestStatusLabels[item.status]} /></TableCell>
           </TableRow>)}
           {!firstLoad && data && !data.items.length && <TableRow><TableCell colSpan={8} className="p-0">
-            <Empty className="border-0"><EmptyHeader><EmptyMedia variant="icon"><span>🗂️</span></EmptyMedia>
-              <EmptyTitle>No enrollments match</EmptyTitle><EmptyDescription>Try a different search, agency, or status.</EmptyDescription>
-            </EmptyHeader></Empty>
+            <EmptyState icon={SearchX} title="No enrollments match" description="Try a different search, agency, or status."
+              action={hasFilters ? <Button type="button" variant="outline" size="sm" onClick={() => { setFilters(initialFilters); setPage(1); }}>Clear filters</Button> : undefined} />
           </TableCell></TableRow>}
         </TableBody>
       </Table></div>

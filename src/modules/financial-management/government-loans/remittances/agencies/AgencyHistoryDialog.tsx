@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ListRowsSkeleton } from "../../components/ui";
 import { fetchAgencyHistory } from "./agencies-api";
 import {
   AGENCY_HISTORY_ACTIONS, AGENCY_HISTORY_FIELDS, AGENCY_TYPES, DEADLINE_RULES, PENALTY_BASES,
@@ -84,7 +85,7 @@ export function AgencyHistoryDialog({ agency, onClose }: { agency: Agency; onClo
         <DialogDescription>Agency code {agency.shortCode}</DialogDescription>
       </DialogHeader>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-0.5 pb-1">
-        {!current && <p role="status" className="text-sm text-muted-foreground">Loading history…</p>}
+        {!current && <ListRowsSkeleton rows={4} />}
         {current && "error" in current && <div className="space-y-2">
           <p role="alert" className="text-sm text-destructive">{current.error}</p>
           <Button type="button" size="sm" variant="outline" onClick={() => setRefresh(value => value + 1)}>Retry</Button>

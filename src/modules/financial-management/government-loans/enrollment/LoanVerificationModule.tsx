@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import { ArrowDown, ArrowUp, BadgeCheck, CheckCircle2, ChevronsUpDown, Clock3, SearchX, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
@@ -16,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, PersonAvatar } from "../components/ui";
 import { approvalAgencies, approvalDocumentUrl } from "../approval/api";
 import { REQUEST_SLA_DAYS } from "../approval/rules";
 import { RequestApiError } from "../requests/request-api";
@@ -67,13 +69,14 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-function SummaryCard({ label, value, active, onClick }: { label: string; value: number; active: boolean; onClick: () => void }) {
-  return <button type="button" aria-pressed={active} onClick={onClick}
-    className={cn("rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50",
-      active && "border-primary/60 bg-primary/5")}>
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-    <p className="mt-1 text-xl font-semibold tabular-nums">{value.toLocaleString("en-PH")}</p>
-  </button>;
+function SummaryCard({ label, value, active, onClick, icon, tone, ringClass, detail }: {
+  label: string; value: number; active: boolean; onClick: () => void;
+  icon: ComponentType<{ className?: string }>; tone: "emerald" | "sky" | "amber" | "rose" | "slate";
+  ringClass: string; detail: string;
+}) {
+  return <MetricButton active={active} onClick={onClick} label={label} ringClass={ringClass}>
+    <MetricCard icon={icon} label={label} value={value} detail={detail} tone={tone} />
+  </MetricButton>;
 }
 
 function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
@@ -125,13 +128,11 @@ function VerificationReviewPanel({ review, back, reload, saved }: {
   const { record, canDecide, checks, payrollWarnings } = review;
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState<EnrollmentDecision | null>(null);
-  const [error, setError] = useState<{ message: string; conflict: boolean }>();
   const [confirmDecision, setConfirmDecision] = useState<EnrollmentDecision | null>(null);
   const attempt = useRef<{ payload: string; key: string } | null>(null);
 
   function requestDecision(decision: EnrollmentDecision) {
     if (decision === "RETURN" && !reason.trim()) return;
-    setError(undefined);
     setConfirmDecision(decision);
   }
 
@@ -141,14 +142,14 @@ function VerificationReviewPanel({ review, back, reload, saved }: {
     const payload = JSON.stringify([decision, text]);
     if (attempt.current?.payload !== payload) attempt.current = { payload, key: consignmentRequestId() };
     setPending(decision);
-    setError(undefined);
     try {
       const result = await decideVerification(record.id, record.request.revision, decision, text, attempt.current.key);
       saved(result.status === "ACTIVE" ? "Enrollment activated. Payroll instructions are ready to download." :
         result.status === "VERIFIED" ? "Enrollment verified. Finish activation from this review." : "Enrollment returned for correction.");
     } catch (cause) {
-      setError({ message: cause instanceof Error ? cause.message : "The decision could not be saved.",
-        conflict: cause instanceof RequestApiError && cause.status === 409 });
+      const conflict = cause instanceof RequestApiError && cause.status === 409;
+      toast.error(cause instanceof Error ? cause.message : "The decision could not be saved.",
+        conflict ? { action: { label: "Reload review", onClick: reload } } : undefined);
     } finally {
       setPending(null);
     }
@@ -174,20 +175,16 @@ function VerificationReviewPanel({ review, back, reload, saved }: {
           {payrollWarnings.map(warning => <li key={warning}>{warning}</li>)}
         </ul>}
       </RequestSection>}
-      {record.status === "ENROLLED" && !canDecide && <p role="status" className="rounded-lg border p-3 text-sm">
-        A different verifier must review this enrollment. The encoder and latest resubmitter cannot decide it.
-      </p>}
       {(canDecide || review.canReturnRenewal) && <RequestSection title="Decision">
         {canDecide && <p className="text-sm text-muted-foreground">Verification activates the loan and creates its Payroll instructions.</p>}
         <label className="block space-y-1.5 text-sm">
           <span className="block font-medium">Reason for return</span>
           <Textarea maxLength={500} disabled={Boolean(pending)} value={reason} onChange={event => setReason(event.target.value)} />
         </label>
-        {error && <p role="alert" className="text-sm text-destructive">{error.message}</p>}
         <div className="sticky bottom-0 z-10 flex flex-wrap gap-2 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur">
-          {canDecide && <Button type="button" disabled={Boolean(pending) || Boolean(error?.conflict) || checks.some(check => check.reason)}
+          {canDecide && <Button type="button" disabled={Boolean(pending) || checks.some(check => check.reason)}
             onClick={() => requestDecision("VERIFY")}>{pending === "VERIFY" ? "Verifying…" : "Verify enrollment"}</Button>}
-          <Button type="button" variant="outline" disabled={Boolean(pending) || Boolean(error?.conflict) || !reason.trim()}
+          <Button type="button" variant="outline" disabled={Boolean(pending) || !reason.trim()}
             onClick={() => requestDecision("RETURN")}>{pending === "RETURN" ? "Returning…" : "Return for correction"}</Button>
           <Button type="button" variant="ghost" disabled={Boolean(pending)} onClick={reload}>Reload review</Button>
         </div>
@@ -232,10 +229,8 @@ export function LoanVerificationModule() {
   const [selected, setSelected] = useState<number[]>([]);
   const [revision, refresh] = useState(0);
   const [agencyRevision, refreshAgencies] = useState(0);
-  const [notice, setNotice] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [working, setWorking] = useState(false);
-  const [bulkError, setBulkError] = useState("");
   const [results, setResults] = useState<BulkVerificationResult | null>(null);
   const skipUrlWrite = useRef(true);
   const attempt = useRef<{ payload: string; key: string } | null>(null);
@@ -300,7 +295,7 @@ export function LoanVerificationModule() {
     if (target !== current) window.history.replaceState(window.history.state, "", target);
   }, [agency, batch, direction, overdue, page, search, size, sort, status]);
 
-  const filterChanged = () => { setPage(1); setSelected([]); setResults(null); setNotice(""); };
+  const filterChanged = () => { setPage(1); setSelected([]); setResults(null); };
 
   function changeFilter(update: () => void) {
     update();
@@ -343,25 +338,25 @@ export function LoanVerificationModule() {
     const payload = JSON.stringify(selections);
     if (attempt.current?.payload !== payload) attempt.current = { payload, key: consignmentRequestId() };
     setWorking(true);
-    setBulkError("");
     try {
-      setResults(await bulkVerify(selections, attempt.current.key));
+      const outcome = await bulkVerify(selections, attempt.current.key);
+      setResults(outcome);
+      toast.success(`${outcome.verified} verified · ${outcome.skipped} skipped`);
       attempt.current = null;
       setSelected([]);
       setConfirming(false);
       reload();
     } catch (cause) {
-      setBulkError(cause instanceof Error ? cause.message : "The batch could not be completed. Try again.");
+      toast.error(cause instanceof Error ? cause.message : "The batch could not be completed. Try again.");
     } finally {
       setWorking(false);
     }
   }
 
-  const back = () => { selectRecord(null); setSelected([]); setNotice(""); reload(); };
+  const back = () => { selectRecord(null); setSelected([]); reload(); };
   if (openRecord !== null) return <div className="space-y-3">
-    {notice && <p role="status" className="text-sm">{notice}</p>}
     {review?.data ? <VerificationReviewPanel key={`${openRecord}:${revision}`} review={review.data} back={back} reload={reload}
-      saved={message => { setNotice(message); reload(); }} /> : <>
+      saved={message => { toast.success(message); reload(); }} /> : <>
       <Button type="button" variant="ghost" onClick={back}>Back to verification queue</Button>
       {review?.error ? <LoadError message={review.error} retry={reload} /> :
         <div className="space-y-2"><Skeleton className="h-8 w-48" /><Skeleton className="h-36 w-full" /><Skeleton className="h-24 w-full" /></div>}
@@ -375,13 +370,15 @@ export function LoanVerificationModule() {
       <p className="max-w-3xl text-sm text-muted-foreground">Check each enrollment against the agency notice before deductions start.</p>
     </div>
     {summary ? <div className={cn("grid grid-cols-2 gap-2 xl:grid-cols-4", queue?.pending && "opacity-60")}>
-      <SummaryCard label="For verification" value={summary.ENROLLED} active={status === "ENROLLED"} onClick={() => changeStatus("ENROLLED")} />
-      <SummaryCard label="Verified · awaiting activation" value={summary.VERIFIED} active={status === "VERIFIED"} onClick={() => changeStatus("VERIFIED")} />
-      <SummaryCard label="Activation pending" value={summary.ACTIVATING} active={status === "ACTIVATING"} onClick={() => changeStatus("ACTIVATING")} />
-      <SummaryCard label="Active" value={summary.ACTIVE} active={status === "ACTIVE"} onClick={() => changeStatus("ACTIVE")} />
-    </div> : queue?.error ? null : <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-      {[0, 1, 2, 3].map(value => <Skeleton key={value} className="h-[74px] rounded-lg" />)}
-    </div>}
+      <SummaryCard label="For verification" value={summary.ENROLLED} active={status === "ENROLLED"} onClick={() => changeStatus("ENROLLED")}
+        icon={ShieldCheck} tone="sky" ringClass="ring-sky-500/40" detail="Waiting for a second reviewer" />
+      <SummaryCard label="Verified · awaiting activation" value={summary.VERIFIED} active={status === "VERIFIED"} onClick={() => changeStatus("VERIFIED")}
+        icon={BadgeCheck} tone="emerald" ringClass="ring-emerald-500/40" detail="Ready to activate" />
+      <SummaryCard label="Activation pending" value={summary.ACTIVATING} active={status === "ACTIVATING"} onClick={() => changeStatus("ACTIVATING")}
+        icon={Clock3} tone="amber" ringClass="ring-amber-500/40" detail="Payroll instructions in progress" />
+      <SummaryCard label="Active" value={summary.ACTIVE} active={status === "ACTIVE"} onClick={() => changeStatus("ACTIVE")}
+        icon={CheckCircle2} tone="emerald" ringClass="ring-emerald-500/40" detail="Deducted through Payroll" />
+    </div> : queue?.error ? null : <MetricCardsSkeleton />}
     <div className="flex flex-wrap gap-2">
       <Input className="max-w-sm" aria-label="Search verification queue" placeholder="Employee, loan, encoder, or agency reference" maxLength={120}
         value={search} onChange={event => changeFilter(() => setSearch(event.target.value))} />
@@ -404,12 +401,12 @@ export function LoanVerificationModule() {
     {status === "ENROLLED" && selections.length > 0 && <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 p-2 text-sm shadow-sm backdrop-blur">
       <span>{selections.length} selected</span>
       <Button type="button" variant="outline" size="sm" onClick={() => setSelected([])}>Clear selection</Button>
-      <Button type="button" size="sm" onClick={() => { setBulkError(""); setConfirming(true); }}>Verify selected</Button>
+      <Button type="button" size="sm" onClick={() => setConfirming(true)}>Verify selected</Button>
     </div>}
     {agencies?.error && <LoadError message={agencies.error} retry={() => refreshAgencies(value => value + 1)} />}
     {invalidBatch && <p role="status" className="text-sm text-muted-foreground">Enter a batch number or its reference, such as BT-0001.</p>}
     {queue?.error && <LoadError message={queue.error} retry={reload} />}
-    {!queue && !invalidBatch && <div className="space-y-2 rounded-lg border p-3"><Skeleton className="h-9 w-full" />{[0, 1, 2, 3, 4].map(value => <Skeleton key={value} className="h-12 w-full" />)}</div>}
+    {!queue?.data && !queue?.error && !invalidBatch && <div className="space-y-2 rounded-lg border p-3"><Skeleton className="h-9 w-full" />{[0, 1, 2, 3, 4].map(value => <Skeleton key={value} className="h-12 w-full" />)}</div>}
     {results && <RequestSection title="Bulk verification results">
       <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
         <span>{results.verified} verified · {results.skipped} skipped</span>
@@ -442,22 +439,26 @@ export function LoanVerificationModule() {
             <TableHead>Evidence</TableHead>
           </TableRow></TableHeader>
           <TableBody>
-            {!items.length && <TableRow><TableCell colSpan={status === "ENROLLED" ? 9 : 8} className="py-8 text-center text-muted-foreground">
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <span>{hasFilters ? "No enrollments match these filters." : "No enrollments waiting for verification."}</span>
-                {hasFilters && <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>}
-              </div>
+            {!items.length && <TableRow><TableCell colSpan={status === "ENROLLED" ? 9 : 8} className="p-0">
+              <EmptyState icon={SearchX}
+                title={hasFilters ? "No enrollments match these filters" : "No enrollments waiting for verification"}
+                description={hasFilters ? "Try a different search or clear the filters." : "Enrollments appear here after they are saved."}
+                action={hasFilters ? <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button> : undefined} />
             </TableCell></TableRow>}
             {items.map(item => <TableRow key={item.id} className="cursor-pointer hover:bg-muted/50" onClick={() => selectRecord(item.id)}>
               {status === "ENROLLED" && <TableCell onClick={event => event.stopPropagation()}><Checkbox aria-label={`Select ${item.reference}`} checked={selected.includes(item.id)} disabled={!item.canDecide}
-                title={!item.canDecide ? "A different verifier must review this enrollment." : undefined}
                 onCheckedChange={checked => setSelected(ids => checked === true ? [...ids, item.id] : ids.filter(id => id !== item.id))} /></TableCell>}
               <TableCell>
                 <Button type="button" variant="link" size="sm" className="px-0" onClick={event => { event.stopPropagation(); selectRecord(item.id); }}>{item.reference}</Button>
                 <span className="block max-w-56 truncate text-xs text-muted-foreground" title={item.enrollment.agencyReference}>{item.enrollment.agencyReference}</span>
                 {item.importBatchId && <span className="block text-xs text-muted-foreground">{enrollmentBatchReference(item.importBatchId)}</span>}
               </TableCell>
-              <TableCell>{item.employeeName ?? "—"}</TableCell>
+              <TableCell>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <PersonAvatar name={item.employeeName ?? "Employee"} size="sm" />
+                  <span className="truncate font-medium">{item.employeeName ?? "—"}</span>
+                </div>
+              </TableCell>
               <TableCell>{item.agencyName ?? "—"}<span className="block text-xs text-muted-foreground">{item.program}</span></TableCell>
               <TableCell className="text-right tabular-nums">{peso(item.enrollment.monthlyAmortization)}</TableCell>
               <TableCell>{deductionMonthLabel(item.enrollment.firstDeductionMonth)}</TableCell>
@@ -465,7 +466,6 @@ export function LoanVerificationModule() {
               <TableCell>
                 {item.enrollment.resubmittedBy?.name ?? item.enrollment.encodedBy.name}
                 <span className="block text-xs text-muted-foreground">{dateTime(item.enrollment.resubmittedAt ?? item.enrollment.encodedAt)} PHT</span>
-                {status === "ENROLLED" && !item.canDecide && <span className="block text-xs text-muted-foreground">Different verifier required</span>}
               </TableCell>
               <TableCell>
                 <Badge variant="outline">{item.documentsPresent} / {item.documentsRequired} documents</Badge>
@@ -504,7 +504,6 @@ export function LoanVerificationModule() {
           <AlertDialogTitle>Verify selected enrollments?</AlertDialogTitle>
           <AlertDialogDescription>{selections.length} selected. Passing enrollments become active and receive Payroll instructions. Each skip includes its reason.</AlertDialogDescription>
         </AlertDialogHeader>
-        {bulkError && <p role="alert" className="text-sm text-destructive">{bulkError}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={working}>Cancel</AlertDialogCancel>
           <Button type="button" disabled={working || !selections.length} onClick={() => void verifySelected()}>{working ? "Verifying…" : "Verify enrollments"}</Button>

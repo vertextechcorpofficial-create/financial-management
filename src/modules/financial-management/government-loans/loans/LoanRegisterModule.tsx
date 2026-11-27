@@ -1,9 +1,10 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import dynamic from "next/dynamic";
+import { useEffect, useState, type ComponentType, type FormEvent, type ReactNode } from "react";
 import {
-  AlertCircle, ArrowDown, ArrowUp, ChevronsUpDown, Download, RefreshCw, Rows3, Rows4, Search, SearchX, X,
+  AlertCircle, ArrowDown, ArrowUp, ChevronsUpDown, Clock3, Download, Landmark, RefreshCw, Rows3, Rows4, Scale, Search, SearchX, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +13,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,12 +20,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 import { date, peso } from "@/modules/financial-management/cooperative/members/format";
 import { copyText } from "@/modules/financial-management/property-ledger/utils/clipboard";
+import { EmptyState, MetricCard, MetricCardsSkeleton, PersonAvatar, StatusChip } from "../components/ui";
 import { agencyStatementDocumentUrl, copyRegisterCsv, listRegister, type RegisterTab } from "./api";
-import { LoanRegisterDialog, loanPanels, type LoanPanel } from "./LoanRegisterDialog";
+import { loanPanels, type LoanPanel } from "./loan-panels";
 import {
   registerPageSizes, registerSorts, registerStatusLabels, registerViews, type LoanRegisterPage, type RegisterLoan,
   type RegisterSort, type RegisterView,
 } from "./types";
+
+const LoanRegisterDialog = dynamic(() => import("./LoanRegisterDialog").then(module => module.LoanRegisterDialog), {
+  ssr: false, loading: () => null,
+});
 
 const initialFilters = { q: "", agency: "", department: "", program: "", status: "", short: "", flagged: "", needsUpdate: "" };
 type RegisterFilters = typeof initialFilters;
@@ -119,12 +124,7 @@ function seedFrom(params: { get(name: string): string | null } | null) {
 }
 
 function RegisterStatusBadge({ status }: { status: RegisterLoan["status"] }) {
-  const tone = status === "ACTIVE" ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-    : status === "SUSPENDED" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-    : status === "FINAL_PAY_REQUESTED" ? "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300"
-    : status === "COMPLETED" ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300"
-    : "text-muted-foreground";
-  return <Badge variant="outline" className={tone}>{registerStatusLabels[status]}</Badge>;
+  return <StatusChip status={status} label={registerStatusLabels[status]} />;
 }
 
 function agencyTone(name: string) {
@@ -141,13 +141,11 @@ function AgencyBadge({ name }: { name: string }) {
 
 const maskedReference = (value: string) => value.length > 4 ? "••••" + value.slice(-4) : value;
 
-function Kpi({ label, value, tone }: { label: string; value: ReactNode; tone?: "warning" }) {
-  const content = <>
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-  </>;
-  return <div className={cn("rounded-lg border p-3 text-left",
-    tone === "warning" && "border-amber-200 bg-amber-50/60 dark:border-amber-900/60 dark:bg-amber-950/20")}>{content}</div>;
+function Kpi({ label, value, icon, tone, alert }: {
+  label: string; value: ReactNode; icon: ComponentType<{ className?: string }>;
+  tone: "emerald" | "sky" | "amber" | "rose" | "slate"; alert?: boolean;
+}) {
+  return <MetricCard icon={icon} label={label} value={value} tone={tone} alert={alert} />;
 }
 
 export function LoanRegisterModule({ tab }: { tab: RegisterTab }) {
@@ -412,14 +410,13 @@ export function LoanRegisterModule({ tab }: { tab: RegisterTab }) {
         onClick={() => changeView(item)}>{registerViews[item]}</Button>)}
     </div>}
 
-    {balances && (firstLoad ? <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
-      {Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-[74px] rounded-lg" />)}
-    </div> : <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
-      <Kpi label="Loans with an agency balance" value={`${data?.summary.withStatement ?? 0} / ${data?.summary.active ?? 0}`} />
+    {balances && (firstLoad ? <MetricCardsSkeleton count={3} /> : <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
+      <Kpi label="Loans with an agency balance" value={`${data?.summary.withStatement ?? 0} / ${data?.summary.active ?? 0}`}
+        icon={Landmark} tone="sky" />
       <Kpi label="Estimate differs from agency" value={data?.summary.flagged ?? 0}
-        tone={(data?.summary.flagged ?? 0) > 0 ? "warning" : undefined} />
+        icon={Scale} tone="amber" alert={(data?.summary.flagged ?? 0) > 0} />
       <Kpi label="Not updated in 90 days" value={data?.summary.needsUpdate ?? 0}
-        tone={(data?.summary.needsUpdate ?? 0) > 0 ? "warning" : undefined} />
+        icon={Clock3} tone="amber" alert={(data?.summary.needsUpdate ?? 0) > 0} />
     </div>)}
 
     <div className="sticky top-0 z-20 space-y-2 rounded-lg border bg-background p-3 shadow-xs">
@@ -501,8 +498,10 @@ export function LoanRegisterModule({ tab }: { tab: RegisterTab }) {
                 <Skeleton className={cn("h-4", column.id === "reference" ? "w-24" : column.align === "right" ? "ml-auto w-20" : "w-full max-w-32")} />
               </TableCell>)}
             </TableRow>)}
-            {!firstLoad && data?.items.map(loan => <TableRow key={loan.id} className="group cursor-pointer"
-              onClick={() => open(loan.id, false)}>
+            {!firstLoad && data?.items.map(loan => <TableRow key={loan.id} tabIndex={0} aria-label={`Open ${loan.reference}`}
+              className="group cursor-pointer focus-visible:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/30"
+              onClick={() => open(loan.id, false)}
+              onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(loan.id, false); } }}>
               {columns.map(column => <TableCell key={column.id} className={cn(column.align === "right" && "text-right",
                 column.sticky && "sticky left-0 z-10 bg-card shadow-[6px_0_8px_-8px_rgba(0,0,0,0.35)] group-hover:bg-muted/50", compact && "py-1.5")}>
                 {column.render(loan)}
@@ -510,20 +509,12 @@ export function LoanRegisterModule({ tab }: { tab: RegisterTab }) {
             </TableRow>)}
             {!firstLoad && data && !data.items.length && <TableRow>
               <TableCell colSpan={columns.length} className="p-0">
-                <Empty className="border-0">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon"><SearchX /></EmptyMedia>
-                    <EmptyTitle>No loans match these filters</EmptyTitle>
-                    <EmptyDescription>Try a different search, or clear the filters to see the full register.</EmptyDescription>
-                  </EmptyHeader>
-                  <EmptyContent>
-                    <div className="flex flex-wrap justify-center gap-2">
-                      {hasFilters && <Button type="button" size="sm" onClick={clearFilters}>Clear filters</Button>}
-                      {view !== "all" && <Button type="button" size="sm" variant="outline"
-                        onClick={() => changeView("all")}>Show all enrolled</Button>}
-                    </div>
-                  </EmptyContent>
-                </Empty>
+                <EmptyState icon={SearchX} title="No loans match these filters"
+                  description="Try a different search, or clear the filters to see the full register."
+                  action={<div className="flex flex-wrap justify-center gap-2">
+                    {hasFilters && <Button type="button" size="sm" onClick={clearFilters}>Clear filters</Button>}
+                    {view !== "all" && <Button type="button" size="sm" variant="outline" onClick={() => changeView("all")}>Show all enrolled</Button>}
+                  </div>} />
               </TableCell>
             </TableRow>}
           </TableBody>
@@ -591,7 +582,13 @@ function LoanReference({ loan, onOpen }: { loan: RegisterLoan; onOpen: (id: numb
 }
 
 function EmployeeCell({ loan }: { loan: RegisterLoan }) {
-  return <>{loan.employee}{loan.department && <p className="text-xs text-muted-foreground">{loan.department}</p>}</>;
+  return <div className="flex min-w-0 items-center gap-2.5">
+    <PersonAvatar name={loan.employee} size="sm" />
+    <div className="min-w-0">
+      <p className="truncate font-medium">{loan.employee}</p>
+      {loan.department && <p className="truncate text-xs text-muted-foreground">{loan.department}</p>}
+    </div>
+  </div>;
 }
 
 function AgencyCell({ loan }: { loan: RegisterLoan }) {

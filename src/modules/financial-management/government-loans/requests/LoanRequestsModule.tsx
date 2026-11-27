@@ -1,24 +1,28 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Plus, Search, X } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useEffect, useState, type ComponentType } from "react";
+import { CheckCircle2, Clock3, FileText, Plus, RotateCcw, Search, SearchX, X } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, MetricButton, MetricCard, MetricCardsSkeleton, DetailSkeleton, PersonAvatar, StatusChip, TableRowsSkeleton } from "../components/ui";
 import { employeeRequestApi, staffRequestApi } from "./request-api";
-import { RequestEditor } from "./RequestEditor";
 import {
-  applicationPageSizes, requestSorts, requestStatusLabels, requestStatusTone, requestViews,
-  type AgencyChoice, type EmployeeChoice, type LoanRequest, type RequestPage, type RequestSort,
+  applicationPageSizes, requestSorts, requestStatusLabels, requestViews,
+  type AgencyChoice, type EmployeeChoice, type LoanRequest, type RequestPage, type RequestSort, type RequestSummary,
   type RequestView,
 } from "./types";
+
+const RequestEditor = dynamic(() => import("./RequestEditor").then(module => module.RequestEditor), {
+  ssr: false, loading: () => null,
+});
 
 type Filters = { q: string; agency: string; status: string };
 type Direction = "asc" | "desc";
@@ -111,12 +115,14 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>;
 }
 
-function SummaryCard({ label, value, active, onClick }: { label: string; value: number; active: boolean; onClick: () => void }) {
-  return <button type="button" onClick={onClick} aria-pressed={active}
-    className={cn("rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50", active && "ring-2 ring-primary/40")}>
-    <p className="text-xs font-medium text-muted-foreground">{label}</p>
-    <p className="text-xl font-semibold tabular-nums">{value.toLocaleString("en-PH")}</p>
-  </button>;
+function SummaryCard({ label, value, active, onClick, icon, tone, ringClass, detail }: {
+  label: string; value: number; active: boolean; onClick: () => void;
+  icon: ComponentType<{ className?: string }>; tone: "emerald" | "sky" | "amber" | "rose" | "slate";
+  ringClass: string; detail: string;
+}) {
+  return <MetricButton active={active} onClick={onClick} label={label} ringClass={ringClass}>
+    <MetricCard icon={icon} label={label} value={value} detail={detail} tone={tone} />
+  </MetricButton>;
 }
 
 function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
@@ -134,7 +140,9 @@ function SortHeader({ label, sortKey, sort, direction, align, onSort }: {
   </TableHead>;
 }
 
-export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeChoice, "id" | "name"> } = {}) {
+export function LoanRequestsModule({ applicant, initialNew, onSummary }: {
+  applicant?: Pick<EmployeeChoice, "id" | "name">; initialNew?: boolean; onSummary?: (summary: RequestSummary) => void;
+} = {}) {
   const { agencyOptions, getRequest, getRequests } = applicant ? employeeRequestApi : staffRequestApi;
   const searchParams = useSearchParams();
   const [seed] = useState(() => seedFrom(searchParams));
@@ -144,14 +152,13 @@ export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeCho
   const [direction, setDirection] = useState<Direction>(seed.direction);
   const [size, setSize] = useState(seed.size);
   const [page, setPage] = useState(seed.page);
-  const [selected, setSelected] = useState<number | "new" | null>(null);
+  const [selected, setSelected] = useState<number | "new" | null>(initialNew ? "new" : null);
   const [attempt, setAttempt] = useState(0);
   const [agencyAttempt, setAgencyAttempt] = useState(0);
   const [agencies, setAgencies] = useState<{ items: AgencyChoice[]; error?: string }>({ items: [] });
   const [loaded, setLoaded] = useState<Loaded>();
   const [data, setData] = useState<RequestPage>();
   const [detail, setDetail] = useState<{ id: number; attempt: number; record?: LoanRequest; error?: string }>();
-  const [notice, setNotice] = useState("");
   const [saved, setSaved] = useState<SavedView[]>([]);
   const [saving, setSaving] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -180,6 +187,10 @@ export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeCho
   useEffect(() => {
     setSaved(readViews());
   }, []);
+
+  useEffect(() => {
+    if (data?.summary) onSummary?.(data.summary);
+  }, [data?.summary, onSummary]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -285,7 +296,8 @@ export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeCho
   }
 
   function showList(next?: RequestView, message = "") {
-    setSelected(null); setDetail(undefined); setAttempt(value => value + 1); setNotice(message);
+    setSelected(null); setDetail(undefined); setAttempt(value => value + 1);
+    if (message) toast.success(message);
     if (next) { setView(next); setPage(1); setFilters(initialFilters); setSort(next === "drafts" ? "updated" : "filed"); }
   }
 
@@ -298,8 +310,7 @@ export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeCho
       agencies={agencies.items} applicant={applicant} onBack={showList} onReload={id => { setSelected(id); setAttempt(value => value + 1); }} /> :
       <div className="space-y-3">
         <Button variant="ghost" onClick={() => showList()}>Back to requests</Button>
-        {record?.error ? <LoadError message={record.error} retry={() => setAttempt(value => value + 1)} /> :
-          <p role="status" className="text-sm text-muted-foreground">Loading request…</p>}
+        {record?.error ? <LoadError message={record.error} retry={() => setAttempt(value => value + 1)} /> : <DetailSkeleton />}
       </div>}
   </div>;
 
@@ -308,9 +319,6 @@ export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeCho
   const dateLabel = view === "in-progress" ? "Filed" : "Last updated";
 
   return <div className="space-y-4">
-    {notice && <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
-      <span>{notice}</span><Button type="button" variant="ghost" size="sm" onClick={() => setNotice("")}>Dismiss</Button>
-    </div>}
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 className="text-lg font-semibold">{applicant ? isDrafts ? "Your unfinished requests" : "Your loan requests" : "Loan Requests"}</h2>
@@ -322,18 +330,25 @@ export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeCho
     </header>
     {agencyError}
 
-    {summary && <section aria-label="Request queue summary" className="space-y-2">
+    {summary ? <section aria-label="Request queue summary" className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-        <SummaryCard label="Drafts" value={summary.DRAFT} active={summaryActive("drafts", "")} onClick={() => changeView("drafts")} />
+        <SummaryCard label="Drafts" value={summary.DRAFT} active={summaryActive("drafts", "")} onClick={() => changeView("drafts")}
+          icon={FileText} tone="amber" ringClass="ring-amber-500/40" detail="Unfinished requests" />
         <SummaryCard label="Awaiting approval" value={summary.REQUESTED} active={summaryActive("in-progress", "REQUESTED")}
+          icon={Clock3} tone="sky" ringClass="ring-sky-500/40" detail="Waiting for a decision"
           onClick={() => { setView("in-progress"); setFilters(previous => ({ ...previous, status: "REQUESTED" })); setPage(1); setSort("filed"); }} />
         <SummaryCard label="Approved · awaiting agency" value={summary.APPROVED} active={summaryActive("in-progress", "APPROVED")}
+          icon={CheckCircle2} tone="emerald" ringClass="ring-emerald-500/40" detail="Waiting for agency approval"
           onClick={() => { setView("in-progress"); setFilters(previous => ({ ...previous, status: "APPROVED" })); setPage(1); setSort("filed"); }} />
         <SummaryCard label="Returned for correction" value={summary.RETURNED} active={summaryActive("decided", "RETURNED")}
+          icon={RotateCcw} tone="rose" ringClass="ring-rose-500/40" detail="Needs correction"
           onClick={() => { setView("decided"); setFilters(previous => ({ ...previous, status: "RETURNED" })); setPage(1); setSort("updated"); }} />
       </div>
-    </section>}
+    </section> : !loaded?.error ? <div className="space-y-2" aria-busy="true">
+      <p className="text-xs font-medium text-muted-foreground">Queue overview</p>
+      <MetricCardsSkeleton />
+    </div> : null}
 
     <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Loan request view">
       {(Object.keys(requestViews) as RequestView[]).map(item => <Button key={item} type="button" size="sm"
@@ -394,16 +409,17 @@ export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeCho
           {isDrafts && <TableHead className="text-right">Action</TableHead>}
         </TableRow></TableHeader>
         <TableBody>
-          {firstLoad && Array.from({ length: 6 }, (_, row) => <TableRow key={row}>
-            {Array.from({ length: (applicant ? 6 : 7) + (isDrafts ? 1 : 0) }, (_, cell) => <TableCell key={cell}>
-              <Skeleton className="h-4 w-full max-w-28" />
-            </TableCell>)}
-          </TableRow>)}
+          {firstLoad && <TableRowsSkeleton rows={6} columns={(applicant ? 6 : 7) + (isDrafts ? 1 : 0)} />}
           {!firstLoad && data?.items.map(item => <TableRow key={item.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelected(item.id)}>
             <TableCell>
               <Button variant="link" type="button" className="h-auto p-0 font-medium" onClick={event => { event.stopPropagation(); setSelected(item.id); }}>{item.reference}</Button>
             </TableCell>
-            {!applicant && <TableCell>{item.employeeName ?? "—"}</TableCell>}
+            {!applicant && <TableCell>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <PersonAvatar name={item.employeeName ?? "Employee"} size="sm" />
+                <span className="truncate font-medium">{item.employeeName ?? "—"}</span>
+              </div>
+            </TableCell>}
             <TableCell><AgencyBadge name={item.agencyName} /></TableCell>
             <TableCell>{item.program}</TableCell>
             <TableCell className="text-right tabular-nums">{item.amount ? peso(item.amount) : "—"}</TableCell>
@@ -411,15 +427,15 @@ export function LoanRequestsModule({ applicant }: { applicant?: Pick<EmployeeCho
               {Object.keys(item.missing).length ? <ul className="min-w-40 space-y-0.5 text-xs">{Object.values(item.missing).map(error => <li key={error}>{error}</li>)}</ul>
                 : <Badge variant="outline">Ready to submit</Badge>}
             </TableCell> : <TableCell className="whitespace-nowrap">{dateTime(view === "in-progress" ? item.requestedAt ?? item.updatedAt : item.updatedAt)}</TableCell>}
-            <TableCell><Badge variant="outline" className={requestStatusTone[item.status]}>{requestStatusLabels[item.status]}</Badge></TableCell>
+            <TableCell><StatusChip status={item.status} label={requestStatusLabels[item.status]} /></TableCell>
             {isDrafts && <TableCell className="text-right"><Button type="button" variant="outline" size="sm"
               onClick={event => { event.stopPropagation(); setSelected(item.id); }}>Continue</Button></TableCell>}
           </TableRow>)}
           {!firstLoad && data && !data.items.length && <TableRow><TableCell colSpan={applicant ? (isDrafts ? 7 : 6) : isDrafts ? 8 : 7} className="p-0">
-            <Empty className="border-0"><EmptyHeader><EmptyMedia variant="icon"><span>📄</span></EmptyMedia>
-              <EmptyTitle>{isDrafts ? "No drafts" : view === "decided" ? "No decided requests" : "No requests in progress"}</EmptyTitle>
-              <EmptyDescription>{hasFilters ? "Try a different search or clear the filters." : "New requests appear here once they are filed."}</EmptyDescription>
-            </EmptyHeader></Empty>
+            <EmptyState icon={SearchX}
+              title={isDrafts ? "No drafts" : view === "decided" ? "No decided requests" : "No requests in progress"}
+              description={hasFilters ? "Try a different search or clear the filters." : "New requests appear here once they are filed."}
+              action={hasFilters ? <Button type="button" variant="outline" size="sm" onClick={() => { setFilters(initialFilters); setPage(1); }}>Clear filters</Button> : undefined} />
           </TableCell></TableRow>}
         </TableBody>
       </Table></div>

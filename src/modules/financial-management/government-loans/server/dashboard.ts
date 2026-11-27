@@ -9,7 +9,7 @@ import { remittanceLiability } from "../remittances/approval/rules";
 import { dayDifference, remitKey, remittanceDeadline, remittanceStatus } from "../remittances/preparation/rules";
 
 import { readSavedBillingComparison } from "./agency-billing";
-import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_PAYROLL_RESULTS, GOVERNMENT_LOAN_REMITTANCES, GOVERNMENT_LOAN_REQUESTS,
+import { GOVERNMENT_LOAN_AGENCIES, GOVERNMENT_LOAN_REMITTANCES, GOVERNMENT_LOAN_REQUESTS,
   GOVERNMENT_LOAN_STAFF_EVENTS, readGovernmentLoansItems, type GovernmentLoansCollection } from "./directus";
 import { readGroups } from "./enrollment-sources";
 import { readChangeInstructions, readOpenLoanMonth } from "./loan-changes";
@@ -18,11 +18,12 @@ import { readMonthlyLoanSchedules } from "./loan-register";
 import { isoDateTime, referenceFor } from "./loan-requests";
 import { readOnboardingAttention } from "./onboarding-exits";
 import { buildAgencyRollforward, readOpeningRollforward, signedRollforwardAmount } from "./month-end-rollforward";
-import { readLatestReceipts, readPayrollPages, type PayrollReceipt } from "./payroll-month-store";
+import { readLatestReceipts, readPayrollPages, sumPayrollByAgency, type PayrollReceipt } from "./payroll-month-store";
 import { payrollMonthFilter } from "./payroll-month-filter";
 import { nextPeriodCommand } from "./period-commands";
 import { latestRemittances, readRemittanceOverview } from "./remittance-records";
 import { flag, LoanRequestError, positiveId } from "./request-input";
+import { mapLimit } from "./concurrency";
 
 const manilaDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" });
 const monthLabel = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", year: "numeric" });
@@ -35,9 +36,6 @@ const agencyRow = z.object({
   deadline_rule: z.enum(["FIXED_DAY", "END_OF_MONTH"]), deadline_day: z.number().int().nullable(), reminder_days: z.number().int(),
 });
 const separatingEmployee = z.object({ user_id: positiveId, separation_date: z.iso.date() });
-const amountsRow = z.object({ receipt_id: z.uuid(), agency_id: positiveId, sum: z.object({
-  amount: z.union([z.string(), z.number()]).transform(String).pipe(z.string().regex(/^\d+(\.\d{1,2})?$/)),
-}) });
 const countResult = z.object({ data: z.array(z.object({ count: z.object({ id: z.coerce.number().int().nonnegative() }) })).max(1) });
 
 async function count(collection: GovernmentLoansCollection, filter: object) {
@@ -87,23 +85,9 @@ async function readPendingPaymentAttention(cutoff: string) {
 }
 
 async function readWithholding(receipts: ReadonlyMap<string, PayrollReceipt>) {
-  const ids = [...receipts.values()].map(row => row.id);
-  const result = [];
-  for (let start = 0; start < ids.length; start += 25) {
-    for (let offset = 0; ; offset += 50) {
-      const query = new URLSearchParams({
-        "groupBy[]": "receipt_id", "aggregate[sum]": "amount",
-        sort: "receipt_id,agency_id", limit: "50", offset: String(offset),
-        filter: JSON.stringify({ receipt_id: { _in: ids.slice(start, start + 25) }, status: { _in: ["D", "P", "X"] } }),
-      });
-      query.append("groupBy[]", "agency_id");
-      const { data } = z.object({ data: z.array(amountsRow).max(50) })
-        .parse(await readGovernmentLoansItems(GOVERNMENT_LOAN_PAYROLL_RESULTS, query));
-      result.push(...data.map(row => ({ receiptId: row.receipt_id, agencyId: row.agency_id, amount: centavos(row.sum.amount) })));
-      if (data.length < 50) break;
-    }
-  }
-  return result;
+  const totals = await sumPayrollByAgency([...receipts.values()].map(row => row.id));
+  return [...totals].flatMap(([receiptId, byAgency]) =>
+    [...byAgency].map(([agencyId, amount]) => ({ receiptId, agencyId, amount })));
 }
 
 export async function readLoanDashboard(now = new Date()) {
@@ -285,32 +269,43 @@ export async function readLoanDashboard(now = new Date()) {
   alert("clearance", "Separated employees without loan clearance", onboarding.clearances.count,
     listDetail(onboarding.clearances.rows, onboarding.clearances.count), "warning");
 
+  const billingTasks: { period: string; agency: (typeof agencies)[number] }[] = [];
   for (const period of [month, priorMonth]) {
-    let projected = 0;
-    let actual = 0;
-    let missing = 0;
-    const actualNames: string[] = [];
-    const projectedNames: string[] = [];
-    const missingNames: string[] = [];
     for (const agency of agencies) {
       if (!agency.sends_billing || (!agency.is_active && !payable.has(remitKey(agency.id, period)))) continue;
-      const comparison = await readSavedBillingComparison(agency.id, period, receipts.get(period) ?? null);
-      if (!comparison) {
-        if ((payable.get(remitKey(agency.id, period)) ?? 0n) > 0n) {
-          missing++;
-          missingNames.push(agency.short_code);
-        }
-      } else if (comparison.mode === "actual") {
-        actual += comparison.totals.discrepancies;
-        if (comparison.totals.discrepancies) actualNames.push(agency.short_code);
-      } else {
-        projected += comparison.totals.discrepancies;
-        if (comparison.totals.discrepancies) projectedNames.push(agency.short_code);
-      }
+      billingTasks.push({ period, agency });
     }
-    alert("billing:actual:" + period, "Actual billing differences", actual, monthText(period) + namesDetail(actualNames), "warning");
-    alert("billing:projected:" + period, "Projected billing differences", projected, monthText(period) + namesDetail(projectedNames), "warning");
-    alert("billing:missing:" + period, "Expected agency bills are missing", missing, monthText(period) + namesDetail(missingNames), "warning");
+  }
+  const billingResults = await mapLimit(billingTasks, 4, async task => ({
+    ...task, comparison: await readSavedBillingComparison(task.agency.id, task.period, receipts.get(task.period) ?? null),
+  }));
+  const billingTotals = new Map<string, { actual: number; projected: number; missing: number;
+    actualNames: string[]; projectedNames: string[]; missingNames: string[] }>();
+  for (const { period, agency, comparison } of billingResults) {
+    const totals = billingTotals.get(period)
+      ?? { actual: 0, projected: 0, missing: 0, actualNames: [], projectedNames: [], missingNames: [] };
+    if (!comparison) {
+      if ((payable.get(remitKey(agency.id, period)) ?? 0n) > 0n) {
+        totals.missing++;
+        totals.missingNames.push(agency.short_code);
+      }
+    } else if (comparison.mode === "actual") {
+      totals.actual += comparison.totals.discrepancies;
+      if (comparison.totals.discrepancies) totals.actualNames.push(agency.short_code);
+    } else {
+      totals.projected += comparison.totals.discrepancies;
+      if (comparison.totals.discrepancies) totals.projectedNames.push(agency.short_code);
+    }
+    billingTotals.set(period, totals);
+  }
+  for (const period of [month, priorMonth]) {
+    const totals = billingTotals.get(period);
+    alert("billing:actual:" + period, "Actual billing differences", totals?.actual ?? 0,
+      monthText(period) + namesDetail(totals?.actualNames ?? []), "warning");
+    alert("billing:projected:" + period, "Projected billing differences", totals?.projected ?? 0,
+      monthText(period) + namesDetail(totals?.projectedNames ?? []), "warning");
+    alert("billing:missing:" + period, "Expected agency bills are missing", totals?.missing ?? 0,
+      monthText(period) + namesDetail(totals?.missingNames ?? []), "warning");
   }
   alert("missed", "Active loans with a partial or missed deduction", missed, missedDetail, "warning");
   alert("refund", "Employee refunds awaiting payout", refund, refundDetail, "warning");

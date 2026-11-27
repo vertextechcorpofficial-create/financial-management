@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -31,7 +32,7 @@ export function ApprovalReviewPanel({ review, onBack, onReload, onDecision }: {
   const waitingDays = request.requestedAt ? requestWaitingDays(request.requestedAt, new Date()) : null;
   const reviewChecks = currentAssessment?.checks.filter(check => check.result === "review").length ?? 0;
   const [remarks, setRemarks] = useState("");
-  const [error, setError] = useState<{ message: string; conflict: boolean }>();
+  const [validation, setValidation] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmAction, setConfirmAction] = useState<CompanyDecision | null>(null);
   const inFlight = useRef(false);
@@ -39,10 +40,10 @@ export function ApprovalReviewPanel({ review, onBack, onReload, onDecision }: {
 
   function requestDecision(action: CompanyDecision) {
     if (action === "REJECT" && !remarks.trim()) {
-      setError({ message: "Enter a reason for rejecting the request.", conflict: false });
+      setValidation("Enter a reason for rejecting the request.");
       return;
     }
-    setError(undefined);
+    setValidation("");
     setConfirmAction(action);
   }
 
@@ -50,7 +51,7 @@ export function ApprovalReviewPanel({ review, onBack, onReload, onDecision }: {
     if (inFlight.current) return;
     const text = remarks.trim();
     if (action === "REJECT" && !text) {
-      setError({ message: "Enter a reason for rejecting the request.", conflict: false });
+      setValidation("Enter a reason for rejecting the request.");
       return;
     }
     if (attempt.current?.action !== action || attempt.current.text !== text) {
@@ -58,13 +59,14 @@ export function ApprovalReviewPanel({ review, onBack, onReload, onDecision }: {
     }
     inFlight.current = true;
     setBusy(true);
-    setError(undefined);
+    setValidation("");
     try {
       const saved = await decideApproval(request.id, request.revision, action, text, attempt.current.key);
       onDecision(`${saved.reference} ${saved.decision === "APPROVED" ? "approved" : "rejected"}.`);
     } catch (cause) {
-      setError({ message: cause instanceof Error ? cause.message : "Could not record the decision. Try again.",
-        conflict: cause instanceof RequestApiError && cause.status === 409 });
+      const conflict = cause instanceof RequestApiError && cause.status === 409;
+      toast.error(cause instanceof Error ? cause.message : "Could not record the decision. Try again.",
+        conflict ? { action: { label: "Reload request", onClick: onReload } } : undefined);
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -93,15 +95,13 @@ export function ApprovalReviewPanel({ review, onBack, onReload, onDecision }: {
         <div className="space-y-1.5">
           <Label htmlFor={remarksId}>Remarks</Label>
           <Textarea id={remarksId} value={remarks} maxLength={500} disabled={busy} aria-describedby={remarksId + "-help"}
-            onChange={event => setRemarks(event.target.value)} />
+            onChange={event => { setRemarks(event.target.value); if (validation) setValidation(""); }} />
           <p id={remarksId + "-help"} className="text-xs text-muted-foreground">Optional when approving. Required when rejecting.</p>
         </div>
-        {error && <p role="alert" className="text-sm text-destructive">{error.message}</p>}
+        {validation && <p role="alert" className="text-sm text-destructive">{validation}</p>}
         <div className="sticky bottom-0 z-10 flex flex-wrap justify-end gap-2 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur">
-          {error?.conflict ? <Button type="button" variant="outline" onClick={onReload}>Reload request</Button> : <>
-            <Button type="button" variant="outline" className="text-destructive" disabled={busy} onClick={() => requestDecision("REJECT")}>Reject</Button>
-            <Button type="button" disabled={busy} onClick={() => requestDecision("APPROVE")}>{busy ? "Saving decision…" : "Approve"}</Button>
-          </>}
+          <Button type="button" variant="outline" className="text-destructive" disabled={busy} onClick={() => requestDecision("REJECT")}>Reject</Button>
+          <Button type="button" disabled={busy} onClick={() => requestDecision("APPROVE")}>{busy ? "Saving decision…" : "Approve"}</Button>
         </div>
       </RequestSection>
     </>}

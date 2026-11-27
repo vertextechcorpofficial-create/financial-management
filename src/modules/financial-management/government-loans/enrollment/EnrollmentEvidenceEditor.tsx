@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -12,7 +13,6 @@ import type { EnrollmentDetail } from "./types";
 
 export function EnrollmentEvidenceEditor({ record, onChanged }: { record: EnrollmentDetail; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ message: string; conflict: boolean }>();
   const [transfer, setTransfer] = useState(record.enrollment?.importTransfer === undefined ? "" : record.enrollment.importTransfer ? "yes" : "no");
   const attempt = useRef<{ send: () => Promise<unknown> } | null>(null);
   const editable = record.status === "RETURNED" || record.status === "ENROLLED";
@@ -20,14 +20,17 @@ export function EnrollmentEvidenceEditor({ record, onChanged }: { record: Enroll
   async function change(send: () => Promise<unknown>) {
     if (busy) return;
     setBusy(true);
-    setError(undefined);
     attempt.current = { send };
     try {
       await send();
       onChanged();
     } catch (cause) {
-      setError({ message: cause instanceof Error ? cause.message : "The evidence could not be saved.",
-        conflict: cause instanceof EnrollmentApiError && cause.status === 409 });
+      const message = cause instanceof Error ? cause.message : "The evidence could not be saved.";
+      toast.error(message, {
+        action: cause instanceof EnrollmentApiError && cause.status === 409
+          ? { label: "Reload enrollment", onClick: onChanged }
+          : { label: "Retry", onClick: () => { if (attempt.current) void change(attempt.current.send); } },
+      });
     } finally {
       setBusy(false);
     }
@@ -63,12 +66,5 @@ export function EnrollmentEvidenceEditor({ record, onChanged }: { record: Enroll
         }} /> : undefined} />
     {editable && <p className="text-xs text-muted-foreground">PDF, PNG or JPEG. Up to 5 MB per file.</p>}
     {busy && <p role="status" className="text-sm text-muted-foreground">Saving evidence…</p>}
-    {error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">
-      {error.message}
-      {error.conflict ? <Button type="button" variant="outline" size="sm" onClick={onChanged}>Reload enrollment</Button> :
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => {
-          if (attempt.current) void change(attempt.current.send);
-        }}>Retry</Button>}
-    </div>}
   </div>;
 }

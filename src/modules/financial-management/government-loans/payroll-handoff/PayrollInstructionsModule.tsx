@@ -1,10 +1,9 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { ChevronDown, ChevronRight, FileSpreadsheet } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,26 +12,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { consignmentRequestId } from "@/modules/financial-management/consignment/utils/request-id";
 import { dateTime, peso } from "@/modules/financial-management/cooperative/members/format";
+import { EmptyState, StatusChip, tabTriggerClass } from "../components/ui";
+import { TabIcon } from "../components/tab-icons";
 import { deductionMonthLabel } from "../enrollment/rules";
 import type { Page } from "../requests/types";
 import { payrollAcknowledgementTemplate } from "./file-exchange";
 import { PayrollInstructionDetails } from "./PayrollInstructionDetails";
 import { PayrollResults } from "./PayrollResults";
-import { handoffStatusLabels, type HandoffStatus, type PayrollInstructionRow } from "./types";
+import { handoffStatusLabels, type PayrollInstructionRow } from "./types";
 
-const statusTone = (state: HandoffStatus) => state === "ACCEPTED"
-  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-  : state === "RETRYABLE" || state === "NEEDS_REVIEW"
-    ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-    : state === "CANCELLED" ? "text-muted-foreground" : "";
-
-export function PayrollInstructionsModule() {
+export function PayrollInstructionsModule({ canOpenSetup }: { canOpenSetup?: boolean } = {}) {
   const [tab, setTab] = useState("outbound");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [refresh, setRefresh] = useState(0);
-  const [notice, setNotice] = useState("");
   const [expanded, setExpanded] = useState<string>();
   const [loaded, setLoaded] = useState<{ key: string; data?: Page<PayrollInstructionRow>; error?: string }>();
   const query = new URLSearchParams({ q: search.trim(), page: String(page), ...(status ? { state: status } : {}) }).toString();
@@ -65,12 +59,12 @@ export function PayrollInstructionsModule() {
 
     <Tabs value={tab} onValueChange={setTab} className="gap-3">
       <TabsList aria-label="Payroll instruction views" className="w-full justify-start">
-        <TabsTrigger value="outbound">Outbound — instructions</TabsTrigger>
-        <TabsTrigger value="inbound">Inbound — results</TabsTrigger>
+        <TabsTrigger value="outbound" className={tabTriggerClass}><TabIcon tabKey="outbound" />Outbound — instructions</TabsTrigger>
+        <TabsTrigger value="inbound" className={tabTriggerClass}><TabIcon tabKey="inbound" />Inbound — results</TabsTrigger>
       </TabsList>
 
       <TabsContent value="inbound" className="mt-0">
-        <PayrollResults />
+        <PayrollResults canOpenSetup={canOpenSetup} />
       </TabsContent>
 
       <TabsContent value="outbound" className="mt-0 space-y-3">
@@ -88,7 +82,6 @@ export function PayrollInstructionsModule() {
             : "Loading…"}</span>
         </div>
 
-        {notice && <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p>}
         {current?.error && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
           <span className="min-w-0 flex-1">{current.error}</span>
           <Button size="sm" variant="outline" onClick={() => setRefresh(value => value + 1)}>Retry</Button>
@@ -126,7 +119,7 @@ export function PayrollInstructionsModule() {
                     <TableCell>{deductionMonthLabel(item.payload.start.effectiveMonth)}</TableCell>
                     <TableCell className="text-right tabular-nums">{peso(item.payload.start.monthlyAmount)}</TableCell>
                     <TableCell className="text-right tabular-nums">{item.payload.start.remainingInstallments}</TableCell>
-                    <TableCell><Badge variant="outline" className={statusTone(item.state)}>{handoffStatusLabels[item.state]}</Badge></TableCell>
+                    <TableCell><StatusChip status={item.state} label={handoffStatusLabels[item.state]} /></TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{dateTime(item.updatedAt)}</TableCell>
                   </TableRow>
                   {open && <TableRow key={item.payload.handoffId + ":detail"}>
@@ -136,7 +129,7 @@ export function PayrollInstructionsModule() {
                         <div className="flex flex-wrap items-center gap-3">
                           {item.fileExchange && (item.state === "QUEUED" || item.state === "RETRYABLE") &&
                             <PayrollDownload item={item} onDownloaded={() => {
-                              setNotice(`${item.reference} · CSV downloaded. Awaiting Payroll acknowledgement.`);
+                              toast.success(`${item.reference} · CSV downloaded. Awaiting Payroll acknowledgement.`);
                               setRefresh(value => value + 1);
                             }} />}
                           {item.state !== "ACCEPTED" && <a className="inline-block text-sm text-primary underline" download="payroll-acknowledgement-template.csv"
@@ -150,9 +143,7 @@ export function PayrollInstructionsModule() {
                 </Fragment>;
               })}
               {current?.data && !current.data.items.length && <TableRow><TableCell colSpan={9} className="p-0">
-                <Empty className="border-0"><EmptyHeader><EmptyMedia variant="icon"><span>↗</span></EmptyMedia>
-                  <EmptyTitle>No Payroll instructions match</EmptyTitle><EmptyDescription>Instructions appear here after an enrollment is verified.</EmptyDescription>
-                </EmptyHeader></Empty>
+                <EmptyState icon={FileSpreadsheet} title="No Payroll instructions match" description="Instructions appear here after an enrollment is verified." />
               </TableCell></TableRow>}
             </TableBody>
           </Table>
@@ -170,13 +161,11 @@ export function PayrollInstructionsModule() {
 
 function PayrollDownload({ item, onDownloaded }: { item: PayrollInstructionRow; onDownloaded: () => void }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const key = useRef<string | null>(null);
 
   async function download() {
     if (busy) return;
     setBusy(true);
-    setError("");
     key.current ??= consignmentRequestId();
     try {
       const response = await fetch(`/api/fm/government-loans/loans/payroll-instructions/${item.payload.enrollmentId}`, {
@@ -197,14 +186,14 @@ function PayrollDownload({ item, onDownloaded }: { item: PayrollInstructionRow; 
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       onDownloaded();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Payroll instructions could not be downloaded.");
+      toast.error(cause instanceof Error ? cause.message : "Payroll instructions could not be downloaded.",
+        { action: { label: "Retry", onClick: () => void download() } });
     } finally {
       setBusy(false);
     }
   }
 
   return <div className="space-y-2">
-    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <Button type="button" size="sm" disabled={busy} onClick={() => void download()}>
       {busy ? "Downloading…" : item.state === "RETRYABLE" ? "Download original CSV for retry" : "Download instructions CSV"}
     </Button>

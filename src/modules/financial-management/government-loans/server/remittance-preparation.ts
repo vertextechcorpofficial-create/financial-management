@@ -12,12 +12,12 @@ import { maxRemittanceProofBytes, maxRemittanceSelection, remitKey, remittanceDe
   remittanceStatuses, remittanceTotals } from "../remittances/preparation/rules";
 import { listAgencies, readAgency, type AgencyActor } from "./agencies";
 import { getAgencyBillingSummary } from "./agency-billing";
-import { GOVERNMENT_LOAN_PAYROLL_RESULTS, GOVERNMENT_LOAN_REMITTANCE_BATCHES, GOVERNMENT_LOAN_REQUESTS,
+import { GOVERNMENT_LOAN_REMITTANCE_BATCHES, GOVERNMENT_LOAN_REQUESTS,
   GovernmentLoansDirectusError, governmentLoansDirectus, writeGovernmentLoansItem } from "./directus";
 import { readGroups } from "./enrollment-sources";
 import { readOpenMonth } from "./loan-enrollment";
 import { readCurrentPayrollReceipt, readLatestReceipts, readPayrollResultPage, readPayrollResults,
-  readPayrollPages, payrollMoney, payrollMonth } from "./payroll-month-store";
+  payrollMoney, payrollMonth, sumPayrollByAgency } from "./payroll-month-store";
 import { nextPeriodCommand } from "./period-commands";
 import { channelInput, latestRemittances, paymentDate, readRemittanceOverview, readSavedBatch, readSavedRemittance,
   remittanceBatchSummary } from "./remittance-records";
@@ -70,17 +70,9 @@ export async function listRemittancePreparation(params: URLSearchParams) {
     readRemittanceOverview({ payroll_month: { _in: months }, ...(filters.agencyId ? { agency_id: { _eq: filters.agencyId } } : {}) }),
   ]);
   const byAgencyMonth = latestRemittances(saved);
+  const totalsByReceipt = await sumPayrollByAgency([...receipts.values()].map(receipt => receipt.id));
   const byMonth = new Map<string, Map<number, bigint>>();
-  const amountSchema = z.object({ agency_id: positiveId, amount: payrollMoney });
-  for (const [month, receipt] of receipts) {
-    const amounts = await readPayrollPages(GOVERNMENT_LOAN_PAYROLL_RESULTS, amountSchema, "agency_id,amount", {
-      receipt_id: { _eq: receipt.id }, status: { _in: ["D", "P", "X"] },
-      ...(filters.agencyId ? { agency_id: { _eq: filters.agencyId } } : {}),
-    }, "id");
-    const totals = new Map<number, bigint>();
-    for (const row of amounts) totals.set(row.agency_id, (totals.get(row.agency_id) ?? 0n) + centavos(row.amount));
-    byMonth.set(month, totals);
-  }
+  for (const [month, receipt] of receipts) byMonth.set(month, totalsByReceipt.get(receipt.id) ?? new Map());
   const items = agencies.filter(agency => !filters.agencyId || agency.id === filters.agencyId).flatMap(agency => months.flatMap(month => {
     const totals = byMonth.get(month);
     const withheld = totals ? amountFromCentavos(totals.get(agency.id) ?? 0n) : null;

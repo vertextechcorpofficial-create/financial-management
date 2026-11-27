@@ -16,7 +16,7 @@ import { MetricCard, PersonAvatar } from "./components";
 import { memberFetch } from "./client";
 import { date, MEMBER_STATUS_CHIP, MEMBER_STATUS_LABEL, peso } from "./format";
 import { memberLoanAccountFilters, memberWithdrawalAccountFilter } from "./types";
-import type { EnrollmentResult, MemberRegisterStatus, RegisterItem, RegisterResponse } from "./types";
+import type { EnrollmentResult, RegisterItem, RegisterResponse } from "./types";
 
 type Notice = {
   employeeName: string;
@@ -29,7 +29,6 @@ type Notice = {
 export default function MembersModule() {
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
-  const [membership, setMembership] = useState("");
   const [account, setAccount] = useState("");
   const [page, setPage] = useState(1);
   const [attempt, setAttempt] = useState(0);
@@ -41,13 +40,12 @@ export default function MembersModule() {
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
 
   const query = useMemo(() => {
-    const params = new URLSearchParams({ page: String(page) });
+    const params = new URLSearchParams({ page: String(page), membership: "MEMBER" });
     if (search.trim()) params.set("q", search.trim());
     if (department) params.set("department", department);
-    if (membership) params.set("membership", membership);
     if (account) params.set("account", account);
     return params.toString();
-  }, [search, department, membership, account, page]);
+  }, [search, department, account, page]);
 
   const load = useCallback((signal: AbortSignal) => {
     setLoading(true);
@@ -95,13 +93,7 @@ export default function MembersModule() {
   function clearFilters() {
     setSearch("");
     setDepartment("");
-    setMembership("");
     setAccount("");
-    setPage(1);
-  }
-
-  function toggleMembership(value: MemberRegisterStatus) {
-    setMembership(current => current === value ? "" : value);
     setPage(1);
   }
 
@@ -120,7 +112,7 @@ export default function MembersModule() {
 
   const counts = data?.counts;
   const hasMore = data ? data.page * data.pageSize < data.total : false;
-  const hasFilters = Boolean(search.trim() || department || membership || account);
+  const hasFilters = Boolean(search.trim() || department || account);
   const from = data && data.total > 0 ? (data.page - 1) * data.pageSize + 1 : 0;
   const to = data ? Math.min(data.page * data.pageSize, data.total) : 0;
   const loanSource = data?.loanSource;
@@ -142,7 +134,7 @@ export default function MembersModule() {
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Cooperative</p>
               <h1 className="mt-1 text-2xl font-semibold tracking-tight">Members</h1>
               <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                Employee and membership register from VOS and Cooperative records. Open a row for the agreement, documents, savings, and take-home pay.
+                Cooperative member register from VOS and Cooperative records. Open a row for the agreement, documents, savings, and take-home pay.
               </p>
             </div>
           </div>
@@ -187,25 +179,18 @@ export default function MembersModule() {
 
       {counts && (
         <div className="grid gap-3 sm:grid-cols-3">
+          <MetricCard
+            icon={UsersRound}
+            label="Members"
+            value={counts.members}
+            detail="Active Cooperative memberships"
+            tone="emerald"
+          />
           <button
             type="button"
-            className={cn("rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40", membership === "MEMBER" && "ring-2 ring-emerald-500/40 ring-offset-2 ring-offset-background")}
-            onClick={() => toggleMembership("MEMBER")}
-            aria-pressed={membership === "MEMBER"}
-          >
-            <MetricCard
-              icon={UsersRound}
-              label="Members"
-              value={counts.members}
-              detail={counts.separated ? `${counts.separated} separated in the register` : "Active memberships"}
-              tone="emerald"
-            />
-          </button>
-          <button
-            type="button"
-            className={cn("rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40", membership === "NON_MEMBER" && "ring-2 ring-sky-500/40 ring-offset-2 ring-offset-background")}
-            onClick={() => toggleMembership("NON_MEMBER")}
-            aria-pressed={membership === "NON_MEMBER"}
+            className="rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40"
+            onClick={() => setAdding(true)}
+            aria-label="Add member from employees not yet joined"
           >
             <MetricCard
               icon={UserPlus}
@@ -235,11 +220,11 @@ export default function MembersModule() {
 
       <Panel
         title="Member register"
-        description="Search employees and open a row for the member detail."
+        description="Search members and open a row for the member detail."
       >
         <div className="mb-4 rounded-xl border bg-muted/20 p-3">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="space-y-1.5 text-[11px] font-medium text-muted-foreground sm:col-span-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1.5 text-[11px] font-medium text-muted-foreground sm:col-span-2">
               Search
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -258,15 +243,6 @@ export default function MembersModule() {
                 {data?.departments.map(name => <option key={name} value={name}>{name}</option>)}
               </NativeSelect>
             </label>
-            <label className="space-y-1.5 text-[11px] font-medium text-muted-foreground">
-              Membership
-              <NativeSelect value={membership} onChange={event => changeFilter(setMembership)(event.target.value)} className="h-9 w-full">
-                <option value="">All employees</option>
-                {(Object.keys(MEMBER_STATUS_LABEL) as MemberRegisterStatus[]).map(value => (
-                  <option key={value} value={value}>{MEMBER_STATUS_LABEL[value]}</option>
-                ))}
-              </NativeSelect>
-            </label>
             <div className="space-y-1.5">
               <label htmlFor="cooperative-member-account" className="block text-[11px] font-medium text-muted-foreground">Account</label>
               <NativeSelect id="cooperative-member-account" value={account} onChange={event => changeFilter(setAccount)(event.target.value)} className="h-9 w-full">
@@ -280,10 +256,10 @@ export default function MembersModule() {
                 <option value="documents">Missing documents</option>
               </NativeSelect>
             </div>
-            <div className="flex items-end justify-between gap-2 sm:col-span-3">
+            <div className="flex items-end justify-between gap-2 sm:col-span-2">
               <p className="text-xs text-muted-foreground">
                 {loading ? "Updating register..." : withdrawalFilterUnavailable ? "Withdrawal filter unavailable"
-                  : loanFilterUnavailable ? "Loan filter unavailable" : `${data?.total ?? 0} employee${data?.total === 1 ? "" : "s"} match`}
+                  : loanFilterUnavailable ? "Loan filter unavailable" : `${data?.total ?? 0} member${data?.total === 1 ? "" : "s"} match`}
               </p>
               {hasFilters && (
                 <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={clearFilters}>
@@ -329,8 +305,8 @@ export default function MembersModule() {
                   <TableCell colSpan={8}>
                     <div className="flex flex-col items-center gap-2 py-10 text-center">
                       <span className="grid size-11 place-items-center rounded-full bg-muted text-muted-foreground"><SearchX className="size-5" /></span>
-                      <p className="text-sm font-medium">No employees match these filters</p>
-                      <p className="max-w-sm text-xs text-muted-foreground">Try a different name, department, or membership status.</p>
+                      <p className="text-sm font-medium">No members match these filters</p>
+                      <p className="max-w-sm text-xs text-muted-foreground">Try a different name or department.</p>
                       {hasFilters && <Button type="button" variant="outline" size="sm" className="mt-1" onClick={clearFilters}>Clear filters</Button>}
                     </div>
                   </TableCell>

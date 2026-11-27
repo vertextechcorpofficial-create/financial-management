@@ -8,26 +8,40 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { LoanApprovalModule } from "../approval/LoanApprovalModule";
-import { LoanEnrollmentModule } from "../enrollment/LoanEnrollmentModule";
-import { LoanVerificationModule } from "../enrollment/LoanVerificationModule";
-import { LoanRegisterModule } from "../loans/LoanRegisterModule";
-import { LoanChangesModule } from "../loans/LoanChangesModule";
-import { OnboardingExitsModule } from "../loans/OnboardingExitsModule";
-import { PostingDisputesModule } from "../loans/PostingDisputesModule";
-import { MyLoansModule } from "../my-loans/MyLoansModule";
-import { GovernmentLoansDashboard } from "../dashboard/GovernmentLoansDashboard";
+import { TabIcon } from "./tab-icons";
+import { tabTriggerClass } from "./ui";
+import dynamic from "next/dynamic";
 import type { EmployeeChoice } from "../requests/types";
-import { PayrollInstructionsModule } from "../payroll-handoff/PayrollInstructionsModule";
-import { AgenciesModule } from "../remittances/agencies/AgenciesModule";
-import { AgencyBillingModule } from "../remittances/billing/AgencyBillingModule";
-import { RemittancePreparationModule } from "../remittances/preparation/RemittancePreparationModule";
-import { RemittanceApprovalModule } from "../remittances/approval/RemittanceApprovalModule";
-import { MonthEndCloseModule } from "../month-end-close/MonthEndCloseModule";
-import { EmployeeLedgerReport, RemittanceReport } from "../reports/GovernmentLoanReports";
-import { AuditTrailReport, YearEndSummaryReport } from "../reports/YearEndAndAuditReports";
-import { LoanRequestsModule } from "../requests/LoanRequestsModule";
 import type { GovernmentLoansTab, GovernmentLoansWorkspace, GovernmentLoansWorkspaceKey } from "../workspaces";
+
+function TabLoading() {
+  return <div className="space-y-3" aria-busy="true">
+    <div className="h-8 w-48 animate-pulse rounded-md bg-muted" />
+    <div className="h-40 w-full animate-pulse rounded-lg bg-muted" />
+  </div>;
+}
+
+const LoanApprovalModule = dynamic(() => import("../approval/LoanApprovalModule").then(module => module.LoanApprovalModule), { loading: TabLoading });
+const LoanEnrollmentModule = dynamic(() => import("../enrollment/LoanEnrollmentModule").then(module => module.LoanEnrollmentModule), { loading: TabLoading });
+const LoanVerificationModule = dynamic(() => import("../enrollment/LoanVerificationModule").then(module => module.LoanVerificationModule), { loading: TabLoading });
+const LoanRegisterModule = dynamic(() => import("../loans/LoanRegisterModule").then(module => module.LoanRegisterModule), { loading: TabLoading });
+const LoanChangesModule = dynamic(() => import("../loans/LoanChangesModule").then(module => module.LoanChangesModule), { loading: TabLoading });
+const OnboardingExitsModule = dynamic(() => import("../loans/OnboardingExitsModule").then(module => module.OnboardingExitsModule), { loading: TabLoading });
+const PostingDisputesModule = dynamic(() => import("../loans/PostingDisputesModule").then(module => module.PostingDisputesModule), { loading: TabLoading });
+const MyLoansModule = dynamic(() => import("../my-loans/MyLoansModule").then(module => module.MyLoansModule), { loading: TabLoading });
+const GovernmentLoansDashboard = dynamic(() => import("../dashboard/GovernmentLoansDashboard").then(module => module.GovernmentLoansDashboard), { loading: TabLoading });
+const PayrollInstructionsModule = dynamic(() => import("../payroll-handoff/PayrollInstructionsModule").then(module => module.PayrollInstructionsModule), { loading: TabLoading });
+const AgenciesModule = dynamic(() => import("../remittances/agencies/AgenciesModule").then(module => module.AgenciesModule), { loading: TabLoading });
+const AgencyBillingModule = dynamic(() => import("../remittances/billing/AgencyBillingModule").then(module => module.AgencyBillingModule), { loading: TabLoading });
+const RemittancePreparationModule = dynamic(() => import("../remittances/preparation/RemittancePreparationModule").then(module => module.RemittancePreparationModule), { loading: TabLoading });
+const RemittanceApprovalModule = dynamic(() => import("../remittances/approval/RemittanceApprovalModule").then(module => module.RemittanceApprovalModule), { loading: TabLoading });
+const MonthEndCloseModule = dynamic(() => import("../month-end-close/MonthEndCloseModule").then(module => module.MonthEndCloseModule), { loading: TabLoading });
+const PeriodSetupModule = dynamic(() => import("../month-end-close/PeriodSetupModule").then(module => module.PeriodSetupModule), { loading: TabLoading });
+const EmployeeLedgerReport = dynamic(() => import("../reports/GovernmentLoanReports").then(module => module.EmployeeLedgerReport), { loading: TabLoading });
+const RemittanceReport = dynamic(() => import("../reports/GovernmentLoanReports").then(module => module.RemittanceReport), { loading: TabLoading });
+const AuditTrailReport = dynamic(() => import("../reports/YearEndAndAuditReports").then(module => module.AuditTrailReport), { loading: TabLoading });
+const YearEndSummaryReport = dynamic(() => import("../reports/YearEndAndAuditReports").then(module => module.YearEndSummaryReport), { loading: TabLoading });
+const LoanRequestsModule = dynamic(() => import("../requests/LoanRequestsModule").then(module => module.LoanRequestsModule), { loading: TabLoading });
 
 const workspaceIcons: Record<GovernmentLoansWorkspaceKey, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -41,9 +55,10 @@ const workspaceIcons: Record<GovernmentLoansWorkspaceKey, LucideIcon> = {
   "my-loans": UserRound,
 };
 
-export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmployee, reportActorId, requestApplicant, initialTab }: {
+export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmployee, reportActorId, requestApplicant, initialTab, canOpenSetup }: {
   reportActorId?: number;
   initialTab?: string;
+  canOpenSetup?: boolean;
   requestApplicant?: Pick<EmployeeChoice, "id" | "name">;
   workspace: GovernmentLoansWorkspace;
   tabs: readonly GovernmentLoansTab[];
@@ -102,7 +117,8 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
       {tabs.length ? <Tabs key={initialTab} defaultValue={transferEmployee ? "enrollment" : initialTab ?? tabs[0].key} className={isScaffold ? "mt-4 gap-4" : "gap-4"}>
         <div className="overflow-x-auto">
           <TabsList aria-label={`${workspace.title} tabs`} className="flex h-auto w-full max-w-full min-w-0 justify-start gap-1 overflow-x-auto rounded-lg bg-muted/50 p-1">
-            {tabs.map(tab => <TabsTrigger key={tab.key} value={tab.key} className="shrink-0 whitespace-nowrap data-[state=active]:bg-background">
+            {tabs.map(tab => <TabsTrigger key={tab.key} value={tab.key} className={tabTriggerClass}>
+              <TabIcon tabKey={tab.key} />
               {tab.title}
             </TabsTrigger>)}
           </TabsList>
@@ -112,14 +128,16 @@ export function GovernmentLoansWorkspaceShell({ workspace, tabs, transferEmploye
             hasAgencies && tab.key === "to-remit" ? <RemittancePreparationModule /> :
             hasAgencies && tab.key === "billing-reconciliation" ? <AgencyBillingModule /> :
             hasRequests && tab.key === "requests" ? <LoanRequestsModule /> :
-            hasRequests && tab.key === "enrollment" ? <LoanEnrollmentModule transferEmployee={transferEmployee} /> :
+            hasRequests && tab.key === "enrollment" ? <LoanEnrollmentModule transferEmployee={transferEmployee} canOpenSetup={canOpenSetup} /> :
             hasApprovals && tab.key === "loan-requests" ? <LoanApprovalModule /> :
             hasApprovals && tab.key === "enrollment-verification" ? <LoanVerificationModule /> :
             hasLoans && (tab.key === "register" || tab.key === "agency-balances") ? <LoanRegisterModule tab={tab.key} /> :
             hasLoans && tab.key === "changes" ? <LoanChangesModule /> :
             hasLoans && tab.key === "onboarding-exits" ? <OnboardingExitsModule /> :
             hasLoans && tab.key === "posting-disputes" ? <PostingDisputesModule /> :
-            hasLoans && tab.key === "payroll-instructions" ? <PayrollInstructionsModule /> :
+            hasLoans && tab.key === "payroll-instructions" ? <PayrollInstructionsModule canOpenSetup={canOpenSetup} /> :
+            hasMonthEndClose && tab.key === "close" ? <MonthEndCloseModule setupHref="?tab=setup" /> :
+            hasMonthEndClose && tab.key === "setup" ? <PeriodSetupModule /> :
             hasReports && tab.key === "employee-ledger" ? <EmployeeLedgerReport key={reportActorId} actorId={reportActorId} /> :
             hasReports && tab.key === "remittance-report" ? <RemittanceReport key={reportActorId} actorId={reportActorId} /> :
             hasReports && tab.key === "year-end-summary" ? <YearEndSummaryReport key={reportActorId} actorId={reportActorId} /> :

@@ -139,7 +139,10 @@ export const GOVERNMENT_LOANS_TABS = {
     { key: "enrollment-verification", title: "Enrollment verification" },
   ],
   "remittance-approval": [],
-  "month-end-close": [],
+  "month-end-close": [
+    { key: "close", title: "Checklist & close" },
+    { key: "setup", title: "Period setup" },
+  ],
   reports: [
     { key: "employee-ledger", title: "Employee loan ledger" },
     { key: "remittance-report", title: "Remittance report" },
