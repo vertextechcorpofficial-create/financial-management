@@ -22,6 +22,7 @@ const endpoint = "/api/fm/cooperative/transactions/payroll-remittances";
 type Detail = RemittanceDetail | RemittancePreview;
 type View = "upload" | "history" | "detail";
 const labels: Record<string, string> = {
+  RECONCILED: "Already recorded · evidence linked",
   READY: "Ready", REVIEW: "In review", POSTED: "Posted", REVERSED: "Reversed", INVALID: "Invalid",
   UNMATCHED: "Unmatched", AMBIGUOUS: "Ambiguous", DUPLICATE: "Duplicate", SHORT: "Short",
 };
@@ -39,6 +40,7 @@ export function PayrollRemittanceDialog({ initialView, initialBatchId, onClose, 
   const [detail, setDetail] = useState<Detail>();
   const [busy, setBusy] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [link, setLink] = useState<{ row: number; loan: boolean; reconcile?: boolean }>();
   const [stale, setStale] = useState(false);
   const [key, setKey] = useState("");
   const [error, setError] = useState("");
@@ -77,6 +79,7 @@ export function PayrollRemittanceDialog({ initialView, initialBatchId, onClose, 
     setReverse(undefined);
     setReason("");
     setConfirmed(false);
+    setLink(undefined);
     if (next === "history") setHistoryQuery({ ...historyQuery });
     if (next === "upload") setRunId(undefined);
   }
@@ -129,7 +132,7 @@ export function PayrollRemittanceDialog({ initialView, initialBatchId, onClose, 
   const title = view === "upload" ? "Payroll remittance" : view === "history" ? "Payroll remittance batch history" : "Payroll remittance batch";
   return <ConsoleDialog open wide title={title} onOpenChange={open => { if (!open && !busy) onClose(); }}
     description={batch ? `${batch.file_name} · ${batch.bank_reference}` : undefined}
-    footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
+    footerClassName="backdrop-blur"
     footer={<>
       <Button variant="outline" disabled={busy} onClick={onClose}>Close</Button>
       {view === "history" && <Button disabled={busy} onClick={() => changeView("upload")}>New remittance</Button>}
@@ -249,8 +252,8 @@ export function PayrollRemittanceDialog({ initialView, initialBatchId, onClose, 
           <MetricCard icon={Scale} label="Difference" value={peso(review.difference)}
             detail={Number(review.difference) === 0 ? "Balanced" : "Review required"}
             tone={Number(review.difference) === 0 ? "emerald" : "amber"} alert={Number(review.difference) !== 0} />
-          <MetricCard icon={AlertTriangle} label="Exceptions" value={detail.rows.filter(row => row.state !== "READY").length}
-            detail="Rows needing attention" tone={detail.rows.some(row => row.state !== "READY") ? "rose" : "emerald"} />
+          <MetricCard icon={AlertTriangle} label="Exceptions" value={detail.rows.filter(row => row.state !== "READY" && row.state !== "RECONCILED").length}
+            detail="Rows needing attention" tone={detail.rows.some(row => row.state !== "READY" && row.state !== "RECONCILED") ? "rose" : "emerald"} />
         </> : <>
           <MetricCard icon={CheckCircle2} label="Status" value={labels[batch.state]} detail="Batch state" tone="slate" />
           {posted?.posted_at && <MetricCard icon={CheckCircle2} label="Posted amount" value={peso(posted.posted_amount)}
@@ -286,12 +289,38 @@ export function PayrollRemittanceDialog({ initialView, initialBatchId, onClose, 
             <TableCell>{row.amount ? peso(row.amount) : row.amount_input || "—"}</TableCell>
             <TableCell className="min-w-44 whitespace-normal"><StatusChip status={row.state} label={labels[row.state]} />
               {row.message && <span className="block text-xs text-muted-foreground">{row.message}</span>}
+              {"linkRequired" in row && row.linkRequired && <Button type="button" size="sm" variant="outline" disabled={busy}
+                onClick={() => setLink({ row: row.row_number, loan: row.deduction_code.trim().toUpperCase() === "COOP_LOAN" })}>
+                Link FM record
+              </Button>}
+              {review && row.state !== "RECONCILED" && row.deduction_code.trim().toUpperCase() === "COOP_LOAN" &&
+                <Button type="button" size="sm" variant="outline" disabled={busy}
+                  onClick={() => setLink({ row: row.row_number, loan: true, reconcile: true })}>Link existing payment</Button>}
               {"journal_no" in row && row.journal_no && <span className="block text-xs">{row.journal_no}</span>}
               {"reversal_journal_no" in row && row.reversal_journal_no && <span className="block text-xs">Reversal {row.reversal_journal_no}</span>}
             </TableCell>
           </TableRow>)}</TableBody>
         </Table>
       </div>
+      {link && review && <form key={link.row} className="space-y-2 rounded-md border p-3 text-sm" onSubmit={event => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void act(async () => {
+          openPreview(await memberFetch<RemittanceDetail>(`${endpoint}/${batch.id}`,
+            json({ action: "link", row: link.row, loanNo: String(form.get("loanNo") ?? ""), evidence: form.get("evidence"),
+              paymentId: link.reconcile ? Number(form.get("paymentId")) : undefined })));
+          setLink(undefined);
+        });
+      }}>
+        <p className="font-medium">Link the Payroll deduction on row {link.row}</p>
+        {link.loan && <label className="block">FM loan number<Input name="loanNo" required maxLength={24} disabled={busy} /></label>}
+        {link.reconcile && <label className="block">Existing FM payment ID<Input name="paymentId" type="number" min={1} required disabled={busy} /></label>}
+        <label className="block">Signed agreement or reconciliation evidence reference
+          <Input name="evidence" required maxLength={250} disabled={busy} />
+        </label>
+        <Button type="submit" size="sm" disabled={busy}>Confirm link</Button>{" "}
+        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setLink(undefined)}>Cancel</Button>
+      </form>}
       {review && (review.canPost ? <label className="flex items-center gap-2 rounded-md border p-3 text-sm">
         <input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />
         I confirm the bank receipt for {peso(batch.bank_amount)}.

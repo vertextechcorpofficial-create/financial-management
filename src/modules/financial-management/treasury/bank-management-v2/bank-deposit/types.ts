@@ -122,7 +122,7 @@ export interface DepositSlipItem {
    * What the settlement row was applied as: money handed over, or an adjustment such as a
    * discount or rounding. An adjustment moves no cash, so it must not read as "Cash".
    */
-  methodLabel: "Cash" | "Check" | "Adjustment";
+  methodLabel: string;
   documentNumber: string;
   checkNo: string | null;
   customer: string | null;
@@ -152,8 +152,9 @@ export interface UndepositedAsset {
   collectionId: number;
   invoiceId: number | null;
   invoiceNo: string | null;
-  /** What arrived: cash, a cheque, or an adjustment applied to the invoice. */
-  methodLabel: "Cash" | "Check" | "Adjustment";
+  /** Resolved from `collection_details.payment_method` -> `payment_methods.method_name`, or `"Adjustment"`. */
+  methodLabel: string;
+  paymentMethodId: number | null;
   documentNumber: string;
   collectionReference: string | null;
   assetType: "CASH" | "CHECK";

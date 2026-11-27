@@ -89,7 +89,7 @@ function newBatch(input: RemittanceInput, cutoff: string, fileName: string, hash
 
 function reviewedRows(review: RemittanceReview) {
   return review.rows.map(item => ({
-    ...item.file, ...remittanceRowValues(item), amount: item.amount,
+    ...item.file, ...remittanceRowValues(item), amount: item.amount, linkRequired: item.linkRequired,
   }));
 }
 
@@ -212,7 +212,8 @@ async function postReviewedBatch(command: Receipt & { result: typeof postingResu
     const values = remittanceRowValues(item);
     return {
       ...(existing ? { id: file.id } : file), ...values,
-      ...(item.state === "READY" ? { ...effects.get(file.row_number), state: "POSTED", deduction_key: key } : {}),
+      ...(item.state === "READY" ? { ...effects.get(file.row_number), state: "POSTED", deduction_key: key,
+        ...(item.payrollSource ? { payroll_period_key: item.periodKey, payroll_source: item.payrollSource } : {}) } : {}),
     };
   });
   return commitRemittance(command, {

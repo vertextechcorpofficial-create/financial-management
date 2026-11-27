@@ -205,7 +205,13 @@ function postedLoanLedger(row: Row, stored: Row[], records: Awaited<ReturnType<t
   if (payments.some(payment => text(payment.status) === "REVERSED" && !reversed.has(idOf(payment.id)))) {
     throw new LoanError(503, loanHistoryError);
   }
-  const ledger = { release, installments, movements };
+  const pricing = objectValue(objectValue(row.terms_snapshot)?.pricing);
+  const releaseAmounts = methodOf(row.method) === "UPFRONT" ? {
+    upfrontInterest: postedAmount(pricing?.upfrontInterest), netProceeds: postedAmount(pricing?.netProceeds),
+  } : undefined;
+  if (releaseAmounts && amountToCents(releaseAmounts.upfrontInterest) + amountToCents(releaseAmounts.netProceeds) !==
+    amountToCents(postedAmount(row.principal))) throw new LoanError(503, loanHistoryError);
+  const ledger = { release: { ...release, ...releaseAmounts }, installments, movements };
   const lastPosting = [...movements.map(movement => movement.date),
     ...installments.flatMap(item => [item.penaltyAssessedOn ?? "", item.settlementWaiver?.reversedOn ?? item.settlementWaiver?.date ?? ""])]
     .reduce((last, date) => date > last ? date : last, release.date);
@@ -291,7 +297,7 @@ export async function readLoanDocumentStatuses(loans: Array<{ id: number; terms_
 
 function methodOf(value: unknown): LoanMethod {
   const normalized = text(value).toUpperCase();
-  return normalized === "MARKUP" || normalized === "FLAT" ? normalized : "DIMINISHING";
+  return normalized === "MARKUP" || normalized === "FLAT" || normalized === "UPFRONT" ? normalized : "DIMINISHING";
 }
 
 function frequencyOf(value: unknown): LoanFrequency {
@@ -320,6 +326,8 @@ function mapLoan(row: Row, installments: LoanInstallment[], documents: Row[], as
     rate: decimalText(row.rate),
     markup: decimalText(row.markup),
     method: methodOf(row.method),
+    upfrontInterest: text(objectValue(snapshot?.pricing)?.upfrontInterest) || "0.00",
+    netProceeds: text(objectValue(snapshot?.pricing)?.netProceeds) || decimalText(row.principal),
     months: number(row.months),
     frequency: frequencyOf(row.frequency),
     mode: text(row.mode).toUpperCase() === "OTC" ? "OTC" as const : "PAYROLL" as const,
@@ -440,7 +448,7 @@ export function loanInstallmentAmount(view: MemberLoanView) {
   const { loan, installments } = view;
   if (installments.length) return installments[0].total;
   if (!["PENDING", "APPROVED", "REJECTED"].includes(loan.status) || !loan.agreementSigned || loan.months < 1 || loan.months > 120) return null;
-  const method = loan.method === "DIMINISHING" ? "diminishing" : loan.method === "FLAT" ? "flat" : "markup";
+  const method = loan.method.toLowerCase() as Lowercase<LoanMethod>;
   try {
     const signedPayment = text(objectValue(view.termsSnapshot?.pricing)?.regularPayment);
     if (signedPayment) return postedAmount(signedPayment);

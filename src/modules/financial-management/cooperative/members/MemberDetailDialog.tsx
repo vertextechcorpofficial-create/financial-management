@@ -88,7 +88,7 @@ export function MemberDetailDialog({ userId, onClose, onDocumentsChanged }: {
       )}
       description={current ? <span className="block text-left">Member since {date(current.joinedAt)}</span> : item ? <span className="block text-left">Not yet a Cooperative member</span> : undefined}
       wide
-      footerClassName="sticky bottom-0 z-20 -mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur"
+      footerClassName="backdrop-blur"
       footer={<Button variant="outline" onClick={onClose}>Close</Button>}
     >
       {loading && <DetailSkeleton />}

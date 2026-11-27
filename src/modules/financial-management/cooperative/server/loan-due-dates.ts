@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { projectLoanLedger, type LoanLedger } from "../loans/loan-activity";
-import { amountToCents, centsToAmount, daysBetween, isPastDue, penaltyDueForAssessment } from "../loans/loan-schedule";
+import { amountToCents, centsToAmount, daysBetween, isPastDue, penaltyDueForAssessment, upfrontInterestForInstallment } from "../loans/loan-schedule";
 import { cooperativeAuditEvent, cooperativeAuditTime } from "./audit";
 import { readDirectusItems } from "./directus";
 import {
@@ -44,6 +44,11 @@ async function prepaidIncome(ledger: LoanLedger, id: number, dueDate: string, th
 
 type DueView = Awaited<ReturnType<typeof readLoanForChange>>;
 
+function upfrontRecognition(view: DueView, item: { no: number }) {
+  return view.loan.method === "UPFRONT" && view.ledger
+    ? upfrontInterestForInstallment(view.loan.upfrontInterest, item.no, view.ledger.installments.length) : 0n;
+}
+
 function penaltyAssessment(view: DueView, item: NonNullable<DueView["position"]>["installments"][number], date: string) {
   if (!view.ledger || item.penaltyAssessedOn || amountToCents(item.penaltyAssessed) > 0n ||
     daysBetween(item.dueDate, date) <= view.loan.graceDays || Number(view.loan.penaltyPercent) === 0) return null;
@@ -59,20 +64,39 @@ export function loanDueWork(view: DueView, date: string) {
   const due = view.position?.installments.filter(item => item.dueDate <= date) ?? [];
   return {
     pastDue: due.filter(item => isPastDue(item, date)).length,
-    accruals: due.filter(item => !item.accrualProcessedOn && amountToCents(item.interest) > 0n).map(item => item.id),
-    penalties: due.flatMap(item => penaltyAssessment(view, item, date) ?? []),
+    accruals: due.filter(item => !item.accrualProcessedOn && (amountToCents(item.interest) > 0n || view.loan.method === "UPFRONT")).map(item => item.id),
+    penalties: view.loan.status === "ACTIVE" ? due.flatMap(item => penaltyAssessment(view, item, date) ?? []) : [],
   };
 }
 
 async function applyAccrual(view: DueView, installmentId: number, date: string, accounts: ReturnType<typeof loanPostingAccounts>) {
   const item = view.position?.installments.find(row => row.id === installmentId);
   if (!item || !view.ledger || item.accrualProcessedOn || item.dueDate > date) return 0;
-  const scheduled = amountToCents(item.interest);
-  if (scheduled === 0n) return 0;
-  const income = requirePostingAccount(accounts, view.loan.productKind === "GOODS" ? "INSTALLMENT_MARKUP_INCOME" : "LOAN_INTEREST_INCOME");
-  const priorIncome = await prepaidIncome(view.ledger, item.id, item.dueDate, date, income.id);
+  const upfront = view.loan.method === "UPFRONT";
+  const scheduled = upfront ? upfrontRecognition(view, item) : amountToCents(item.interest);
+  if (scheduled === 0n && !upfront) return 0;
+  let debitAccount: { id: number } | undefined;
+  let incomeAccount: number | undefined;
+  if (upfront && scheduled > 0n) {
+    const journalId = view.ledger.release.journalId;
+    const [results, lines] = await Promise.all([readLoanJournalResults([journalId]), readLoanJournalLines([journalId])]);
+    const mapping = z.object({ unearnedAccountId: z.number().int().positive(), incomeAccountId: z.number().int().positive(), amount: z.string() })
+      .safeParse(results.get(journalId)?.upfrontPosting);
+    if (!mapping.success || mapping.data.amount !== view.loan.upfrontInterest ||
+      !lines.get(journalId)?.some(line => line.line_no === 3 && line.account_id === mapping.data.unearnedAccountId &&
+        amountToCents(line.credit) === amountToCents(mapping.data.amount))) {
+      throw new LoanError(503, "The unearned interest could not be verified against the original release journal.");
+    }
+    debitAccount = { id: mapping.data.unearnedAccountId };
+    incomeAccount = mapping.data.incomeAccountId;
+  } else if (!upfront) {
+    incomeAccount = requirePostingAccount(accounts, view.loan.productKind === "GOODS" ? "INSTALLMENT_MARKUP_INCOME" : "LOAN_INTEREST_INCOME").id;
+  }
+  const priorIncome = !upfront && incomeAccount !== undefined
+    ? await prepaidIncome(view.ledger, item.id, item.dueDate, date, incomeAccount) : 0n;
   if (priorIncome > scheduled) throw new LoanError(503, "Posted prepayment income exceeds installment interest or markup.");
   const amount = centsToAmount(scheduled - priorIncome);
+  if (!upfront && scheduled > priorIncome) debitAccount = requirePostingAccount(accounts, "INTEREST_MARKUP_RECEIVABLE");
   const id = view.loan.id;
   const command = { loanId: id, type: "LOAN_DUE_ACCRUAL",
     key: String(item.id), hash: loanDigest([id, item.id, item.dueDate]) };
@@ -80,12 +104,12 @@ async function applyAccrual(view: DueView, installmentId: number, date: string, 
     const audit = (journalNo: string | null) => ({
       ...cooperativeAuditEvent(systemActor, {
         subject: { type: "LOAN", id }, action: journalNo ? "LOAN_DUE_ACCRUAL" : "LOAN_DUE_ACCRUAL_ALREADY_RECORDED",
-        after: { installment: item.no, dueDate: item.dueDate, journalNo, amount, prepaidIncome: centsToAmount(priorIncome) },
+        after: { installment: item.no, dueDate: item.dueDate, journalNo, amount, ...(upfront ? { recognition: "UPFRONT_INTEREST" } : {}), prepaidIncome: centsToAmount(priorIncome) },
       }, now), actor_name: systemActor.actorName,
     });
-    const posting = amountToCents(amount) > 0n ? await prepareLoanJournal({
+    const posting = debitAccount && incomeAccount !== undefined && amountToCents(amount) > 0n ? await prepareLoanJournal({
       loanId: id, type: "LOAN_DUE_ACCRUAL", date: item.dueDate, actor: systemActor, now,
-      pairs: [{ debit: requirePostingAccount(accounts, "INTEREST_MARKUP_RECEIVABLE"), credit: income, amount }],
+      pairs: [{ debit: debitAccount, credit: { id: incomeAccount }, amount }],
       audit: ({ journalNo }) => audit(journalNo),
     }) : null;
     return {
@@ -128,7 +152,7 @@ async function assessPenalty(view: DueView, installmentId: number, date: string)
 async function applyDueAction(id: number, date: string, action: (loan: DueView) => Promise<number>) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const view = await readLoanForChange(id, date);
-    if (view.loan.status !== "ACTIVE") return 0;
+    if (view.loan.status !== "ACTIVE" && !(view.loan.method === "UPFRONT" && ["FULLY_PAID", "DEFAULTED"].includes(view.loan.status))) return 0;
     try {
       return await action(view);
     } catch (cause) {
@@ -161,7 +185,11 @@ export async function runLoanDueDates(date = todayManila()) {
   while (true) {
     const query = new URLSearchParams({
       fields: "id", limit: String(size), sort: "id",
-      filter: JSON.stringify({ status: { _eq: "ACTIVE" }, id: { _gt: cursor } }),
+      filter: JSON.stringify({ id: { _gt: cursor }, _or: [
+        { status: { _eq: "ACTIVE" } },
+        { method: { _eq: "UPFRONT" }, status: { _in: ["FULLY_PAID", "DEFAULTED"] },
+          installments: { _some: { due_date: { _lte: date }, accrual_processed_on: { _null: true } } } },
+      ] }),
     });
     const { data } = z.object({ data: z.array(z.object({ id: z.number().int().positive() })) })
       .parse(await readDirectusItems("cooperative_loans", query));

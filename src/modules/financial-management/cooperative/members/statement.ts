@@ -56,13 +56,16 @@ export function statementText(statement: MemberStatement) {
       ...loans.data.entries.map(entry => [entry.loanNo, entry.productName, ...loanStatementColumns.map(([key]) => entry[key] ?? "0.00")]),
       ["Total", "", ...loanStatementColumns.map(([key]) => loans.data.totals[key] ?? "0.00")],
     );
+    const hasUpfrontRelease = loans.data.activity.some(item => item.netProceeds !== undefined);
     if (loans.data.activity.length) lines.push(
       [],
       ["Loan activity"],
-      ["Date", "Loan", "Activity", "Channel", "Reference", "Journal", "Reverses", "Amount"],
+      ["Date", "Loan", "Activity", "Channel", "Reference", "Journal", "Reverses", "Amount",
+        ...(hasUpfrontRelease ? ["Net payout", "Upfront interest"] : [])],
       ...loans.data.activity.map(item => [
         item.date, item.loanNo, item.kind, item.channel ? loanActivityChannels[item.channel] : "",
         item.reference, item.journalNo, item.reversesJournalNo ?? "", item.amount,
+        ...(hasUpfrontRelease ? [item.netProceeds ?? "", item.upfrontInterest ?? ""] : []),
       ]),
     );
   }

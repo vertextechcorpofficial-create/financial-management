@@ -17,7 +17,7 @@ export type LoanMovement = PostingReference & {
 };
 
 export type LoanLedger = {
-  release: PostingReference;
+  release: PostingReference & { upfrontInterest?: string; netProceeds?: string };
   installments: Array<LoanInstallment & { id: number }>;
   movements: LoanMovement[];
 };
@@ -52,6 +52,8 @@ export type LoanStatementActivity = {
   journalNo: string;
   reversesJournalNo: string | null;
   amount: string;
+  upfrontInterest?: string;
+  netProceeds?: string;
 };
 
 function ordered(movements: LoanMovement[]) {
@@ -126,6 +128,7 @@ export function loanStatementForPeriod(ledger: LoanLedger, from: string, to: str
       key: "release-" + release.journalId, date: release.date, kind: "Release",
       channel: null, reference: release.journalNo, journalNo: release.journalNo, reversesJournalNo: null,
       amount: centsToAmount(released),
+      ...(release.netProceeds !== undefined ? { netProceeds: release.netProceeds, upfrontInterest: release.upfrontInterest } : {}),
     });
   }
   const originals = new Map(ledger.movements.map(movement => [movement.id, movement]));

@@ -275,7 +275,7 @@ export function NewDepositDialog({ open, onOpenChange, accounts, accountTotals, 
                       const flagged = Boolean(issue) || blockedDocs.has(asset.documentNumber);
                       return (
                         <TableRow key={asset.collectionInvoiceId} className={flagged ? "bg-destructive/10" : undefined}>
-                          <TableCell className="text-sm">{asset.assetType === "CASH" ? "Cash" : "Check"}</TableCell>
+                          <TableCell className="text-sm">{asset.methodLabel}</TableCell>
                           <TableCell className="max-w-[140px]">
                             <p className="truncate font-mono text-sm" title={asset.documentNumber}>
                               {asset.documentNumber}

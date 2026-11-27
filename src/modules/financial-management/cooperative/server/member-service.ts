@@ -43,7 +43,7 @@ import type {
   RegisterResponse,
 } from "../members/types";
 import { memberWithdrawalAccountFilter, MEMBERSHIP_TERMS_VERSION } from "../members/types";
-import { isCalendarDate } from "../members/format";
+import { isCalendarDate, peso } from "../members/format";
 
 const id = z.union([z.number(), z.string().regex(/^[1-9]\d*$/)]).transform(Number)
   .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER));
@@ -355,13 +355,13 @@ export async function buildEnrollmentCheck(draft: EnrollmentDraft, loadedDataset
     },
     {
       key: "minimum", ok: Boolean(savingsPerCutoff) && compareCents(savingsPerCutoff!, policy.minimumSavings) >= 0,
-      label: "Minimum savings", detail: `The policy minimum is ${policy.minimumSavings} per cutoff.`,
+      label: "Minimum savings", detail: `The policy minimum is ${peso(policy.minimumSavings)} per cutoff.`,
     },
     {
       key: "floor", ok: Boolean(headroom) && amountToCents(headroom!) >= 0n,
       label: "Take-home pay floor",
       detail: headroom
-        ? `${headroom} remains after the ${floor} floor and payroll deductions.`
+        ? `${peso(headroom)} remains after the ${peso(floor)} floor and payroll deductions.`
         : "Posted VOS payroll is required to check the floor.",
     },
   ];
