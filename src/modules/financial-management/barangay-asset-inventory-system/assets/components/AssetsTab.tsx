@@ -67,8 +67,8 @@ export function AssetsTab({
       const data = await call("/assets?" + params);
       setRows(data.assets ?? []);
       setTotal(data.total ?? 0);
-      const attention = await call("/assets?barangayId=" + barangayId + "&status=Missing&pageSize=1");
-      setMissing(Number(attention.total ?? 0));
+      // the response carries the status totals, so the Missing chip costs nothing extra
+      setMissing(Number(data.statusCounts?.Missing ?? 0));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

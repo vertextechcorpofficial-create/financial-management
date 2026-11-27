@@ -105,6 +105,8 @@ export interface AssetListResult {
   total: number;
   asOf: string;
   salvagePercent: number;
+  /** how many assets sit in each status, so the toolbar needs no second request */
+  statusCounts: Record<string, number>;
 }
 
 export async function listAssets(params: {
@@ -143,13 +145,30 @@ export async function listAssets(params: {
   );
   const rows = pageResult.data;
   const total = pageResult.count;
-  const lookups = await fetchLookups(params.barangayId);
+  const [lookups, statusCounts] = await Promise.all([
+    fetchLookups(params.barangayId),
+    statusTotals(params.barangayId),
+  ]);
   return {
     assets: rows.map(mapAsset),
     total,
     asOf: officeDate(),
     salvagePercent: lookups.settings?.salvage_percent ?? 0,
+    statusCounts,
   };
+}
+
+/** One aggregate for the whole barangay, remembered for half a minute: it changes only on a write. */
+async function statusTotals(barangayId: number): Promise<Record<string, number>> {
+  return memo<Record<string, number>>("statusCounts:" + barangayId, 30_000, async () => {
+    const res = await list<{ status?: string; count?: { id?: number | string } }>(
+      "/items/brgy_asset?filter=" + enc({ _and: [{ barangay_id: { _eq: barangayId } }, { cancelled: { _eq: false } }] }) +
+        "&groupBy[]=status&aggregate[count]=id&limit=-1"
+    );
+    const counts: Record<string, number> = {};
+    for (const row of res.data) counts[text(row.status) || "unknown"] = Number(row.count?.id ?? 0);
+    return counts;
+  });
 }
 
 /** Section 4.1: item names are picked from existing choices first. */
@@ -438,8 +457,9 @@ export async function recordHistory(
   actor: string | null,
   remarks?: string | null
 ): Promise<void> {
-  // every mutation passes through here, so the remembered asset list is dropped exactly here
+  // every mutation passes through here, so both remembered reads are dropped exactly here
   forget("countAssets:");
+  forget("statusCounts:");
   await post("/items/brgy_asset_history", {
     asset_id: assetId,
     action,

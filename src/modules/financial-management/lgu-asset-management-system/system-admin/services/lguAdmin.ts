@@ -227,6 +227,9 @@ export async function saveLguReference(input: {
 }): Promise<{ kind: LguKind; id: number; name: string }> {
   // the reference lists are cached for five minutes, so a change must drop them now
   forget("lgu:lookups");
+  forget("lgu:disposal");
+  forget("lgu:offices");
+  forget("lgu:prefixes");
   const kinds: LguKind[] = ["class", "condition", "office"];
   const kind = input.kind as LguKind;
   if (!kinds.includes(kind)) throw new Error("Unknown list: " + (input.kind || "(none)") + ".");

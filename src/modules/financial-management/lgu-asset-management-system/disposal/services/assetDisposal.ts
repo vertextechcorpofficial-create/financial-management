@@ -7,6 +7,7 @@ import type {
   LguOffice,
 } from "../../types";
 import { bookValueAt } from "../../types";
+import { memo } from "../../shared/cache";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 const TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -116,8 +117,13 @@ export async function fetchDisposalCandidates(params: { page?: number; q?: strin
   const filter = encodeURIComponent(JSON.stringify({ _and: and }));
   const [assetsJson, officesJson, conditionsJson] = await Promise.all([
     get("/items/lgu_asset?filter=" + filter + "&sort=property_no&limit=" + PAGE_SIZE + "&offset=" + (page - 1) * PAGE_SIZE + "&meta=filter_count&fields=" + FIELDS),
-    get("/items/lgu_office?filter=" + encodeURIComponent(JSON.stringify({ status: { _eq: "active" } })) + "&sort=sort&limit=-1&fields=id,code,name,sort,status"),
-    get("/items/lgu_condition?filter=" + encodeURIComponent(JSON.stringify({ status: { _eq: "active" } })) + "&sort=sort&limit=-1&fields=id,name,is_serviceable,sort,status"),
+    // offices and conditions are edited from the admin screen only, so five minutes is safe
+    memo("lgu:disposalOffices", 5 * 60_000, () =>
+      get("/items/lgu_office?filter=" + encodeURIComponent(JSON.stringify({ status: { _eq: "active" } })) + "&sort=sort&limit=-1&fields=id,code,name,sort,status")
+    ),
+    memo("lgu:disposalConditions", 5 * 60_000, () =>
+      get("/items/lgu_condition?filter=" + encodeURIComponent(JSON.stringify({ status: { _eq: "active" } })) + "&sort=sort&limit=-1&fields=id,name,is_serviceable,sort,status")
+    ),
   ]);
 
   const assets = ((assetsJson.data ?? []) as Record<string, unknown>[]).map(mapAsset);
